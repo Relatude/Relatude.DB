@@ -164,6 +164,7 @@ public partial class RelatudeDBServer {
         _lifetime = app.Lifetime;
         _configuration = app.Configuration;
         _environmentName = app.Environment.EnvironmentName;
+        registerCustomSettings(app.Services); // a definition that is wrong stops the start before anything is read
 
         var dataFolderPath = options.DefaultDataFolderPath;
         var tempFolderPath = options.DefaultTempFolderPath;
@@ -271,6 +272,8 @@ public partial class RelatudeDBServer {
             }
         }
         warnAboutShortNames();
+        // the application's own settings, layered like the ones above and read from beside their files
+        _customSettings?.Reload();
     }
     bool isCurrentApiUrlRoot(string urlPath) {
         if (string.IsNullOrWhiteSpace(urlPath)) return true; // an empty path leaves the root untouched
@@ -586,6 +589,9 @@ public partial class RelatudeDBServer {
     GraphQL.GraphQLEndpointServer? _graphQL;
     /// <summary>The GraphQL endpoints defined per database (graphql/*.json), served by <see cref="GraphQL.GraphQLEndpointServer.Middleware"/>.</summary>
     public GraphQL.GraphQLEndpointServer GraphQL => _graphQL ??= new GraphQL.GraphQLEndpointServer(this);
+    InfoEndpoint? _info;
+    /// <summary>The info path (InfoUrlPath, /-info/): the bot check pages carry and the reports it sends, served by <see cref="InfoEndpoint.Middleware"/>.</summary>
+    public InfoEndpoint Info => _info ??= new InfoEndpoint(this);
 }
 public class ServerOptions {
     public static string DefaultFileRootUrl => "/files";
@@ -639,6 +645,22 @@ public class ServerOptions {
     /// Gets or sets the callback that is invoked when the database is opened, but in a background thread.
     /// </summary>
     public Action<NodeStore>? OnStoreOpenBackground { get; set; }
+
+    /// <summary>
+    /// The settings the application registers for itself, each set edited on a tab of its own in the admin
+    /// UI beside the server and database settings, layered like those, and read as
+    /// <c>db.Settings.Get&lt;T&gt;()</c>; see <see cref="ICustomSettingsDefinition"/>. Add to it with
+    /// <see cref="AddCustomSettings"/>. Definitions registered as <see cref="ICustomSettingsDefinition"/>
+    /// services are added to these when the server starts - the way a library registers its own.
+    /// </summary>
+    public List<ICustomSettingsDefinition> CustomSettings { get; } = [];
+    /// <summary>Registers a set of custom settings; see <see cref="CustomSettings"/>.</summary>
+    public ServerOptions AddCustomSettings(ICustomSettingsDefinition definition) {
+        CustomSettings.Add(definition ?? throw new ArgumentNullException(nameof(definition)));
+        return this;
+    }
+    /// <summary>Registers a set of custom settings by the type of its definition; see <see cref="CustomSettings"/>.</summary>
+    public ServerOptions AddCustomSettings<TDefinition>() where TDefinition : ICustomSettingsDefinition, new() => AddCustomSettings(new TDefinition());
 
     /// <summary>
     /// Custom storage for server settings.

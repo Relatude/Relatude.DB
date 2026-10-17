@@ -1406,6 +1406,10 @@ sealed class UIQuery {
         if (property.UniqueValues) yield return "unique";
         if (property.CultureSensitive) yield return "culture sensitive";
         if (property is StringPropertyModel s) {
+            if (s.UniqueValues && s.CaseSensitive) yield return "case-sensitive";
+            if (s.Trim) yield return "trimmed";
+            if (s.CaseTransform == CaseTransform.ToLowerCase) yield return "lower case";
+            if (s.CaseTransform == CaseTransform.ToUpperCase) yield return "upper case";
             if (s.IndexedByWords) yield return "word index";
             if (s.IndexedBySemantic) yield return "semantic index";
         }

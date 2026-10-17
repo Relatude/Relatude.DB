@@ -434,6 +434,11 @@ public static class ModelGen {
                     if (s.StringType != StringValueType.AnyString) sb.Append(", " + nameof(StringPropertyAttribute.StringType) + " = " + typeof(StringValueType).Namespace + "." + nameof(StringValueType) + "." + s.StringType);
                     if (!string.IsNullOrEmpty(s.RegularExpression)) sb.Append(", " + nameof(StringPropertyAttribute.RegularExpression) + " = " + stringLiteral(s.RegularExpression));
                     if (s.LegalValues != null) sb.Append(", " + nameof(StringPropertyAttribute.LegalValues) + " = " + stringArrayArg(s.LegalValues.Select(stringLiteral)));
+                    if (!string.IsNullOrEmpty(s.RegularExpressionMessage)) sb.Append(", " + nameof(StringPropertyAttribute.RegularExpressionMessage) + " = " + stringLiteral(s.RegularExpressionMessage));
+                    if (!string.IsNullOrEmpty(s.LegalCharacters)) sb.Append(", " + nameof(StringPropertyAttribute.LegalCharacters) + " = " + stringLiteral(s.LegalCharacters));
+                    if (s.CaseSensitive) sb.Append(", " + nameof(StringPropertyAttribute.CaseSensitive) + " = true");
+                    if (s.Trim) sb.Append(", " + nameof(StringPropertyAttribute.Trim) + " = true");
+                    if (s.CaseTransform != CaseTransform.NoTransform) sb.Append(", " + nameof(StringPropertyAttribute.CaseTransform) + " = " + typeof(CaseTransform).Namespace + "." + nameof(CaseTransform) + "." + s.CaseTransform);
                     sb.AppendLine(")]");
                 }
                 break;

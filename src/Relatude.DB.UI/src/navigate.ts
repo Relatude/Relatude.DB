@@ -90,6 +90,8 @@ export interface SettingsTarget {
   scope: "server" | "database";
   /** the database whose settings to open; ignored for the server scope */
   storeId?: string | null;
+  /** the custom settings the application registers whose tab to open, rather than the scope's own settings */
+  customKey?: string | null;
   sectionId: string;
   groupId: string;
   path?: string;

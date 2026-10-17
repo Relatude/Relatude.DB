@@ -329,11 +329,15 @@ public static class SettingsCatalog {
                 new() {
                     Id = "hosting",
                     Title = "Hosting",
-                    Help = "Where the admin UI lives and where the settings file is read from. Both are read once, while the routes are mapped.",
+                    Help = "Where the admin UI lives, where the bot check is served, and where the settings file is read from. The admin UI path and the settings file are read once, while the routes are mapped.",
                     Settings = [
                         new() {
                             Path = "DBAdminUIUrlPath", Label = "Admin UI path", Applies = SettingApplies.Restart, Placeholder = "/relatude.db",
                             Help = "The URL prefix serving this admin UI and its API. Moving it off the default is mild obscurity, not access control - the login still guards it.",
+                        },
+                        new() {
+                            Path = "InfoUrlPath", Label = "Info path", Applies = SettingApplies.Live, Placeholder = BotCheck.DefaultUrlPath,
+                            Help = "Where this server serves what its pages need of the Relatude IP lookup service: the bot check pages carry (bot.js and Fingerprint's BotD) and the route its reports go to, which the server passes on to the service. Browsers never talk to the service itself. Change it if the application has a route of its own there; the bot check tags made after the change point at the new path.",
                         },
                         new() {
                             Path = "DBSettingsFilePath", Label = "Settings file", Applies = SettingApplies.Restart, Placeholder = Defaults.SettingsFilePath,
@@ -1254,7 +1258,7 @@ public static class SettingsCatalog {
                 new() {
                     Id = "iplookup",
                     Title = "IP lookup",
-                    Help = "Who is behind a request - where its address is, whether it is a bot's, what its user agent says - and the bot check a page can carry, whose browser reports whether it is driven by a bot for that page view, for your own code to log or analyse traffic with, which reaches it as NodeStore.Services.IPLookup. It is there without any settings, calling the hosted Relatude IP lookup service with this installation's license, which needs the feature \"iplookup\". Nothing is charged.",
+                    Help = "Who is behind a request - where its address is, whether it is a bot's, what its user agent says - and the bot check a page can carry, whose browser reports to this server whether it is driven by a bot - a bot's report counts for everyone at its address - for your own code to log or analyse traffic with, which reaches it as NodeStore.Services.IPLookup. It is there without any settings, calling the hosted Relatude IP lookup service with this installation's license, which needs the feature \"iplookup\". Only this server calls the service: the bot check is served, and its reports taken, under the server's info path (Hosting). Nothing is charged.",
                     Settings = [
                         new() {
                             Path = "IPLookupSettings.TypeName", Label = "Provider type", Placeholder = RelatudeServicesIPLookupProvider.ShortName,
@@ -1266,7 +1270,7 @@ public static class SettingsCatalog {
                         },
                         new() {
                             Path = "IPLookupSettings.ServiceUrl", Label = "Service URL", Placeholder = RelatudeServicesIPLookupProvider.DefaultServiceUrl,
-                            Help = "Where the service is. Empty is the hosted Relatude IP lookup service; set it to call a self-hosted or test deployment of the service, or the endpoint a custom provider calls. Visitors' browsers load the bot check from it too, so it has to be an address they reach.",
+                            Help = "Where the service is. Empty is the hosted Relatude IP lookup service; set it to call a self-hosted or test deployment of the service, or the endpoint a custom provider calls. Only this server calls it, so it may be an address browsers cannot reach.",
                         },
                         new() {
                             Path = "IPLookupSettings.ApiKey", Label = "API key", Secret = true, HiddenWhen = relatudeIPLookupService(),
@@ -1282,14 +1286,14 @@ public static class SettingsCatalog {
                 new() {
                     Id = "backup",
                     Title = "Backup",
-                    Help = "Automatic copies of the transaction log, written to the backup storage provider. They are kept in generations: the newest of each period is retained and older ones in that period are dropped.",
+                    Help = "Automatic copies of the transaction log, written to the backup storage provider. They are kept in generations: the first backup of each hour, day, week, month and year is kept for as many of those periods as the generation's copies kept says, and the rest are deleted. A backup is taken once an hour - or once a day when no hourly copies are kept, once a week when no daily ones are kept either, and so on. With every generation at 0 no automatic backup is taken, and the ones already there are deleted unless marked keep.",
                     Settings = [
                         new() {
                             Path = "LocalSettings.AutoBackUp", Label = "Back up automatically", Applies = SettingApplies.Live,
                             Help = "Off, the only backups are the ones taken by hand from the Storage section. Turning it on for the first time takes effect when the database is next opened.",
                         },
-                        new() { Path = "LocalSettings.NoHourlyBackUps", Label = "Hourly copies kept", Applies = SettingApplies.Live, Help = "How many hourly backups to keep before they are thinned into daily ones. This is the window for undoing a mistake made minutes ago." },
-                        new() { Path = "LocalSettings.NoDailyBackUps", Label = "Daily copies kept", Applies = SettingApplies.Live, Help = "How far back you can restore day by day." },
+                        new() { Path = "LocalSettings.NoHourlyBackUps", Label = "Hourly copies kept", Applies = SettingApplies.Live, Help = "How many hourly backups to keep before they are thinned into daily ones. This is the window for undoing a mistake made minutes ago. 0 takes no hourly backups at all: the automatic backup then runs once a day." },
+                        new() { Path = "LocalSettings.NoDailyBackUps", Label = "Daily copies kept", Applies = SettingApplies.Live, Help = "How far back you can restore day by day. With this and the hourly copies at 0, the automatic backup runs once a week." },
                         new() { Path = "LocalSettings.NoWeeklyBackUps", Label = "Weekly copies kept", Applies = SettingApplies.Live, Help = "Weekly generations, for damage noticed after a few days." },
                         new() { Path = "LocalSettings.NoMonthlyBackUps", Label = "Monthly copies kept", Applies = SettingApplies.Live, Help = "Monthly generations. Each generation costs a full copy of the log, so weigh these against the storage they occupy." },
                         new() { Path = "LocalSettings.NoYearlyBackUps", Label = "Yearly copies kept", Applies = SettingApplies.Live, Help = "Yearly generations, usually kept for retention rules rather than for recovery." },

@@ -147,9 +147,14 @@ export interface SettingSection {
 }
 
 export interface SettingsPage {
-  scope: "server" | "database";
+  /** "custom" for the tab of a set of settings the application registers */
+  scope: "server" | "database" | "custom";
   storeId?: string;
   title: string;
+  /** custom scope only: the set's file key, whether it is the server's or each database's, and what it is for */
+  customKey?: string;
+  customScope?: "server" | "database";
+  description?: string | null;
   /** database scope only */
   state?: string;
   isOpen?: boolean;
@@ -280,6 +285,37 @@ export function removeListItem(storeId: string, path: string, id: string): Promi
   return send<ListChangeResult>("settings-db-list-remove", { storeId, path, id });
 }
 
+// ---- custom settings: the sets the application registers, each on a tab of its own ----
+
+/** The tab of the custom settings `key`: the server's, or those of the database `storeId` for a set per database. */
+export function fetchCustomSettings(key: string, storeId: string | null): Promise<SettingsPage> {
+  return send<SettingsPage>("settings-custom-get", { key, storeId });
+}
+
+export function saveCustomSettings(key: string, storeId: string | null, values: SettingValues): Promise<SettingsSaveResult> {
+  return send<SettingsSaveResult>("settings-custom-save", { key, storeId, values });
+}
+
+export function addCustomListItem(key: string, storeId: string | null, path: string, values?: SettingValues): Promise<ListChangeResult> {
+  return send<ListChangeResult>("settings-custom-list-add", { key, storeId, path, values: values ?? null });
+}
+
+export function removeCustomListItem(key: string, storeId: string | null, path: string, id: string): Promise<ListChangeResult> {
+  return send<ListChangeResult>("settings-custom-list-remove", { key, storeId, path, id });
+}
+
+/**
+ * What the THIS SERVER file of one set of custom settings holds, and moving it into or discarding it for
+ * its SHARED file: the same three calls as relatude.db.overrides.json has, for the set's own two files.
+ */
+export function customOverridesApi(key: string, storeId: string | null): OverridesApi {
+  return {
+    fetch: () => send<OverridesView>("settings-custom-overrides-get", { key, storeId }),
+    move: (paths) => send<MoveOverridesResult>("settings-custom-overrides-move", { key, storeId, paths }),
+    discard: (paths) => send<DiscardOverridesResult>("settings-custom-overrides-discard", { key, storeId, paths }),
+  };
+}
+
 // ---- relatude.db.overrides.json ----
 
 /** One thing relatude.db.overrides.json changes: a setting, or a list element added or removed here. */
@@ -305,7 +341,7 @@ export interface OverrideEntry {
 }
 
 export interface OverrideGroup {
-  scope: "server" | "database";
+  scope: "server" | "database" | "custom";
   storeId?: string | null;
   title: string;
   entries: OverrideEntry[];
@@ -347,3 +383,13 @@ export function moveOverrides(paths: string[]): Promise<MoveOverridesResult> {
 export function discardOverrides(paths: string[]): Promise<DiscardOverridesResult> {
   return send<DiscardOverridesResult>("settings-overrides-discard", { paths });
 }
+
+/** One pair of a THIS SERVER file and its SHARED file, as the overrides dialog reads and changes it. */
+export interface OverridesApi {
+  fetch: () => Promise<OverridesView>;
+  move: (paths: string[]) => Promise<MoveOverridesResult>;
+  discard: (paths: string[]) => Promise<DiscardOverridesResult>;
+}
+
+/** relatude.db.overrides.json and relatude.db.json: the server's and every database's own settings. */
+export const serverOverridesApi: OverridesApi = { fetch: fetchOverrides, move: moveOverrides, discard: discardOverrides };

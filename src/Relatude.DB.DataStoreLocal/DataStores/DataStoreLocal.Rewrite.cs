@@ -17,10 +17,18 @@ public sealed partial class DataStoreLocal : IDataStore {
     }
     readonly object _isRewritingOrCopyingLock = new();
     bool _isRewritingOrCopying = false;
+    string[]? _fileKeyBeingWritten;
+    /// <summary>The file a rewrite or copy - a backup among them - is writing right now, or null. It is
+    /// written under its final name, so the backup retention pass would otherwise see a half written backup
+    /// as one it may delete.</summary>
+    internal string[]? FileKeyBeingWritten {
+        get { lock (_isRewritingOrCopyingLock) return _fileKeyBeingWritten; }
+    }
     public void RewriteStore(bool hotSwapToNewFile, string[] newLogFileKey, IIOProvider? destinationIO = null) {
         lock (_isRewritingOrCopyingLock) {
             if (_isRewritingOrCopying) throw new Exception("Store rewrite or copy already in progress. ");
             _isRewritingOrCopying = true;
+            _fileKeyBeingWritten = newLogFileKey;
         }
         var activityId = RegisterActvity(DataStoreActivityCategory.Rewriting, "Rewriting to " + newLogFileKey.AsKeyString(), 0);
         var subActivityId = RegisterChildActvity(activityId, DataStoreActivityCategory.Rewriting);
@@ -29,7 +37,10 @@ public sealed partial class DataStoreLocal : IDataStore {
         } finally {
             DeRegisterActivity(subActivityId);
             DeRegisterActivity(activityId);
-            lock (_isRewritingOrCopyingLock) _isRewritingOrCopying = false;
+            lock (_isRewritingOrCopyingLock) {
+                _isRewritingOrCopying = false;
+                _fileKeyBeingWritten = null;
+            }
         }
     }
     void rewriteStore(long activityId, bool hotSwapToNewFile, string[] newLogFileKey, IIOProvider? destinationIO = null) {

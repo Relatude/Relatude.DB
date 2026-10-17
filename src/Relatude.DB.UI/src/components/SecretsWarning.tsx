@@ -26,11 +26,14 @@ export function SecretsWarning({
   secrets,
   scope,
   storeId,
+  customKey,
 }: {
   secrets: SecretsInFile | null | undefined;
   /** the settings page this page's secrets are on: the account page's API key is a server setting */
   scope: "server" | "database";
   storeId?: string | null;
+  /** the tab of custom settings this page's secrets are on, when they are */
+  customKey?: string | null;
 }) {
   const [showHow, setShowHow] = useState(false);
   const [form, setForm] = useState<Form>("user-secrets");
@@ -40,7 +43,7 @@ export function SecretsWarning({
   const count = items.length;
 
   function show(item: SecretInFile): void {
-    openInSettings({ scope, storeId: storeId ?? null, sectionId: item.sectionId, groupId: item.groupId, path: item.path });
+    openInSettings({ scope, storeId: storeId ?? null, customKey: customKey ?? null, sectionId: item.sectionId, groupId: item.groupId, path: item.path });
   }
   function showElsewhere(other: SecretsElsewhere): void {
     openInSettings({ scope: other.scope, storeId: other.storeId ?? null, sectionId: other.sectionId, groupId: other.groupId, path: other.path });

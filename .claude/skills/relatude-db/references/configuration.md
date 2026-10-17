@@ -16,6 +16,7 @@ Everything that is not your C# model. Three surfaces, and knowing which one owns
 - [Container level](#container-level)
 - [LocalSettings: the engine knobs](#localsettings-the-engine-knobs)
 - [Changes made in the admin UI: relatude.db.overrides.json](#changes-made-in-the-admin-ui-relatudedboverridesjson)
+- [Custom settings: settings of the application's own](#custom-settings-settings-of-the-applications-own)
 - [ServerOptions](#serveroptions)
 - [The startup event order](#the-startup-event-order)
 - [Registering a datamodel](#registering-a-datamodel)
@@ -171,7 +172,7 @@ The memory budget is per engine and applies to what the engine can bound: the Na
 
 `FlushDiskOnEveryTransactionByDefault` (`false`), `ForceDiskFlushAfterActionCountLimit` (10 000), `AutoFlushDiskInBackground` (`true`), `AutoFlushDiskIntervalInSeconds` (1), `DeepFlushDisk` (`false`), `DelayAutoDiskFlushIfBusy` (`true`).
 
-**Housekeeping**: `TaskQueueSpeed` (0-100, default 90; the Tasks page Speed slider saves it - longer rounds, shorter pauses and a higher busy limit as it rises; never stops or slows a started batch); `AutoSaveIndexStates` + interval and action-count bounds; `AutoBackUp` with `NoHourly/Daily/Weekly/Montly/YearlyBackUps` retention (note the spelling of `NoMontlyBackUps`); `AutoTruncate` for log compaction; `AutoPurgeCache`; `NodeCacheSizeGb` / `SetCacheSizeGb` (1 GB each).
+**Housekeeping**: `TaskQueueSpeed` (0-100, default 90; the Tasks page Speed slider saves it - longer rounds, shorter pauses and a higher busy limit as it rises; never stops or slows a started batch); `AutoSaveIndexStates` + interval and action-count bounds; `AutoBackUp` with `NoHourly/Daily/Weekly/Monthly/YearlyBackUps` retention (the first backup of each of the last N periods; backups run once per period of the finest generation above 0, so `NoHourlyBackUps: 0` means no hourly backups, only daily ones, and all five at 0 means no automatic backup); `AutoTruncate` for log compaction; `AutoPurgeCache`; `NodeCacheSizeGb` / `SetCacheSizeGb` (1 GB each).
 
 **Diagnostics**: `WriteSystemLogConsole` (`true`), `ThrowOnBadLogFile` / `ThrowOnBadStateFile` (`false` — a corrupt state file is rebuilt from the log rather than thrown).
 
@@ -223,6 +224,29 @@ The settings pages never write `relatude.db.json`. Every save compares the setti
 Same shape as `relatude.db.json`, only changed keys. List elements match on `Id`: a changed element is its `Id` plus changed fields, an added one is written whole with `"$added": true`, a removed one is `{ "Id": …, "$removed": true }`; lists without ids are written whole; a dictionary that lost a key is written whole with `"$replace": true`. A change to an element `relatude.db.json` no longer has is warned about and skipped. Invalid JSON stops the start (the next save would otherwise overwrite it).
 
 The settings pages tag every field with where its value comes from — *default*, *shared* (`relatude.db.json`), *this server* (`relatude.db.overrides.json`, with a restore-to-file button), *appsettings*, *code*; the tooltip names the file and where a change is written — list elements *added here*, and name removed elements under the list. **Move to shared** (top right of the settings pages; also on Databases, Activity, Models, Logs and API, each with its own dialog) lists the file and can **Move into relatude.db.json** (selected or all; configuration-decided entries are never moved; the file is rewritten by the loader, so comments go) or **Discard** (put back what `relatude.db.json` says). Programmatically: `RelatudeDBServer.MoveOverridesIntoSettingsFile(paths)`. The CLI reads the file too (`--overrides <file>`), and `relatude settings` reports what it changes.
+
+## Custom settings: settings of the application's own
+
+An application registers its own settings classes; each set gets a tab in the admin UI (beside **Server settings**, or beside each database's **Settings** for a set per database), is layered exactly like the server's own settings, and is read as `db.Settings.Get<T>()` (`NodeStore.Settings`, a `NodeStoreSettings`; also `TryGet`, `IsRegistered`) or `server.CustomSettings.Get<T>(storeId?)` without a store.
+
+```csharp
+public class WebshopSettings { public string Currency { get; set; } = "NOK"; public string? PaymentApiKey { get; set; } }
+public class WebshopSettingsDefinition : ICustomSettingsDefinition<WebshopSettings> {   // Relatude.DB.NodeServer.Settings
+    public string FileKey => "webshop";                                  // names the files and config section; [A-Za-z0-9_-], unique
+    public string Title => "Webshop";                                    // the tab
+    public CustomSettingsScope Scope => CustomSettingsScope.Database;    // or Server
+    public SettingGroupDefinition[] Groups => [ new() { Id = "prices", Title = "Prices", Settings = [
+        new() { Path = "Currency", Label = "Currency", Help = "...", Applies = SettingApplies.Live },
+        new() { Path = "PaymentApiKey", Label = "Payment API key", Secret = true, Help = "...", Applies = SettingApplies.Live } ] } ];
+    public void OnInit(WebshopSettings s, NodeStoreContainerSettingsBase? database) { }  // optional CODE layer
+}
+builder.AddRelatudeDB(o => o.AddCustomSettings(new WebshopSettingsDefinition()));      // or AddSingleton<ICustomSettingsDefinition, ...>()
+```
+
+- `Groups` uses the same `SettingGroupDefinition`/`SettingDefinition`/`SettingListDefinition` as the built-in catalog; `Path` is a property path into the class (nested objects dotted, list elements need a `Guid Id`). Left out, every property is shown, labelled from `[DisplayName]`/`[Description]`, `[PasswordPropertyText(true)]` = secret. `Applies` defaults to `Reopen` - say `Live` for values read on use.
+- Layers: `new T()` → SHARED `relatude.settings/{FileKey}.json` (per database: `relatude.settings/{ShortName}/{FileKey}.json`) → THIS SERVER `{FileKey}.overrides.json` (server: beside `relatude.db.overrides.json`; per database: `overrides/` on its storage; a `SettingsPatch` diff) → `RelatudeDB:CustomSettings:{FileKey}` (all databases) and `RelatudeDB:CustomSettings:Databases:{ShortName|Id}:{FileKey}` → `OnInit`. Saves strip config and code first; the tab's **Move to shared** moves entries into the SHARED file.
+- `Get<T>()` returns the object in force; a save replaces it (never mutates), so re-read rather than cache, and don't mutate it. A wrong definition (bad key, duplicate key/type, unknown `Path`) throws at `StartAsync`; invalid JSON in a set's file makes `Get<T>()` throw.
+- Source: `NodeServer/Settings/CustomSettings*.cs`, `RelatudeDBServer.CustomSettings.cs`, `UI/UISettingsCustom.cs`, `NodeStore/Nodes/NodeStoreSettings.cs`.
 
 ## ServerOptions
 

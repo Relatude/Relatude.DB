@@ -1,12 +1,8 @@
-﻿using Relatude.DB.DataStores;
-using Relatude.DB.Nodes;
+﻿using Relatude.DB.Nodes;
 using Relatude.DB.NodeServer;
 using Relatude.DB.NodeServer.Json;
-using Relatude.DB.Web;
-
-// NO NAMESPACE ON PURPOSE
-public static class AddUse {
-    public static WebApplicationBuilder AddRelatudeDB(this WebApplicationBuilder builder, Action<ServerOptions>? configureOptions = null) {
+public static class DBBuilderExtensions {
+    public static IHostApplicationBuilder AddRelatudeDB(this IHostApplicationBuilder builder, Action<ServerOptions>? configureOptions = null) {
         var options = new ServerOptions();
         configureOptions?.Invoke(options);
         builder.Services.ConfigureHttpJsonOptions(o => RelatudeDBJsonOptions.ConfigureDefault(o.SerializerOptions));
@@ -15,18 +11,16 @@ public static class AddUse {
         builder.Services.AddSingleton(options);
         return builder;
     }
+}
+public static class DBAppExtensions {
     /// <summary>
-    /// Opens the database and maps the admin UI and its API on /relatude.db. Call it after your own
-    /// UseCors / UseHttpsRedirection / UseAuthentication, so the engine's startup-progress and auth
-    /// middleware sit behind them.
+    /// Registers Relatude.DB endpoints and middleware with the application's endpoint routing.
     /// </summary>
-    /// <remarks>
-    /// This registers endpoints, so WebApplication adds UseRouting at the very start of the pipeline
-    /// unless the application calls UseRouting itself. An app that also maps a catch-all route, such
-    /// as MapFallbackToFile for a single page client, must therefore call UseRouting by hand, after
-    /// its UseStaticFiles: the catch-all would otherwise match first and the static file middleware
-    /// skips itself whenever an endpoint is already selected, leaving static assets unreachable.
-    /// </remarks>
+    /// <remarks>Synchronous wrapper around UseRelatudeDBAsync that blocks the calling thread. Prefer
+    /// UseRelatudeDBAsync to avoid thread-pool blocking or deadlocks when used in asynchronous contexts.</remarks>
+    /// <param name="app">The WebApplication whose endpoint routing will be configured.</param>
+    /// <param name="urlPath">Optional base path under which Relatude.DB endpoints are mounted; null to use the default path.</param>
+    /// <returns>An IEndpointRouteBuilder for further endpoint configuration.</returns>
     public static IEndpointRouteBuilder UseRelatudeDB(this WebApplication app, string? urlPath = null) {
         return UseRelatudeDBAsync(app, urlPath).Result;
     }
@@ -43,6 +37,7 @@ public static class AddUse {
         RelatudeDBRuntime.Initialize(server);
         var options = app.Services.GetRequiredService<ServerOptions>();
         await server.StartAsync(app, options);
+        app.Use(server.Info.Middleware); // the bot check under /-info/, before the progress page, so a page's report is taken while the database opens
         app.Use(server.Authentication.StartupProgressBarMiddleware); // middleware to show opening progress page
         app.Use(server.Authentication.AuthorizationMiddleware); // authentication middleware for server admin UI and API
         app.Use(server.GraphQL.Middleware); // the GraphQL endpoints defined per database in the admin UI
@@ -64,7 +59,7 @@ public static class AddUse {
     }
 }
 public class Database : NodeStore {
-    public Database() : base(RelatudeDBRuntime.Database.Datastore) { }
+    public Database() : base(RelatudeDBRuntime.Database.Datastore, settings: RelatudeDBRuntime.Server.CustomSettings.SourceFor(RelatudeDBRuntime.Server.Settings.DefaultStoreId)) { }
     public override void Dispose() {
         // do nothing!
     }

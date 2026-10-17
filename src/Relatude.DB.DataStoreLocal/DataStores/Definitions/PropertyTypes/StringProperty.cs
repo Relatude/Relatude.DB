@@ -41,12 +41,19 @@ internal class StringProperty : ValueProperty<string>, IPropertyContainsValue, I
         try {
             RegularExpression = pm.RegularExpression;
         } catch (ArgumentException ex) {
-            throw new Exception("The RegularExpression of the property " + pm.CodeName + " is not a valid regular expression: " + ex.Message, ex);
+            throw new Exception("The RegularExpression of the property " + pm.CodeName + " is not valid. " + RegularExpressionErrors.Describe(ex), ex);
         }
         if (pm.LegalValues != null) _legalValues = new(pm.LegalValues, StringComparer.Ordinal);
         IgnoreDuplicateEmptyValues = pm.IgnoreDuplicateEmptyValues;
         StringType = pm.StringType;
+        CaseSensitive = pm.CaseSensitive;
+        _model = pm;
+        _hasTransforms = pm.Trim || pm.CaseTransform != CaseTransform.NoTransform;
+        if (!string.IsNullOrEmpty(pm.LegalCharacters)) _legalCharacters = [.. pm.LegalCharacters];
     }
+    readonly StringPropertyModel _model;
+    readonly bool _hasTransforms;
+    readonly HashSet<char>? _legalCharacters;
     readonly HashSet<string>? _legalValues;
     IndexUtil<IWordIndex> _indexUtil = new();
     public IWordIndex GetWordIndex(QueryContext ctx) => _indexUtil.GetIndex(ctx);
@@ -83,6 +90,7 @@ internal class StringProperty : ValueProperty<string>, IPropertyContainsValue, I
     readonly public bool IndexedBySemantic;
     readonly public Guid PropertyIdForVectors = Guid.Empty;
     readonly public bool IgnoreDuplicateEmptyValues;
+    readonly public bool CaseSensitive;
     readonly public int MinWordLength = 3;
     readonly public int MaxWordLength = 30;
     readonly bool _isSystemTextIndexPropertyId;
@@ -94,19 +102,30 @@ internal class StringProperty : ValueProperty<string>, IPropertyContainsValue, I
             _regularExpression = value;
             // matched on every write, inside the write lock: a pattern that backtracks without end must
             // fail the write (RegexMatchTimeoutException) rather than hold the lock
-            _regEx = string.IsNullOrEmpty(_regularExpression) ? null : new Regex(_regularExpression, RegexOptions.None, TimeSpan.FromSeconds(1));
+            _regEx =string.IsNullOrEmpty(_regularExpression) ? null : new Regex(_regularExpression, RegexOptions.None, TimeSpan.FromSeconds(1));
         }
     }
     public override PropertyType PropertyType => PropertyType.String;
+    public override object NormalizeValue(object value) {
+        if (!_hasTransforms || value is not string s) return value;
+        var stored = _model.ApplyTransforms(s);
+        return string.Equals(stored, s, StringComparison.Ordinal) ? s : stored;
+    }
+    protected override IValueIndex<string> WrapValueIndex(IValueIndex<string> index)
+        => UniqueValues && !CaseSensitive ? new CaseInsensitiveUniqueIndex(index) : index;
+    public override bool ContainsValue(object value, QueryContext ctx) {
+        var index = GetValueIndex(ctx);
+        return index is CaseInsensitiveUniqueIndex caseInsensitive ? caseInsensitive.ContainsValueIgnoringCase((string)value) : index.ContainsValue((string)value);
+    }
     public override void ValidateValue(object value, INodeData node) {
         var v = (string)value;
-        if (v.Length > MaxLength) throw new Exception("String value is longer than maximum value allowed. ");
-        if (v.Length < MinLength) throw new Exception("String value is shorter than minimum value allowed. ");
-        if (_regEx != null && !_regEx.IsMatch(v)) throw new Exception("The value " + quoted(v) + " of " + CodeName + " does not match the pattern " + _regularExpression + ". ");
-        // empty is what a node holds before the value is set; MinLength is what requires one
-        if (_legalValues != null && v.Length > 0 && !_legalValues.Contains(v)) throw new Exception("The value " + quoted(v) + " of " + CodeName + " is not one of its legal values. ");
+        if (v.Length > MaxLength) throw ConstraintMessages.TooLong(this, v, MaxLength);
+        if (v.Length < MinLength) throw ConstraintMessages.TooShort(this, v, MinLength);
+        if (_legalCharacters != null && v.Any(c => !_legalCharacters.Contains(c))) throw ConstraintMessages.IllegalCharacters(this, v, v.Where(c => !_legalCharacters.Contains(c)));
+        if (_regEx != null && !_regEx.IsMatch(v)) throw ConstraintMessages.NoPatternMatch(this, v, _regularExpression!, _model.RegularExpressionMessage);
+        var emptyMeansNotSet = v.Length == 0;
+        if (_legalValues != null && !emptyMeansNotSet && !_legalValues.Contains(v)) throw ConstraintMessages.NotLegalValue(this, v, _model.LegalValues!);
     }
-    static string quoted(string v) => "\"" + (v.Length > 100 ? v[..100] + "..." : v) + "\"";
     ISemanticIndex? tryGetSemanticIndex(DataStoreLocal db, QueryContext ctx) {
         if (db._ai != null && IndexedBySemantic) {
             if (!db._definition.Properties.TryGetValue(this.PropertyIdForVectors, out var semProp))

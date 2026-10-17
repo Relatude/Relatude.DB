@@ -116,6 +116,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         lock (_isRewritingOrCopyingLock) {
             if (_isRewritingOrCopying) throw new Exception("Store rewrite or copy already in progress. ");
             _isRewritingOrCopying = true;
+            _fileKeyBeingWritten = newLogFileKey;
         }
         var activityId = RegisterActvity(DataStoreActivityCategory.Copying, "Copying log file");
         try { // all fallible work inside try/finally so the flag and activity are always reset
@@ -134,7 +135,10 @@ public sealed partial class DataStoreLocal : IDataStore {
             }
         } finally {
             DeRegisterActivity(activityId);
-            lock (_isRewritingOrCopyingLock) _isRewritingOrCopying = false;
+            lock (_isRewritingOrCopyingLock) {
+                _isRewritingOrCopying = false;
+                _fileKeyBeingWritten = null;
+            }
         }
     }
     public void TruncateIndexes() {

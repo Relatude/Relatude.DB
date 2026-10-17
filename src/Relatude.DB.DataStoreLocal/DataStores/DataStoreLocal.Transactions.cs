@@ -174,6 +174,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         ResultingOperation[] resultingOperations, List<KeyValuePair<TaskData, string?>> newTasks, long activityId, QueryContext ctx) {
         // will attempt to execute all actions, if any fails, it will reverse all executed actions and throw ExceptionWithoutIntegrityLoss
         var executed = new List<PrimitiveActionBase>();
+        _nodeJustRemoved = null;
         try {
             _guids.BeginTransaction(); // can be cancelled later in case transaction fails so that new IDs are not wasted
             _addresses.BeginTransaction();
@@ -192,6 +193,8 @@ public sealed partial class DataStoreLocal : IDataStore {
                 while (true) {
                     try {
                         if (!enumerator.MoveNext()) break;
+                    } catch (ValueConstraintException) {
+                        throw;
                     } catch (Exception err) {
                         throw new ExceptionWithoutIntegrityLoss("Failed to convert action. " + err.Message, err);
                     }
@@ -219,13 +222,20 @@ public sealed partial class DataStoreLocal : IDataStore {
             // rollback with opposite actions in reverse order:
             for (var n = executed.Count - 1; n >= 0; n--) {
                 // Console.WriteLine("Rollback: " + executed[n]);
-                executeAction(executed[n].Opposite(), ctx);
+                executeAction(executed[n].Opposite(), ctx, isRollback: true);
             }
             throw;
         } finally {
+            _nodeJustRemoved = null;
             _guids.RollbackIfUncommited();
             _addresses.RollbackIfUncommited();
         }
+    }
+    INodeData? _nodeJustRemoved;
+    INodeData? takeNodeReplacedBy(INodeData node) {
+        var replaced = _nodeJustRemoved?.__Id == node.__Id ? _nodeJustRemoved : null;
+        _nodeJustRemoved = null;
+        return replaced;
     }
     // MinNoInstances/MaxNoInstances, checked on the counts the whole transaction leaves, so one that deletes
     // a node and inserts its replacement passes at the limit. Only a type whose count the transaction moves
@@ -274,23 +284,24 @@ public sealed partial class DataStoreLocal : IDataStore {
             if (_nodeWriteLocks.IsLocked(rra.Moved, transactionLocks)) throw new NodeLockedException("Node with ID: " + rra.Moved + " is locked and cannot have relations changed. ");
         }
     }
-    void executeAction(PrimitiveActionBase action, QueryContext ctx, bool keepNodesInCache = true) {
-        if (action is PrimitiveNodeAction na) executeNodeAction(na, ctx, keepNodesInCache);
+    void executeAction(PrimitiveActionBase action, QueryContext ctx, bool keepNodesInCache = true, bool isRollback = false) {
+        if (action is PrimitiveNodeAction na) executeNodeAction(na, ctx, keepNodesInCache, isRollback);
         else if (action is PrimitiveRelationAction ra) executeRelationAction(ra);
         else if (action is PrimitiveRelationReorderAction rra) _relations.RegisterAction(rra); // order only, no node or native model changes
         else throw new NotImplementedException();
     }
-    void executeNodeAction(PrimitiveNodeAction action, QueryContext ctx, bool keepNodesInCache) {
+    void executeNodeAction(PrimitiveNodeAction action, QueryContext ctx, bool keepNodesInCache, bool isRollback) {
         switch (action.Operation) {
             case PrimitiveOperation.Add: {
                     if (_nodes.Contains(action.Node.__Id))
                         throw new NodeConstraintException("A node with the ID: " + action.Node.__Id + "(" + action.Node.Id + ") already exists. ", action.Node.Id);
-                    if (_index.WillUniqueConstraintsBeViolated(action.Node, ctx, out var p)) {
-                        var propName = Datamodel.NodeTypes[action.Node.NodeType].ToString() + "." + p.CodeName;
-                        var value = action.Node.TryGetValue(p.Id, out var v) ? v : "";
-                        throw new ValueConstraintException("The value: \"" + value + "\" of " + propName + " is not unique for node with ID: " + action.Node.__Id + "(" + action.Node.Id + ")", p.Id);
+                    if (!isRollback) {
+                        if (_index.WillUniqueConstraintsBeViolated(action.Node, takeNodeReplacedBy(action.Node), ctx, out var p)) {
+                            var value = action.Node.TryGetValue(p.Id, out var v) ? v : "";
+                            throw new ValueConstraintException(Definitions.ConstraintMessages.NotUnique(p, value), p.Id);
+                        }
+                        validateInnerContentUniqueKeyConstrains(action.Node);
                     }
-                    validateInnerContentUniqueKeyConstrains(action.Node);
                     _nodes.Add(action.Node, action.Segment, keepNodesInCache);
                     _index.Add(action.Node);
                 }
@@ -300,6 +311,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                     _nodes.Remove(action.Node, out var segmentRemoved);
                     action.Segment = segmentRemoved; // must keep segment to be able to execute opposite action later
                     _index.Remove(action.Node);
+                    if (!isRollback) _nodeJustRemoved = action.Node;
                 }
                 break;
             default:

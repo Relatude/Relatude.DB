@@ -17,10 +17,25 @@ export interface DatabaseInfo {
   revertWindow?: { timestamp: string; begunUtc: string } | null;
 }
 
+/**
+ * A set of settings the application registers for itself (ICustomSettingsDefinition on the server): a tab
+ * of its own beside the server settings, or beside each database's settings for a set per database.
+ */
+export interface CustomSettingsTab {
+  /** the set's file key, which names it */
+  key: string;
+  title: string;
+  scope: "server" | "database";
+  /** a name mapped to a glyph, as a settings section's is */
+  icon: string;
+}
+
 export interface ServerInfo {
   version: string;
   upTimeMs: number;
   containers: DatabaseInfo[];
+  /** the tabs of custom settings; absent from a server that has none to offer */
+  customSettings?: CustomSettingsTab[];
 }
 
 export function fetchServerInfo(): Promise<ServerInfo> {

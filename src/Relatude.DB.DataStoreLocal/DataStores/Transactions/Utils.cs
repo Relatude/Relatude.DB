@@ -31,6 +31,11 @@ internal static class Utils {
         foreach (var kv in node.Values) {
             if (allProps.TryGetValue(kv.PropertyId, out var prop)) {
                 var value = prop.ForceValueType(kv.Value, out var changed);
+                var normalized = prop.NormalizeValue(value);
+                if (!ReferenceEquals(normalized, value)) {
+                    value = normalized;
+                    changed = true;
+                }
                 if (transformValues) value = prop.TransformFromOuterToInnerValue(value, oldNode);
                 prop.ValidateValue(value, node);
                 if (changed) node.AddOrUpdate(kv.PropertyId, value);

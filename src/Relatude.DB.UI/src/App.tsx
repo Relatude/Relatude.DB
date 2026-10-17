@@ -17,7 +17,7 @@ import { isServiceTestView, ServiceTestsSection } from "./components/ServiceTest
 import { SettingsSection } from "./components/SettingsSection";
 import { Sidebar } from "./components/Sidebar";
 import { TasksModule, type TasksView } from "./components/TasksModule";
-import { sections } from "./navigation";
+import { customSettingsSectionId, sections, setCustomSettingsSections } from "./navigation";
 import { peekDatamodelTarget, peekQueryTarget, peekSearchTarget, peekSettingsTarget, useNavigationRequest } from "./navigate";
 import { isLoggedIn, logout } from "./server/auth";
 import { disconnect, subscribe, subscribeResync, subscribeUnauthorized } from "./server/channel";
@@ -139,6 +139,8 @@ export function App() {
       fetchServerInfo()
         .then((info) => {
           if (cancelled) return;
+          // before the state changes, so the render it causes has the application's tabs in the rail
+          setCustomSettingsSections(info.customSettings ?? []);
           setServerInfo(info);
           setServerInfoError(null);
           applyContainers(info.containers);
@@ -158,10 +160,14 @@ export function App() {
     if (auth !== "ready") return;
     // the server broadcasts the container list whenever it changes (state, node count, name)
     return subscribe<DatabaseInfo[]>("containers", (containers) => {
-      setServerInfo((prev) => ({ version: prev?.version ?? "", upTimeMs: prev?.upTimeMs ?? 0, containers }));
+      setServerInfo((prev) => ({ version: prev?.version ?? "", upTimeMs: prev?.upTimeMs ?? 0, customSettings: prev?.customSettings, containers }));
       applyContainers(containers);
     });
   }, [auth]);
+  // a tab of custom settings the server no longer has - it restarted without the set - leaves its page
+  useEffect(() => {
+    if (!sections.some((s) => s.id === activeSectionId)) setActiveSectionId("dashboard");
+  }, [serverInfo, activeSectionId]);
   // a page asking for the model editor - a form linking to a property's definition, say - or for a
   // query on a type switches the section here; the page itself opens what was asked for once its
   // model is loaded
@@ -178,7 +184,11 @@ export function App() {
       // settings page itself takes the target and scrolls to the group once it has loaded
       const settings = peekSettingsTarget();
       if (!settings) return;
-      if (settings.scope === "database") {
+      if (settings.customKey) {
+        // a set of custom settings has a tab of its own, per database for a set of each database's
+        if (settings.scope === "database" && settings.storeId) setActiveDbId(settings.storeId);
+        setActiveSectionId(customSettingsSectionId(settings.customKey));
+      } else if (settings.scope === "database") {
         if (settings.storeId) setActiveDbId(settings.storeId);
         setActiveSectionId("db-settings");
       } else {
@@ -202,7 +212,8 @@ export function App() {
   }
   const databases = serverInfo?.containers ?? [];
   const activeDb = databases.find((db) => db.id === activeDbId) ?? null;
-  const section = sections.find((s) => s.id === activeSectionId)!;
+  // the dashboard stands in for a tab of custom settings the server no longer has, until the effect above moves there
+  const section = sections.find((s) => s.id === activeSectionId) ?? sections[0];
   // the revert window belongs to the database, not to a page: it is controlled from the top bar and
   // frames every page of the database while it is open
   const inRevert = section.scope === "database" && activeDb !== null && activeDb.state === "Open" && !!activeDb.revertWindow;
@@ -263,6 +274,13 @@ export function App() {
               onSelectView={setActiveSectionId}
               onAccount={() => setActiveSectionId("server-license")}
               onChanged={setLicense}
+            />
+          ) : section.customKey && (section.scope === "server" || activeDb) ? (
+            // a set of settings the application registers: the settings page, on the set's own files
+            <SettingsSection
+              key={activeSectionId + (section.scope === "database" ? "/" + activeDb!.id : "")}
+              customKey={section.customKey}
+              storeId={section.scope === "database" ? activeDb!.id : undefined}
             />
           ) : section.scope === "server" && (activeSectionId === "server-settings" || section.settingsSection) ? (
             // an entry that names part of the settings renders the settings page opened there

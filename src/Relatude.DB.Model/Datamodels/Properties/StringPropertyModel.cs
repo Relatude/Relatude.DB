@@ -29,6 +29,24 @@ public class StringPropertyModel : PropertyModel, IPropertyModelUniqueContraints
     /// </summary>
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public string[]? LegalValues { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? RegularExpressionMessage { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? LegalCharacters { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public bool CaseSensitive { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public bool Trim { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public CaseTransform CaseTransform { get; set; }
+    public string ApplyTransforms(string value) {
+        var v = Trim ? value.Trim() : value;
+        return CaseTransform switch {
+            CaseTransform.ToLowerCase => v.ToLowerInvariant(),
+            CaseTransform.ToUpperCase => v.ToUpperInvariant(),
+            _ => v,
+        };
+    }
     public override string? GetDefaultDeclaration() => "string.Empty";
     public override object? GetDefaultValue() => DefaultValue;
     public static string ForceValueType(object? value, out bool changed) {

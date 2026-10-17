@@ -25,6 +25,8 @@ import {
   IconWorldSearch,
 } from "@tabler/icons-react";
 import { LogoMarkIcon } from "./components/Logo";
+import { customSettingsIcon } from "./components/customSettingsIcons";
+import type { CustomSettingsTab } from "./server/serverInfo";
 
 /** Which group of the rail an entry is in: the database's pages, the server's, or Relatude Services'. */
 export type SectionScope = "database" | "server" | "services";
@@ -71,6 +73,8 @@ export interface Section {
   parentId?: string;
   /** What colour its icon is in the rail; see SectionTone. Entries with no tone stay uncoloured. */
   tone?: SectionTone;
+  /** The tab of a set of settings the application registers, by its file key: see setCustomSettingsSections. */
+  customKey?: string;
 }
 
 export const sections: Section[] = [
@@ -112,3 +116,33 @@ export const sections: Section[] = [
   { id: "services-translation", label: "Translation test", scope: "services", icon: IconLanguage, parentId: "services-tests", tone: "plain" },
   { id: "services-iplookup", label: "IP lookup test", scope: "services", icon: IconWorldSearch, parentId: "services-tests", tone: "plain" },
 ];
+
+/** The id of the rail entry of a set of custom settings. */
+export const customSettingsSectionId = (key: string): string => "custom-settings:" + key;
+
+/**
+ * Puts the tabs of the settings the application registers (ICustomSettingsDefinition on the server) into
+ * the rail: a set of the server's right after Server settings, a set per database right after the
+ * database's Settings, in the order the application registered them. The list is known once the server
+ * has said what it has, so the entries are added to `sections` then - and replaced, not added again, when
+ * it says so again after a restart. Everything that reads `sections` finds them: the rail, the header,
+ * the global search.
+ */
+export function setCustomSettingsSections(tabs: CustomSettingsTab[]): void {
+  for (let i = sections.length - 1; i >= 0; i--) if (sections[i].customKey) sections.splice(i, 1);
+  for (const scope of ["database", "server"] as const) {
+    const after = sections.findIndex((s) => s.id === (scope === "database" ? "db-settings" : "server-settings"));
+    const entries: Section[] = tabs
+      .filter((t) => t.scope === scope)
+      .map((t) => ({
+        id: customSettingsSectionId(t.key),
+        label: t.title,
+        scope,
+        icon: customSettingsIcon(t.icon),
+        customKey: t.key,
+        // the colour of the settings they sit beside, so they read as more of them
+        tone: scope === "database" ? "blue-dark" : "brown",
+      }));
+    sections.splice(after + 1, 0, ...entries);
+  }
+}

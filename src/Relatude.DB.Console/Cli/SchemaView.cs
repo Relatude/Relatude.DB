@@ -271,6 +271,10 @@ public static class SchemaView {
                 if (s.MinLength != 0) notes.Add("min length " + s.MinLength);
                 if (!string.IsNullOrEmpty(s.RegularExpression)) notes.Add("pattern " + s.RegularExpression);
                 if (s.LegalValues != null) notes.Add("legal values " + string.Join("/", s.LegalValues));
+                if (!string.IsNullOrEmpty(s.LegalCharacters)) notes.Add("legal characters " + s.LegalCharacters);
+                if (s.UniqueValues && s.CaseSensitive) notes.Add("case-sensitive");
+                if (s.Trim) notes.Add("trimmed");
+                if (s.CaseTransform != CaseTransform.NoTransform) notes.Add(s.CaseTransform == CaseTransform.ToLowerCase ? "lower case" : "upper case");
                 if (!string.IsNullOrEmpty(s.DefaultValue)) notes.Add("default \"" + s.DefaultValue + "\"");
                 break;
             case IntegerPropertyModel i:

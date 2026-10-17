@@ -104,6 +104,14 @@ public class NodeStore : IDisposable {
     /// </summary>
     public NodeStoreServices Services { get; }
     /// <summary>
+    /// The settings the application registers for itself (<c>ServerOptions.AddCustomSettings</c>), edited on
+    /// their own tabs in the admin UI and layered like the database's own settings:
+    /// <code>var shop = db.Settings.Get&lt;WebshopSettings&gt;();</code>
+    /// A set registered for each database gives this database's values; one registered for the whole
+    /// server gives the server's. A store built without a server has none registered.
+    /// </summary>
+    public NodeStoreSettings Settings { get; }
+    /// <summary>
     /// The logs defined for this database in the admin UI (or as settings files in its log folder),
     /// and the way to record into them: <c>store.CustomLogs.Record("orders", ("amount", 12.5))</c>.
     /// A log that does not exist, or is turned off, records nothing and costs a lookup.
@@ -149,16 +157,17 @@ public class NodeStore : IDisposable {
     public void SetQueryContext(QueryContext qx) => Datastore.SetDefaultQueryContext(qx);
 
     internal NodeStore NewStoreWithDifferentContext(QueryContext ctx) {
-        return new NodeStore(new DataStoreSession(ctx, Datastore), Mapper, TransactionPlugins, Services);
+        return new NodeStore(new DataStoreSession(ctx, Datastore), Mapper, TransactionPlugins, Services, Settings);
     }
 
     // the reading context is all that differs, so the new store shares the services rather than taking its
     // own: their providers are the database's, and there is only ever one of each to dispose
-    private NodeStore(DataStoreSession datastore, NodeMapper mapper, List<INodeTransactionPlugin> plugins, NodeStoreServices services) {
+    private NodeStore(DataStoreSession datastore, NodeMapper mapper, List<INodeTransactionPlugin> plugins, NodeStoreServices services, NodeStoreSettings settings) {
         Datastore = datastore;
         Mapper = mapper;
         _transactionPlugins = plugins;
         Services = services;
+        Settings = settings;
     }
     /// <summary>
     /// Wraps a data store and builds the object mapping layer for it. On the first run the mapper implementations for
@@ -172,11 +181,13 @@ public class NodeStore : IDisposable {
     /// <param name="imaging">The image AI of this database, for <see cref="NodeStoreServices.Imaging"/>. Null on a database without; disposed with this store.</param>
     /// <param name="fileToText">What reads the text of files for this database, for <see cref="NodeStoreServices.FileToText"/>. Null on a database without; disposed with this store.</param>
     /// <param name="translation">What translates texts for this database, for <see cref="NodeStoreServices.Translation"/>. Null on a database without; disposed with this store.</param>
-    /// <param name="ipLookup">What looks up addresses, user agents and visits for this database, for <see cref="NodeStoreServices.IPLookup"/>. Null on a database without; disposed with this store.</param>
+    /// <param name="ipLookup">What looks up addresses and user agents for this database, for <see cref="NodeStoreServices.IPLookup"/>. Null on a database without; disposed with this store.</param>
+    /// <param name="settings">Where <see cref="Settings"/> finds the settings the application registers. Null on a store without a server, which has none.</param>
     public NodeStore(IDataStore datastore, ISMSProvider? sms = null, IImagingProvider? imaging = null, IFileToTextProvider? fileToText = null, ITranslationProvider? translation = null,
-        IIPLookupProvider? ipLookup = null) {
+        IIPLookupProvider? ipLookup = null, ICustomSettingsSource? settings = null) {
         Datastore = datastore;
         Services = new NodeStoreServices(datastore, sms, imaging, fileToText, translation, ipLookup);
+        Settings = new NodeStoreSettings(settings);
         _ownsProviders = true;
         var sw = Stopwatch.StartNew();
         datastore.Datamodel.EnsureInitalization();

@@ -40,12 +40,12 @@ public static class SettingsSecrets {
     /// in catalog order. <paramref name="file"/> is relatude.db.json in the form the settings serialize to.</summary>
     public static List<Found> In(JsonObject file) {
         var found = new List<Found>();
-        look(SettingsCatalog.Server, file, null, "", [], found);
+        Look(SettingsCatalog.Server, file, null, "", [], found);
         if (file["ContainerSettings"] is JsonArray containers) {
             for (var i = 0; i < containers.Count; i++) {
                 if (containers[i] is not JsonObject container || idOf(container) is not Guid id) continue;
                 var at = "ContainerSettings:" + i + ":";
-                look(SettingsCatalog.Database, container, id, at, [new ConfigId(at + "Id", id.ToString())], found);
+                Look(SettingsCatalog.Database, container, id, at, [new ConfigId(at + "Id", id.ToString())], found);
             }
         }
         return found;
@@ -54,7 +54,7 @@ public static class SettingsSecrets {
     /// <summary>True for a setting the settings pages warn about while relatude.db.json holds it.</summary>
     public static bool IsSecret(SettingDefinition definition) => definition.Secret || definition.Sensitive;
 
-    static void look(SettingSectionDefinition[] catalog, JsonObject root, Guid? containerId, string configAt, ConfigId[] ids, List<Found> found) {
+    internal static void Look(SettingSectionDefinition[] catalog, JsonObject root, Guid? containerId, string configAt, ConfigId[] ids, List<Found> found) {
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var section in catalog) {
             foreach (var group in section.Groups) {

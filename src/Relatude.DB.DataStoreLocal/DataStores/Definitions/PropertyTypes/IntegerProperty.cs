@@ -54,9 +54,9 @@ internal class IntegerProperty : ValueProperty<int>, IPropertyContainsValue {
     }
     public override void ValidateValue(object value, INodeData node) {
         var v = (int)value;
-        if (v > MaxValue) throw new Exception("Value is more than maximum value allowed. ");
-        if (v < MinValue) throw new Exception("Value is less than minimum value allowed. ");
-        if (_legalValues != null && !_legalValues.Contains(v)) throw new Exception("The value " + v + " of " + CodeName + " is not one of its legal values. ");
+        if (v > MaxValue) throw ConstraintMessages.AboveMaximum(this, v, MaxValue);
+        if (v < MinValue) throw ConstraintMessages.BelowMinimum(this, v, MinValue);
+        if (_legalValues != null && !_legalValues.Contains(v)) throw ConstraintMessages.NotLegalValue(this, v, _legalValues.Order().Cast<object>());
     }
     public static object GetValue(byte[] bytes) => BitConverter.ToInt32(bytes, 0);
     public override bool SatisfyValueRequirement(object? value1, object? value2, ValueRequirement requirement) {

@@ -225,6 +225,14 @@ public sealed class PropertyOverride {
     [OverrideScope(OverrideScope.WholeProperty), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? RegularExpression { get; set; }
     [OverrideScope(OverrideScope.WholeProperty), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? RegularExpressionMessage { get; set; }
+    [OverrideScope(OverrideScope.WholeProperty), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? LegalCharacters { get; set; }
+    [OverrideScope(OverrideScope.WholeProperty), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? Trim { get; set; }
+    [OverrideScope(OverrideScope.WholeProperty), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public CaseTransform? CaseTransform { get; set; }
+    [OverrideScope(OverrideScope.WholeProperty), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public object? MinValue { get; set; }
     [OverrideScope(OverrideScope.WholeProperty), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public object? MaxValue { get; set; }

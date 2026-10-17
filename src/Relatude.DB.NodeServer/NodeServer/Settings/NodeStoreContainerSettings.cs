@@ -89,7 +89,7 @@ public class NodeStoreContainerSettings : NodeStoreContainerSettingsBase {
     public FileToTextProviderSettings? FileToTextSettings { get; set; }
     /// <summary>How this database translates texts, reached from code as <c>NodeStore.Services.Translation</c>. Null is the hosted Relatude Translation service, called with the installation's license.</summary>
     public TranslationProviderSettings? TranslationSettings { get; set; }
-    /// <summary>How this database looks up addresses, user agents and visits, reached from code as <c>NodeStore.Services.IPLookup</c>. Null is the hosted Relatude IP lookup service, called with the installation's license.</summary>
+    /// <summary>How this database looks up addresses and user agents, reached from code as <c>NodeStore.Services.IPLookup</c>. Null is the hosted Relatude IP lookup service, called with the installation's license.</summary>
     public IPLookupProviderSettings? IPLookupSettings { get; set; }
     public DatamodelSource[]? DatamodelSources { get; set; }
     public SettingsLocal? LocalSettings { get; set; }

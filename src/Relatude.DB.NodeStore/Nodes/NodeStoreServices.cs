@@ -17,7 +17,7 @@ namespace Relatude.DB.Nodes;
 /// var text = await db.Services.FileToText.ExtractTextAsync(bytes, "contract.pdf", ["nb", "en"]);
 /// var norwegian = await db.Services.Translation.TranslateAsync("Good morning", "nb");
 /// await db.Services.SMS.SendAsync("+4712345678", "Your code is 1234");
-/// var visitor = await db.Services.IPLookup.LookUpAsync(request.Ip, request.UserAgent, request.Visit);
+/// var visitor = await db.Services.IPLookup.LookUpAsync(request.Ip, request.UserAgent);
 /// </code>
 /// <para>Except for <see cref="AI"/>, which semantic search uses, nothing inside the database calls them:
 /// they are here so application code can use the accounts the database is already configured with - on a

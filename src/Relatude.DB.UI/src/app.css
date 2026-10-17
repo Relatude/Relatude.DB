@@ -4282,6 +4282,13 @@ a.action-button {
   border-radius: 8px;
 }
 
+/* what a tab of custom settings is for, in the application's own words */
+.settings-description {
+  padding: 0 2px;
+  font-size: 13px;
+  color: var(--text-soft);
+}
+
 /* secrets kept in relatude.db.json, at the top of both settings pages: amber like every caution, with a
    border, since unlike a notice it stays until the file is fixed */
 .secrets-warning {

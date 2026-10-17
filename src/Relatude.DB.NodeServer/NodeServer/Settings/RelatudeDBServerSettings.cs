@@ -60,6 +60,13 @@ public class RelatudeDBServerSettings {
     public string ServicesServerUrl { get; set; } = Defaults.ServicesServerUrl;
 
     public string? DBAdminUIUrlPath { get; set; }
+    /// <summary>
+    /// Where this server serves what its pages need of the Relatude IP lookup service: the bot check
+    /// (bot.js and BotD) and the route its reports go to, which the server passes on to the service
+    /// (<see cref="InfoEndpoint"/>). Null or empty is <c>/-info/</c>. Read at every request, so a change
+    /// applies at once - to the tags made after it.
+    /// </summary>
+    public string? InfoUrlPath { get; set; }
     public string? DBSettingsFilePath { get; set; }
 
     // Optional  settings, defaults ok for most scenarios

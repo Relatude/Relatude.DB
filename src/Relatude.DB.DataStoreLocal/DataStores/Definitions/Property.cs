@@ -43,8 +43,12 @@ namespace Relatude.DB.DataStores.Definitions {
         public ValueProperty(PropertyModel pm, Definition def) : base(pm, def) {
         }
         internal override void Initalize(DataStoreLocal store, Definition def, SettingsLocal config, IIOProvider io, AIEngine? ai) {
-            if (Indexed) _indexUtil.Initalize(IndexFactory.CreateValueIndexes<T>(store, this, null, WriteValue, ReadValue), Model.CultureSensitive, AllIndexes);
+            if (!Indexed) return;
+            var indexes = IndexFactory.CreateValueIndexes<T>(store, this, null, WriteValue, ReadValue);
+            foreach (var key in indexes.Keys.ToArray()) indexes[key] = WrapValueIndex(indexes[key]);
+            _indexUtil.Initalize(indexes, Model.CultureSensitive, AllIndexes);
         }
+        protected virtual IValueIndex<T> WrapValueIndex(IValueIndex<T> index) => index;
         protected abstract void WriteValue(T v, IAppendStream stream);
         protected abstract T ReadValue(IReadStream stream);
         public override object ForceValueType(object value, out bool changed) => PropertyModel.ForceValueAnyType<T>(value, Model.PropertyType, out changed);
@@ -55,7 +59,7 @@ namespace Relatude.DB.DataStores.Definitions {
             }
             return base.TryReorder(unsorted, descending, ctx, out sorted);
         }
-        public bool ContainsValue(object value, QueryContext ctx) {
+        public virtual bool ContainsValue(object value, QueryContext ctx) {
             return GetValueIndex(ctx).ContainsValue((T)value);
         }
         public override bool CanBeFacet() => Indexed && !Model.NotFacet;
@@ -180,7 +184,7 @@ namespace Relatude.DB.DataStores.Definitions {
             // the optimized wrapper re-checks its write-behind queue under a lock on EVERY call;
             // flush it once here and use the raw index, so the per-id counting loops below stay
             // lock free (they run millions of TryGetValue calls, possibly on several threads)
-            if (index is OptimizedValueIndex<T> optimized) index = optimized.DequeueAndGetInner();
+            if (index is IValueIndexWrapper<T> wrapper) index = wrapper.DequeueAndGetInner();
             if (nodeIdsCoverIndex) {
                 // every id in the index is in nodeIds, so buckets are counted from the index's own
                 // maintained counts - no set materialization or intersection at all
@@ -355,7 +359,7 @@ namespace Relatude.DB.DataStores.Definitions {
         readonly Cache<(long index, long set, bool distinct), PivotAggregate> _aggregates = new(4096);
         internal override PivotAggregate Aggregate(IdSet set, QueryContext ctx, bool distinct) {
             var index = GetValueIndex(ctx);
-            if (index is OptimizedValueIndex<T> optimized) index = optimized.DequeueAndGetInner(); // flushed once; the raw index for the loops below, as CountFacets does
+            if (index is IValueIndexWrapper<T> wrapper) index = wrapper.DequeueAndGetInner(); // flushed once; the raw index for the loops below, as CountFacets does
             var cachable = set.StateId != long.MaxValue;
             var key = (index.StateId, set.StateId, distinct);
             if (cachable && _aggregates.TryGet(key, out var cached)) return cached;
@@ -418,7 +422,7 @@ namespace Relatude.DB.DataStores.Definitions {
         internal override PivotAggregate[,] AggregateGrid(IdSet source, IdSet[] rows, IdSet[] cols, QueryContext ctx) {
             var toDouble = _toDouble ?? throw new NotSupportedException("The property " + CodeName + " of type " + PropertyType + " is not numeric. ");
             var index = GetValueIndex(ctx);
-            if (index is OptimizedValueIndex<T> optimized) index = optimized.DequeueAndGetInner();
+            if (index is IValueIndexWrapper<T> wrapper) index = wrapper.DequeueAndGetInner();
             // membership tests below may run on several threads: let every set build its lookup form now
             foreach (var s in rows) s.Has(int.MinValue);
             foreach (var s in cols) s.Has(int.MinValue);
@@ -605,6 +609,7 @@ namespace Relatude.DB.DataStores.Definitions {
         public virtual object TransformFromOuterToInnerValue(object value, INodeData? oldNodeData) {
             return value;
         }
+        public virtual object NormalizeValue(object value) => value;
         public virtual bool IsReferenceTypeAndMustCopy() {
             return false;
         }

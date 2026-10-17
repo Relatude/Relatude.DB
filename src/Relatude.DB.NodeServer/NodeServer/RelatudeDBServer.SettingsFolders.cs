@@ -117,6 +117,11 @@ public partial class RelatudeDBServer {
         }
         var datamodel = Path.Combine(from, DatabaseShortName.DatamodelFileName);
         if (File.Exists(datamodel)) files.Add((datamodel, Path.Combine(to, DatabaseShortName.DatamodelFileName)));
+        // the database's custom settings; the server's, kept in relatude.settings too, stay where they are
+        foreach (var name in customSettingsFileNamesPerDatabase()) {
+            var custom = Path.Combine(from, name);
+            if (File.Exists(custom)) files.Add((custom, Path.Combine(to, name)));
+        }
         if (files.Count == 0) return;
         var moved = 0;
         var left = new List<string>();

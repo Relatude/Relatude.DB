@@ -59,6 +59,7 @@ public sealed class UIServer {
         new UIDemo(server, Shared).Register(Commands);
         new UIRevert(server).Register(Commands);
         new UIDatamodel(server).Register(Commands);
+        new UIPatternTester(server).Register(Commands);
         new UIDatabases(server).Register(Commands);
         new UIGraphQL(server).Register(Commands);
         _query = new UIQuery(server);
@@ -907,6 +908,8 @@ public sealed class UIServer {
             Version = typeof(UIServer).Assembly.GetName().Version?.ToString(),
             UpTimeMs = _server.UpTime.TotalMilliseconds,
             Containers = buildContainers(),
+            // the tabs of the settings the application registers, beside the server's and each database's
+            CustomSettings = UISettings.CustomSettingsTabs(_server),
         });
         // the process alone, cheap enough to read at the refresh rate: what the overview graphs.
         // The data drive rides along - it is one stat() call and it belongs on the same picture:

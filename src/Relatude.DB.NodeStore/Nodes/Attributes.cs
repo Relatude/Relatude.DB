@@ -262,6 +262,11 @@ public class StringPropertyAttribute : PropertyAttribute, IAttrWithUniqueContrai
     public string? RegularExpression { get; set; }
     public bool IgnoreDuplicateEmptyValues { get; set; }
     public bool UniqueValues { get; set; }
+    public string? RegularExpressionMessage { get; set; }
+    public string? LegalCharacters { get; set; }
+    public bool CaseSensitive { get; set; }
+    public bool Trim { get; set; }
+    public CaseTransform CaseTransform { get; set; }
 }
 [AttributeUsage(AttributeTargets.Property)]
 public class StringArrayPropertyAttribute : PropertyAttribute, IAttrWithUniqueContraints, IAttrWithNotFacet {

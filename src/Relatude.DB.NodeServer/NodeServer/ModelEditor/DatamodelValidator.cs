@@ -220,11 +220,26 @@ public sealed class DatamodelValidator {
                         if (!System.Text.RegularExpressions.Regex.IsMatch(sp.DefaultValue ?? "", sp.RegularExpression))
                             issues.Add(DatamodelIssue.Info("default-not-legal", where + ": the default value does not match the pattern, so a node has to be given a value before it can be saved.", nodeType: t.Id, property: p.Id));
                     } catch (ArgumentException error) {
-                        issues.Add(DatamodelIssue.Error("bad-pattern", where + ": the pattern is not a valid regular expression: " + error.Message, nodeType: t.Id, property: p.Id));
+                        issues.Add(DatamodelIssue.Error("bad-pattern", where + ": " + RegularExpressionErrors.Describe(error), nodeType: t.Id, property: p.Id));
                     }
                 }
                 if (sp.LegalValues != null && !string.IsNullOrEmpty(sp.DefaultValue) && !sp.LegalValues.Contains(sp.DefaultValue, StringComparer.Ordinal))
                     issues.Add(DatamodelIssue.Warning("default-not-legal", where + ": the default value is not one of the legal values, so a node that keeps it cannot be saved.", nodeType: t.Id, property: p.Id));
+                if (!string.IsNullOrEmpty(sp.LegalCharacters)) {
+                    var illegalInDefault = illegalCharacters(sp.DefaultValue ?? "", sp.LegalCharacters);
+                    if (illegalInDefault.Length > 0)
+                        issues.Add(DatamodelIssue.Warning("default-not-legal", where + ": the default value contains characters that are not among the legal characters (" + illegalInDefault + "), so a node that keeps it cannot be saved.", nodeType: t.Id, property: p.Id));
+                    var unreachableByCharacters = (sp.LegalValues ?? []).Where(v => illegalCharacters(v, sp.LegalCharacters).Length > 0).ToArray();
+                    if (unreachableByCharacters.Length > 0)
+                        issues.Add(DatamodelIssue.Warning("legal-value-unreachable", where + ": the legal value" + (unreachableByCharacters.Length == 1 ? " " : "s ") + string.Join(", ", unreachableByCharacters.Select(v => "\"" + v + "\""))
+                            + " contain characters that are not among the legal characters, so no node can be given " + (unreachableByCharacters.Length == 1 ? "it." : "them."), nodeType: t.Id, property: p.Id));
+                }
+                var changedByTransforms = (sp.LegalValues ?? []).Where(v => !string.Equals(sp.ApplyTransforms(v), v, StringComparison.Ordinal)).ToArray();
+                if (changedByTransforms.Length > 0)
+                    issues.Add(DatamodelIssue.Warning("legal-value-unreachable", where + ": the legal value" + (changedByTransforms.Length == 1 ? " " : "s ") + string.Join(", ", changedByTransforms.Select(v => "\"" + v + "\""))
+                        + " would be changed by trimming or by the case change before it is checked, so no node can be given " + (changedByTransforms.Length == 1 ? "it." : "them."), nodeType: t.Id, property: p.Id));
+                if (!string.IsNullOrWhiteSpace(sp.RegularExpressionMessage) && string.IsNullOrEmpty(sp.RegularExpression))
+                    issues.Add(DatamodelIssue.Info("message-without-pattern", where + " has a pattern message but no pattern, so the message is never shown.", nodeType: t.Id, property: p.Id));
                 break;
             case IntegerPropertyModel ip:
                 if (ip.MinValue > ip.MaxValue) issues.Add(DatamodelIssue.Error("bad-range", where + ": the minimum is above the maximum.", nodeType: t.Id, property: p.Id));
@@ -252,10 +267,16 @@ public sealed class DatamodelValidator {
     static bool valueRulesChange(PropertyModel a, PropertyModel d) => (a, d) switch {
         (StringPropertyModel sa, StringPropertyModel sd) =>
             !string.IsNullOrEmpty(sd.RegularExpression) && !string.Equals(sa.RegularExpression, sd.RegularExpression, StringComparison.Ordinal)
-            || sd.LegalValues != null && !sameList(sa.LegalValues, sd.LegalValues),
+            || sd.LegalValues != null && !sameList(sa.LegalValues, sd.LegalValues)
+            || !string.IsNullOrEmpty(sd.LegalCharacters) && !string.Equals(sa.LegalCharacters, sd.LegalCharacters, StringComparison.Ordinal)
+            || sd.UniqueValues && !sd.CaseSensitive && (sa.CaseSensitive || !sa.UniqueValues),
         (IntegerPropertyModel ia, IntegerPropertyModel id) => !id.IsEnum && id.LegalValues != null && (ia.IsEnum || !sameList(ia.LegalValues, id.LegalValues)),
         _ => false,
     };
+    static bool valueTransformsChange(PropertyModel a, PropertyModel d)
+        => a is StringPropertyModel sa && d is StringPropertyModel sd && (sd.Trim && !sa.Trim || sd.CaseTransform != CaseTransform.NoTransform && sd.CaseTransform != sa.CaseTransform);
+    static string illegalCharacters(string value, string legalCharacters)
+        => string.Join(" ", value.Where(c => !legalCharacters.Contains(c)).Distinct().Select(c => c == ' ' ? "space" : "\"" + c + "\""));
     static bool sameList<T>(T[]? a, T[]? b) => a == null ? b == null : b != null && a.SequenceEqual(b);
 
     // how many nodes a type has (descendants included), -1 when the database is closed or cannot say
@@ -301,8 +322,13 @@ public sealed class DatamodelValidator {
                 }
                 if (ap.PropertyType == dp.PropertyType && valueRulesChange(ap, dp)) {
                     if (typeCount == -2) typeCount = count(a.Id);
-                    if (typeCount != 0) issues.Add(DatamodelIssue.Info("rules-change", "The pattern or the legal values of " + d.CodeName + "." + dp.CodeName + " change. The values already stored"
+                    if (typeCount != 0) issues.Add(DatamodelIssue.Info("rules-change", "The rules for the values of " + d.CodeName + "." + dp.CodeName + " change. The values already stored"
                         + (typeCount > 0 ? " on " + nodes(typeCount) : "") + " are not checked again, but a node whose value breaks the new rule cannot be saved until the value is changed.", nodeType: a.Id, property: ap.Id));
+                }
+                if (ap.PropertyType == dp.PropertyType && valueTransformsChange(ap, dp)) {
+                    if (typeCount == -2) typeCount = count(a.Id);
+                    if (typeCount != 0) issues.Add(DatamodelIssue.Info("transforms-change", "Values written to " + d.CodeName + "." + dp.CodeName + " are trimmed or change case from now on. The values already stored"
+                        + (typeCount > 0 ? " on " + nodes(typeCount) : "") + " stay as they are until their node is saved again.", nodeType: a.Id, property: ap.Id));
                 }
             }
         }

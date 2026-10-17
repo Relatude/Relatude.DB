@@ -181,16 +181,17 @@ public static class LateBindings {
         return create<ITranslationProvider>(translationSettings.TypeName, null, null, [translationSettings]);
     }
     /// <summary>
-    /// The provider a database looks up addresses, user agents and visits with. One implementation so
+    /// The provider a database looks up addresses and user agents with. One implementation so
     /// far, the hosted Relatude service, which is also what no settings and an empty type name mean, for
     /// the same reasons as <see cref="CreateImagingProvider"/>; it charges nothing, and needs the license
-    /// to have the feature "iplookup". Anything else is taken as the full type name of a custom provider,
-    /// constructed with the settings.
+    /// to have the feature "iplookup". <paramref name="infoUrlPath"/> is the server's info path, where its
+    /// pages load the bot check from and report to. Anything else is taken as the full type name of a
+    /// custom provider, constructed with the settings.
     /// </summary>
-    public static IIPLookupProvider CreateIPLookupProvider(IPLookupProviderSettings? ipLookupSettings, Func<string?>? licenseApiKey = null) {
+    public static IIPLookupProvider CreateIPLookupProvider(IPLookupProviderSettings? ipLookupSettings, Func<string?>? licenseApiKey = null, Func<string?>? infoUrlPath = null) {
         ipLookupSettings ??= new();
         if (string.IsNullOrWhiteSpace(ipLookupSettings.TypeName) || RelatudeServicesIPLookupProvider.IsProviderName(ipLookupSettings.TypeName)) {
-            return new RelatudeServicesIPLookupProvider(ipLookupSettings, licenseApiKey);
+            return new RelatudeServicesIPLookupProvider(ipLookupSettings, licenseApiKey, infoUrlPath);
         }
         return create<IIPLookupProvider>(ipLookupSettings.TypeName, null, null, [ipLookupSettings]);
     }

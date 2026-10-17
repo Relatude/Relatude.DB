@@ -675,21 +675,10 @@ export interface IPLookupUserAgent {
   deviceType: string | null;
 }
 
-/** What the browser shown a page reported about itself for that page view; reported is false while it has said nothing. */
-export interface IPLookupVisit {
-  id: string;
-  reported: boolean;
-  isBot: boolean;
-  botKind: string | null;
-  reportedFrom: string | null;
-  reportedUtc: string | null;
-}
-
-/** One lookup, with the verdict code reads: isBot and botName by the strongest sign, isHuman when the bot check ran and found none. */
+/** One lookup, with the verdict code reads: isBot and botName by the strongest sign, isHuman when a browser at the address passed the bot check. */
 export interface IPLookupResult {
   ip: IPLookupAddress | null;
   userAgent: IPLookupUserAgent | null;
-  visit: IPLookupVisit | null;
   isBot: boolean;
   botName: string | null;
   isHuman: boolean;
@@ -698,7 +687,6 @@ export interface IPLookupResult {
 export interface IPLookupTestRequest {
   ip: string | null;
   userAgent: string | null;
-  visit?: string | null;
 }
 
 /** The answers, one for each lookup in the order sent, and how long the call took there and back from this server. */
@@ -707,14 +695,21 @@ export interface IPLookupTestResult {
   milliseconds: number;
 }
 
-/** Looks the addresses, user agents and visits up through the Relatude IP lookup service with this installation's API key; nothing is charged. */
+/** Looks the addresses and user agents up through the Relatude IP lookup service with this installation's API key; nothing is charged. */
 export function runIPLookupTest(values: { serviceUrl: string; lookups: IPLookupTestRequest[] }): Promise<IPLookupTestResult> {
   return send<IPLookupTestResult>("license-iplookup-test", values);
 }
 
-/** Where a page loads the bot check from, and the address and user agent this server sees the browser by. */
+/**
+ * The bot check as a page carries it: the address of bot.js under this server's info
+ * path, the same check as script to write into the page, and the version of the scripts the service
+ * handed out. Then the address and user agent this server sees the browser by, which code logging the
+ * request looks up.
+ */
 export interface IPLookupBotScript {
-  url: string;
+  scriptUrl: string;
+  inlineScript: string;
+  version: string;
   ip: string | null;
   userAgent: string | null;
 }

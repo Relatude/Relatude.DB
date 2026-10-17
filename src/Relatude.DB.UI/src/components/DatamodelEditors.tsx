@@ -7,6 +7,7 @@ import { DialogTools } from "./DialogTools";
 import { ColorField } from "./ColorField";
 import { CodeTab } from "./DatamodelCodeTab";
 import { RemovedTag, SourceTag } from "./SourceTag";
+import { PatternField, type SiblingAccess } from "./PatternDialog";
 import {
   allProperties,
   defaultSourcePath,
@@ -136,6 +137,8 @@ interface FieldProps {
   onFocused?: () => void;
   /** for text: what an empty field stands for */
   placeholder?: string;
+  siblings?: SiblingAccess;
+  subject?: { id: string; name: string };
 }
 
 /**
@@ -156,7 +159,7 @@ interface FrameOverride {
  * Renders one schema field. The value lives in the model object under field.path; an unset value
  * shows the default the server read off a fresh model object, which is what the engine will use.
  */
-export function FieldEditor({ field, value, onChange, disabled, ctx, typeId, fallbackColor, autoFocus, onFocused, placeholder, frame }: FieldProps & { frame?: FrameOverride }) {
+export function FieldEditor({ field, value, onChange, disabled, ctx, typeId, fallbackColor, autoFocus, onFocused, placeholder, frame, siblings, subject }: FieldProps & { frame?: FrameOverride }) {
   const focusRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
   // only text fields carry the ref; asking a select or a checkbox for the keyboard would be noise
   useEffect(() => {
@@ -314,6 +317,9 @@ export function FieldEditor({ field, value, onChange, disabled, ctx, typeId, fal
     }
     case "color":
       control = <ColorField value={typeof current === "string" ? current : null} fallback={fallbackColor} disabled={off} onChange={(v) => onChange(v)} />;
+      break;
+    case "regex":
+      control = <PatternField value={current} onChange={onChange} disabled={off} siblings={siblings ?? (() => null)} storeId={ctx.storeId} propertyId={subject?.id} typeId={typeId} propertyName={subject?.name ?? "The value"} />;
       break;
     case "textarea":
       control = (
@@ -559,6 +565,14 @@ interface FieldOverride {
 function Groups({ fields, target, onChange, disabled, ctx, typeId, open, focusPath, onFocused, overrideOf }: { fields: FieldDef[]; target: Record<string, unknown>; onChange: (path: string, value: unknown) => void; disabled: boolean; ctx: EditorContext; typeId?: string; open: string[]; focusPath?: string | null; onFocused?: () => void; overrideOf?: (field: FieldDef) => FieldOverride | null }) {
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set(ctx.schema.groups.filter((g) => !open.includes(g))));
   const groups = ctx.schema.groups.filter((g) => fields.some((f) => f.group === g));
+  const siblings: SiblingAccess = (path) => {
+    const sibling = fields.find((f) => f.path === path);
+    if (!sibling) return null;
+    const o = overrideOf?.(sibling);
+    if (o) return { value: o.value === undefined ? sibling.default : o.value, onChange: o.onChange, disabled: o.disabled };
+    return { value: target[path] === undefined ? sibling.default : target[path], onChange: (v) => onChange(path, v), disabled };
+  };
+  const subject = typeof target.PropertyType === "string" ? { id: String(target.Id), name: String(target.CodeName) } : undefined;
   // a field that is to be focused has to be on screen first: its group opens, collapsed or not
   const focusGroup = focusPath ? fields.find((f) => f.path === focusPath)?.group : undefined;
   useEffect(() => {
@@ -600,8 +614,8 @@ function Groups({ fields, target, onChange, disabled, ctx, typeId, open, focusPa
                   .filter((f) => f.group === g)
                   .map((f) => {
                     const o = overrideOf?.(f);
-                    if (o) return <FieldEditor key={f.path} field={f} value={o.value} onChange={o.onChange} disabled={o.disabled} ctx={ctx} typeId={typeId} autoFocus={f.path === focusPath} onFocused={onFocused} frame={o.frame} />;
-                    return <FieldEditor key={f.path} field={f} value={target[f.path]} onChange={(v) => onChange(f.path, v)} disabled={disabled} ctx={ctx} typeId={typeId} autoFocus={f.path === focusPath} onFocused={onFocused} />;
+                    if (o) return <FieldEditor key={f.path} field={f} value={o.value} onChange={o.onChange} disabled={o.disabled} ctx={ctx} typeId={typeId} autoFocus={f.path === focusPath} onFocused={onFocused} frame={o.frame} siblings={siblings} subject={subject} />;
+                    return <FieldEditor key={f.path} field={f} value={target[f.path]} onChange={(v) => onChange(f.path, v)} disabled={disabled} ctx={ctx} typeId={typeId} autoFocus={f.path === focusPath} onFocused={onFocused} siblings={siblings} subject={subject} />;
                   })}
               </div>
             )}

@@ -56,11 +56,15 @@ sealed class UIServiceTests(RelatudeDBServer server) {
             return await provider.GetLanguagesAsync(ctx.Http.RequestAborted);
         });
         commands.Register("license-translation-test", async ctx => await translationTestAsync(ctx.Payload<TranslationTestPayload>(), ctx.Http.RequestAborted));
-        // where the page loads the bot check from, and the address and user agent this server sees the
-        // browser by, which are what code logging the request would look up; asks nothing of the service
-        commands.Register("license-iplookup-bot-script", ctx => {
+        // the bot check as a page carries it - the script under this server's info path, or
+        // the same written into the page, with the scripts as the service hands them out - and the
+        // address and user agent this server sees the browser by, which code logging the request looks up
+        commands.Register("license-iplookup-bot-script", async ctx => {
             using var provider = ipLookupProvider(ctx.Payload<ServicePayload>().ServiceUrl);
-            return new IPLookupBotScript(provider.BotScriptUrl, ctx.Http.Connection.RemoteIpAddress?.ToString(), ctx.Http.Request.Headers.UserAgent.ToString());
+            var scripts = await provider.GetBotCheckScriptsAsync(ctx.Http.RequestAborted);
+            var path = provider.InfoUrlPath;
+            return new IPLookupBotScript(path + BotCheck.LoaderFile, BotCheck.InlineScript(path, scripts), scripts.Version,
+                ctx.Http.Connection.RemoteIpAddress?.ToString(), ctx.Http.Request.Headers.UserAgent.ToString());
         });
         commands.Register("license-iplookup-test", async ctx => await ipLookupTestAsync(ctx.Payload<IPLookupTestPayload>(), ctx.Http.RequestAborted));
         commands.Register("license-iplookup-favicons", async ctx => await faviconTestAsync(ctx.Payload<FaviconTestPayload>(), ctx.Http.RequestAborted));
@@ -80,11 +84,11 @@ sealed class UIServiceTests(RelatudeDBServer server) {
     sealed record TranslationTestPayload(string? ServiceUrl, string? Operation, TranslationTestText[]? Texts, string? To, string? From, string? Format, bool Fresh);
     sealed record TranslationTestText(string? Text, string? From, string? To);
 
-    /// <summary>An IP lookup test: addresses, user agents and visits, looked up in one call as code logging requests looks them up.</summary>
+    /// <summary>An IP lookup test: addresses and user agents, looked up in one call as code logging requests looks them up.</summary>
     sealed record IPLookupTestPayload(string? ServiceUrl, IPLookupTestRequest[]? Lookups);
-    sealed record IPLookupTestRequest(string? Ip, string? UserAgent, Guid? Visit);
+    sealed record IPLookupTestRequest(string? Ip, string? UserAgent);
     sealed record IPLookupTestResult(IPLookupResult[] Results, double Milliseconds);
-    sealed record IPLookupBotScript(string Url, string? Ip, string? UserAgent);
+    sealed record IPLookupBotScript(string ScriptUrl, string InlineScript, string Version, string? Ip, string? UserAgent);
 
     /// <summary>Sites whose icons to find, each the size closest to MaxSize pixels.</summary>
     sealed record FaviconTestPayload(string? ServiceUrl, string[]? Sites, int? MaxSize);
@@ -102,7 +106,7 @@ sealed class UIServiceTests(RelatudeDBServer server) {
         new(new TranslationProviderSettings { ServiceUrl = string.IsNullOrWhiteSpace(serviceUrl) ? null : serviceUrl.Trim() }, () => server.Settings.ApiKey);
 
     RelatudeServicesIPLookupProvider ipLookupProvider(string? serviceUrl) =>
-        new(new IPLookupProviderSettings { ServiceUrl = string.IsNullOrWhiteSpace(serviceUrl) ? null : serviceUrl.Trim() }, () => server.Settings.ApiKey);
+        new(new IPLookupProviderSettings { ServiceUrl = string.IsNullOrWhiteSpace(serviceUrl) ? null : serviceUrl.Trim() }, () => server.Settings.ApiKey, () => server.Settings.InfoUrlPath);
 
     /// <summary>
     /// The service URL a database here is set up with, for the Relatude service rather than a custom
@@ -276,18 +280,18 @@ sealed class UIServiceTests(RelatudeDBServer server) {
     }
 
     /// <summary>
-    /// The addresses, user agents and visits looked up by the IP lookup service in one call, as code
+    /// The addresses and user agents looked up by the IP lookup service in one call, as code
     /// logging requests looks them up: the answers in the order sent, each with the verdict that code
     /// reads (isBot, botName, isHuman), and how long the call took.
     /// </summary>
     async Task<object> ipLookupTestAsync(IPLookupTestPayload payload, CancellationToken cancellationToken) {
-        var lookups = (payload.Lookups ?? []).Where(l => blank(l.Ip) != null || blank(l.UserAgent) != null || l.Visit != null).ToArray();
+        var lookups = (payload.Lookups ?? []).Where(l => blank(l.Ip) != null || blank(l.UserAgent) != null).ToArray();
         if (lookups.Length == 0) throw new ArgumentException("Write an address to look up. ");
         if (lookups.Length > _maxIPLookupTests) throw new ArgumentException($"A test looks up at most {_maxIPLookupTests} addresses. ");
         await requireFeatureAsync(IPLookupFeatureKey, "Relatude IP lookup service", cancellationToken);
         using var provider = ipLookupProvider(payload.ServiceUrl);
         var started = System.Diagnostics.Stopwatch.StartNew();
-        var results = await provider.LookUpAsync(lookups.Select(l => new IPLookupRequest(blank(l.Ip), blank(l.UserAgent), l.Visit)).ToArray(), cancellationToken);
+        var results = await provider.LookUpAsync(lookups.Select(l => new IPLookupRequest(blank(l.Ip), blank(l.UserAgent))).ToArray(), cancellationToken);
         return new IPLookupTestResult(results, started.Elapsed.TotalMilliseconds);
     }
 

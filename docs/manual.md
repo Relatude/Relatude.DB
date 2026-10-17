@@ -434,14 +434,21 @@ public abstract class PropertyAttribute : Attribute {
     MinWordLength = 3,
     MaxWordLength = 30,
     LegalValues = new[] { "draft", "published", "cancelled" },
+    LegalCharacters = "abcdefghijklmnopqrstuvwxyz0123456789-", // every character must be one of these
     RegularExpression = @"^[a-z0-9-]+$",
+    RegularExpressionMessage = "Use lower case letters, digits and dashes", // shown when the pattern refuses a value
     UniqueValues = true,
+    CaseSensitive = false,                   // default: "Ole" and "ole" are the same value to UniqueValues
     IgnoreDuplicateEmptyValues = true,       // allow many empty values under UniqueValues
+    Trim = true,                             // remove white space at both ends before the rules are checked
+    CaseTransform = CaseTransform.ToLowerCase, // NoTransform | ToLowerCase | ToUpperCase, applied after Trim
     NotFacet = false,                        // exclude from faceting even when indexed
     DefaultValue = ""
 )]
 public string Slug { get; set; } = string.Empty;
 ```
+
+`CaseTransform` lives in `Relatude.DB.Datamodels.Properties`, next to `StringValueType`.
 
 Use `[HtmlProperty]` for rich text so the HTML is stripped before word indexing:
 
@@ -509,15 +516,39 @@ public AccessibilityFeature[] Accessibility { get; set; } = [];
 
 ### Validation happens on write
 
-`LegalValues`, `RegularExpression`, `MinValue`/`MaxValue`, `MinLength`/`MaxLength`, `UniqueValues`
-and `MinNoInstances`/`MaxNoInstances` are all enforced by the engine at write time. A violating
-transaction fails as a whole and is rolled back, rather than silently storing bad data. The values
-already stored are never checked again: tightening a rule does not stop the database from opening,
-but a node whose value breaks the new rule cannot be saved until the value is changed.
+`LegalValues`, `LegalCharacters`, `RegularExpression`, `MinValue`/`MaxValue`, `MinLength`/`MaxLength`,
+`UniqueValues` and `MinNoInstances`/`MaxNoInstances` are all enforced by the engine at write time. A
+violating transaction fails as a whole and is rolled back, rather than silently storing bad data. The
+values already stored are never checked again: tightening a rule does not stop the database from
+opening, but a node whose value breaks the new rule cannot be saved until the value is changed.
 
+A refused value throws a `ValueConstraintException` (its `PropertyId` names the property) with a
+message meant for the person who typed the value, for example
+`PostCode "12" is not valid: Enter four digits.`, `Title is too long: it has 312 characters, and at most 255 are allowed.`
+or `Another node already has Email "ole@example.com", and Email must be unique (upper and lower case do not count as a difference).`
+
+- **`Trim`** and **`CaseTransform`** change the value before anything else happens: white space is
+  removed from both ends, then the value is made lower or upper case (invariant culture). The rules
+  below check the changed value, and the changed value is what is stored, so with
+  `CaseTransform = ToLowerCase` a unique email is unique however it is typed. They apply to values
+  written from then on; values already stored stay as they are until their node is saved again.
+  Queries are not changed: a query for `"Ole@Example.com"` on a lower-cased property finds nothing.
 - **`RegularExpression`** must match every value written, the empty value too - a pattern such as
   `^[a-z0-9-]+$` therefore makes the value required. Allow the empty value in the pattern when it is
   optional (`^([a-z0-9-]+)?$`). It is a match anywhere in the value unless anchored with `^` and `$`.
+  Set **`RegularExpressionMessage`** to say what a valid value looks like; without it the message shows
+  the pattern itself. The admin UI's data model editor has a pattern dialog with ready-made patterns
+  (email, phone numbers and post codes for many countries, URLs, product codes, dates and more), a
+  plain-language explanation of the pattern, a test box that runs the server's own regex engine, and a
+  check of the values already stored.
+- **`LegalCharacters`** lists the characters a value may contain, written one after another. A value
+  with any other character is refused, and the message names the characters that are not allowed.
+  The empty value is always allowed.
+- **`UniqueValues`** on a string ignores case unless **`CaseSensitive = true`**: with the default, a
+  second node cannot have `"OLE"` when one has `"Ole"`. Only the constraint ignores case - the value is
+  stored, sorted and queried as written. A node keeps a unique value it already holds even when another
+  node holds a case variant of it (written while the property was case-sensitive), so making a property
+  case-insensitive never blocks unrelated updates; only giving a node a value that is taken is refused.
 - **`LegalValues`** on a string is compared ordinally. The empty value is always allowed - it is what a
   node holds before the value is set - so add `MinLength = 1` to require one. The admin UI edits such a
   property with a list of the values.
@@ -1949,6 +1980,7 @@ own users.
 | `TokenCookieSameSite` | `true` | `true` → `SameSite=Strict`, `false` → `None`. |
 | `TokenLockedToIP` | `false` | Bind the token to the IP that created it. Safer, but it logs people out whenever their address changes. |
 | `DBAdminUIUrlPath` | null → `/relatude.db` | Overrides the path passed to `UseRelatudeDB()`. The routes are mapped once at startup, so changing it later only takes effect after a full process restart — the startup log says so when that happens. |
+| `InfoUrlPath` | null → `/-info/` | Where the server serves the bot check its pages carry and takes their reports, which it passes on to the Relatude IP lookup service ([§35.5](#355-who-is-behind-a-request-ip-lookup)). Read at every request. |
 | `DBSettingsFilePath` | null | Present in the settings object but not read by the current build; the settings file path comes from `ServerOptions`. |
 
 **Relatude Services.** The account an installation may use for hosted AI, imaging, files to text and
@@ -2216,13 +2248,17 @@ from the beginning; without one, opening is a full replay.
 | Key | Default | What it does |
 |---|---|---|
 | `AutoBackUp` | `false` | Take backups on a schedule. |
-| `NoHourlyBackUps` | 10 | How many of each generation to keep. Older members of a generation are pruned as newer ones arrive, so the set thins out with age instead of being a flat cap. |
+| `NoHourlyBackUps` | 10 | How many of each generation to keep: the first backup of each of the last N hours, days, weeks, months and years. Older members of a generation are pruned as newer ones arrive, so the set thins out with age instead of being a flat cap. |
 | `NoDailyBackUps` | 10 | |
 | `NoWeeklyBackUps` | 4 | |
-| `NoMontlyBackUps` | 12 | Spelled without the `h` in the settings object — the key really is `NoMontlyBackUps`. |
+| `NoMonthlyBackUps` | 12 | |
 | `NoYearlyBackUps` | 10 | |
 | `TruncateBackups` | `false` | Compact the log to current state when backing up. Much smaller backups, but they carry no version history — see [§16](#16-older-versions-of-a-node). |
 | `SecondaryBackupLog` | `false` | Also append every transaction to `IoDatabaseSecondary`. The secondary log survives rewrites, so this is what keeps deep history available to `FindOlderVersions`. |
+
+A backup is taken once an hour. A generation set to 0 is skipped: with `NoHourlyBackUps` at 0 no hourly
+backups are taken at all, only one a day; with `NoDailyBackUps` at 0 as well, one a week; and so on. With
+all five at 0 there is no automatic backup, and the backups already there are deleted unless marked keep.
 
 **Log truncation.** The transaction log grows forever unless something compacts it.
 
@@ -2419,6 +2455,93 @@ folder or absolute. `ServerOptions.UseSettingsOverridesFile = false` turns the f
 pages then write `relatude.db.json` again, as they did before it existed — still without configuration
 values or values set by code. The CLI finds the file the same way, `--overrides <file>` points it
 elsewhere, and `relatude settings` reports where it is and how many settings it changes.
+
+### Settings of your own: custom settings
+
+An application usually has settings of its own — a shop's currency, its payment provider's key, the
+address orders are mailed to. Register them with the server and they get a tab in the admin UI, beside
+**Server settings** or beside each database's **Settings**, with the same editors, tags and **Move to
+shared** button, layered the same way as the server's own settings, and read from code with
+`db.Settings.Get<T>()`.
+
+A set is a plain settings class — public, with a parameterless constructor, serialized with
+System.Text.Json — and a definition that implements `ICustomSettingsDefinition<T>`:
+
+```csharp
+public class WebshopSettings {
+    public string Currency { get; set; } = "NOK";              // the class defaults are the bottom layer
+    public decimal FreeShippingAbove { get; set; } = 500;
+    public string? PaymentApiKey { get; set; }
+    public ShippingZone[] Zones { get; set; } = [];             // elements need a Guid Id
+}
+
+public class WebshopSettingsDefinition : ICustomSettingsDefinition<WebshopSettings> {
+    public string FileKey => "webshop";                         // names its files and its configuration section
+    public string Title => "Webshop";                           // the tab
+    public CustomSettingsScope Scope => CustomSettingsScope.Database; // or Server: one set for the whole server
+    public string? Description => "How the shop on this database sells.";
+    public string Icon => "shop";
+    public SettingGroupDefinition[] Groups => [
+        new() { Id = "prices", Title = "Prices", Settings = [
+            new() { Path = "Currency", Label = "Currency", Applies = SettingApplies.Live, Help = "The ISO code prices are shown in." },
+            new() { Path = "FreeShippingAbove", Label = "Free shipping above", Applies = SettingApplies.Live, Help = "Orders above this ship free." },
+            new() { Path = "PaymentApiKey", Label = "Payment API key", Secret = true, Applies = SettingApplies.Live, Help = "Keep it in configuration." },
+        ] },
+        new() { Id = "zones", Title = "Shipping zones", List = new() {
+            Path = "Zones", ItemName = "zone", LabelField = "Name", EmptyHelp = "No zones.",
+            Fields = [ new() { Path = "Name", Label = "Name", Help = "" }, new() { Path = "Price", Label = "Price", Help = "" } ],
+        } },
+    ];
+    // optional: the code layer, run at every start; what it sets is locked on the tab and never saved
+    public void OnInit(WebshopSettings settings, NodeStoreContainerSettingsBase? database) { }
+}
+```
+
+```csharp
+builder.AddRelatudeDB(options => {
+    options.AddCustomSettings(new WebshopSettingsDefinition());
+});
+// or, from a library: builder.Services.AddSingleton<ICustomSettingsDefinition, WebshopSettingsDefinition>();
+
+var shop = db.Settings.Get<WebshopSettings>();      // this database's set, or the server's for a Server set
+var site = server.CustomSettings.Get<SiteSettings>(); // without a store at hand
+```
+
+The groups are the same `SettingGroupDefinition` and `SettingDefinition` the server's own settings pages
+are built from: `Path` is the property path into the class (`"Shipping.FreeAbove"` for a nested object),
+and the editor, an enum's choices and the default are read off the property. `Secret`, `ReadOnly`,
+`Unit`, `Placeholder`, `VisibleWhen`/`HiddenWhen`, `Suggestions`, `Editor = SettingEditor.Color` and list
+groups all work as they do there. Leave `Groups` out and the tab shows every property in one group,
+labelled from `[DisplayName]` and `[Description]`, with `[PasswordPropertyText(true)]` marking a secret.
+Note that `Applies` defaults to `Reopen`: say `Live` for a value your code reads each time it is used.
+
+The layers, each merged over the one before at every start and soft restart:
+
+| Layer | Server set | Set per database |
+|---|---|---|
+| defaults | `new T()` | `new T()` |
+| SHARED | `relatude.settings/{FileKey}.json` | `relatude.settings/{short name}/{FileKey}.json` (`relatude.settings/{FileKey}.json` for the database without one) |
+| THIS SERVER | `{FileKey}.overrides.json` beside `relatude.db.overrides.json` | `overrides/{FileKey}.overrides.json` on the database's storage |
+| APPSETTINGS | `RelatudeDB:CustomSettings:{FileKey}` | that, for every database, and `RelatudeDB:CustomSettings:Databases:{short name or id}:{FileKey}` over it |
+| CODE | `OnInit` | `OnInit`, told which database |
+
+SHARED holds only what differs from the defaults if you like — a property it leaves out keeps the class
+default — and it may have comments. THIS SERVER is the difference from SHARED in the format of
+`relatude.db.overrides.json`, which is what the tab saves; **Move to shared** on the tab moves its
+entries into the set's SHARED file (rewritten whole, so comments are lost) and **Discard** takes them
+back. As everywhere, configuration and code values are taken out before a save, so a key from user
+secrets never lands in a file:
+
+```bash
+dotnet user-secrets set "RelatudeDB:CustomSettings:webshop:PaymentApiKey" "sk_live_…"
+```
+
+`Get<T>()` returns the settings object in force. A save from the tab puts a new object in force rather
+than changing the one you hold, so ask again to see a change — it is a dictionary lookup, cheap on every
+request — and treat what you get as read only. A definition that is wrong — a file key that cannot name
+a file, two sets with one key or one class, a `Path` that names no property — stops the start with a
+message saying so. A SHARED or THIS SERVER file that is not valid JSON makes `Get<T>()` throw, with the
+file named, rather than quietly falling back to defaults.
 
 ### 12.2 What goes where: source control, deployment and appsettings
 
@@ -2933,11 +3056,13 @@ At **build time** (you find out on startup):
 
 At **write time** (the transaction fails):
 
-- `LegalValues` / `RegularExpression` / min/max / length bounds (the empty string always passes
-  `LegalValues`; enums are not held to theirs).
+- `LegalValues` / `LegalCharacters` / `RegularExpression` / min/max / length bounds (the empty string
+  always passes `LegalValues` and `LegalCharacters`; enums are not held to theirs), checked after
+  `Trim` and `CaseTransform` have changed the value.
 - `MinNoInstances` / `MaxNoInstances` per type, descendants included, on the counts the transaction
   leaves.
-- `UniqueValues = true` uniqueness across the type.
+- `UniqueValues = true` uniqueness across the type; on strings upper and lower case count as the same
+  unless `CaseSensitive = true`.
 - `DisallowCircularReferences = true` acyclicity on self-referential relations.
 
 ### Do not redefine the native types
@@ -6566,74 +6691,86 @@ stops the reports. It is left off the settings pages on purpose.
 ### 35.5 Who is behind a request: IP lookup
 
 `db.Services.IPLookup` says who is behind a request, for code that logs or analyses traffic: where its
-address is, whether the address belongs to a bot, what its user agent says it is, and - through the
-bot check a page carries - whether the browser that was shown the page is driven by a bot. It also
-finds the icon of a site, to show beside a referrer. The hosted Relatude IP lookup service answers
-with the installation's license, which needs the feature `iplookup`; nothing is charged.
+address is, whether the address belongs to a bot, and what its user agent says it is. It also finds the
+icon of a site, to show beside a referrer. The hosted Relatude IP lookup service answers with the
+installation's license, which needs the feature `iplookup`; nothing is charged.
 
 ```csharp
-var visitor = await db.Services.IPLookup.LookUpAsync("195.159.120.66", userAgent, visit);
+var visitor = await db.Services.IPLookup.LookUpAsync("195.159.120.66", userAgent);
 string? country = visitor.Ip?.CountryCode;    // "NO"
-bool bot = visitor.IsBot;                      // by every sign there is, below
+bool bot = visitor.IsBot;                      // the user agent, or the address, below
 string? icon = await db.Services.IPLookup.GetFaviconUrlAsync("https://www.example.com/a/page");
+
+// many at once, from a background queue of logged requests, say
+var found = await db.Services.IPLookup.LookUpAsync(
+    queued.Select(r => new IPLookupRequest(r.Ip, r.UserAgent)).ToArray());
 ```
 
-An `IPLookupResult` has three parts. Each is null when nothing was asked or found:
+An `IPLookupResult` has two parts. Each is null when nothing was asked or found:
 
-- **`Ip`**: the country, region, city and position of the address, and whether it is in a network a
-  bot's owner publishes (`IsBot`, `BotName` "google", "bing", …). Values the ranges lack are "-".
-  The locations are IP2Location LITE data, and a page showing them has to say "This site or product
+- **`Ip`**: the country, region, city and position of the address, and whether it is a bot's
+  (`IsBot`, `BotName`): in a network a bot's owner publishes ("google", "bing", …), or found to be a
+  bot by the bot check (`ConfirmedFromScript`, "Script"). Values the ranges lack are "-". The
+  locations are IP2Location LITE data, and a page showing them has to say "This site or product
   includes IP2Location LITE data available from https://lite.ip2location.com".
 - **`UserAgent`**: the browser, operating system and device type, or the bot it names itself as.
-- **`Visit`**: what the browser reported about itself for one page view (the bot check, below).
+
+`IsBot` is true when the user agent names a bot or the address is a bot's, and `BotName` names it by
+the first: "Googlebot", "google", or "Script". `IsHuman` is true when a browser at the address has
+passed the bot check and nothing says bot. An address no browser has run the check from is neither.
 
 #### The bot check
 
 Bots that run no scripts are known by their address or their user agent. Those that drive a real
-browser, headless or not, are known by Fingerprint's BotD, which a page runs in the browser:
+browser, headless or not, are known by Fingerprint's BotD, which a page runs in the browser. The
+browser only ever talks to your own server: the server serves the bot check and BotD under its info
+path, `/-info/`, takes the browser's answer there, and passes it on to the IP lookup service for the
+browser's address. The scripts themselves come from the service, which the server asks for them once
+an hour at most, so an update to the check or to BotD reaches your site without a new Relatude.DB.
 
 ```csharp
-// rendering the page: a new visit id for every page view, kept with what is logged of it
-var visit = Guid.NewGuid();
-string tag = db.Services.IPLookup.GetBotScriptTag(visit);
-// <script async src="https://iplookup.relatude.com/botService.js" data-visit="…"></script>
+// in the page's head, or at the end of its body
+string tag = db.Services.IPLookup.GetInlineScriptTag();
+// <script>(function (root) { … })("/-info/");</script>, about 500 bytes
 ```
 
-The browser loads the script from the service, runs BotD, and reports to the service whether it is a
-bot, for its own address and for the visit. The code that logs the request asks for the visit a few
-seconds later, after the response has gone - from a background queue, say - and looks up many at once:
+| Route | What it is |
+|---|---|
+| `GET /-info/bot.js` | The bot check as a file, for `GetBotScriptTag()`: `<script async src="/-info/bot.js">` |
+| `GET /-info/botd.js?v=…` | Fingerprint's BotD (MIT), which the check imports. The version is in the address, so browsers keep it for a year |
+| `POST /-info/report?isBot=…` | The browser's answer, sent as a beacon so it goes even when the visitor leaves at once |
 
-```csharp
-var found = await db.Services.IPLookup.LookUpAsync(
-    queued.Select(r => new IPLookupRequest(r.Ip, r.UserAgent, r.Visit)).ToArray());
-foreach (var (request, visitor) in queued.Zip(found)) {
-    // visitor.IsBot, visitor.BotName, visitor.IsHuman
-}
-```
+- **The answer is for the address.** A bot's sticks: once one browser at an address is found to be
+  driven by a bot, everyone at that address is taken to be one, and a later report of no bot does not
+  undo it. An address in a bot's published network is a bot's whatever a browser there says. A report
+  also helps every other site that looks the address up.
+- **The tag is the same for every visitor**, so a page with it may be kept in an output cache.
+- **`GetInlineScriptTag` saves the request for `bot.js`.** After the first page, the browser has
+  `botd.js` in its cache, so a page view costs one request: the report. Use `GetBotScriptTag` for a
+  page whose Content-Security-Policy allows no inline script. Both take a `nonce` for a policy that
+  names one.
+- **Few reports reach the service.** The server passes an address's report on once in ten minutes, or
+  again when it turns out a bot, within a second and a thousand to a call. The reports of a visitor's
+  other page views say nothing new and are not sent.
+- **Behind a proxy or a load balancer**, call `app.UseForwardedHeaders()` before `UseRelatudeDB()`, so
+  the address is the browser's and not the proxy's. A report another site's page posts is refused.
+- **Timing.** The report comes a few hundred milliseconds after the page loads, so look a request up
+  a few seconds after it was served. A visitor's first page is "not known" until then.
+- **Where the scripts come from.** The server fetches them from the service, `GET /api/iplookup/botcheck`,
+  the first time a page asks for them, and keeps them in memory. After an hour, the copy it has is still
+  served while a new one is fetched in the background. While the service cannot be reached, the old
+  copy stays, and the service is left alone for a minute between tries.
+- **The first page after a start** has no scripts to write in yet, so `GetInlineScriptTag` gives the
+  `bot.js` tag instead, which works the same with one request more. Before the scripts have come at
+  all, `bot.js` and `botd.js` are answered 503, and the page goes without the check.
+  `GetBotCheckScriptsAsync()` fetches them ahead, for an application that wants them ready at start.
+- **`InfoUrlPath`** in the server's settings (Hosting) moves the routes; the tags follow it.
 
-- **The visit id matches the report to the page view** even when the browser reached the service by
-  another address than the site - IPv6 there and IPv4 here, or through a proxy - and it does not mix
-  up the people behind one office address. `Visit.ReportedFrom` is the address the report came from.
-- **`Visit.Reported` is false** until the report has come: a few hundred milliseconds after the page
-  loads in an ordinary browser. It stays false when scripts are off or blocked, and for a bot that
-  runs none. Ask again a little later for the visits not reported yet; the service keeps a report for
-  about an hour.
-- **Render the tag for each request**, never into a page kept in an output cache: every visitor of a
-  cached page would report for the same visit.
-- **A report also counts for its address**, for every site that looks the address up later
-  (`Ip.ConfirmedFromScript`). The visit's own report outweighs that.
-
-`IsBot` weighs the signs, the strongest first: a user agent that names a bot, an address in a bot's
-published network, the visit's bot check, and - when the visit has no report - what a browser at the
-address reported before. `BotName` names the bot by the strongest sign: "Googlebot", "google",
-BotD's kind of bot ("headless_chrome") or "Script". `IsHuman` is true when the bot check ran for the
-visit, found no bot, and nothing else says it is one. A visit that is neither has not been checked.
-
-The answers are not kept on your server: a lookup costs nothing, and what a visit's browser reported
-changes after the first question. `IPLookupSettings` takes `TypeName`, `ServiceUrl` and `ApiKey`, as
-the other services' settings do ([§34](#34-ai-services)). `ServiceUrl` is also where browsers load the
-bot check from, so a self-hosted service has to be on an address they reach. The admin UI's IP lookup
-test looks up addresses and icons, and bot checks the browser it runs in.
+The answers are not kept on your server: a lookup costs nothing, and what browsers report about an
+address changes. `IPLookupSettings` takes `TypeName`, `ServiceUrl` and `ApiKey`, as the other services'
+settings do ([§34](#34-ai-services)). Only the server calls `ServiceUrl`, so a self-hosted service may
+be on an address browsers cannot reach. The admin UI's IP lookup test looks up addresses and icons, and
+bot checks the browser it runs in through `/-info/`, inline or from `bot.js`.
 
 ---
 ---

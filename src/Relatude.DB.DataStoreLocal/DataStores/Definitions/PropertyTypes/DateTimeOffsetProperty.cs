@@ -19,8 +19,8 @@ internal class DateTimeOffsetProperty : ValueProperty<DateTimeOffset> {
     public DateTimeOffset MaxValue = DateTimeOffset.MaxValue;
     public override void ValidateValue(object value, INodeData node) {
         var v = (DateTimeOffset)value;
-        if (v > MaxValue) throw new Exception("Value is more than maximum value allowed. ");
-        if (v < MinValue) throw new Exception("Value is less than minimum value allowed. ");
+        if (v > MaxValue) throw ConstraintMessages.AboveMaximum(this, v, MaxValue);
+        if (v < MinValue) throw ConstraintMessages.BelowMinimum(this, v, MinValue);
     }
     public override bool SatisfyValueRequirement(object? value1, object? value2, ValueRequirement requirement) {
         var v1 = DateTimeOffsetPropertyModel.ForceValueType(value1, out _);

@@ -2265,22 +2265,12 @@ const sampleSites = ["relatude.com", "github.com", "www.microsoft.com"].join("\n
 /** What came back, with what it came back for. */
 type IPLookupRun =
   | { kind: "lookup"; result: IPLookupTestResult }
-  | { kind: "botcheck"; visit: string; script: IPLookupBotScript; seconds: number; result: IPLookupTestResult }
+  | { kind: "botcheck"; script: IPLookupBotScript; inline: boolean; seconds: number; result: IPLookupTestResult }
   | { kind: "icons"; icons: FaviconTestIcon[] };
 
 /** How long the bot check waits for the browser's report, and how often it asks whether it came. */
 const botCheckTimeoutMs = 10_000;
 const botCheckPollMs = 500;
-
-/** A new visit id: a random Guid, made by hand where randomUUID is not offered (a page that is neither https nor localhost). */
-function newVisitId(): string {
-  if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
-  const b = crypto.getRandomValues(new Uint8Array(16));
-  b[6] = (b[6] & 0x0f) | 0x40;
-  b[8] = (b[8] & 0x3f) | 0x80;
-  const h = Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
-  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
-}
 
 /**
  * Real lookups through the Relatude IP lookup service, so whoever set up the license can see what it
@@ -2288,10 +2278,12 @@ function newVisitId(): string {
  * check a page carries, and the icons of sites. The service charges nothing; it lets a license in by
  * its feature "iplookup".
  *
- * The bot check runs as it does on a page: the script from the service with a new visit id, BotD in
- * this browser, its report to the service, and then the visit looked up the way code logging the
- * request does - with the address and user agent this server saw the browser by - asked again every
- * half second until the report is there.
+ * The bot check runs as it does on a page, through this server alone: written into the page as
+ * GetInlineScriptTag writes it, or loaded from bot.js under the server's info path; BotD in this
+ * browser; its report to the server, which passes it on to the service for this browser's address;
+ * and then the address looked up the way code logging the request does - with the address and user
+ * agent this server saw the browser by - asked again every half second until a browser's report for
+ * it is there. An address checked within the last ten minutes shows its report at once.
  *
  * Laid out as the Translation test is: what to look up in a column on the left, and what came back in
  * the panel beside it.
@@ -2301,6 +2293,7 @@ function IPLookupTest({ credit, configuredUrl, allowed }: { credit: ReactNode; c
   const [input, setInput] = useState(sampleAddresses);
   const [userAgent, setUserAgent] = useState(() => navigator.userAgent);
   const [sites, setSites] = useState(sampleSites);
+  const [inline, setInline] = useState(true);
   const [busy, setBusy] = useState<IPLookupRun["kind"] | null>(null);
   const [run, setRun] = useState<IPLookupRun | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -2325,26 +2318,32 @@ function IPLookupTest({ credit, configuredUrl, allowed }: { credit: ReactNode; c
   const botCheck = () =>
     go("botcheck", async () => {
       const script = await fetchIPLookupBotScript(url);
-      const visit = newVisitId();
+      const asInline = inline;
       const started = performance.now();
       const element = document.createElement("script");
-      element.async = true;
-      element.src = script.url;
-      element.dataset.visit = visit;
-      const loaded = new Promise<void>((resolve, reject) => {
-        element.onload = () => resolve();
-        element.onerror = () => reject(new Error(`The bot check could not be loaded from ${script.url}.`));
-      });
+      let loaded: Promise<void>;
+      if (asInline) {
+        // runs as the element goes into the page, as it does in a page the server wrote it into
+        element.textContent = script.inlineScript;
+        loaded = Promise.resolve();
+      } else {
+        element.async = true;
+        element.src = script.scriptUrl;
+        loaded = new Promise<void>((resolve, reject) => {
+          element.onload = () => resolve();
+          element.onerror = () => reject(new Error(`The bot check could not be loaded from ${script.scriptUrl}.`));
+        });
+      }
       document.head.appendChild(element);
       try {
         await loaded;
-        const lookup = { ip: script.ip, userAgent: script.userAgent, visit };
+        const lookup = { ip: script.ip, userAgent: script.userAgent };
         for (;;) {
           await new Promise((r) => window.setTimeout(r, botCheckPollMs));
           const result = await runIPLookupTest({ serviceUrl: url, lookups: [lookup] });
-          if (result.results[0]?.visit?.reported) return { kind: "botcheck", visit, script, seconds: (performance.now() - started) / 1000, result };
+          if (result.results[0]?.ip?.confirmedFromScript) return { kind: "botcheck", script, inline: asInline, seconds: (performance.now() - started) / 1000, result };
           if (performance.now() - started > botCheckTimeoutMs)
-            throw new Error(`No report for visit ${visit} came within ${botCheckTimeoutMs / 1000} seconds: something kept BotD from running or reporting, such as a blocker. The browser's console says what.`);
+            throw new Error(`No report for ${script.ip ?? "this browser's address"} came within ${botCheckTimeoutMs / 1000} seconds: something kept BotD from running or reporting, or the server could not pass the report on. The browser's console, and the database's log, say what.`);
         }
       } finally {
         element.remove();
@@ -2391,11 +2390,15 @@ function IPLookupTest({ credit, configuredUrl, allowed }: { credit: ReactNode; c
                 className="action-button"
                 onClick={() => void botCheck()}
                 disabled={busy !== null || !allowed}
-                title="Run the bot check in this browser as a page carries it, then look up its visit as code logging the request does"
+                title="Run the bot check in this browser as a page carries it, then look up its address as code logging the request does"
               >
                 <IconRobot size={15} stroke={1.8} />
                 {busy === "botcheck" ? "Checking…" : "Bot check this browser"}
               </button>
+              <label className="license-toggle" title="Write the bot check into the page, as GetInlineScriptTag does, rather than load it from bot.js as GetBotScriptTag does">
+                <input type="checkbox" checked={inline} disabled={busy !== null} onChange={(e) => setInline(e.target.checked)} />
+                <span>Inline</span>
+              </label>
             </div>
           </section>
           <section className="panel">
@@ -2431,11 +2434,11 @@ function VisitorVerdict({ result }: { result: IPLookupResult }) {
 /** Why a lookup is judged as it is: each sign there is, in the order the verdict weighs them. */
 function visitorSigns(result: IPLookupResult): string[] {
   const signs: string[] = [];
-  const { ip, userAgent: ua, visit } = result;
+  const { ip, userAgent: ua } = result;
   if (ua?.isBot) signs.push(`user agent: ${ua.botName || "a bot"}`);
-  if (ip?.isBot && !ip.confirmedFromScript) signs.push(`network: ${ip.botName === "-" || !ip.botName ? "a bot's" : ip.botName}`);
-  if (visit) signs.push(visit.reported ? `bot check: ${visit.isBot ? visit.botKind || "a bot" : "no bot"}` : "bot check: no report");
-  if (ip?.confirmedFromScript) signs.push(`address reported ${ip.isBot ? "a bot" : "no bot"} before`);
+  if (ip?.isBot && ip.botName !== "Script") signs.push(`network: ${ip.botName === "-" || !ip.botName ? "a bot's" : ip.botName}`);
+  if (ip?.confirmedFromScript) signs.push(`bot check: ${ip.isBot && ip.botName === "Script" ? "a bot" : "no bot"} at this address`);
+  else if (ip) signs.push("bot check: no report for this address");
   return signs;
 }
 
@@ -2456,7 +2459,7 @@ function IPLookupView({ run, busy, error }: { run: IPLookupRun | null; busy: IPL
     run?.kind === "lookup"
       ? `${run.result.results.length} ${run.result.results.length === 1 ? "address" : "addresses"} · ${Math.round(run.result.milliseconds).toLocaleString()} ms from this server and back`
       : run?.kind === "botcheck"
-        ? `visit ${run.visit} · reported within ${run.seconds.toFixed(1)} s · the bot check from ${run.script.url}`
+        ? `reported within ${run.seconds.toFixed(1)} s · ${run.inline ? "the bot check written into the page" : "the bot check from " + run.script.scriptUrl}, version ${run.script.version} from the service, reporting to this server`
         : run?.kind === "icons"
           ? `${run.icons.length} ${run.icons.length === 1 ? "site" : "sites"} · ${run.icons.filter((i) => i.url).length} with an icon`
           : busy
@@ -2521,9 +2524,6 @@ function IPLookupView({ run, busy, error }: { run: IPLookupRun | null; busy: IPL
                       <span className="license-muted">{visitorSigns(r).join(" · ") || "no sign of a bot"}</span>
                     </span>
                     <span className="license-translation-alternatives license-muted">{agent ?? (r.userAgent ? "" : "no user agent sent")}</span>
-                    {r.visit?.reported && r.visit.reportedFrom && r.visit.reportedFrom !== address && (
-                      <span className="license-translation-alternatives license-muted">the browser reported from {r.visit.reportedFrom}</span>
-                    )}
                   </div>
                 </div>
               );

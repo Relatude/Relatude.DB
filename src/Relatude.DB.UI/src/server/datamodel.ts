@@ -264,7 +264,8 @@ export type FieldEditor =
   | "sourceRef"
   | "stringList"
   | "intList"
-  | "color";
+  | "color"
+  | "regex";
 
 export interface FieldDef {
   path: string;
@@ -431,6 +432,42 @@ export function discardDraft(storeId: string): Promise<void> {
 
 export function validateDraft(storeId: string, model: ModelJson, dryRun: boolean): Promise<Validation> {
   return send<Validation>("datamodel-validate", { storeId, model, dryRun });
+}
+
+export interface PatternTestRequest {
+  storeId: string;
+  pattern: string;
+  values: string[];
+  trim: boolean;
+  caseTransform: string;
+  legalCharacters: string | null;
+  propertyId?: string;
+  typeId?: string;
+}
+
+export interface PatternTestResult {
+  value: string;
+  stored: string;
+  changed: boolean;
+  matches: boolean;
+  reason: string | null;
+}
+
+export interface StoredValuesCheck {
+  checked: number;
+  total: number;
+  failing: number;
+  examples: { value: string; reason: string | null }[];
+}
+
+export interface PatternTest {
+  error: string | null;
+  results: PatternTestResult[];
+  stored: StoredValuesCheck | null;
+}
+
+export function testPattern(request: PatternTestRequest): Promise<PatternTest> {
+  return send<PatternTest>("datamodel-pattern-test", request);
 }
 
 export function activateDraft(storeId: string, model: ModelJson, acceptWarnings: boolean, note?: string | null): Promise<ActivationResult> {

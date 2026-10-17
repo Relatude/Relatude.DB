@@ -23,14 +23,16 @@ public sealed class SettingsOverlay {
 
     readonly JsonObject _overlay;
     readonly string _sectionName;
+    readonly string? _label;
     readonly Action<string> _logInfo;
     readonly Action<string> _logWarning;
     readonly List<Override> _overrides = [];
     readonly Dictionary<string, JsonNode?> _overriddenByPath = new(StringComparer.OrdinalIgnoreCase);
 
-    SettingsOverlay(JsonObject overlay, string sectionName, Action<string> logInfo, Action<string> logWarning) {
+    SettingsOverlay(JsonObject overlay, string sectionName, string? label, Action<string> logInfo, Action<string> logWarning) {
         _overlay = overlay;
         _sectionName = sectionName;
+        _label = label;
         _logInfo = logInfo;
         _logWarning = logWarning;
     }
@@ -40,12 +42,26 @@ public sealed class SettingsOverlay {
 
     /// <summary>Reads the section and validates it against the settings types. Returns null when the
     /// section is absent or holds nothing usable. Unrecognized keys, read-only keys and values that do
-    /// not parse are reported through the warning callback and skipped.</summary>
+    /// not parse are reported through the warning callback and skipped. The custom settings the
+    /// application registers have a key of their own in the section (<see cref="CustomSettingsCatalog.ConfigurationKey"/>),
+    /// which is theirs to read (<see cref="ForCustomSettings"/>) and passed over here.</summary>
     public static SettingsOverlay? Create(IConfiguration configuration, string sectionName, Action<string> logInfo, Action<string> logWarning) {
         var section = configuration.GetSection(sectionName);
         if (section.Value == null && !section.GetChildren().Any()) return null;
         var overlay = convertObject(section, typeof(RelatudeDBServerSettings), sectionName, logWarning);
-        return overlay == null ? null : new SettingsOverlay(overlay, sectionName, logInfo, logWarning);
+        return overlay == null ? null : new SettingsOverlay(overlay, sectionName, null, logInfo, logWarning);
+    }
+
+    /// <summary>
+    /// The overlay of one set of custom settings: <paramref name="section"/> - RelatudeDB:CustomSettings:webshop,
+    /// say - read against <paramref name="settingsType"/> the way <see cref="Create"/> reads the RelatudeDB
+    /// section against the server settings. Null when the section holds nothing usable.
+    /// <paramref name="label"/> names the set in what is logged.
+    /// </summary>
+    public static SettingsOverlay? ForCustomSettings(IConfigurationSection section, Type settingsType, string label, Action<string> logInfo, Action<string> logWarning) {
+        if (section.Value == null && !section.GetChildren().Any()) return null;
+        var overlay = convertObject(section, settingsType, section.Path, logWarning);
+        return overlay == null ? null : new SettingsOverlay(overlay, section.Path, label, logInfo, logWarning);
     }
 
     public bool HasOverrides => _overrides.Count > 0;
@@ -53,20 +69,28 @@ public sealed class SettingsOverlay {
     /// <summary>Returns the file settings with the section merged in, and records every key that
     /// actually changed so it can be stripped again before saving.</summary>
     public RelatudeDBServerSettings Apply(RelatudeDBServerSettings fileSettings) {
-        _overrides.Clear();
-        _overriddenByPath.Clear();
         var root = JsonSerializer.SerializeToNode(fileSettings, LocalSettingsLoaderFile.JsonOptions) as JsonObject
             ?? throw new Exception("Could not serialize the server settings.");
+        if (!Apply(root)) return fileSettings;
+        return root.Deserialize<RelatudeDBServerSettings>(LocalSettingsLoaderFile.JsonOptions)
+            ?? throw new Exception("Could not read the merged server settings.");
+    }
+
+    /// <summary>The same as <see cref="Apply(RelatudeDBServerSettings)"/>, in place on settings in the form
+    /// they serialize to - of any settings type the overlay was read against. Returns true when anything
+    /// changed.</summary>
+    public bool Apply(JsonObject root) {
+        _overrides.Clear();
+        _overriddenByPath.Clear();
         mergeObject(root, _overlay, []);
-        if (_overrides.Count == 0) return fileSettings;
-        _logInfo("Configuration overrides applied: " + string.Join(", ", _overrides.Select(o => o.Display)));
+        if (_overrides.Count == 0) return false;
+        _logInfo("Configuration overrides applied" + (_label == null ? "" : " to " + _label) + ": " + string.Join(", ", _overrides.Select(o => o.Display)));
         foreach (var o in _overrides) {
             if (o.Path[^1].Property is "Id" or "DefaultStoreId") {
                 _logWarning("Configuration override \"" + o.Display + "\" changes an identity key. This re-identifies the object instead of reconfiguring it, and can orphan existing data.");
             }
         }
-        return root.Deserialize<RelatudeDBServerSettings>(LocalSettingsLoaderFile.JsonOptions)
-            ?? throw new Exception("Could not read the merged server settings.");
+        return true;
     }
 
     /// <summary>The settings with the section merged in, without recording or reporting anything - for a
@@ -261,6 +285,8 @@ public sealed class SettingsOverlay {
         var dictionaryValueType = getDictionaryValueType(type);
         foreach (var child in section.GetChildren()) {
             var childPath = configPath + ":" + child.Key;
+            // the application's own settings, read by the overlays of the sets it registers
+            if (type == typeof(RelatudeDBServerSettings) && string.Equals(child.Key, CustomSettingsCatalog.ConfigurationKey, StringComparison.OrdinalIgnoreCase)) continue;
             if (dictionaryValueType != null) {
                 var value = convert(child, dictionaryValueType, childPath, warn);
                 if (value != null) result[child.Key] = value;

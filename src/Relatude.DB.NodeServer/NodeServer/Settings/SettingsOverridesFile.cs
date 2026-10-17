@@ -85,7 +85,7 @@ public sealed class SettingsOverridesFile {
         var read = readFile(location);
         effective = fileSettings;
         if (read == null) return new SettingsOverridesFile(location, baseJson, new JsonObject());
-        var patch = normalizeObject(read, typeof(RelatudeDBServerSettings), "", warn);
+        var patch = normalizeObject(read, typeof(RelatudeDBServerSettings), "", FileName, warn);
         var merged = (JsonObject)baseJson.DeepClone();
         SettingsPatch.Merge(merged, patch, msg => warn(FileName + ": " + msg));
         RelatudeDBServerSettings applied;
@@ -251,7 +251,12 @@ public sealed class SettingsOverridesFile {
     // name, so a patch merges onto the serialized settings key for key. A value is checked against the
     // setting it is for but kept as written; the merge and the round trip through the settings type
     // turn it into the form the server writes.
-    static JsonObject normalizeObject(JsonObject node, Type type, string path, Action<string> warn) {
+    /// <summary>A patch read from a file written by hand, keys matched to <paramref name="type"/> as described
+    /// above; what does not fit is reported through <paramref name="warn"/>, prefixed with <paramref name="fileName"/>,
+    /// and left out. Used for the overrides files of custom settings too.</summary>
+    internal static JsonObject Normalize(JsonObject node, Type type, string fileName, Action<string> warn) => normalizeObject(node, type, "", fileName, warn);
+
+    static JsonObject normalizeObject(JsonObject node, Type type, string path, string fileName, Action<string> warn) {
         var result = new JsonObject();
         foreach (var (key, value) in node) {
             if (key == SettingsPatch.ReplaceMarker) {
@@ -261,26 +266,26 @@ public sealed class SettingsOverridesFile {
             var childPath = path.Length == 0 ? key : path + "." + key;
             var property = type.GetProperty(key, BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
             if (property == null || property.GetIndexParameters().Length > 0) {
-                warn(FileName + ": \"" + childPath + "\" does not match any setting - ignored.");
+                warn(fileName + ": \"" + childPath + "\" does not match any setting - ignored.");
                 continue;
             }
             if (property.SetMethod?.IsPublic != true) {
-                warn(FileName + ": \"" + childPath + "\" is a read-only setting - ignored.");
+                warn(fileName + ": \"" + childPath + "\" is a read-only setting - ignored.");
                 continue;
             }
-            if (normalizeValue(value, property.PropertyType, childPath, warn, out var normalized)) result[property.Name] = normalized;
+            if (normalizeValue(value, property.PropertyType, childPath, fileName, warn, out var normalized)) result[property.Name] = normalized;
         }
         return result;
     }
 
-    static bool normalizeValue(JsonNode? value, Type type, string path, Action<string> warn, out JsonNode? result) {
+    static bool normalizeValue(JsonNode? value, Type type, string path, string fileName, Action<string> warn, out JsonNode? result) {
         var valueType = Nullable.GetUnderlyingType(type) ?? type;
         if (value is JsonObject obj && isSettingsObject(valueType)) {
-            result = normalizeObject(obj, valueType, path, warn);
+            result = normalizeObject(obj, valueType, path, fileName, warn);
             return true;
         }
         if (value is JsonArray array && valueType.IsArray && isSettingsObject(valueType.GetElementType()!)) {
-            result = normalizeArray(array, valueType.GetElementType()!, path, warn);
+            result = normalizeArray(array, valueType.GetElementType()!, path, fileName, warn);
             return true;
         }
         try {
@@ -288,17 +293,17 @@ public sealed class SettingsOverridesFile {
             result = value?.DeepClone();
             return true;
         } catch (Exception) {
-            warn(FileName + ": \"" + path + "\" does not hold a valid " + valueType.Name + " - ignored.");
+            warn(fileName + ": \"" + path + "\" does not hold a valid " + valueType.Name + " - ignored.");
             result = null;
             return false;
         }
     }
 
-    static JsonArray normalizeArray(JsonArray array, Type elementType, string path, Action<string> warn) {
+    static JsonArray normalizeArray(JsonArray array, Type elementType, string path, string fileName, Action<string> warn) {
         var result = new JsonArray();
         for (var i = 0; i < array.Count; i++) {
             if (array[i] is not JsonObject element) {
-                warn(FileName + ": \"" + path + "[" + i + "]\" is not an object - ignored.");
+                warn(fileName + ": \"" + path + "[" + i + "]\" is not an object - ignored.");
                 continue;
             }
             var fields = new JsonObject();
@@ -307,7 +312,7 @@ public sealed class SettingsOverridesFile {
                 if (key is SettingsPatch.AddedMarker or SettingsPatch.RemovedMarker) markers.Add((key, value?.DeepClone()));
                 else fields[key] = value?.DeepClone();
             }
-            var normalized = normalizeObject(fields, elementType, path + "[" + i + "]", warn);
+            var normalized = normalizeObject(fields, elementType, path + "[" + i + "]", fileName, warn);
             foreach (var (key, value) in markers) normalized[key] = value;
             result.Add(normalized);
         }

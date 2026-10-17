@@ -16,8 +16,8 @@ internal class TimeSpanProperty : ValueProperty<TimeSpan>, IPropertyContainsValu
     public TimeSpan MaxValue = TimeSpan.MaxValue;
     public override void ValidateValue(object value, INodeData node) {
         var v = (TimeSpan)value;
-        if (v > MaxValue) throw new Exception("Value is more than maximum value allowed. ");
-        if (v < MinValue) throw new Exception("Value is less than minimum value allowed. ");
+        if (v > MaxValue) throw ConstraintMessages.AboveMaximum(this, v, MaxValue);
+        if (v < MinValue) throw ConstraintMessages.BelowMinimum(this, v, MinValue);
     }
     public static object GetValue(byte[] bytes) => new TimeSpan(BitConverter.ToInt64(bytes, 0));
 

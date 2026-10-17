@@ -467,7 +467,7 @@ internal class Scheduler {
         var now = DateTime.UtcNow;
         if (now.Subtract(_lastAutoBackup).TotalMinutes < 1) return; // no need to check more than once per minute
         try {
-            backupIfDue();
+            backupIfDue(now);
         } catch (Exception err) {
             _db.LogError("Backup failed: ", err);
         }
@@ -478,97 +478,96 @@ internal class Scheduler {
         }
         _lastAutoBackup = DateTime.UtcNow;
     }
-    /// <summary>One pass of the automatic backup, without waiting for the minute between checks. For the tests.</summary>
-    internal void RunAutoBackupPass() {
-        backupIfDue();
-        DeleteOlderBackups();
+    /// <summary>One pass of the automatic backup, without waiting for the minute between checks. For the tests,
+    /// which can say what time it is.</summary>
+    internal void RunAutoBackupPass(DateTime? now = null) {
+        backupIfDue(now ?? DateTime.UtcNow);
+        DeleteOlderBackups(now);
+    }
+
+    // The generations of the retention settings, finest first. A generation keeps the FIRST backup of each of
+    // its last N periods (N = its copies kept), and both the automatic backup and the retention pass go by
+    // these same period boundaries - see periodStart.
+    enum BackupGeneration { Hourly, Daily, Weekly, Monthly, Yearly }
+    int copiesKept(BackupGeneration generation) => generation switch {
+        BackupGeneration.Hourly => _s.NoHourlyBackUps,
+        BackupGeneration.Daily => _s.NoDailyBackUps,
+        BackupGeneration.Weekly => _s.NoWeeklyBackUps,
+        BackupGeneration.Monthly => _s.NoMonthlyBackUps,
+        _ => _s.NoYearlyBackUps,
+    };
+    // the start of the hour, day, week (Monday), month or year a moment falls in
+    static DateTime periodStart(DateTime t, BackupGeneration generation) => generation switch {
+        BackupGeneration.Hourly => new DateTime(t.Year, t.Month, t.Day, t.Hour, 0, 0, t.Kind),
+        BackupGeneration.Daily => t.Date,
+        BackupGeneration.Weekly => t.Date.AddDays(-(((int)t.DayOfWeek + 6) % 7)), // days since Monday, Sunday (0) => 6 days back
+        BackupGeneration.Monthly => new DateTime(t.Year, t.Month, 1, 0, 0, 0, t.Kind),
+        _ => new DateTime(t.Year, 1, 1, 0, 0, 0, t.Kind),
+    };
+    static DateTime periodsAgo(DateTime now, BackupGeneration generation, int count) => generation switch {
+        BackupGeneration.Hourly => now.AddHours(-count),
+        BackupGeneration.Daily => now.AddDays(-count),
+        BackupGeneration.Weekly => now.AddDays(-7 * count),
+        BackupGeneration.Monthly => now.AddMonths(-count),
+        _ => now.AddYears(-count),
+    };
+    /// <summary>
+    /// How often the automatic backup runs: once in each period of the finest generation that keeps any
+    /// copies. Every hour while "Hourly copies kept" is above 0. With it at 0 there are no hourly backups at
+    /// all, only one a day - or one a week, a month or a year when the daily, weekly and monthly copies kept
+    /// are 0 as well. Null, no automatic backup at all, when every generation keeps 0.
+    /// A backup taken more often than the finest generation keeps would be deleted by the next retention
+    /// pass, a minute later, and its period would then have none again: a full backup written and deleted
+    /// every other minute.
+    /// </summary>
+    BackupGeneration? backupCadence() {
+        foreach (var generation in Enum.GetValues<BackupGeneration>()) {
+            if (copiesKept(generation) > 0) return generation;
+        }
+        return null;
     }
     // the backups are looked for, written and pruned in the backup provider (IoBackup), which falls
     // back to the database's own provider when none is configured
-    void backupIfDue() {
-        var now = DateTime.UtcNow;
-        var files = FileKeyUtility.WAL_GetAllBackUpFileKeys(_db.IOBackup).Select(f => new { FileKey = f, Timestamp = FileKeyUtility.WAL_GetBackUpDateTimeFromFileKey(f) });
-        var filesInCurrentHour = files.Where(f => f.Timestamp.Date == now.Date && f.Timestamp.Hour == now.Hour).Select(f => f.FileKey);
-        if (filesInCurrentHour.Count() == 0) {
-            var sw = Stopwatch.StartNew();
-            var fileKey = FileKeyUtility.WAL_GetFileKeyForBackup(now, false);
-            //_db.RewriteStore(false, fileKey, _db.IOBackup);
-            var task = new RewriteTask() {
-                HotSwapToNewFile = false,
-                DeleteOldDbFilesAfterHotSwap = false,
-                NewLogFileKey = fileKey,
-                IO = _db.IOBackup,
-                Truncate = _s.TruncateBackups,
-                IsBackup = true
-            };
-            _db.EnqueueTask(task);
-        }
+    void backupIfDue(DateTime now) {
+        if (backupCadence() is not BackupGeneration cadence) return; // every generation keeps 0: no automatic backups
+        var period = periodStart(now, cadence);
+        // any backup in this period counts, one taken by hand or marked keep included
+        var hasOne = FileKeyUtility.WAL_GetAllBackUpFileKeys(_db.IOBackup).Any(f => periodStart(FileKeyUtility.WAL_GetBackUpDateTimeFromFileKey(f), cadence) == period);
+        if (hasOne) return;
+        var task = new RewriteTask() {
+            HotSwapToNewFile = false,
+            DeleteOldDbFilesAfterHotSwap = false,
+            NewLogFileKey = FileKeyUtility.WAL_GetFileKeyForBackup(now, false),
+            IO = _db.IOBackup,
+            Truncate = _s.TruncateBackups,
+            IsBackup = true
+        };
+        _db.EnqueueTask(task);
     }
-    /// <summary>Deletes the backups the retention settings do not keep (hourly, daily, weekly, monthly and yearly
-    /// copies kept); one marked keep is never deleted. Returns how many it deleted. Also the built-in named
-    /// task "delete-old-backups".</summary>
-    internal int DeleteOlderBackups() {
-        var now = DateTime.UtcNow;
+    /// <summary>Deletes the backups the retention settings do not keep: of each generation (hourly, daily,
+    /// weekly, monthly and yearly copies kept) the first backup of each of its last N periods is kept, N being
+    /// the copies kept, so a generation at 0 keeps nothing - and with every generation at 0 every backup goes.
+    /// One marked keep is never deleted, nor is one still being written. Returns how many it deleted. Also the
+    /// built-in named task "delete-old-backups".</summary>
+    internal int DeleteOlderBackups(DateTime? at = null) {
+        var now = at ?? DateTime.UtcNow;
         // keys are handled in their joined form here, so they can live in hash sets and set operations
-        var files = FileKeyUtility.WAL_GetAllBackUpFileKeys(_db.IOBackup).Select(f => new { FileKey = f.AsKeyString(), Timestamp = FileKeyUtility.WAL_GetBackUpDateTimeFromFileKey(f) });
-        files = files.Where(f => FileKeyUtility.WAL_KeepForever(f.FileKey.SplitKey()) == false); // do not delete files that are marked to keep forever
+        var files = FileKeyUtility.WAL_GetAllBackUpFileKeys(_db.IOBackup)
+            .Where(f => FileKeyUtility.WAL_KeepForever(f) == false) // do not delete files that are marked to keep forever
+            .Select(f => new { FileKey = f.AsKeyString(), Timestamp = FileKeyUtility.WAL_GetBackUpDateTimeFromFileKey(f) })
+            .ToArray();
         HashSet<string> filesToKeep = new();
-
-        // based on yearly backups, keep one per year:
-        var isFileInYear = (DateTime file, DateTime now, int yearsAgo) => {
-            var referenceDate = now.AddYears(-yearsAgo);
-            return file.Year == referenceDate.Year;
-        };
-        for (int i = 0; i < _s.NoYearlyBackUps; i++) {
-            var filesInYear = files.Where(f => isFileInYear(f.Timestamp, now, i)).Select(f => f.FileKey);
-            var bestFileToKeep = filesInYear.OrderBy(f => f).FirstOrDefault();
-            if (bestFileToKeep != null) filesToKeep.Add(bestFileToKeep);
+        // asked after the listing: a backup that starts after it is not in the list, and one that finished in
+        // between is a whole file the rules below can decide about
+        if (_db.FileKeyBeingWritten is string[] writing) filesToKeep.Add(writing.AsKeyString());
+        foreach (var generation in Enum.GetValues<BackupGeneration>()) {
+            for (int i = 0; i < copiesKept(generation); i++) {
+                var period = periodStart(periodsAgo(now, generation, i), generation);
+                var first = files.Where(f => periodStart(f.Timestamp, generation) == period).Select(f => f.FileKey).OrderBy(f => f).FirstOrDefault();
+                if (first != null) filesToKeep.Add(first);
+            }
         }
-
-        // based on monthly backups, keep one per month:
-        var isFileInMonth = (DateTime file, DateTime now, int monthsAgo) => {
-            var referenceDate = now.AddMonths(-monthsAgo);
-            return file.Year == referenceDate.Year && file.Month == referenceDate.Month;
-        };
-        for (int i = 0; i < _s.NoMonthlyBackUps; i++) {
-            var filesInMonth = files.Where(f => isFileInMonth(f.Timestamp, now, i)).Select(f => f.FileKey);
-            var bestFileToKeep = filesInMonth.OrderBy(f => f).FirstOrDefault();
-            if (bestFileToKeep != null) filesToKeep.Add(bestFileToKeep);
-        }
-
-        // based on weekly backups, keep one per week
-        var isFileInWeek = (DateTime file, DateTime now, int weeksAgo) => {
-            var referenceDate = now.AddDays(-7 * weeksAgo);
-            var monday = referenceDate.Date.AddDays(-(((int)referenceDate.DayOfWeek + 6) % 7)); // days since Monday, Sunday (0) => 6 days back
-            var nextMonday = monday.AddDays(7);
-            return file.Date >= monday && file.Date < nextMonday;
-        };
-        for (int i = 0; i < _s.NoWeeklyBackUps; i++) {
-            var filesInWeek = files.Where(f => isFileInWeek(f.Timestamp, now, i)).Select(f => f.FileKey);
-            var bestFileToKeep = filesInWeek.OrderBy(f => f).FirstOrDefault();
-            if (bestFileToKeep != null) filesToKeep.Add(bestFileToKeep);
-        }
-        // based on daily backups, keep one per day
-        var isFileFromDay = (DateTime file, DateTime now, int daysAgo) => {
-            return file.Date == now.Date.AddDays(-daysAgo);
-        };
-        for (int i = 0; i < _s.NoDailyBackUps; i++) {
-            var filesInDay = files.Where(f => isFileFromDay(f.Timestamp, now, i)).Select(f => f.FileKey);
-            var bestFileToKeep = filesInDay.OrderBy(f => f).FirstOrDefault();
-            if (bestFileToKeep != null) filesToKeep.Add(bestFileToKeep);
-        }
-        // based on hourly backups, keep one per hour, not really needed, but just in case more than one backup per hour exists
-        var isFileFromHour = (DateTime file, DateTime now, int hoursAgo) => {
-            var referenceDate = now.AddHours(-hoursAgo);
-            if (file.Date != referenceDate.Date) return false;
-            return file.Hour == referenceDate.Hour;
-        };
-        for (int i = 0; i < _s.NoHourlyBackUps; i++) {
-            var filesInHour = files.Where(f => isFileFromHour(f.Timestamp, now, i)).Select(f => f.FileKey);
-            var bestFileToKeep = filesInHour.OrderBy(f => f).FirstOrDefault();
-            if (bestFileToKeep != null) filesToKeep.Add(bestFileToKeep);
-        }
-        var filesToDelete = files.Select(f => f.FileKey).Except(filesToKeep).ToArray(); // the opoosite of keep
+        var filesToDelete = files.Select(f => f.FileKey).Except(filesToKeep).ToArray(); // the opposite of keep
         foreach (var f in filesToDelete) {
             _db.LogInfo("Deleting: " + f);
             _db.IOBackup.DeleteFileIfItExists(f.SplitKey());

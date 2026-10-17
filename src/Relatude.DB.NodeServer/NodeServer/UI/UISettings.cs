@@ -47,6 +47,7 @@ sealed partial class UISettings {
         commands.Register("settings-ai-models", ctx => aiModels(ctx.Payload<AiModelsPayload>()));
         registerOverrides(commands);
         registerSecrets(commands);
+        registerCustom(commands);
     }
 
     // ---- the models an AI service publishes ----
@@ -238,17 +239,30 @@ sealed partial class UISettings {
 
     object buildSetting(SettingDefinition definition, Type rootType, object root, Guid? containerId, string prefix) {
         var path = prefix + definition.Path;
-        var description = SettingsAccessor.Describe(rootType, path);
-        var value = SettingsAccessor.Read(root, path);
         JsonNode? configured = null;
         var overlay = _server.ConfigurationOverlay;
         var fullPath = SettingsOverlay.OverridePath(containerId, path);
         var overridden = overlay != null && overlay.IsOverridden(fullPath, out configured);
         var codeSet = !overridden && _server.IsSetByCode(fullPath);
-        var isSecret = definition.Secret;
         var file = _server.OverridesFile;
         var inOverrides = file?.ValueEntryFor(fullPath) != null;
         var fileValue = inOverrides ? file!.FileValue(fullPath) : null;
+        return settingView(definition, rootType, root, prefix, new SettingMarks(overridden, configured, codeSet, inOverrides, fileValue));
+    }
+
+    /// <summary>Where a setting's value comes from, beside the value itself: whether configuration decides
+    /// it and to what, whether the application's code does, and whether THIS SERVER holds it and what
+    /// SHARED has instead.</summary>
+    sealed record SettingMarks(bool Overridden, JsonNode? Configured, bool CodeSet, bool InOverrides, JsonNode? FileValue);
+
+    /// <summary>One setting as the page shows it, for any settings object: the server's, a database's or a
+    /// set of custom settings, whose layers say what <paramref name="marks"/> holds.</summary>
+    object settingView(SettingDefinition definition, Type rootType, object root, string prefix, SettingMarks marks) {
+        var path = prefix + definition.Path;
+        var description = SettingsAccessor.Describe(rootType, path);
+        var value = SettingsAccessor.Read(root, path);
+        var (overridden, configured, codeSet, inOverrides, fileValue) = marks;
+        var isSecret = definition.Secret;
         return new {
             Path = path,
             definition.Label,

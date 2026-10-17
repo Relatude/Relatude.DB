@@ -123,14 +123,25 @@ public abstract class PropertyAttribute : Attribute {
     MinWordLength = 3,
     MaxWordLength = 30,
     LegalValues = new[] { "draft", "published", "cancelled" },
+    LegalCharacters = "abcdefghijklmnopqrstuvwxyz0123456789-", // every character must be one of these
     RegularExpression = @"^[a-z0-9-]+$",
+    RegularExpressionMessage = "Use lower case letters, digits and dashes", // the error text when the pattern refuses
     UniqueValues = true,
+    CaseSensitive = false,                     // default: "Ole" and "ole" collide under UniqueValues
     IgnoreDuplicateEmptyValues = true,         // allow many empty values under UniqueValues
+    Trim = true,                               // strip white space at both ends before the rules run
+    CaseTransform = CaseTransform.ToLowerCase, // NoTransform | ToLowerCase | ToUpperCase, after Trim
     NotFacet = false,                          // exclude from faceting even when indexed
     DefaultValue = ""
 )]
 public string Slug { get; set; } = string.Empty;
 ```
+
+`Trim` and `CaseTransform` rewrite the value before the rules are checked and before it is stored;
+queries are not rewritten, so normalise query input the same way. `CaseSensitive` only affects the
+unique check - the value is still stored and queried as written. A refused value throws
+`ValueConstraintException` with a message fit to show a user (`PostCode "12" is not valid: Enter four digits.`).
+`CaseTransform` is in `Relatude.DB.Datamodels.Properties`.
 
 Use `[HtmlProperty]` for rich text so markup is stripped before word indexing:
 

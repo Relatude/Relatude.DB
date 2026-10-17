@@ -193,6 +193,7 @@ public partial class RelatudeDBServer {
             if (file.MoveTo(next)) {
                 Log("The overrides file follows the default database: moved from " + from + " to " + next.Display + ".");
                 shareOverridesFileProvider();
+                customSettingsFollowOverridesFile(next);
             }
         } catch (Exception err) {
             startupWarning(Defaults.SettingsFileName + " now keeps the default database somewhere else, but the overrides file could not be moved"

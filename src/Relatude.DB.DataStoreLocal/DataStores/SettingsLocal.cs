@@ -64,6 +64,10 @@ public class SettingsLocal {
     public int AutoSaveIndexStatesActionCountUpperLimit { get; set; } = 200000;
 
     public bool AutoBackUp { get; set; } = false;
+    // Copies kept per generation: the first backup of each of the last N hours, days, weeks, months and years.
+    // The automatic backup runs once per period of the finest generation above 0 - hourly by default; with
+    // NoHourlyBackUps = 0 no hourly backups are taken at all, only daily ones (weekly when NoDailyBackUps is 0
+    // too, and so on). With all five at 0 there is no automatic backup. See Scheduler.backupCadence.
     public int NoHourlyBackUps { get; set; } = 10;
     public int NoDailyBackUps { get; set; } = 10;
     public int NoWeeklyBackUps { get; set; } = 4;

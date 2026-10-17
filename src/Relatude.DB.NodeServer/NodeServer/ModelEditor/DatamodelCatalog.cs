@@ -24,7 +24,7 @@ public static class DatamodelCatalog {
         public required string Label { get; init; }
         public required string Help { get; init; }
         /// <summary>text, textarea, integer, number, toggle, tristate (a bool that may be unset), choice,
-        /// guid, typeRef, typeRefs, relationRef, propertyRef, sourceRef, stringList, intList.</summary>
+        /// guid, typeRef, typeRefs, relationRef, propertyRef, sourceRef, stringList, intList, regex.</summary>
         public required string Editor { get; init; }
         public required string Group { get; init; }
         public int Order { get; init; }
@@ -137,7 +137,12 @@ public static class DatamodelCatalog {
         ["MaxWordLength"] = new() { Label = "Longest indexed word", Help = "Words with more characters are left out of the word index. Does not limit the value itself.", Group = "Text search", Order = 11 },
         ["IgnoreDuplicateEmptyValues"] = new() { Label = "Empty values may repeat", Help = "With unique values on, lets several nodes hold an empty value.", Group = "Constraints", Order = 5 },
         ["StringType"] = new() { Label = "Content", Help = "What kind of text the value holds, for editors and indexing.", Group = "Constraints", Order = 4 },
-        ["RegularExpression"] = new() { Label = "Pattern", Help = "A regular expression the value has to match.", Group = "Constraints", Order = 6 },
+        ["RegularExpression"] = new() { Label = "Pattern", Help = "A regular expression the value has to match. Pick a ready-made pattern (email, phone number, post code...) and adjust it, or write your own and try it on example values.", Editor = "regex", Group = "Constraints", Order = 6 },
+        ["RegularExpressionMessage"] = new() { Label = "Pattern message", Help = "What a person is told when a value does not match the pattern, e.g. \"Enter a valid email address\". Empty shows the pattern itself.", Group = "Constraints", Order = 7 },
+        ["LegalCharacters"] = new() { Label = "Legal characters", Help = "The characters a value may contain, written one after another, e.g. abcdefghijklmnopqrstuvwxyz0123456789-. A value with any other character is refused. Empty allows every character.", Group = "Constraints", Order = 8 },
+        ["CaseSensitive"] = new() { Label = "Case-sensitive unique", Help = "With unique values on, tells values apart by upper and lower case. Off, \"Ole\" and \"ole\" count as the same value, so only one node can have it. The value is stored as written either way.", Group = "Constraints", Order = 5 },
+        ["Trim"] = new() { Label = "Trim", Help = "Removes spaces, tabs and line breaks from the start and end of every value written, before the value is checked.", Group = "Constraints", Order = 11 },
+        ["CaseTransform"] = new() { Label = "Change case", Help = "Turns every value written into lower case or upper case, after trimming and before the value is checked. Useful for email addresses and codes.", Group = "Constraints", Order = 12 },
         ["MinLength"] = new() { Label = "Minimum length", Help = "The fewest characters a value may have; a shorter value is refused on write. 1 makes a value required. 0 for no limit.", Group = "Constraints", Order = 2 },
         ["MaxLength"] = new() { Label = "Maximum length", Help = "The most characters a value may have; a longer value is refused on write. Leave at the maximum value for no limit.", Group = "Constraints", Order = 3 },
         ["DefaultValue"] = new() { Label = "Default value", Help = "The value a new node starts with.", Order = 2 },

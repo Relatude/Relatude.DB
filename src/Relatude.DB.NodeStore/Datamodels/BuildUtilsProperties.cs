@@ -84,8 +84,8 @@ internal static class BuildUtilsProperties {
             throw new NotSupportedException("The type " + valueType.GetCSharpName() + " of member \"" + m.DeclaringType?.FullName + "." + m.Name
                 + "\" is not supported as a stored property. Mark the member with [Exclude] if it should not be stored. ");
         }
-        if (p is StringPropertyModel sp && sp.RegularExpression != null && !isValidRegularExpression(sp.RegularExpression, out var regexError)) {
-            throw new Exception("The RegularExpression of the member \"" + m.DeclaringType?.FullName + "." + m.Name + "\" is not a valid regular expression: " + regexError);
+        if (p is StringPropertyModel sp && RegularExpressionErrors.Validate(sp.RegularExpression) is string regexError) {
+            throw new Exception("The RegularExpression of the member \"" + m.DeclaringType?.FullName + "." + m.Name + "\" is not valid. " + regexError);
         }
         p.Id = string.IsNullOrEmpty(a.Id) ? Guid.Empty : Guid.Parse(a.Id);
         p.CodeName = m.Name;
@@ -113,16 +113,6 @@ internal static class BuildUtilsProperties {
             }
         }
         return p;
-    }
-    static bool isValidRegularExpression(string pattern, [NotNullWhen(false)] out string? error) {
-        try {
-            _ = new System.Text.RegularExpressions.Regex(pattern);
-            error = null;
-            return true;
-        } catch (ArgumentException ex) {
-            error = ex.Message;
-            return false;
-        }
     }
     static T cast<T>(PropertyAttribute a, MemberInfo m) where T : PropertyAttribute {
         if (a is T aT) return aT;
@@ -266,6 +256,11 @@ internal static class BuildUtilsProperties {
         p.StringType = a.StringType;
         p.RegularExpression = string.IsNullOrEmpty(a.RegularExpression) ? null : a.RegularExpression;
         p.LegalValues = a.LegalValues;
+        p.RegularExpressionMessage = string.IsNullOrEmpty(a.RegularExpressionMessage) ? null : a.RegularExpressionMessage;
+        p.LegalCharacters = string.IsNullOrEmpty(a.LegalCharacters) ? null : a.LegalCharacters;
+        p.CaseSensitive = a.CaseSensitive;
+        p.Trim = a.Trim;
+        p.CaseTransform = a.CaseTransform;
         return p;
     }
     static IntegerPropertyModel getIntegerPropertyModel(IntegerPropertyAttribute a) {

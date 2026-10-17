@@ -450,8 +450,9 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
                 () => (datastore as DataStoreLocal)?.FileConversion);
             translation = LateBindings.CreateTranslationProvider(settings.TranslationSettings, () => server.Settings.ApiKey);
             // who is behind a request, for code that logs traffic (NodeStore.Services.IPLookup); free, and
-            // without a cache: what a visit's browser reported changes after the first question
-            ipLookup = LateBindings.CreateIPLookupProvider(settings.IPLookupSettings, () => server.Settings.ApiKey);
+            // without a cache: what browsers report about an address changes after the first question. Its bot
+            // check tags point at the server's info path, read when a tag is made, like the license key
+            ipLookup = LateBindings.CreateIPLookupProvider(settings.IPLookupSettings, () => server.Settings.ApiKey, () => server.Settings.InfoUrlPath);
             // what the three services answered is kept on this machine, beside the AI embedding cache, so
             // the same question is not sent, nor paid for, twice. Custom providers get the cache as well.
             List<string> cacheWarnings = [];
@@ -528,7 +529,8 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
             // read from the index folder, or generated and compiled when the model changed - which
             // is most of an open when there is little to replay
             _openingStep = "Preparing the object mappers";
-            Store = new NodeStore(datastore, sms, imaging, fileToText, translation, ipLookup);
+            // db.Settings: the custom settings the application registers, this database's and the server's
+            Store = new NodeStore(datastore, sms, imaging, fileToText, translation, ipLookup, server?.CustomSettings.SourceFor(settings.Id));
             _datastoreBeingBuilt = null;
             server?.RaiseEventStoreInit(this, Store);
         } catch {

@@ -15,10 +15,10 @@ internal class IndexStore : IDisposable {
     public IndexStore(Definition definition) {
         _definition = definition;
     }
-    public bool WillUniqueConstraintsBeViolated(INodeData node, QueryContext ctx, [MaybeNullWhen(false)] out Property property) {
-        if (node is NodeDataRevisions revs) { 
+    public bool WillUniqueConstraintsBeViolated(INodeData node, INodeData? replaced, QueryContext ctx, [MaybeNullWhen(false)] out Property property) {
+        if (node is NodeDataRevisions revs) {
             foreach(var rev in revs.Revisions) {
-                if (WillUniqueConstraintsBeViolated(rev, ctx, out property)) {
+                if (WillUniqueConstraintsBeViolated(rev, replaced, ctx, out property)) {
                     return true;
                 }
             }
@@ -33,6 +33,7 @@ internal class IndexStore : IDisposable {
                         continue;
                     }
                 }
+                if (replaced != null && nodeAlreadyHeldValue(replaced, p, kv.Value)) continue;
                 if (p is IPropertyContainsValue pc) {
                     if (pc.ContainsValue(kv.Value, ctx)) {
                         property = p;
@@ -45,6 +46,13 @@ internal class IndexStore : IDisposable {
         }
         property = null;
         return false;
+    }
+    static bool nodeAlreadyHeldValue(INodeData replaced, Property p, object value) {
+        if (replaced is NodeDataRevisions revs) {
+            foreach (var rev in revs.Revisions) if (rev.TryGetValue(p.Id, out var v) && p.AreValuesEqual(v, value)) return true;
+            return false;
+        }
+        return replaced.TryGetValue(p.Id, out var old) && p.AreValuesEqual(old, value);
     }
     public void Add(INodeDataInternal node) => _definition.IndexNode(node);
     public void Remove(INodeDataInternal node) => _definition.DeIndexNode(node);

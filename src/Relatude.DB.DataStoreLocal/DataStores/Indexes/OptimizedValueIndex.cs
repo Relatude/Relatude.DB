@@ -2,12 +2,15 @@
 using Relatude.DB.DataStores.Sets;
 using Relatude.DB.IO;
 namespace Relatude.DB.DataStores.Indexes;
+internal interface IValueIndexWrapper<T> where T : notnull {
+    IValueIndex<T> DequeueAndGetInner();
+}
 /// <summary>
 /// A layer to optimize and eliminate redundant add/remove operations on an underlying IValueIndex.
 /// </summary>
 /// <typeparam name="T"></typeparam>
 /// <param name="index"></param>
-public class OptimizedValueIndex<T>(IValueIndex<T> index) : IValueIndex<T> where T : notnull {
+public class OptimizedValueIndex<T>(IValueIndex<T> index) : IValueIndex<T>, IValueIndexWrapper<T> where T : notnull {
     readonly IValueIndex<T> _i = index;
     readonly AddRemoveOptimization _o = new(index);
 
@@ -20,6 +23,7 @@ public class OptimizedValueIndex<T>(IValueIndex<T> index) : IValueIndex<T> where
     // not pay (and must not contend on when the loop is parallelized). Safe for the duration of a
     // query: writers are blocked by the store's read lock, so the queue stays empty once flushed.
     internal IValueIndex<T> DequeueAndGetInner() { _o.Dequeue(); return _i; }
+    IValueIndex<T> IValueIndexWrapper<T>.DequeueAndGetInner() => DequeueAndGetInner();
 
     public string UniqueKey => _i.UniqueKey;
 

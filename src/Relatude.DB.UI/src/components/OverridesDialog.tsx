@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { IconLock } from "@tabler/icons-react";
 import { showConfirm, showError } from "../dialogs";
-import { discardOverrides, fetchOverrides, moveOverrides, type OverrideEntry, type OverrideGroup, type OverridesView } from "../server/settings";
+import { serverOverridesApi, type OverrideEntry, type OverrideGroup, type OverridesApi, type OverridesView } from "../server/settings";
 import { ShareButton } from "./ShareButton";
 import { count, DataDialog, DataValue, type DataDialogEntry } from "./DataDialog";
 
@@ -17,17 +17,29 @@ import { count, DataDialog, DataValue, type DataDialogEntry } from "./DataDialog
  * decides is listed but cannot be picked: configuration never goes into relatude.db.json, and dropping
  * the file's value would change nothing that is running.
  */
-export function OverridesDialog({ scope, onClose, onChanged }: { scope?: OverridesScope; onClose: () => void; onChanged: () => void }) {
+export function OverridesDialog({
+  scope,
+  api = serverOverridesApi,
+  onClose,
+  onChanged,
+}: {
+  scope?: OverridesScope;
+  /** the pair of files listed: relatude.db.overrides.json and relatude.db.json unless a set of custom settings names its own */
+  api?: OverridesApi;
+  onClose: () => void;
+  onChanged: () => void;
+}) {
   const [view, setView] = useState<OverridesView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    fetchOverrides()
+    api
+      .fetch()
       .then(setView)
       .catch((e) => setError(e instanceof Error ? e.message : String(e)));
-  }, []);
+  }, [api]);
 
   const groups = view ? scopedGroups(view, scope) : [];
   const all = groups.flatMap((g) => g.entries);
@@ -86,7 +98,7 @@ export function OverridesDialog({ scope, onClose, onChanged }: { scope?: Overrid
     if (!ok) return;
     setBusy(true);
     try {
-      const result = await moveOverrides(paths);
+      const result = await api.move(paths);
       settle(result.overrides);
       setMessage(`${count(result.moved.length, "setting")} moved into ${settingsFile}.`);
     } catch (e) {
@@ -107,7 +119,7 @@ export function OverridesDialog({ scope, onClose, onChanged }: { scope?: Overrid
     if (!ok) return;
     setBusy(true);
     try {
-      const result = await discardOverrides(paths);
+      const result = await api.discard(paths);
       settle(result.overrides);
       setMessage(`${count(result.discarded.length, "change")} discarded.`);
       if (result.rejected.length > 0) {
@@ -208,18 +220,32 @@ export function databasePath(entry: OverrideEntry, group: OverrideGroup): string
  * the file itself, so the status is this page's part of it; changeKey is anything that changes when the
  * page has saved, which reads it again.
  */
-export function SettingsShareButton({ scope, changeKey, onChanged, className }: { scope: OverridesScope; changeKey?: unknown; onChanged?: () => void; className?: string }) {
+export function SettingsShareButton({
+  scope,
+  api = serverOverridesApi,
+  changeKey,
+  onChanged,
+  className,
+}: {
+  scope: OverridesScope;
+  /** see OverridesDialog; keep it the same object from render to render, or the file is read at every one */
+  api?: OverridesApi;
+  changeKey?: unknown;
+  onChanged?: () => void;
+  className?: string;
+}) {
   const [view, setView] = useState<OverridesView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const read = useCallback(() => {
-    fetchOverrides()
+    api
+      .fetch()
       .then((v) => {
         setView(v);
         setError(null);
       })
       .catch((e) => setError(e instanceof Error ? e.message : String(e)));
-  }, []);
+  }, [api]);
   useEffect(read, [read, changeKey]);
   // the server writes straight into relatude.db.json: there is nothing kept on this server to move
   if (view && !view.enabled) return null;
@@ -236,6 +262,7 @@ export function SettingsShareButton({ scope, changeKey, onChanged, className }: 
       {open && (
         <OverridesDialog
           scope={scope}
+          api={api}
           onClose={() => {
             setOpen(false);
             read();

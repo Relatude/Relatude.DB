@@ -46,13 +46,20 @@ import { showConfirm, showError } from "../dialogs";
 import { peekSearchTarget, peekSettingsTarget, takeSearchTarget, takeSettingsTarget, useNavigationRequest } from "../navigate";
 import { closeStore, openStore } from "../server/storage";
 import {
+  addCustomListItem,
   addListItem,
+  customOverridesApi,
   fetchAiModels,
+  fetchCustomSettings,
   fetchDatabaseSettings,
   fetchServerSettings,
+  removeCustomListItem,
   removeListItem,
+  saveCustomSettings,
   saveDatabaseSettings,
   saveServerSettings,
+  serverOverridesApi,
+  type ListChangeResult,
   type SettingChoice,
   type SettingList,
   type SettingListItem,
@@ -66,6 +73,7 @@ import { Loading } from "./Loading";
 import { SettingsShareButton } from "./OverridesDialog";
 import { SecretsWarning } from "./SecretsWarning";
 import { SourceTag } from "./SourceTag";
+import { customSettingsIcons } from "./customSettingsIcons";
 
 // Where a programmatic scroll leaves a group's heading, and the line at which the contents counts a
 // heading as passed. The line sits a hair below the landing point, so a group that was scrolled to
@@ -84,13 +92,16 @@ const spyLine = scrollOffset + 2;
 const LazyPickers = createContext<(setting: SettingView) => PickerLoader | undefined>(() => undefined);
 /** The files the page's values come from, for the tags to say where a value is and where a change goes. */
 interface SettingsFiles {
-  /** SHARED: relatude.settings/relatude.db.json */
+  /** SHARED: relatude.settings/relatude.db.json, or a set of custom settings' own file */
   settingsFile: string;
   /** THIS SERVER: the overrides file in the default database's data folder; null when saves go into relatude.db.json */
   dataFile: string | null;
   configSection: string | null;
+  /** the code that sets a setting marked CODE, as the line under it names it */
+  codeHook: string;
 }
-const SettingsFilesContext = createContext<SettingsFiles>({ settingsFile: "relatude.db.json", dataFile: null, configSection: null });
+const serverCodeHooks = "OnServerSettingsInit, OnContainerSettingsInit or OnStoreSettingsInit";
+const SettingsFilesContext = createContext<SettingsFiles>({ settingsFile: "relatude.db.json", dataFile: null, configSection: null, codeHook: serverCodeHooks });
 /** This page's secrets that relatude.db.json holds, by path, for the line under each of those fields. */
 const SecretsInFileContext = createContext<ReadonlyMap<string, SecretInFile>>(new Map());
 
@@ -118,11 +129,17 @@ const SecretsInFileContext = createContext<ReadonlyMap<string, SecretInFile>>(ne
 export function SettingsSection({
   storeId,
   focusSection,
+  customKey,
 }: {
-  /** absent for the server scope */
+  /** absent for the server scope, and for a set of custom settings of the server's */
   storeId?: string;
   /** opens the page at this section, for nav entries that name part of the settings (Access) */
   focusSection?: string;
+  /**
+   * The tab of a set of settings the application registers (ICustomSettingsDefinition), rather than the
+   * server's or a database's own: the same page, read from and saved to the set's own files.
+   */
+  customKey?: string;
 }) {
   const [page, setPage] = useState<SettingsPage | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -139,14 +156,32 @@ export function SettingsSection({
   const groupElements = useRef(new Map<string, HTMLElement>());
 
   const load = useCallback(() => {
-    const request = storeId ? fetchDatabaseSettings(storeId) : fetchServerSettings();
+    const request = customKey ? fetchCustomSettings(customKey, storeId ?? null) : storeId ? fetchDatabaseSettings(storeId) : fetchServerSettings();
     request
       .then((p) => {
         setPage(p);
         setError(null);
       })
       .catch((e) => setError(e instanceof Error ? e.message : String(e)));
-  }, [storeId]);
+  }, [storeId, customKey]);
+  // where the Move to shared list reads and writes: one object per page, so the button reads it once
+  const overridesApi = useMemo(() => (customKey ? customOverridesApi(customKey, storeId ?? null) : serverOverridesApi), [customKey, storeId]);
+  // adding to and removing from a list group: a database's lists, or a custom set's (the server's own have none)
+  const lists = useMemo(
+    () =>
+      customKey
+        ? {
+            add: (path: string): Promise<ListChangeResult> => addCustomListItem(customKey, storeId ?? null, path),
+            remove: (path: string, id: string): Promise<ListChangeResult> => removeCustomListItem(customKey, storeId ?? null, path, id),
+          }
+        : storeId
+          ? {
+              add: (path: string): Promise<ListChangeResult> => addListItem(storeId, path),
+              remove: (path: string, id: string): Promise<ListChangeResult> => removeListItem(storeId, path, id),
+            }
+          : null,
+    [customKey, storeId],
+  );
   useEffect(() => {
     setEdits({});
     setMessage(null);
@@ -283,8 +318,9 @@ export function SettingsSection({
     if (!page) return;
     const target = peekSettingsTarget();
     if (!target) return;
-    // the other scope's page is a different mount of this component; it takes its own target
-    if ((target.scope === "database") !== (storeId != null)) return;
+    // the other scope's page is a different mount of this component, and so is each tab of custom
+    // settings; each takes its own target
+    if ((target.customKey ?? null) !== (customKey ?? null) || (target.scope === "database") !== (storeId != null)) return;
     takeSettingsTarget();
     setFilter("");
     setOnlyChanged(false);
@@ -353,7 +389,11 @@ export function SettingsSection({
     if (!page || editedPaths.length === 0 || invalid.length > 0) return;
     setSaving(true);
     try {
-      const result = storeId ? await saveDatabaseSettings(storeId, edits, reopen && needsReopen) : await saveServerSettings(edits);
+      const result = customKey
+        ? await saveCustomSettings(customKey, storeId ?? null, edits)
+        : storeId
+          ? await saveDatabaseSettings(storeId, edits, reopen && needsReopen)
+          : await saveServerSettings(edits);
       setPage(result.settings);
       setEdits({});
       setReopen(false);
@@ -430,7 +470,14 @@ export function SettingsSection({
 
   return (
     <LazyPickers.Provider value={lazyPicker}>
-    <SettingsFilesContext.Provider value={{ settingsFile: page.settingsFile, dataFile: page.overrides?.file ?? null, configSection: page.configSection ?? null }}>
+    <SettingsFilesContext.Provider
+      value={{
+        settingsFile: page.settingsFile,
+        dataFile: page.overrides?.file ?? null,
+        configSection: page.configSection ?? null,
+        codeHook: page.scope === "custom" ? "the OnInit of the settings' definition" : serverCodeHooks,
+      }}
+    >
     <SecretsInFileContext.Provider value={secretsInFile}>
     {/* without the comments the rows lose their dividers and most of their padding: what is left is a
         label and a value, and a rule between every two of those is more line than content */}
@@ -497,8 +544,11 @@ export function SettingsSection({
             scope={
               page.scope === "database"
                 ? { title: "Settings of " + page.title, filter: (_, group) => group.storeId === page.storeId }
-                : { title: "Settings" }
+                : page.scope === "custom"
+                  ? { title: page.title }
+                  : { title: "Settings" }
             }
+            api={overridesApi}
             changeKey={page}
             // moving changes nothing that is running, but discarding does, and either changes the marks
             onChanged={load}
@@ -507,7 +557,13 @@ export function SettingsSection({
         </div>
       </div>
       {/* secrets in the SHARED file: said first, above anything a save reports */}
-      <SecretsWarning secrets={page.secretsInFile} scope={page.scope} storeId={page.storeId} />
+      <SecretsWarning
+        secrets={page.secretsInFile}
+        scope={page.scope === "custom" ? (page.customScope ?? "server") : page.scope}
+        storeId={page.storeId}
+        customKey={page.customKey}
+      />
+      {page.description && <div className="settings-description">{page.description}</div>}
       {message && <div className="settings-message">{message}</div>}
       <div className="settings-body">
         <nav className="settings-toc">
@@ -556,7 +612,7 @@ export function SettingsSection({
                   >
                     <h3>{group.title}</h3>
                     {showComments && group.help && <p className="settings-group-help">{group.help}</p>}
-                    {group.list && storeId && (
+                    {group.list && lists && (
                       <ListEditor
                         list={group.list}
                         pickers={pickers}
@@ -565,8 +621,8 @@ export function SettingsSection({
                         onRevert={revert}
                         showComments={showComments}
                         marked={marked}
-                        onAdd={() => changeList(() => addListItem(storeId, group.list!.path))}
-                        onRemove={(id) => changeList(() => removeListItem(storeId, group.list!.path, id), group.list!.path + "[" + id + "].")}
+                        onAdd={() => changeList(() => lists.add(group.list!.path))}
+                        onRemove={(id) => changeList(() => lists.remove(group.list!.path, id), group.list!.path + "[" + id + "].")}
                       />
                     )}
                     <div className="settings-list">
@@ -637,7 +693,7 @@ const sectionIcons: Record<string, ComponentType<{ size?: number; stroke?: numbe
 };
 
 function sectionIcon(name: string): ComponentType<{ size?: number; stroke?: number }> {
-  return sectionIcons[name] ?? IconSettings;
+  return sectionIcons[name] ?? customSettingsIcons[name] ?? IconSettings;
 }
 
 /**
@@ -693,6 +749,7 @@ function ListEditor({
 }) {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState(false);
+  const files = useContext(SettingsFilesContext);
 
   const valueOf = (path: string): unknown => {
     if (edits[path] !== undefined) return edits[path];
@@ -735,7 +792,7 @@ function ListEditor({
                 <span className="setting-item-name">{itemLabel(list, item, pickers, valueOf)}</span>
               </button>
               {item.addedHere && (
-                <span className="setting-badge overrides" title="Added here: relatude.db.overrides.json holds it, relatude.db.json does not">
+                <span className="setting-badge overrides" title={`Added here: ${files.dataFile ?? "the overrides file"} holds it, ${files.settingsFile} does not`}>
                   added here
                 </span>
               )}
@@ -783,7 +840,7 @@ function ListEditor({
       })}
       {list.removedHere.length > 0 && (
         <div className="setting-items-removed">
-          Removed here, still in relatude.db.json: {list.removedHere.join(", ")}. Move to shared at the top right moves the removal there, or takes it back.
+          Removed here, still in {files.settingsFile}: {list.removedHere.join(", ")}. Move to shared at the top right moves the removal there, or takes it back.
         </div>
       )}
       <button className="action-button" disabled={busy || list.locked} onClick={onAdd} title={list.locked ? "This list comes from appsettings" : undefined}>
@@ -905,8 +962,8 @@ function SettingRow({
           <div className="setting-override">
             <IconCode size={13} stroke={1.8} />
             <span>
-              Set by the application's code at every start (OnServerSettingsInit, OnContainerSettingsInit or OnStoreSettingsInit). The value below is
-              what is running; editing it here would be undone at the next start, so it is never saved to the settings files.
+              Set by the application's code at every start ({files.codeHook}). The value below is what is running; editing it here would be undone
+              at the next start, so it is never saved to the settings files.
             </span>
           </div>
         )}
@@ -923,7 +980,7 @@ function SettingRow({
         {canRestoreFile && (
           <button
             className="icon-button"
-            title={`Use the value relatude.db.json has: ${setting.fileHasValue ? display(setting.fileValue) : "not set"}. Saving then removes it from the overrides file.`}
+            title={`Use the value ${files.settingsFile} has: ${setting.fileHasValue ? display(setting.fileValue) : "not set"}. Saving then removes it from the overrides file.`}
             onClick={() => onChange(setting.fileValue ?? "")}
           >
             <IconRestore size={15} stroke={1.8} className="tone-override" />
@@ -979,7 +1036,7 @@ function SettingSource({ setting, files }: { setting: SettingView; files: Settin
     );
   }
   if (setting.codeSet) {
-    return <SourceTag kind="code" title="Set by the application's code at every start (OnServerSettingsInit, OnContainerSettingsInit or OnStoreSettingsInit). It is never written to the files." />;
+    return <SourceTag kind="code" title={`Set by the application's code at every start (${files.codeHook}). It is never written to the files.`} />;
   }
   if (setting.inOverrides) {
     const settingsHas = setting.secret ? (setting.fileHasValue ? "a secret" : "nothing") : setting.fileHasValue ? display(setting.fileValue) : "not set";
