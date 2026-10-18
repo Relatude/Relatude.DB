@@ -35,15 +35,6 @@
   } catch (e) {}
   if (colour) document.documentElement.setAttribute("data-colour", "on");
   document.documentElement.setAttribute("data-weather", weather);
-  // The page opens with its text hidden, the wordmark alone in the middle of
-  // the frame (logo only, below); a click brings the text in. Set here so the
-  // text never shows for a frame first. Not for search engines and link
-  // previews: they read the page as it renders, and a logo alone tells them
-  // nothing, so they get the text and the links to the introduction and the
-  // manual from the start. (Headless Chrome is not matched: the scene's
-  // screenshot scripts expect the opening as readers see it.)
-  if (!/bot|crawl|spider|slurp|facebookexternalhit|embedly/i.test(navigator.userAgent || ""))
-    document.documentElement.classList.add("logo-only");
   // The effective light/dark, whether it came from the stored choice or from the
   // OS, and the palette the background scene should wear: that answer, in full
   // colour when the colour switch is on. The scene asks for it at boot and the
@@ -65,8 +56,7 @@
 </script>
 <style>
 /* Black and white throughout: #ffffff in light, as intro.html / manual.html,
-   and in dark #1e1e1e, a step lighter than their #111111 so the terrain and
-   the text carry more contrast here. Light is the base palette; dark is applied
+   and in dark #0a0a0a, a step darker than their #111111, close to black. Light is the base palette; dark is applied
    twice — under the system preference (unless the reader explicitly chose light)
    and under an explicit data-theme="dark". The two dark blocks are identical.
    The dark greys are neutral — no blue tint in any ground, scrim or glass.
@@ -86,14 +76,14 @@
    switch) goes full screen with the page cleared away, the wordmark alone over
    the scene, and tours the page's looks while it is left there; another
    double-click brings it all back. The arrow keys, Space and Page Up/Down
-   step through those looks by hand. The page opens the same way, with the
-   text hidden and the wordmark alone in the middle; a click shows the text.
-   The stack:
+   step through those looks by hand. The stack:
 
      0  #fallback / #scene   a still dawn when WebGL2 is missing, or the canvas
      1  .vig                 two cross-faded vignettes closing in the frame edges
+                             (full colour only)
      2  .scrim               the page ground, concentrated where the column sits
-     3  .grain               a whisper of static over the whole frame
+                             (and along the foot, in black and white)
+     3  .grain               a whisper of static over the whole frame (full colour only)
      4  .wrap                the page itself
     10  #theme #colour       the switches: light/dark, colour, weather,
         #weather #full       full screen
@@ -137,7 +127,7 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
-    --bg: #1e1e1e;
+    --bg: #0a0a0a;
     --surface: #242424;
     --fg: #f0f0f0;
     --fg-dim: #bdbdbd;
@@ -148,25 +138,25 @@
     --bg-code: #272727;
     --hover: #2f2f2f;
     --logo-filter: invert(1);
-    --scrim-a: rgba(30,30,30,.88);
-    --scrim-b: rgba(30,30,30,.68);
-    --scrim-c: rgba(30,30,30,.22);
-    --glass: rgba(38,38,38,.66);
-    --glass-hover: rgba(52,52,52,.86);
-    --glass-code: rgba(40,40,40,.62);
-    --halo: 0 1px 16px rgba(30,30,30,.95), 0 0 3px rgba(30,30,30,.80);
+    --scrim-a: rgba(10,10,10,.88);
+    --scrim-b: rgba(10,10,10,.68);
+    --scrim-c: rgba(10,10,10,.22);
+    --glass: rgba(24,24,24,.66);
+    --glass-hover: rgba(40,40,40,.86);
+    --glass-code: rgba(20,20,20,.62);
+    --halo: 0 1px 16px rgba(10,10,10,.95), 0 0 3px rgba(10,10,10,.80);
     --logo-glow: rgba(6,6,6,.85);
     --logo-edge: rgba(6,6,6,.60);
     --vig-dark: 1;
     --vig-light: 0;
     --fallback:
       radial-gradient(20% 28% at 84% 28%, rgba(255,255,255,.16) 0%, rgba(255,255,255,0) 100%),
-      linear-gradient(to bottom, #141414 0%, #1c1c1c 40%, #303030 50%, #1a1a1a 58%, #1e1e1e 100%);
+      linear-gradient(to bottom, #050505 0%, #0a0a0a 40%, #1e1e1e 50%, #090909 58%, #0a0a0a 100%);
   }
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #1e1e1e;
+  --bg: #0a0a0a;
   --surface: #242424;
   --fg: #f0f0f0;
   --fg-dim: #bdbdbd;
@@ -177,20 +167,20 @@
   --bg-code: #272727;
   --hover: #2f2f2f;
   --logo-filter: invert(1);
-  --scrim-a: rgba(30,30,30,.88);
-  --scrim-b: rgba(30,30,30,.68);
-  --scrim-c: rgba(30,30,30,.22);
-  --glass: rgba(38,38,38,.66);
-  --glass-hover: rgba(52,52,52,.86);
-  --glass-code: rgba(40,40,40,.62);
-  --halo: 0 1px 16px rgba(30,30,30,.95), 0 0 3px rgba(30,30,30,.80);
+  --scrim-a: rgba(10,10,10,.88);
+  --scrim-b: rgba(10,10,10,.68);
+  --scrim-c: rgba(10,10,10,.22);
+  --glass: rgba(24,24,24,.66);
+  --glass-hover: rgba(40,40,40,.86);
+  --glass-code: rgba(20,20,20,.62);
+  --halo: 0 1px 16px rgba(10,10,10,.95), 0 0 3px rgba(10,10,10,.80);
   --logo-glow: rgba(6,6,6,.85);
   --logo-edge: rgba(6,6,6,.60);
   --vig-dark: 1;
   --vig-light: 0;
   --fallback:
     radial-gradient(20% 28% at 84% 28%, rgba(255,255,255,.16) 0%, rgba(255,255,255,0) 100%),
-    linear-gradient(to bottom, #141414 0%, #1c1c1c 40%, #303030 50%, #1a1a1a 58%, #1e1e1e 100%);
+    linear-gradient(to bottom, #050505 0%, #0a0a0a 40%, #1e1e1e 50%, #090909 58%, #0a0a0a 100%);
 }
 /* Full colour recolours only what belongs to the scene: the still shown in
    place of WebGL, and in the dark the scrim, which takes the night-blue of the
@@ -294,12 +284,18 @@ body {
   background: radial-gradient(ellipse min(66vw, 640px) 62% at 50% 44%,
     var(--scrim-a) 0%, var(--scrim-b) 50%, var(--scrim-c) 78%, transparent 100%);
 }
+.scrim::after {
+  content: ""; position: absolute; inset: 0; opacity: 0; transition: opacity .55s ease;
+  background: linear-gradient(to top, var(--scrim-a) 0, var(--scrim-b) 56px, transparent 150px);
+}
+:root:not([data-colour="on"]) .scrim::after { opacity: 1; }
+:root:not([data-colour="on"]) :is(.vig, .grain) { opacity: 0; }
 
 /* Static on purpose. A stepped grain animation re-composites the whole
    screen on every step and reads as a flash once a second. */
 .grain {
   position: fixed; inset: 0; z-index: 3; pointer-events: none;
-  opacity: .05; mix-blend-mode: overlay;
+  opacity: .05; mix-blend-mode: overlay; transition: opacity .55s ease;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
@@ -499,8 +495,8 @@ footer a:hover { color: var(--fg); }
    and leaves the wordmark alone in the middle of the frame, with the switches
    still in their corner; leaving it (another double-click, Escape) brings
    everything back. Where there is no full screen a double-click does the
-   same on its own. The page also opens this way, and a click anywhere but
-   on a switch brings the text in (hence the pointer). Nothing underneath moves:
+   same on its own. While it is alone, a click anywhere but on a switch
+   brings the text back (hence the pointer). Nothing underneath moves:
    the rest fades out and stops taking the pointer, and the wordmark glides to
    the middle by an offset the script measures at the switch (--logo-dy). The
    glide is on the svg rather than the h1, whose entrance animation holds a
@@ -767,9 +763,9 @@ footer a:hover { color: var(--fg); }
   });
 
   // Logo only: the page cleared away to leave the wordmark in the middle of
-  // the frame. The page opens this way (the class is set at the top), and a
-  // click brings the text in. A double-click anywhere goes full screen, which
-  // brings logo only with it (below), and a second one comes back out of both;
+  // the frame; a click brings the text back. A double-click anywhere goes
+  // full screen, which brings logo only with it (below), and a second one
+  // comes back out of both;
   // where the page cannot go full screen, or is refused, a double-click is
   // logo only on its own. Escape leaves either. Anything a double-click already
   // means something on is left out: the switches, the links, and the install
@@ -875,26 +871,6 @@ footer a:hover { color: var(--fg); }
   window.addEventListener("resize", function () {
     if (logoOnly()) placeLogo();
   });
-
-  // The opening: logo only from the first paint, so the wordmark is placed
-  // in the middle without the glide, and the scrollbar's room is kept the
-  // way setLogoOnly keeps it — if the page will scroll once the text is in
-  // and its scrollbar takes room, so nothing shifts sideways when it comes.
-  if (logoOnly()) {
-    var probe = document.createElement("div");
-    probe.style.cssText = "position:absolute;top:-200px;width:100px;height:100px;overflow:scroll";
-    document.body.appendChild(probe);
-    var bar = probe.offsetWidth - probe.clientWidth;
-    document.body.removeChild(probe);
-    root.style.scrollbarGutter = bar > 0 && root.scrollHeight > root.clientHeight ? "stable" : "";
-    var $svg = $mark.querySelector("svg");
-    $svg.style.transition = "none";
-    placeLogo();
-    void $svg.getBoundingClientRect();                  // take the place before the glide is back on
-    $svg.style.transition = "";
-    // the footer logo can change the column's height as it loads
-    window.addEventListener("load", function () { if (logoOnly()) placeLogo(); });
-  }
 
   // Full screen: the scene with nothing in front of it but the wordmark. The
   // page goes full screen and into logo only, and comes out of both together
@@ -1050,10 +1026,9 @@ footer a:hover { color: var(--fg); }
    channel of every entry is equal — so nothing in it ever picks up
    a tint; the light one keeps the faint cool cast the animation
    always had. `fog`, the horizon, is the flat ground the plain look
-   shows in place of a sky, so it sits on the page grounds (#1e1e1e,
-   and near #ffffff). The dark ground is kept a step off black and the
-   ridges' ramp runs well above it, so the land reads with contrast
-   and the frame stays dark without going to black.
+   shows in place of a sky, so it sits on the page grounds (#0a0a0a
+   and #ffffff). Each ramp runs out to its own end: shaded faces go
+   nearly black in the dark and lit faces nearly white in the light.
 
    The colour pair is the same scene with the colour left in: a dawn over night-blue ranges with gold light and
    rose-lit cloud, and a clear morning with blue distance and warm
@@ -1082,8 +1057,11 @@ footer a:hover { color: var(--fg); }
      flashI how strong the lightning is: its flash across sky and land,
             and how solid the bolt (kept soft in black and white)
      plain  1: the simple look black and white keeps — no sky, only the
-            flat ground the far ridges fade into; a fraction of the
-            motes, and smaller; half the rain (shorter) and snow (smaller); no birds; the graph as sharp lines and rings, with
+            flat ground the far ridges fade into; the land lit from the
+            side in plain lit and shaded faces, with no rims or glints,
+            no lattice or survey band, no mist in the valleys and a
+            thinner haze; no motes; half the rain (shorter) and snow
+            (smaller); no birds; the graph as sharp lines and rings, with
             no pulses, flares or ripples. With halo, bloom, rays and
             sun at 0 alongside it, nothing glows.
 
@@ -1095,11 +1073,11 @@ footer a:hover { color: var(--fg); }
    ============================================================ */
 const THEMES = {
   dark: {
-    deep :[0.070,0.070,0.070], mid :[0.320,0.320,0.320], lit :[0.900,0.900,0.900],
-    hot  :[1.000,1.000,1.000], fog :[0.118,0.118,0.118], top :[0.030,0.030,0.030],
+    deep :[0.012,0.012,0.012], mid :[0.240,0.240,0.240], lit :[1.000,1.000,1.000],
+    hot  :[1.000,1.000,1.000], fog :[0.039,0.039,0.039], top :[0.010,0.010,0.010],
     sun  :[0.000,0.000,0.000], sunC:[1.000,1.000,1.000],
     cloLo:[0.022,0.022,0.022], cloHi:[0.080,0.080,0.080],
-    dust :[0.850,0.850,0.850], edge:[0.660,0.660,0.660], node:[0.980,0.980,0.980],
+    dust :[0.850,0.850,0.850], edge:[0.800,0.800,0.800], node:[0.980,0.980,0.980],
     pulse:[1.000,1.000,1.000], starC:[0.940,0.940,0.940], grid:[0.940,0.940,0.940],
     bird :[0.012,0.012,0.012], snowC:[0.780,0.780,0.780], rainC:[0.660,0.660,0.660],
     flakeC:[0.920,0.920,0.920], flashC:[1.000,1.000,1.000],
@@ -1107,24 +1085,24 @@ const THEMES = {
     // the plain look: no sky (sunI and cloud only matter while a change
     // from colour crosses over), no glow anywhere
     star:1, sub:0, sunI:0.06, shine:1.00, cloud:0.25, cov:0.52, mist:1.0,
-    bloom:0.00, thresh:1.00, rays:0.00, rthr:0.50, knee:0.70, halo:0.00, noseG:1.0, flashI:0.45,
+    bloom:0.00, thresh:1.00, rays:0.00, rthr:0.50, knee:0.90, halo:0.00, noseG:1.0, flashI:0.45,
     plain:1
   },
   light: {
     // terrain sits darker than the sky so the ridges read as silhouettes,
     // and the overlay tints go dark since they composite over white
-    deep :[0.255,0.265,0.278], mid :[0.480,0.492,0.508], lit :[0.760,0.770,0.782],
-    hot  :[0.900,0.906,0.912], fog :[0.955,0.960,0.968], top :[0.720,0.730,0.745],
+    deep :[0.170,0.176,0.186], mid :[0.560,0.568,0.580], lit :[0.920,0.925,0.932],
+    hot  :[1.000,1.000,1.000], fog :[1.000,1.000,1.000], top :[0.720,0.730,0.745],
     sun  :[0.000,0.000,0.000], sunC:[1.000,1.000,1.000],
     cloLo:[0.700,0.708,0.722], cloHi:[0.990,0.992,0.995],
     // mid-grey, not near-black: dark specks on white read as sensor dirt
-    dust :[0.560,0.570,0.585], edge:[0.300,0.315,0.330], node:[0.120,0.128,0.136],
+    dust :[0.560,0.570,0.585], edge:[0.200,0.210,0.222], node:[0.080,0.085,0.092],
     pulse:[0.080,0.085,0.090], starC:[0.900,0.906,0.912], grid:[0.900,0.906,0.912],
     bird :[0.130,0.136,0.146], snowC:[0.970,0.972,0.975], rainC:[0.380,0.390,0.405],
     flakeC:[0.990,0.990,0.992], flashC:[1.000,1.000,1.000],
     noseC:[0.200,0.200,0.200], trailC:[0.540,0.548,0.560],
     star:0, sub:1, sunI:0.07, shine:0.20, cloud:0.25, cov:0.55, mist:0.8,   // plain, as the dark
-    bloom:0.00, thresh:1.30, rays:0.00, rthr:1.00, knee:0.96, halo:0.00, noseG:0.0, flashI:0.5,
+    bloom:0.00, thresh:1.30, rays:0.00, rthr:1.00, knee:0.98, halo:0.00, noseG:0.0, flashI:0.5,
     plain:1
   },
   darkColour: {
@@ -1188,15 +1166,15 @@ const WEATHERS = Object.keys(WEATHER), WK = Object.keys(WEATHER.sunny);
 // `cloLo` / `cloHi` the dark and light of the deck.
 const WEATHER_SKY = {
   dark: {
-    storm: { top:[0.080,0.080,0.080], fog:[0.165,0.165,0.165], sun:[0.000,0.000,0.000],
+    storm: { top:[0.040,0.040,0.040], fog:[0.090,0.090,0.090], sun:[0.000,0.000,0.000],
              cloLo:[0.035,0.035,0.035], cloHi:[0.200,0.200,0.200] },
-    snow:  { top:[0.150,0.150,0.150], fog:[0.270,0.270,0.270], sun:[0.000,0.000,0.000],
+    snow:  { top:[0.100,0.100,0.100], fog:[0.200,0.200,0.200], sun:[0.000,0.000,0.000],
              cloLo:[0.075,0.075,0.075], cloHi:[0.160,0.160,0.160] }
   },
   light: {
-    storm: { top:[0.460,0.465,0.475], fog:[0.620,0.625,0.635], sun:[0.000,0.000,0.000],
+    storm: { top:[0.560,0.565,0.575], fog:[0.740,0.745,0.755], sun:[0.000,0.000,0.000],
              cloLo:[0.330,0.335,0.345], cloHi:[0.600,0.605,0.615] },
-    snow:  { top:[0.800,0.805,0.812], fog:[0.900,0.903,0.908], sun:[0.000,0.000,0.000],
+    snow:  { top:[0.860,0.865,0.872], fog:[0.950,0.953,0.958], sun:[0.000,0.000,0.000],
              cloLo:[0.700,0.705,0.712], cloHi:[0.880,0.883,0.888] }
   },
   darkColour: {
@@ -1473,7 +1451,7 @@ function bakeNoise(N) {
 const PAL_SKY = `uniform vec3 C_FOG, C_TOP, C_SUN, C_SUNC, C_CLO, C_CHI, C_STARC, C_FLASHC;
                  uniform float C_STAR, C_SUNI, C_CLOUD, C_COV, C_PLAIN;`;
 const PAL_TER = `uniform vec3 C_DEEP, C_MID, C_LIT, C_HOT, C_FOG, C_SUN, C_SUNC, C_GRID, C_SNOWC, C_FLASHC;
-                 uniform float C_SHINE, C_MIST;`;
+                 uniform float C_SHINE, C_MIST, C_PLAIN;`;
 
 // The colour of the air along a direction: the horizon ground, brightened on
 // the sun's side. The sky uses it at the horizon and the terrain fades into
@@ -1653,6 +1631,11 @@ void main(){
               + 0.26 * fres
               + 0.40 * peak * (0.25 + 0.75 * lam);
 
+  const vec3 PLAIN_SIDE_LIGHT = vec3(-0.78, 0.52, -0.22);
+  float plainLam   = max(dot(n, normalize(PLAIN_SIDE_LIGHT)), 0.0) * (1.0 - 0.6 * uOver);
+  float plainShade = 0.03 + 0.95 * plainLam + (0.10 + 0.30 * uOver) * skyf * skyf;
+  shade = mix(shade, plainShade, C_PLAIN);
+
   vec3 col = mix(C_DEEP, C_MID, clamp(shade * 1.55, 0.0, 1.0));
   col = mix(col, C_LIT,  clamp((shade - 0.42) * 1.35, 0.0, 1.0));
   col = mix(col, C_HOT,  clamp((shade - 0.98) * 1.10, 0.0, 1.0));
@@ -1664,7 +1647,7 @@ void main(){
   float into = pow(max(dot(rd, uLight), 0.0), 3.0);
   float rim  = pow(fres, 1.4) * into * clamp((ndl + 0.35) / 1.35, 0.0, 1.0);
   float spec = pow(max(dot(n, normalize(uLight + V)), 0.0), 90.0) * lam;
-  col += C_SUNC * (C_SHINE * uSunAmt * uSunV) * (rim * 0.60 + spec * 0.85);
+  col += C_SUNC * (C_SHINE * uSunAmt * uSunV * (1.0 - C_PLAIN)) * (rim * 0.60 + spec * 0.85);
 
   // --- snow lies on the flatter faces, and more of it higher up
   float snow = uCover * smoothstep(0.35, 0.70, n.y) * smoothstep(-10.0, 25.0, vW.y);
@@ -1689,8 +1672,9 @@ void main(){
   float q    = (dz - uPulse) / 9.0;
   float band = exp(-q * q);
 
-  col += C_GRID * grid * 0.64 * (0.170 + 0.70 * band);
-  col += C_GRID * band * 0.080 * (0.25 + 0.75 * lam);
+  float survey = 1.0 - C_PLAIN;
+  col += C_GRID * grid * 0.64 * (0.170 + 0.70 * band) * survey;
+  col += C_GRID * band * 0.080 * (0.25 + 0.75 * lam) * survey;
 
   // --- atmosphere: thicker down low, so the valleys pool with haze, and
   // patchy there — a slow drift of mist sampled at the ground point. The
@@ -1699,12 +1683,12 @@ void main(){
   vec2  mp   = vW.xz * 0.0046875 + uMistT * vec2(0.0040, 0.0095);
   float mist = texture(uNoise, mp).g * 0.62 + texture(uNoise, mp * 2.0 + 0.37).b * 0.38;
   mist = smoothstep(0.34, 0.70, mist) * C_MIST;
-  float lowM = low * (0.55 + 0.95 * mist);
-  float fd   = dist * (0.0048 + 0.0064 * lowM) * uFogK;
+  float lowM = low * (0.55 + 0.95 * mist) * (1.0 - C_PLAIN);
+  float fd   = dist * (0.0048 + 0.0064 * lowM) * uFogK * (1.0 - 0.25 * C_PLAIN);
   float fog  = 1.0 - exp(-fd * fd * 0.85 - fd * 0.18);
   // melt the sides of the tile into the air rather than letting them end
   fog = max(fog, smoothstep(292.0, 380.0, abs(vW.x)));
-  vec3 fogC = haze(rd) * (0.93 + 0.46 * lowM);
+  vec3 fogC = haze(rd) * mix(0.93 + 0.46 * lowM, 1.0, C_PLAIN);
 
   // alpha 0 marks terrain: it blocks the light shafts
   frag = vec4(mix(col, fogC, fog), 0.0);
@@ -1716,16 +1700,13 @@ void main(){
 // most of them out at 200+ units where they fog down to nothing. Half the
 // loop period, so the box lands on itself when the flight wraps.
 const DUST_SPAN = 320;
-// The share of the motes the plain look keeps. The seeds are random, so the
-// first instances are an even thinning of the whole field.
-const DUST_KEEP = 0.15;
 
 const DUST_VS = `#version 300 es
 in vec4 aSeed;                 // xyz = home position, w = per-mote variation
 uniform mat4  uVP;
 uniform vec3  uCam, uLight;
 uniform float uTime, uPx, uFwd, uDust;
-uniform float uPlain, uKeep;   // the plain look, and how many motes it keeps
+uniform float uPlain;
 out float vA;
 out float vB;
 void main(){
@@ -1740,21 +1721,18 @@ void main(){
   gl_Position  = uVP * vec4(p, 1.0);
   float d      = distance(p, uCam);
   // Spread size and brightness across the field: a dense uniform cloud
-  // reads as haze, a varied one reads as depth. Smaller in the plain look.
-  gl_PointSize = mix(clamp(170.0 / d, 1.0, 4.2) * (0.55 + 0.85 * r),
-                     clamp(110.0 / d, 1.0, 2.4) * (0.60 + 0.40 * r), uPlain) * uPx;
+  // reads as haze, a varied one reads as depth.
+  gl_PointSize = clamp(170.0 / d, 1.0, 4.2) * (0.55 + 0.85 * r) * uPx;
 
   float near = smoothstep(2.5, 14.0, d);                       // keep the close ones
   float far  = 1.0 - smoothstep(SPAN * 0.32, SPAN * 0.46, d);   // gone before it wraps
-  vA = exp(-pow(d * 0.0068, 2.0)) * near * far * (0.20 + 0.45 * r) * uDust;
-  // the ones the plain look leaves out fade as it comes in
-  vA *= mix(1.0, step(float(gl_VertexID), uKeep), uPlain);
+  vA = exp(-pow(d * 0.0068, 2.0)) * near * far * (0.20 + 0.45 * r) * uDust * (1.0 - uPlain);
 
   // Motes between the eye and the sun catch the light — dust in a sunbeam —
-  // and each one glints now and then as it turns. Not in the plain look.
+  // and each one glints now and then as it turns.
   float fwd = pow(max(dot((p - uCam) / d, uLight), 0.0), 10.0);
   float tw  = 0.70 + 0.30 * sin(uTime * (0.9 + 2.3 * r) + r * 97.0);
-  vB = mix(tw * (1.0 + fwd * 2.5 * uFwd), 1.0, uPlain);
+  vB = tw * (1.0 + fwd * 2.5 * uFwd);
 }`;
 
 const DUST_FS = `#version 300 es
@@ -1763,11 +1741,10 @@ in float vA;
 in float vB;
 uniform vec3 uTint;
 uniform float uSub;
-uniform highp float uPlain;    // highp: must match the vertex stage or linking fails
 out vec4 frag;
 void main(){
   float d = length(gl_PointCoord - 0.5);
-  float a = smoothstep(0.5, mix(0.06, 0.32, uPlain), d) * vA;   // a crisp dot in the plain look
+  float a = smoothstep(0.5, 0.06, d) * vA;
   // added (softened once more by its own alpha) or laid over, as the graph
   frag = mix(vec4(uTint * (a * vB * a), 0.0), vec4(uTint * (a * vB), a), uSub);
 }`;
@@ -2755,7 +2732,7 @@ function bindTex(unit, tex) {
 const TER_PAL = [['C_DEEP','deep'], ['C_MID','mid'], ['C_LIT','lit'], ['C_HOT','hot'],
                  ['C_FOG','fog'], ['C_SUN','sun'], ['C_SUNC','sunC'], ['C_GRID','grid'],
                  ['C_SNOWC','snowC'], ['C_FLASHC','flashC'],
-                 ['C_SHINE','shine'], ['C_MIST','mist']];
+                 ['C_SHINE','shine'], ['C_MIST','mist'], ['C_PLAIN','plain']];
 const SKY_PAL = [['C_FOG','fog'], ['C_TOP','top'], ['C_SUN','sun'], ['C_SUNC','sunC'],
                  ['C_CLO','cloLo'], ['C_CHI','cloHi'], ['C_STARC','starC'], ['C_FLASHC','flashC'],
                  ['C_STAR','star'], ['C_SUNI','sunI'], ['C_CLOUD','cloud'], ['C_COV','cov'],
@@ -3613,10 +3590,8 @@ function frame(now) {
   gl.uniform1f(dustP.u.uDust, wx.dust);
   gl.uniform3fv(dustP.u.uTint, P.dust);
   gl.uniform1f(dustP.u.uSub, P.sub);
-  const nKeep = Math.ceil(DUST_N * DUST_KEEP);
   gl.uniform1f(dustP.u.uPlain, P.plain);
-  gl.uniform1f(dustP.u.uKeep, nKeep);
-  if (wx.dust > 0.01) gl.drawArrays(gl.POINTS, 0, P.plain > 0.999 ? nKeep : DUST_N);
+  if (wx.dust > 0.01 && P.plain < 0.999) gl.drawArrays(gl.POINTS, 0, DUST_N);
 
   // --- Santa, laid over the sky as a silhouette in any theme, and his trail
   if (santa.env > 0.002) {
