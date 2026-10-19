@@ -16,7 +16,7 @@ public interface IReference<T> : IReference {
     T Get();
     bool TryGet([MaybeNullWhen(false)] out T value);
 }
-public class Reference<T> : IEnumerable<T>, IReference<T> where T : notnull {
+public class Reference<T> : IEnumerable<T>, IReference<T> where T : notnull {    
     Guid _id;
     INodeDataExternal? nodeData; // preloaded nodeData
     public Guid Id {

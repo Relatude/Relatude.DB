@@ -19,7 +19,7 @@ public interface IReferences<T> : IReferences {
 /// only (populate with .Preload() in a query); <see cref="Get"/> lazily loads every live target.
 /// </summary>
 public class References<T> : IEnumerable<T>, IReferences<T> where T : notnull {
-    Guid[] _ids = Array.Empty<Guid>();
+    Guid[] _ids = [];
     INodeDataExternal[]? nodeDatas; // preloaded nodeData, in stored order (stale targets omitted)
     NodeStore? _store = null;
     NodeStore store => _store ?? throw new Exception("References is not initialized. ");
@@ -56,7 +56,7 @@ public class References<T> : IEnumerable<T>, IReferences<T> where T : notnull {
     }
     public bool Clear() {
         if (_ids.Length == 0) return false;
-        _ids = Array.Empty<Guid>();
+        _ids = [];
         nodeDatas = null;
         return true;
     }
