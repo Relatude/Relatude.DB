@@ -445,7 +445,7 @@ public class TaskQueue : IDisposable {
         return sb.ToString();
     }
     static string typeName(string typeId) {
-        var index = typeId.LastIndexOf(".");
+        var index = typeId.LastIndexOf('.'); // the char overload is ordinal: the string one follows the culture's rules, and Thai's broke the Substring below
         return index > -1 ? typeId.Substring(index + 1).Decamelize() : typeId;
     }
     public BatchMetaWithCount[] GetBatchMeta(BatchState[] states, string[] typeIds, string[] groupKeys, int page, int pageSize, out int totalCount) {

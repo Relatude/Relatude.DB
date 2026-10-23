@@ -187,5 +187,8 @@ static class TruncatedDownload {
         public bool DeleteFolderIfEmpty(string[] path) => inner.DeleteFolderIfEmpty(path);
         public void EnsureFolder(string[] path) => inner.EnsureFolder(path);
         public Task<FolderMeta> GetFolderAsync(string[] path, bool recursive, bool withFiles) => inner.GetFolderAsync(path, recursive, withFiles);
+        public IOCounters Counters => inner.Counters;
+        public Task<IOBenchmarkReport> BenchmarkPerformanceAsync(int testDurationInMs = 5000, IProgress<IOBenchmarkProgress>? progress = null, CancellationToken cancellationToken = default) =>
+            inner.BenchmarkPerformanceAsync(testDurationInMs, progress, cancellationToken);
     }
 }

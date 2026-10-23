@@ -42,6 +42,16 @@ public class AzureBlobIOProvider : IIOProvider {
     readonly Dictionary<string, FileMeta> _files = new(StringComparer.OrdinalIgnoreCase);
     readonly object _lock = new();
     readonly List<IStream> _openStreams = new();
+    IOCounters _closedStreams;
+    public IOCounters Counters {
+        get {
+            lock (_lock) {
+                var total = _closedStreams;
+                foreach (var stream in _openStreams) total += stream.Counters;
+                return total;
+            }
+        }
+    }
     public AzureBlobIOProvider(string blobContainerName, string blobConnectionString, bool lockBlob) {
         Client = new AzureBlobRestClient(blobConnectionString, blobContainerName);
         _lockBlob = lockBlob;
@@ -306,6 +316,7 @@ public class AzureBlobIOProvider : IIOProvider {
                 } finally {
                     lock (_lock) {
                         meta.Readers--;
+                        _closedStreams += stream!.Counters;
                         _openStreams.Remove(stream!);
                     }
                 }
@@ -351,6 +362,7 @@ public class AzureBlobIOProvider : IIOProvider {
                         meta.Writers--;
                         meta.LastModifiedUtc = DateTime.UtcNow;
                         meta.Size = size; // the folder listing reads this tracked meta, not the blob's properties
+                        _closedStreams += stream!.Counters;
                         _openStreams.Remove(stream!);
                     }
                 }
@@ -417,6 +429,21 @@ public class AzureBlobIOProvider : IIOProvider {
     }
     long getFileSizeOrZeroIfUnknown(string blobName) {
         return Client.GetProperties(blobName)?.ContentLength ?? 0;
+    }
+    public Task<IOBenchmarkReport> BenchmarkPerformanceAsync(int testDurationInMs = 5000, IProgress<IOBenchmarkProgress>? progress = null, CancellationToken cancellationToken = default) {
+        List<string> notes = [
+            "Every read, write and lookup is a request to the storage service, so the time a small operation takes is mostly the round trip between this server and the storage account's region.",
+            "Appends wait in memory until the stream is flushed or holds 20 MB and are then sent as one block. A small read fetches 100 KB and a read stream 1 MB at a time, so reads close to the previous one are served from what it fetched.",
+        ];
+        if (_lockBlob) notes.Add("Blobs are leased while they are open (LockBlob), which adds a request to every open and every close.");
+        return IOBenchmark.RunAsync(this, new IOBenchmarkOptions {
+            Kind = "Azure Blob Storage",
+            Location = Client.ContainerUrl,
+            ReadFileBytes = IOBenchmarkOptions.ScaledBytes(16L * IOBenchmarkOptions.MB, testDurationInMs, 64L * IOBenchmarkOptions.MB),
+            RecycleFileBytes = 16L * IOBenchmarkOptions.MB,
+            DurableFlushBytes = 8L * IOBenchmarkOptions.MB,
+            Notes = notes,
+        }, testDurationInMs, progress, cancellationToken);
     }
     public bool CanRenameFile => false;
     public bool CanTruncate => false;

@@ -120,6 +120,7 @@ public class StoreStreamBufferedRead : IReadStream {
 
     public string FileKey => _innerStream.FileKey;
     public long Length => _innerStream.Length;
+    public IOCounters Counters => _innerStream.Counters;
     public void RecordChecksum() => _checkSum.RecordChecksum();
     public void ValidateChecksum() => _checkSum.ValidateChecksum(this);
     public long GetBytesRead() => _bytesRead;

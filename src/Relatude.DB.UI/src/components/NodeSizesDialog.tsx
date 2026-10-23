@@ -406,7 +406,6 @@ export function NodeSizesDialog({ db, onClose }: { db: DatabaseInfo; onClose: ()
                         <span>Type</span>
                         <span className="num">Size</span>
                         <span />
-                        <span className="num" title="Where the node's bytes start in the log file">At</span>
                       </div>
                       {(list?.nodes ?? []).map((n, i) => (
                         <button
@@ -425,7 +424,6 @@ export function NodeSizesDialog({ db, onClose }: { db: DatabaseInfo; onClose: ()
                           <span className="scan-bar">
                             <span className="scan-bar-fill" style={{ width: barWidth(n.size, list?.nodes[0]?.size ?? 1), background: colorOf(n.typeId) }} />
                           </span>
-                          <span className="num muted">{formatBytes(n.position)}</span>
                         </button>
                       ))}
                       {list && list.nodes.length === 0 && <div className="muted ns-empty">No node matches.</div>}

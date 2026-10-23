@@ -1,4 +1,5 @@
 import { send } from "./channel";
+import type { IoActivity } from "./dashboard";
 
 export interface OverviewContainer {
   id: string;
@@ -72,6 +73,8 @@ export interface ServerLive {
   diskTotalBytes: number;
   diskFreeBytes: number;
   diskName?: string | null;
+  /** every storage provider summed, cumulative; unset from an older server */
+  io?: IoActivity;
 }
 
 export interface ProcessActionResult {

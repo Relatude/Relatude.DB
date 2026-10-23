@@ -57,6 +57,7 @@ public sealed class UIServer {
         new UITasks(server, _settings).Register(Commands);
         new UIScheduler(server, _settings).Register(Commands);
         new UIDemo(server, Shared).Register(Commands);
+        new UIStorageBenchmark(server, Shared).Register(Commands);
         new UIRevert(server).Register(Commands);
         new UIDatamodel(server).Register(Commands);
         new UIPatternTester(server).Register(Commands);
@@ -926,6 +927,7 @@ public sealed class UIServer {
                 DiskTotalBytes = disk?.TotalBytes ?? 0,
                 DiskFreeBytes = disk?.FreeBytes ?? 0,
                 DiskName = disk?.Name,
+                Io = UIDashboard.IoSample(_server),
             };
         });
         Commands.Register("server-overview", ctx => {
@@ -1399,6 +1401,7 @@ public sealed class UIServer {
                 ActionsNotInState = info.LogActionsNotItInStatefile,
                 TransactionsNotInState = info.LogTransactionsNotItInStatefile,
                 TruncatableActions = info.LogTruncatableActions,
+                TotalActions = info.LogTotalActions,
                 LogFileSize = info.LogFileSize,
                 StateFileSize = info.LogStateFileSize,
                 RunningRewrite = info.RunningRewriteFile,

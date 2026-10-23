@@ -15,6 +15,8 @@ public class StoreStreamMemoryRead : IReadStream {
         _onDispose = onDispose;
     }
     long _bytesRead;
+    readonly IOCounter _io = new();
+    public IOCounters Counters => _io.Snapshot;
     public long GetBytesRead() => _bytesRead;
     public void ResetByteCounter() => _bytesRead = 0;
     public string FileKey { get; }
@@ -27,6 +29,7 @@ public class StoreStreamMemoryRead : IReadStream {
         Array.Copy(_bytes, _position, block, 0, length);
         _position += length;
         _checkSum.EvaluateChecksumIfRecording(block);
+        _io.Read(length);
         return block;
     }
     public int ReadInto(Span<byte> buffer) {
@@ -35,6 +38,7 @@ public class StoreStreamMemoryRead : IReadStream {
         _bytes.AsSpan((int)_position, len).CopyTo(buffer);
         _position += len;
         _checkSum.EvaluateChecksumIfRecording(buffer[..len]);
+        _io.Read(len);
         return len;
     }
     public long Length => _bytes.Length;

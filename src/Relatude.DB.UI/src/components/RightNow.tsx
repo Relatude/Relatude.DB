@@ -18,17 +18,17 @@ import {
   IconWriting,
 } from "@tabler/icons-react";
 import { FadeText } from "./FadeText";
+import { Chart } from "./Chart";
+import { padToWindow } from "./ProcessChart";
 import type { DashboardLive } from "../server/dashboard";
+import type { SeriesPoint } from "../server/logs";
 import { formatCount, formatRate } from "../format";
 
 /**
- * "Right now" on the dashboard: what the database is doing this second. Three parts, top to bottom -
- * how fast it is being asked for things (a strip of four rates, each with the last minute behind it
- * as a sparkline), what it is busy with (one row per running activity, an icon in a ring that is the
- * activity's progress), and the two queues at the foot.
- *
- * The rates are the same counters the activity graph draws, sampled by the page; the strip is there
- * so the panel says something even when nothing is running, which is most of the time.
+ * Two panels of the dashboard. "Activity" is how fast the database is being asked for things: four
+ * rates, each a chart of the last few minutes. "Running operations" is what it is busy with this
+ * second - one row per running piece of work, an icon in a ring that is its progress - and the two
+ * queues at the foot. Both are drawn from the samples the page takes on its refresh cadence.
  */
 
 type Activity = NonNullable<DashboardLive["activities"]>[number];
@@ -50,9 +50,6 @@ const rates: { id: RateId; label: string; icon: typeof IconSearch; help: string 
   { id: "actions", label: "Actions", icon: IconBolt, help: "Actions per second, the single changes a transaction is made of" },
   { id: "nodeReads", label: "Node reads", icon: IconEye, help: "Nodes read per second" },
 ];
-
-/** a minute at the default refresh rate: long enough to see a burst, short enough to still be "now" */
-const sparkSlots = 30;
 
 /**
  * What each kind of work looks like: an icon and a word. The colour is the stylesheet's (`.cat-*`),
@@ -77,7 +74,22 @@ const categories: Record<string, { label: string; icon: typeof IconSearch }> = {
  */
 const leaveMs = 1050;
 
-export function RightNowPanel({ live, samples, rewrite }: { live: DashboardLive | null; samples: RateSample[]; rewrite?: string | null }) {
+export function ActivityPanel({ samples, maxSamples, refreshMs }: { samples: RateSample[]; maxSamples: number; refreshMs: number }) {
+  return (
+    <section className="panel panel-fill act-panel">
+      <h3>
+        Activity <span className="panel-sub">what the database is asked to do, per second</span>
+      </h3>
+      <div className="act-grid fill-body">
+        {rates.map((r) => (
+          <RateChart key={r.id} id={r.id} label={r.label} icon={r.icon} help={r.help} samples={samples} maxSamples={maxSamples} refreshMs={refreshMs} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+export function RunningPanel({ live, rewrite }: { live: DashboardLive | null; rewrite?: string | null }) {
   const activities = live?.activities ?? [];
   const running = activities.length;
   const tasks = live?.tasksQueued ?? 0;
@@ -87,7 +99,7 @@ export function RightNowPanel({ live, samples, rewrite }: { live: DashboardLive 
   return (
     <section className="panel panel-fill now-panel">
       <h3>
-        Right now
+        Running operations
         <span className={"now-status " + (running > 0 ? "busy" : "idle")}>
           {/* two marks in one place, crossfading: a dot that sits still while nothing runs, and
               three bars that keep time while something does */}
@@ -102,12 +114,6 @@ export function RightNowPanel({ live, samples, rewrite }: { live: DashboardLive 
           <FadeText fadeKey={running > 0 ? "busy" : "idle"}>{running > 0 ? `${running} running` : "idle"}</FadeText>
         </span>
       </h3>
-
-      <div className="now-pulse">
-        {rates.map((r) => (
-          <RateCell key={r.id} id={r.id} label={r.label} icon={r.icon} help={r.help} samples={samples} />
-        ))}
-      </div>
 
       <div className="dash-now fill-body">
         <ActivityList activities={activities} empty={<IdleLine />} />
@@ -139,7 +145,7 @@ export function RightNowPanel({ live, samples, rewrite }: { live: DashboardLive 
  * The work going on, one row each, keyed by what the work is rather than where it is in the list:
  * a row is the same element from the moment it appears to the moment it is gone, so its ring and
  * its bar move rather than jump. A row that has just finished completes and folds away instead of
- * vanishing between two samples. Used by "Right now" and by the panel watching a database open.
+ * vanishing between two samples. Used by "Running operations" and by the panel watching a database open.
  */
 export function ActivityList({ activities, empty }: { activities: Activity[]; empty?: ReactNode }) {
   const rows = useLeaving(activities, activityKey, leaveMs);
@@ -259,65 +265,46 @@ function IdleLine() {
 }
 
 /**
- * One rate: what it is, how many a second right now, and the last minute of it as a line. The
- * number counts its way to each new sample rather than jumping, and the icon takes the line's colour
- * while there is anything to count.
+ * One rate as a chart of the last few minutes, on the same window as the performance graph, with the
+ * number this second in its head. The number counts its way to each new sample rather than jumping,
+ * and the icon takes the line's colour while there is anything to count.
  */
-function RateCell({ id, label, icon: Icon, help, samples }: { id: RateId; label: string; icon: typeof IconSearch; help: string; samples: RateSample[] }) {
-  const values = rateSeries(samples, id).slice(-sparkSlots);
+function RateChart({
+  id,
+  label,
+  icon: Icon,
+  help,
+  samples,
+  maxSamples,
+  refreshMs,
+}: {
+  id: RateId;
+  label: string;
+  icon: typeof IconSearch;
+  help: string;
+  samples: RateSample[];
+  maxSamples: number;
+  refreshMs: number;
+}) {
+  const values = rateSeries(samples, id);
+  const points: SeriesPoint[] = values.map((value, i) => ({ fromUtc: new Date(samples[i + 1].at).toISOString(), hasValue: value != null, value }));
   const current = values.length > 0 ? (values[values.length - 1] ?? 0) : 0;
   const shown = useTweened(current, 650);
+  const total = samples.length > 0 ? samples[samples.length - 1][id] : 0;
   return (
-    <div className={"now-rate rate-" + id.toLowerCase() + (current > 0 ? " live" : "")} title={help}>
-      <div className="now-rate-head">
-        <Icon size={13} stroke={1.9} />
-        <span>{label}</span>
+    <div className={"act-cell rate-" + id.toLowerCase() + (current > 0 ? " live" : "")} title={help}>
+      <div className="act-cell-head">
+        <Icon size={14} stroke={1.9} />
+        <span className="act-cell-label">{label}</span>
+        <span className="act-cell-total muted" title="Since the caches were last cleared">
+          {formatCount(total)} in all
+        </span>
+        <span className="act-cell-value">
+          {shown < 0.05 ? "0" : formatRate(shown)}
+          <span className="now-rate-unit">/s</span>
+        </span>
       </div>
-      <div className="now-rate-value">
-        {shown < 0.05 ? "0" : formatRate(shown)}
-        <span className="now-rate-unit">/s</span>
-      </div>
-      <Sparkline values={values} />
-    </div>
-  );
-}
-
-/**
- * The rate as a line across a fixed window, growing in from the right like the activity graph, on
- * a scale of its own so a quiet minute still shows its shape. A counter that went backwards was
- * reset, and that sample is a gap rather than a negative rate.
- */
-function Sparkline({ values }: { values: (number | null)[] }) {
-  const w = 100;
-  const h = 26;
-  const max = values.reduce<number>((m, v) => (v != null && v > m ? v : m), 0);
-  const top = max > 0 ? max * 1.15 : 1;
-  const x = (i: number) => ((sparkSlots - values.length + i) / (sparkSlots - 1)) * w;
-  const y = (v: number) => h - 1 - (v / top) * (h - 4);
-  let line = "";
-  let area = "";
-  let run: [number, number][] = [];
-  const flush = () => {
-    if (run.length === 0) return;
-    line += run.map(([px, py], i) => `${i === 0 ? "M" : "L"}${px.toFixed(2)} ${py.toFixed(2)}`).join(" ") + " ";
-    if (run.length > 1) area += `M${run[0][0].toFixed(2)} ${h} ` + run.map(([px, py]) => `L${px.toFixed(2)} ${py.toFixed(2)}`).join(" ") + ` L${run[run.length - 1][0].toFixed(2)} ${h} Z `;
-    run = [];
-  };
-  values.forEach((v, i) => {
-    if (v == null) flush();
-    else run.push([x(i), y(v)]);
-  });
-  flush();
-  const last = values.length > 0 ? values[values.length - 1] : null;
-  return (
-    <div className="now-spark">
-      <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" aria-hidden="true">
-        <line className="now-spark-base" x1={0} x2={w} y1={h - 0.5} y2={h - 0.5} vectorEffect="non-scaling-stroke" />
-        {area && <path className="now-spark-area" d={area} />}
-        {line && <path className="now-spark-line" d={line} vectorEffect="non-scaling-stroke" />}
-      </svg>
-      {/* the newest sample, as a dot that is round whatever the width: drawn over the svg, not in it */}
-      {last != null && <span className="now-spark-dot" style={{ top: `${(y(last) / h) * 100}%` }} />}
+      <Chart kind="sum" points={padToWindow(points, maxSamples - 1, samples, refreshMs)} groups={[]} interval="Second" format={formatRate} height="fill" minHeight={48} valueLabel="per second" />
     </div>
   );
 }

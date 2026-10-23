@@ -164,6 +164,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         _noTransactionsSinceClearCache++;
         _noTransactionsSinceLastMetric++;
         _noPrimitiveActionsInLogThatCanBeTruncated += executed.Count(a => a.Operation == PrimitiveOperation.Remove);
+        _noPrimitiveActionsInLog += primitiveActionCount;
 
     }
     internal long GetNoPrimitiveActionsSinceStartup() {

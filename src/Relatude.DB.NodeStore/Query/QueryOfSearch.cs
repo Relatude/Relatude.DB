@@ -25,7 +25,7 @@ public sealed class QueryOfSearch<T, TInclude> : IQueryExecutable<ResultSetSearc
             throw new NotSupportedException("Only results of type " + nameof(ISearchQueryResultData) + " is supported. Type provided: " + data?.GetType().FullName);
         List<SearchResultHit<T>> values = [];
         foreach (var hit in s.Hits) {
-            var node = _query.Store.Mapper.CreateObjectFromNodeData<T>(hit.NodeData, null);
+            var node = _query.Store.Mapper.CreateObjectFromNodeData<T>(hit.NodeData, null, _query.Store);
             var searchResultHit = new SearchResultHit<T>(node, hit.Score, hit.Sample);
             values.Add(searchResultHit);
         }

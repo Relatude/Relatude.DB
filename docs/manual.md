@@ -2266,7 +2266,8 @@ all five at 0 there is no automatic backup, and the backups already there are de
 |---|---|---|
 | `AutoTruncate` | `false` | Rewrite the log to current state on a schedule. Reclaims space; discards version history. |
 | `AutoTruncateIntervalInMinutes` | 240 | How often, at most. |
-| `AutoTruncateActionCountLowerLimit` | 100 000 | Do not bother below this many actions. |
+| `AutoTruncateActionCountLowerLimit` | 100 000 | Due once this many actions can go (a remove each: a deleted or replaced node or relation), or at the share below, whichever comes first. |
+| `AutoTruncateRedundantPercentageLimit` | 50 | Due once this share of the log can go: each remove and the add before it, against every action in the log (`DataStoreInfo.LogTotalActions`). 0 turns it off. |
 | `AutoTruncateDeleteOldFileOnSuccess` | `false` | Delete the pre-rewrite log once the rewrite has succeeded. Off means it stays until you delete it yourself. |
 
 **Caches.** Sized in gigabytes, and both are upper bounds rather than reservations.
@@ -2843,6 +2844,24 @@ a callback that silently did nothing is a startup-log question rather than a cra
 belongs in `OnStoreOpenBackground`** — `OnStoreOpen` blocks the open, and while a store is opening
 every request gets a 503 progress page.
 
+**`AddRelatudeDB` can be called any number of times.** Every call configures the same `ServerOptions`
+instance, so a library that calls it itself, as Relatude.CMS does, and the host's own call can come
+in any order. A second `UseRelatudeDB` on the same application does nothing; there is one server per
+process, so a second application throws.
+
+**A library hooks into the start with a service, not a callback.** The callbacks belong to the host,
+and a host that assigns `OnStoreInit` after a library chained onto it would drop the library's part.
+A library registers an `IStoreInitializer` instead, which the server calls for every store, right
+after `OnStoreInit`:
+
+```csharp
+public sealed class AuditInitializer : IStoreInitializer {
+    public void Initialize(NodeStore store) => store.RegisterTransactionPlugin(new AuditPlugin());
+}
+
+services.TryAddEnumerable(ServiceDescriptor.Singleton<IStoreInitializer, AuditInitializer>());
+```
+
 ### Two ways to register a datamodel
 
 The JSON sources load first, then `OnDatamodelInit` runs against the same `Datamodel` object — so
@@ -2994,14 +3013,16 @@ What you do in it:
 | **Indexing** | Text, semantic and value index configuration; reindexing. |
 | **File storage** | Add and configure storage providers (local disk, Azure Blob) and pick a default. The id you paste into `[FileProperty(FileStorageProviderId = "…")]` comes from here. |
 | **IO** | Where the append-only transaction log and backups are written. |
-| **Storage** | Backups — one click to take one, one to go back to it. Take one before upgrading, the project is pre-1.0. The database file itself lives here too: download it, upload one, or copy it up to a moment in time and open the database on that copy. Any file the Files page lists can be made the database file, which is the way back from all three: whatever is replaced is kept beside the new file, never deleted. |
+| **Storage** | Backups — one click to take one, one to go back to it. Take one before upgrading, the project is pre-1.0. The database file itself lives here too: download it, upload one, or copy it up to a moment in time and open the database on that copy. Any file the Files page lists can be made the database file, which is the way back from all three: whatever is replaced is kept beside the new file, never deleted. **Benchmark storage** measures the storages you tick: writes and reads of small and large pieces, in order and at random, commits made durable, reads past the operating system's cache on a local disk, and the small requests around a file, each with its throughput and the time one operation takes (typical, 90 %, 99 %, slowest). The report compares the storages side by side; from code the same test is `IIOProvider.BenchmarkPerformanceAsync(testDurationInMs)`. |
 | **Status** | Store state, running file conversions, activity and timings. |
 | **Activity** | What the database records about itself — queries, transactions, actions, tasks, metrics, the system trace — each log switched on or off, with its entries, search and graphs. |
 | **Logs** | Logs of your own: define one, and read what the application recorded into it as graphs, entries and the spread of a column's values. The **Built-in logs** switch shows the Activity logs here too, read only. See [§32](#32-logs--recording-what-the-application-does). |
 | **Tasks** | The task queue — what is waiting and running, failed batches to queue again, how much of the machine background work may take — and the **Scheduler**, which runs jobs such as backups and your own at set intervals. See [§36](#36-background-tasks-and-the-scheduler). |
 | **API** | GraphQL endpoints over the database: each one a url, the types and properties it exposes and under which names, views, mutations, API keys with expiry dates, generated client code, and an explorer to try queries. See [§33](#33-graphql-endpoints). |
 | **Relatude Services** (server menu) | The installation's Relatude Services account: connecting it to a license, what the license carries, the sign-in switch, and a test view for each hosted service. Not needed to run anything. See [§35](#35-relatude-services). |
-| **Memory** (on the dashboard) | Every memory budget of one database on one line - the node and result set caches, each index engine, the state store - each showing what it is actually holding against what it is allowed. Dragging a budget takes effect at once where the part can be re-sized while it runs; saving keeps them for the next start, in `relatude.db.overrides.json` like every change made on the settings pages. |
+| **Performance** (on the dashboard) | The server process over the last few minutes - its managed heap and cpu - and, in a band under them, what the storage providers read and wrote a second, summed over every provider the server has; the tooltip splits a second's traffic per provider and adds the operations behind the bytes. The counters are kept per stream and folded into the provider as streams close, so the graph costs the database nothing. The database's own rates - queries, transactions, actions, node reads - are in the **Activity** panel below it. |
+| **Activity** and **Running operations** (on the dashboard) | Activity charts what the database is asked to do a second over the last few minutes - queries, transactions, actions and node reads - with the count since the caches were last cleared. Running operations lists the work going on this second, each with its progress, and the background task and file conversion queues. |
+| **Memory** (on the dashboard) | Every memory budget of one database on one line - the node and result set caches, each index engine, the state store - each showing what it is actually holding against what it is allowed. Dragging a budget takes effect at once where the part can be re-sized while it runs; saving keeps them for the next start, in `relatude.db.overrides.json` like every change made on the settings pages. Under the budgets the node, result set and aggregate caches each show the share of lookups they answered, their hits and misses, and the hits and misses a second they take now, updated live with the rest of the page. |
 
 Two habits worth forming:
 
@@ -3563,6 +3584,7 @@ string fileUrl = db.GetUrl(article.Photo, new FileAdjustmentImage { Width = 400 
 // the reverse: what does this URL point at?
 if (db.TryParseUrl(url, out UrlKeys keys)) { … }         // node, file, variant or deeplink
 if (db.TryParseUrlForContent(url, out var content)) { … } // …resolved all the way to content
+var file = await db.GetUrlContentAsync(keys);              // the same, from keys already parsed
 
 // may this node have this address? (editor-side validation)
 bool ok = db.WillAddressResultInUniqueUrl(new NodeKey(article.Id), "contact-us");
@@ -3886,6 +3908,12 @@ Four things in there are load-bearing:
 - **Rendering a page is yours to write.** `UrlTarget.Node` and `EmbeddedNode` hand you
   `UrlContent.NodeData`, and `UrlKeys.CultureId` / `CultureCode` tell you which culture the URL
   matched. Return your own view, or `null` to fall through to MVC/Razor routing.
+
+`FileHandler` answers a `Range` request with `206 Partial Content` when the stream can seek, which
+video and audio players depend on. A file kept on local disk opens as a seekable `FileStream`; one on
+blob storage or in a single-file store streams through a pipe and is served whole. A web layer that
+takes URLs apart before it decides what serves them, as Relatude.CMS's content routes do, calls
+`TryParseUrl` once and `GetUrlContentAsync(keys)` for the files, rather than parsing twice.
 
 `examples/Website.Simple` has the whole thing running: a two-domain page tree, a rename demo that
 shows stored `rdb:` tokens surviving it, and endpoints that print every node's computed URL.
@@ -4853,7 +4881,18 @@ nb.Get<IVenue>(venueId);
 ```
 
 `db.Context.Admin()` returns a store that bypasses ACL filtering. Use it in trusted server code
-only — **never hand it to a request handler**.
+only — **never hand it to a request handler**. The builder has every setting of the context:
+`Culture`, `User(userId)` (the id of a user node; `Guid.Empty` reads as an anonymous visitor),
+`Hidden`, `CultureFallbacks`, `Unpublished`, `EditView`, `Now(utc)`, `Admin`, and `With(queryContext)`
+for a context built elsewhere. A web layer builds one store per request this way, as the visitor:
+
+```csharp
+var visitor = db.Context.Culture(cultureCode).User(userId ?? Guid.Empty).Create();
+```
+
+Note that `Get` and `TryGet` by id apply the context's culture but not its read access: queries and
+relation properties filter by it. To ask whether a visitor may read a node, query for it:
+`visitor.Query().Where(id).Count() > 0`.
 
 ---
 

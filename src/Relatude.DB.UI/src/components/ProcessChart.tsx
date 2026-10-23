@@ -1,15 +1,18 @@
 import { useCallback, useRef, useState } from "react";
-import { Chart, type ChartOverlay } from "./Chart";
+import { Chart, type ChartBand, type ChartOverlay } from "./Chart";
 import { useRefreshInterval } from "../refresh";
 import { useLive } from "../live";
-import { formatBytes } from "../format";
+import { formatBytes, formatRate } from "../format";
 import type { SeriesPoint } from "../server/logs";
+import type { IoActivity, IoCounters } from "../server/dashboard";
 
 // The server process on a graph: the managed heap as a level, the cpu it is using as a share of
 // every core, drawn over it in another colour, and - where the server reports it - how full the
-// drive the databases are written to is. The same picture serves the database dashboard (where the
-// process is the one thing on the page that is not this database) and the server overview (where it
-// is the whole subject), so the sampling, the arithmetic and the chart live here.
+// drive the databases are written to is. Under it, in a band of its own, what the storage providers
+// moved: bytes read and written a second, summed over every provider the server has. The same
+// picture serves the database dashboard (where the process is the one thing on the page that is not
+// this database) and the server overview (where it is the whole subject), so the sampling, the
+// arithmetic and the chart live here.
 
 /** One reading of the process, taken at `at`. The processor time is cumulative, like a counter. */
 export interface ProcessSample {
@@ -23,12 +26,15 @@ export interface ProcessSample {
   /** the data drive, 0 on a server that has no local folder to report on */
   diskTotalBytes?: number;
   diskFreeBytes?: number;
+  /** what the storage providers have done so far, cumulative; unset from a server older than this page */
+  io?: IoActivity;
 }
 
 /** Three minutes of history at the default refresh rate: enough to see a burst arrive and drain. */
 export const defaultMaxSamples = 90;
 
 export const formatPercent = (value: number) => (value >= 10 ? Math.round(value) : value.toFixed(1)) + "%";
+export const formatBytesPerSecond = (value: number) => formatBytes(value) + "/s";
 
 /**
  * The cpu between each pair of samples, as a share of every core the process could have used:
@@ -79,6 +85,63 @@ export function currentDisk(samples: ProcessSample[]): { total: number; free: nu
   return null;
 }
 
+/** One direction of the storage traffic: which counters of a reading it is made of. */
+export interface IoSide {
+  bytes: (counters: IoCounters) => number;
+  ops: (counters: IoCounters) => number;
+}
+export const ioRead: IoSide = { bytes: (c) => c.bytesRead, ops: (c) => c.reads };
+export const ioWrite: IoSide = { bytes: (c) => c.bytesWritten, ops: (c) => c.writes };
+
+/**
+ * The storage traffic between each pair of samples, as bytes a second summed over every provider,
+ * with the operations a second in `count` and each provider's own bytes a second in `values`. A
+ * sample without a reading, or a counter that went backwards (a provider dropped and rebuilt), is a
+ * gap rather than a rate.
+ */
+export function ioPoints(samples: ProcessSample[], side: IoSide): SeriesPoint[] {
+  const points: SeriesPoint[] = [];
+  for (let i = 1; i < samples.length; i++) {
+    const previous = samples[i - 1];
+    const sample = samples[i];
+    const seconds = (sample.at - previous.at) / 1000;
+    const before = previous.io;
+    const now = sample.io;
+    if (!before || !now || seconds <= 0 || side.bytes(now) < side.bytes(before)) {
+      points.push({ fromUtc: sample.iso, hasValue: false, value: null });
+      continue;
+    }
+    const values: Record<string, number> = {};
+    for (const provider of now.providers) {
+      const was = before.providers.find((p) => p.id === provider.id);
+      if (!was || side.bytes(provider) < side.bytes(was)) continue;
+      values[provider.name] = (side.bytes(provider) - side.bytes(was)) / seconds;
+    }
+    points.push({
+      fromUtc: sample.iso,
+      hasValue: true,
+      value: (side.bytes(now) - side.bytes(before)) / seconds,
+      count: Math.max(0, side.ops(now) - side.ops(before)) / seconds,
+      values,
+    });
+  }
+  return points;
+}
+
+/** Whether any sample carries a storage reading: a server older than this page sends none. */
+export function hasIo(samples: ProcessSample[]): boolean {
+  return samples.some((s) => s.io != null);
+}
+
+/** The latest storage rates, both directions, or null before there are two readings to compare. */
+export function currentIo(samples: ProcessSample[]): { read: SeriesPoint; written: SeriesPoint } | null {
+  const read = ioPoints(samples, ioRead);
+  const written = ioPoints(samples, ioWrite);
+  const r = read[read.length - 1];
+  const w = written[written.length - 1];
+  return r?.hasValue && w?.hasValue ? { read: r, written: w } : null;
+}
+
 /**
  * Fills the graph out to `count` points by putting empty ones before the measured ones, spaced the
  * way the samples are - by the gap between the last two, else by the refresh interval, else a second.
@@ -104,9 +167,11 @@ export function currentCpu(samples: ProcessSample[]): number | null {
 }
 
 /**
- * Memory and cpu on one chart. The memory is the axis on the left; the cpu rides over it on a
- * 0..100% scale labelled on the right. The cpu is a rate between two samples and so has one point
- * fewer than the memory - padding both to the same window keeps them lined up.
+ * Memory and cpu on one chart, the storage traffic in a band under them. The memory is the axis on
+ * the left; the cpu rides over it on a 0..100% scale labelled on the right. The band has a scale of
+ * its own, since bytes a second and bytes in a heap are not the same kind of number. The cpu and the
+ * traffic are rates between two samples and so have one point fewer than the memory - padding all of
+ * them to the same window keeps them lined up.
  */
 export function ProcessChart({ samples, maxSamples = defaultMaxSamples, showDisk = false }: { samples: ProcessSample[]; maxSamples?: number; showDisk?: boolean }) {
   const refreshMs = useRefreshInterval();
@@ -118,7 +183,16 @@ export function ProcessChart({ samples, maxSamples = defaultMaxSamples, showDisk
   if (showDisk && currentDisk(samples)) {
     overlays.push({ points: padToWindow(diskPoints(samples), maxSamples, samples, refreshMs), max: 100, format: formatPercent, label: "disk used" });
   }
-  return <Chart kind="sum" points={memory} groups={[]} interval="Second" format={formatBytes} compactAxis={false} height="fill" overlays={overlays} />;
+  const band: ChartBand | undefined = hasIo(samples)
+    ? {
+        format: formatBytesPerSecond,
+        series: [
+          { label: "read", tone: "read", points: padToWindow(ioPoints(samples, ioRead), maxSamples, samples, refreshMs), detail: (p) => formatRate(p.count ?? 0) + " reads/s" },
+          { label: "written", tone: "write", points: padToWindow(ioPoints(samples, ioWrite), maxSamples, samples, refreshMs), detail: (p) => formatRate(p.count ?? 0) + " writes/s" },
+        ],
+      }
+    : undefined;
+  return <Chart kind="sum" points={memory} groups={[]} interval="Second" format={formatBytes} compactAxis={false} height="fill" overlays={overlays} band={band} />;
 }
 
 /**

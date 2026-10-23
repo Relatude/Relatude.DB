@@ -9,6 +9,8 @@ public class AzureBlobIOReadStream : IReadStream {
     byte[] _readAheadBuffer; // mb read ahead buffer...
     readonly Action _disposeCallback;
     long _bytesRead;
+    readonly IOCounter _io = new();
+    public IOCounters Counters => _io.Snapshot;
     public long GetBytesRead() => _bytesRead;
     public void ResetByteCounter() {
         _bytesRead = 0;
@@ -40,6 +42,7 @@ public class AzureBlobIOReadStream : IReadStream {
             if (Position + lengthToRead > _totalLength) lengthToRead = _totalLength - Position;
             _readAheadBuffer = new byte[lengthToRead];
             _client.DownloadRange(_blobName, Position, (int)lengthToRead, null, _readAheadBuffer);
+            _io.Read(lengthToRead);
             _bufferStartPos = Position;
         }
         byte[] result;
@@ -82,6 +85,7 @@ public class AzureBlobIOReadStream : IReadStream {
             if (Position + lengthToRead > _totalLength) lengthToRead = _totalLength - Position;
             _readAheadBuffer = new byte[lengthToRead];
             await _client.DownloadRangeAsync(_blobName, Position, (int)lengthToRead, null, _readAheadBuffer);
+            _io.Read(lengthToRead);
             _bufferStartPos = Position;
         }
 

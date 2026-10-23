@@ -7895,6 +7895,20 @@ body.pg-resizing {
   opacity: 0.85;
 }
 
+/* what the number leaves out (the node tile's revisions and embedded nodes): one quiet line, cut short
+   rather than wrapped, the whole of it in the tile's tooltip */
+.dash-tile-detail {
+  flex: none;
+  margin-top: 3px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  opacity: 0.8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* ---- right now: what the database is doing this second (RightNow.tsx) ---- */
 
 /* the middle of the panel: the running work, scrolling when there is more than the row has room for */
@@ -7986,79 +8000,88 @@ body.pg-resizing {
   }
 }
 
-/* Four rates in a strip, each with its last minute as a line: how hard the database is being asked,
-   which is worth reading whether anything is running or not. Each line has a colour of its own, and
-   its icon takes that colour while there is anything to count. */
-.now-pulse {
+/* The Activity panel: four rates, a chart each, in a two by two grid that fills the panel. Each rate
+   keeps a colour of its own - the chart's line and fill take it through --accent, set on the cell -
+   and its icon takes that colour while there is anything to count. */
+.act-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  margin-bottom: 8px;
-  font-size: 12px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-auto-rows: minmax(66px, 1fr);
+  gap: 8px 14px;
+  min-height: 0;
 }
 
-.now-rate {
+.act-cell {
   --rate: var(--text-muted);
+  --accent: var(--rate);
+  --accent-soft: color-mix(in srgb, var(--rate) 14%, transparent);
+  display: flex;
+  flex-direction: column;
   min-width: 0;
-  padding: 8px 12px 7px;
-  border-left: 1px solid var(--border);
+  min-height: 0;
 }
 
-.now-rate:first-child {
-  border-left: none;
-}
-
-.now-rate.rate-queries {
+.act-cell.rate-queries {
   --rate: var(--viz-1);
 }
 
-.now-rate.rate-transactions {
+.act-cell.rate-transactions {
   --rate: var(--viz-3);
 }
 
-.now-rate.rate-actions {
+.act-cell.rate-actions {
   --rate: var(--viz-4);
 }
 
-.now-rate.rate-nodereads {
+.act-cell.rate-nodereads {
   --rate: var(--viz-7);
 }
 
-.now-rate-head {
+.act-cell-head {
   display: flex;
-  align-items: center;
-  gap: 5px;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  margin-bottom: 2px;
+}
+
+.act-cell-head svg {
+  flex: none;
+  align-self: center;
+  color: var(--text-faint);
+  transition: color 0.5s ease;
+}
+
+.act-cell.live .act-cell-head svg {
+  color: var(--rate);
+}
+
+.act-cell-label {
+  min-width: 0;
+  overflow: hidden;
   font-size: 10px;
   font-weight: 500;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  color: var(--text-faint);
   white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--text-faint);
 }
 
-.now-rate-head span {
+.act-cell-total {
+  min-width: 0;
   overflow: hidden;
+  font-size: 11px;
+  white-space: nowrap;
   text-overflow: ellipsis;
 }
 
-.now-rate-head svg {
-  flex: none;
-  transition: color 0.5s ease;
-}
-
-.now-rate.live .now-rate-head svg {
-  color: var(--rate);
-}
-
-.now-rate-value {
-  margin-top: 1px;
-  font-size: 17px;
+.act-cell-value {
+  margin-left: auto;
+  font-size: 16px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .now-rate-unit {
@@ -8068,47 +8091,14 @@ body.pg-resizing {
   color: var(--text-muted);
 }
 
-/* the line is stretched to the cell, its stroke is not (non-scaling-stroke); the newest sample's dot
-   is html over it, so it stays round at any width */
-.now-spark {
-  position: relative;
-  height: 26px;
-  margin-top: 4px;
+.act-cell .chart-fill {
+  min-height: 48px;
 }
 
-.now-spark svg {
-  display: block;
-  width: 100%;
-  height: 100%;
-  overflow: visible;
-}
-
-.now-spark-base {
-  stroke: var(--border);
-  stroke-width: 1;
-}
-
-.now-spark-area {
-  fill: color-mix(in srgb, var(--rate) 16%, transparent);
-}
-
-.now-spark-line {
-  fill: none;
-  stroke: var(--rate);
-  stroke-width: 1.5;
-  stroke-linejoin: round;
-  stroke-linecap: round;
-}
-
-.now-spark-dot {
-  position: absolute;
-  right: 0;
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--rate);
-  transform: translate(50%, -50%);
-  transition: top 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+@container (max-width: 520px) {
+  .act-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 /* One row per running activity: the kind of work as an icon in a ring that is its progress, its name
@@ -8473,18 +8463,6 @@ body.pg-resizing {
   height: 4px;
 }
 
-@container (max-width: 440px) {
-  .now-pulse {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .now-rate:nth-child(3) {
-    border-left: none;
-  }
-  .now-rate:nth-child(n + 3) {
-    border-top: 1px solid var(--border);
-  }
-}
-
 @container (max-width: 340px) {
   .now-foot {
     grid-template-columns: minmax(0, 1fr);
@@ -8572,6 +8550,80 @@ body.pg-resizing {
 .dash-cache-note {
   margin-top: 8px;
   font-size: 12px;
+}
+
+/* how well each cache answers, live: a card per cache under the budgets, the share of lookups it
+   answered as a number and a bar, the counts behind it, and what it is taking a second now */
+.mem-caches {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+}
+
+.mem-cache {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.mem-cache-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.mem-cache-name {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--text-faint);
+}
+
+.mem-cache-ratio {
+  margin-left: auto;
+  font-size: 16px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.mem-cache-bar {
+  display: block;
+  height: 4px;
+  overflow: hidden;
+  background: var(--hover);
+  border-radius: 2px;
+}
+
+.mem-cache-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--ok);
+  border-radius: 2px;
+  transition: width 0.6s ease;
+}
+
+.mem-cache-line {
+  overflow: hidden;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+@container (max-width: 420px) {
+  .mem-caches {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 /* minmax(0, 1fr) at every width, never 1fr: a plain fr track grows to fit its content, and the
@@ -11974,6 +12026,10 @@ body.pg-resizing {
      accent blue of the memory (checked for colour-blind separation as a set, on each theme's panel) */
   --chart-cpu: var(--viz-4);
   --chart-disk: var(--viz-6);
+  /* the storage band under the process charts: purple read, pink written - checked with the validator
+     as a set with the memory blue, the cpu yellow and the disk green on both surfaces */
+  --chart-read: #8d78c9;
+  --chart-write: #e87ba4;
 }
 
 [data-theme="dark"] {
@@ -11988,6 +12044,8 @@ body.pg-resizing {
   --chart-cpu: var(--viz-4);
   /* the dark green step sits too close to the amber for a red-blind reader; the aqua-green does not */
   --chart-disk: var(--viz-3);
+  --chart-read: #8d78c9;
+  --chart-write: #e87ba4;
 }
 
 .bar-chart {
@@ -12220,6 +12278,46 @@ body.pg-resizing {
 
 .chart-key-third {
   color: var(--chart-disk);
+}
+
+/* the storage band under the process charts: what the providers read and wrote, a line each */
+.chart-line-read {
+  stroke: var(--chart-read);
+}
+
+.chart-point-read {
+  fill: var(--chart-read);
+}
+
+.chart-swatch-read {
+  background: var(--chart-read);
+}
+
+.chart-key-read {
+  color: var(--chart-read);
+}
+
+.chart-line-write {
+  stroke: var(--chart-write);
+}
+
+.chart-point-write {
+  fill: var(--chart-write);
+}
+
+.chart-swatch-write {
+  background: var(--chart-write);
+}
+
+.chart-key-write {
+  color: var(--chart-write);
+}
+
+/* a tooltip row's parts, listed under it: each provider's share of a band value */
+.chart-tip-sub {
+  padding-left: 14px;
+  font-size: 10px;
+  color: var(--text-muted);
 }
 
 /* ---- storage groups ---- */
@@ -16099,7 +16197,7 @@ body.pg-resizing {
 }
 
 .ns-node-row {
-  grid-template-columns: 30px minmax(0, 2fr) minmax(70px, 1fr) 62px minmax(30px, 0.7fr) 62px;
+  grid-template-columns: 30px minmax(0, 2fr) minmax(70px, 1fr) 62px minmax(30px, 0.7fr);
 }
 
 .ns-more {
@@ -16188,6 +16286,448 @@ body.pg-resizing {
 
 .node-sizes-dialog .scan-bar {
   display: block;
+}
+
+/* ---- storage benchmark: picking the storages, and the report comparing them ---- */
+
+.dialog.bench-setup {
+  width: 540px;
+  outline: none;
+}
+
+.bench-pick-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 320px;
+  margin-bottom: 12px;
+  overflow-y: auto;
+}
+
+.bench-pick {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  font-size: 13px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.bench-pick:hover {
+  background: var(--hover);
+}
+
+.bench-pick.on {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  background: var(--accent-soft);
+}
+
+.bench-pick-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.bench-pick-name {
+  font-weight: 600;
+}
+
+.bench-pick-text .muted {
+  font-size: 12px;
+}
+
+.bench-ellipsis {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.bench-setup-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  margin-bottom: 10px;
+  font-size: 12px;
+}
+
+.bench-setup-note {
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.dialog.bench-dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(1400px, calc(100vw - 32px));
+  height: min(1000px, calc(100vh - 32px));
+  max-width: calc(100vw - 32px);
+  outline: none;
+}
+
+.bench-dialog .num,
+.bench-summary-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.bench-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.bench-body > * {
+  flex: none;
+}
+
+.bench-body > .files-notice,
+.bench-body > .dialog-error {
+  margin: 0;
+}
+
+.bench-meta .muted {
+  font-size: 12px;
+}
+
+.bench-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+/* the comparison: a row per number that matters, a column per storage */
+.bench-glance {
+  display: grid;
+  min-width: min-content;
+  font-size: 12px;
+}
+
+.bench-glance > div {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.bench-storage-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.bench-storage-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.bench-storage-head .muted {
+  font-size: 11px;
+}
+
+.bench-glance-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.bench-glance-label > span:first-child {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.bench-glance-label .muted {
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.bench-glance-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.bench-glance-cell .muted {
+  font-size: 11px;
+}
+
+.bench-glance-cell.missing {
+  justify-content: center;
+  color: var(--text-faint);
+}
+
+.bench-glance-value {
+  font-size: 15px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.bench-glance-cell.best .bench-glance-value {
+  font-weight: 700;
+}
+
+.bench-bar {
+  display: block;
+  height: 5px;
+  margin-top: 3px;
+  overflow: hidden;
+  background: var(--hover);
+  border-radius: 3px;
+}
+
+.bench-bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+}
+
+/* the two charts of one group of tests, side by side over a shared legend */
+.bench-group-switch {
+  margin-left: 4px;
+}
+
+.bench-group-help {
+  max-width: 120ch;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.bench-chart-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.bench-chart-cell {
+  min-width: 0;
+}
+
+.bench-chart-title {
+  margin-bottom: 2px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.bench-chart-title .muted {
+  font-weight: 400;
+}
+
+.bench-line {
+  fill: none;
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  pointer-events: none;
+}
+
+.bench-dot {
+  stroke: var(--panel);
+  stroke-width: 2;
+  pointer-events: none;
+}
+
+.bench-range {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+.bench-max {
+  stroke-width: 2;
+  stroke-linecap: round;
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.bench-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.bench-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text);
+}
+
+.bench-legend-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.bench-glyph {
+  stroke: var(--text-muted);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.bench-glyph-bar {
+  fill: var(--text-muted);
+  opacity: 0.35;
+}
+
+.bench-glyph-dot {
+  fill: var(--text-muted);
+}
+
+.bench-tip {
+  max-width: min(560px, 90vw);
+}
+
+.bench-tip .ns-tip-line {
+  grid-template-columns: 10px minmax(80px, max-content) auto;
+}
+
+.bench-tip .ns-tip-line .num {
+  white-space: nowrap;
+}
+
+/* every test of one storage */
+.bench-facts {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+.bench-facts .fact-v {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.bench-table {
+  display: grid;
+  grid-template-columns: minmax(210px, 2.4fr) repeat(10, minmax(72px, 1fr)) minmax(108px, 1.2fr);
+  min-width: 1110px;
+  font-size: 12px;
+}
+
+.bench-table > span {
+  min-width: 0;
+  padding: 5px 8px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  border-bottom: 1px solid var(--border);
+}
+
+.bench-th {
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.bench-table-group {
+  grid-column: 1 / -1;
+  padding-top: 12px !important;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.bench-test-name {
+  color: var(--text);
+}
+
+.bench-typical {
+  font-weight: 600;
+}
+
+.bench-error {
+  grid-column: 2 / -1;
+  color: var(--danger);
+}
+
+.bench-notes {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.bench-help {
+  padding: 2px 2px 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.bench-help summary {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.bench-help p {
+  max-width: 120ch;
+  margin: 8px 0 0;
+}
+
+.bench-help b {
+  color: var(--text);
+}
+
+/* the last run on the storage page, a line per storage */
+.bench-summary-table {
+  display: grid;
+  min-width: min-content;
+  margin-top: 6px;
+  font-size: 12px;
+}
+
+.bench-summary-table > span {
+  min-width: 0;
+  padding: 6px 8px;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--border);
+}
+
+.bench-summary-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+
+@media (max-width: 1100px) {
+  .bench-chart-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .bench-facts {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px), (max-height: 500px) and (pointer: coarse) {
+  .bench-facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .bench-legend-key {
+    margin-left: 0;
+  }
 }
 
 /* ---- a screen with no pointer to hover with ----

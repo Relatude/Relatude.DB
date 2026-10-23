@@ -1336,7 +1336,11 @@ public static class SettingsCatalog {
                         },
                         new() {
                             Path = "LocalSettings.AutoTruncateActionCountLowerLimit", Label = "Minimum actions", Unit = "actions", Applies = SettingApplies.Live,
-                            Help = "Below this many actions since the last truncation nothing happens - rewriting a log to reclaim very little is not worth the I/O.",
+                            Help = "A truncation is due once this many actions can go, or once the redundant share below is reached, whichever comes first. A large log reaches this count long before the share; a small one may never reach it.",
+                        },
+                        new() {
+                            Path = "LocalSettings.AutoTruncateRedundantPercentageLimit", Label = "Redundant share", Unit = "%", Applies = SettingApplies.Live,
+                            Help = "A truncation is also due once this much of the log can go, whatever the count above: a deleted or replaced node or relation leaves its remove and the add before it. The rewrite costs the whole log, so this is how much of it a truncation must reclaim. 0 turns it off.",
                         },
                         new() {
                             Path = "LocalSettings.AutoTruncateDeleteOldFileOnSuccess", Label = "Delete the old log", Applies = SettingApplies.Live,

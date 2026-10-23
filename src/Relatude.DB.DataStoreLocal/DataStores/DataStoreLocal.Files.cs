@@ -128,6 +128,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         ctx ??= _defaultQueryCtx;
         if (!TryGetValue<FileValue>(propertyPath, out var fileValue, ctx)) return null;
         if (fileValue.Width > 0) return fileValue; // meta is already set
+        if (!_fileConversionEngine.CanConvert(fileValue.Format, FileFormat.FileMetaJson)) return null; // no converter reads it, an SVG without one: the file is stored all the same
         FileAdjustmentMeta adj = new();
         var conversionResult = await GetFileStreamAndState(propertyPath, adj, maxWaitForMetaUpdate, ctx);
         if (!conversionResult.IsReady) {

@@ -145,6 +145,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                 LogRewriter.DeleteFlagFileToIndicateLogRewriterStart(destinationIO, _rewriter.FileKey);
                 if (hotSwapToNewFile) {
                     _noPrimitiveActionsInLogThatCanBeTruncated -= initialNoPrimitiveActionsInLogThatCanBeTruncated;
+                    _noPrimitiveActionsInLog = _rewriter.ActionsWritten; // before the state is saved below, which keeps it
                     // reset, since we have a new log file
                     SaveIndexStates(true, true); // needed to refresh state file with new log file
                     _index.WriteNewTimestampDueToRewriteHotswapJustAfterSaveState(_wal.LastTimestamp, _wal.FileId);

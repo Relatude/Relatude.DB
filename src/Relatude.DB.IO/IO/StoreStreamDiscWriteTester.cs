@@ -25,6 +25,8 @@ public class StoreStreamDiscWriteTester : IAppendStream {
     }
     long _bytesRead;
     long _bytesWritten;
+    readonly IOCounter _io = new();
+    public IOCounters Counters => _io.Snapshot;
     public long GetBytesWritten() => _bytesWritten;
     public long GetBytesRead() => _bytesRead;
     public void ResetByteCounter() {
@@ -49,6 +51,7 @@ public class StoreStreamDiscWriteTester : IAppendStream {
             _checkSum.EvaluateChecksumIfRecording(data);
             _stream.Write(data, 0, data.Length);
             _bytesWritten += data.Length;
+            _io.Write(data.Length);
             _notInOs = _notDurable = true;
 #if DEBUG
         } finally {
@@ -64,6 +67,7 @@ public class StoreStreamDiscWriteTester : IAppendStream {
             _checkSum.EvaluateChecksumIfRecording(data, count);
             _stream.Write(data, 0, count);
             _bytesWritten += count;
+            _io.Write(count);
             _notInOs = _notDurable = true;
 #if DEBUG
         } finally {
@@ -128,6 +132,7 @@ public class StoreStreamDiscWriteTester : IAppendStream {
             _stream.ReadExactly(buffer, 0, count);
             _stream.Position = position1;
             _bytesRead += count;
+            _io.Read(count);
 #if DEBUG
         } finally {
             _flagAccessing.Reset();
@@ -156,6 +161,7 @@ public class StoreStreamDiscWriteTester : IAppendStream {
 
     public async Task AppendAsyncNoChecksumOrLock(byte[] buffer, int count) {
         await _stream.WriteAsync(buffer, 0, count);
+        _io.Write(count);
         _notInOs = _notDurable = true;
     }
 }

@@ -16,6 +16,8 @@ public class StoreStreamMemoryWrite : IAppendStream {
     }
     long _bytesRead;
     long _bytesWritten;
+    readonly IOCounter _io = new();
+    public IOCounters Counters => _io.Snapshot;
     public long GetBytesWritten() => _bytesWritten;
     public long GetBytesRead() => _bytesRead;
     public void ResetByteCounter() {
@@ -28,6 +30,7 @@ public class StoreStreamMemoryWrite : IAppendStream {
             _ms.Write(data, 0, data.Length);
             _checkSum.EvaluateChecksumIfRecording(data);
             _bytesWritten += data.Length;
+            _io.Write(data.Length);
         }
     }
     public void Append(byte[] data, int count) {
@@ -36,6 +39,7 @@ public class StoreStreamMemoryWrite : IAppendStream {
             _ms.Write(data, 0, count);
             _checkSum.EvaluateChecksumIfRecording(data, count);
             _bytesWritten += count;
+            _io.Write(count);
         }
     }
     public void Flush(bool deepFlush) { }
@@ -58,6 +62,7 @@ public class StoreStreamMemoryWrite : IAppendStream {
             _ms.Read(buffer, 0, count);
             _ms.Position = position1;
             _bytesRead += count;
+            _io.Read(count);
         }
     }
     public void RecordChecksum() {
@@ -78,5 +83,6 @@ public class StoreStreamMemoryWrite : IAppendStream {
 
     public async Task AppendAsyncNoChecksumOrLock(byte[] buffer, int count) {
         await _ms.WriteAsync(buffer, 0, count);
+        _io.Write(count);
     }
 }

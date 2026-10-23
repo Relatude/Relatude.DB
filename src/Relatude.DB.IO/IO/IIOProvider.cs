@@ -52,6 +52,9 @@ public interface IIOProvider {
     /// <paramref name="withFiles"/>) and its subfolders, one level deep unless <paramref name="recursive"/>.
     /// File keys are folder qualified, so they can be passed straight back to the file operations.</summary>
     Task<FolderMeta> GetFolderAsync(string[] path, bool recursive, bool withFiles);
+    IOCounters Counters => default;
+    Task<IOBenchmarkReport> BenchmarkPerformanceAsync(int testDurationInMs = 5000, IProgress<IOBenchmarkProgress>? progress = null, CancellationToken cancellationToken = default)
+        => IOBenchmark.RunAsync(this, new IOBenchmarkOptions { Kind = GetType().Name }, testDurationInMs, progress, cancellationToken);
 }
 /// <summary>Helpers for the string array file keys and their joined ('/'-separated) listing form.</summary>
 public static class FileKeyExtensions {

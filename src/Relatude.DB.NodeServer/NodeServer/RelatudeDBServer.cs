@@ -85,13 +85,46 @@ public partial class RelatudeDBServer {
     /// Anything still holding the old instance keeps working off it until it lets go.
     /// </summary>
     internal void ForgetIOProvider(Guid ioId) {
-        lock (_ios) _ios.Remove(ioId);
+        IIOProvider? forgotten;
+        lock (_ios) _ios.Remove(ioId, out forgotten);
+        if (forgotten != null) retireIOCounters([forgotten]);
     }
     public void ResetIOProviders() {
-        lock (_ios) _ios.Clear();
+        IIOProvider[] forgotten;
+        lock (_ios) {
+            forgotten = [.. _ios.Values];
+            _ios.Clear();
+        }
+        retireIOCounters(forgotten);
         GC.Collect();
         GC.WaitForPendingFinalizers();
         GC.Collect();
+    }
+    IOCounters _retiredIOCounters;
+    readonly object _retiredIOCountersLock = new();
+    void retireIOCounters(IEnumerable<IIOProvider> providers) {
+        var counted = default(IOCounters);
+        foreach (var io in providers) {
+            try { counted += io.Counters; } catch { }
+        }
+        lock (_retiredIOCountersLock) _retiredIOCounters += counted;
+    }
+    public IOActivityReport GetIOActivity() {
+        KeyValuePair<Guid, IIOProvider>[] ios;
+        lock (_ios) ios = [.. _ios];
+        var settings = _serverSettings.ContainerSettings?.SelectMany(c => c.IOSettings ?? []).ToArray() ?? [];
+        var providers = new List<IOProviderCounters>();
+        foreach (var (id, io) in ios) {
+            var setting = settings.FirstOrDefault(s => s.Id == id);
+            var name = string.IsNullOrEmpty(setting?.Name) ? id.ToString() : setting.Name;
+            providers.Add(new(id, name, setting?.IOType ?? IOTypes.LocalDisk, io.Counters));
+        }
+        if (_tempIO != null) providers.Add(new(Guid.Empty, "Temporary files", IOTypes.LocalDisk, _tempIO.Counters));
+        if (_projectRootIO != null) providers.Add(new(ProjectRootIOId, "Project folder", IOTypes.LocalDisk, _projectRootIO.Counters));
+        IOCounters total;
+        lock (_retiredIOCountersLock) total = _retiredIOCounters;
+        foreach (var p in providers) total += p.Counters;
+        return new(total, [.. providers]);
     }
 
     public ServerOptions? Options { get; private set; }
@@ -165,6 +198,7 @@ public partial class RelatudeDBServer {
         _configuration = app.Configuration;
         _environmentName = app.Environment.EnvironmentName;
         registerCustomSettings(app.Services); // a definition that is wrong stops the start before anything is read
+        _storeInitializers = [.. app.Services.GetServices<IStoreInitializer>()];
 
         var dataFolderPath = options.DefaultDataFolderPath;
         var tempFolderPath = options.DefaultTempFolderPath;
@@ -517,12 +551,19 @@ public partial class RelatudeDBServer {
             Log("Error occurred during OnDatamodelInit event: " + err.Message);
         }
     }
+    IStoreInitializer[] _storeInitializers = [];
     internal void RaiseEventStoreInit(NodeStoreContainer nodeStoreContainer, NodeStore store) {
-        if (Options?.OnStoreInit == null) return;
         try {
-            Options.OnStoreInit(store);
+            Options?.OnStoreInit?.Invoke(store);
         } catch (Exception err) {
             Log("Error occurred during OnStoreInit event: " + err.Message);
+        }
+        foreach (var initializer in _storeInitializers) {
+            try {
+                initializer.Initialize(store);
+            } catch (Exception err) {
+                Log("Error occurred in the store initializer " + initializer.GetType().FullName + ": " + err.Message);
+            }
         }
     }
     internal void RaiseEventStoreOpen(NodeStoreContainer nodeStoreContainer, NodeStore store) {

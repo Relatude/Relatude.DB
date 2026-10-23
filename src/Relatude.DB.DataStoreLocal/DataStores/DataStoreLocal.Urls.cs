@@ -40,36 +40,37 @@ public sealed partial class DataStoreLocal : IDataStore {
         return _urls.TryParseUrl(url, out result, ctx ?? _defaultQueryCtx);
     }
     public bool TryParseUrlForContent(string url, [MaybeNullWhen(false)] out UrlContent r, int maxWaitMs = -1, QueryContext? ctx = null, bool firstInQueue = false) {
-        r = default;
+        r = TryParseUrl(url, out var keys, ctx) ? GetUrlContentAsync(keys, maxWaitMs, ctx, firstInQueue).Result : null;
+        return r != null;
+    }
+    public async Task<UrlContent> GetUrlContentAsync(UrlKeys keys, int maxWaitMs = -1, QueryContext? ctx = null, bool firstInQueue = false) {
         ctx = ctx ?? _defaultQueryCtx;
-        bool v = TryParseUrl(url, out UrlKeys? result, ctx);
-        if (!v || result == null) return false;
-        if (result.CultureId != Guid.Empty) ctx = ctx.Culture(result.CultureId);
-        r = new UrlContent(result);
-        switch (result.Target) {
+        if (keys.CultureId != Guid.Empty) ctx = ctx.Culture(keys.CultureId);
+        var r = new UrlContent(keys);
+        switch (keys.Target) {
             case UrlTarget.Node: {
-                    r.NodeData = Get(result.NodeKey, ctx);
+                    r.NodeData = Get(keys.NodeKey, ctx);
                 }
                 break;
             case UrlTarget.EmbeddedNode: {
-                    r.NodeData = Get(result.NodePath!, ctx);
+                    r.NodeData = Get(keys.NodePath!, ctx);
                 }
                 break;
             case UrlTarget.Property: {
-                    r.PropertyValue = GetValue<object>(result.PropertyPath!, ctx);
+                    r.PropertyValue = GetValue<object>(keys.PropertyPath!, ctx);
                     if (r.PropertyValue is FileValue fileValue) {
                         r.FileValue = fileValue;
-                        r.Stream = GetFileStream(result.PropertyPath!, ctx).Result;
+                        r.Stream = await GetFileStream(keys.PropertyPath!, ctx);
                         r.ContentType = fileValue.ContentType;
                         r.FileName = fileValue.Name;
                     }
                 }
                 break;
             case UrlTarget.PropertyAdjusted: {
-                    r.PropertyValue = GetValue<object>(result.PropertyPath!, ctx);
+                    r.PropertyValue = GetValue<object>(keys.PropertyPath!, ctx);
                     if (r.PropertyValue is FileValue fileValue) {
                         r.FileValue = fileValue;
-                        var stateAndStream = GetFileStreamAndState(result.PropertyPath!, result.Adjustment!, maxWaitMs, firstInQueue: firstInQueue).Result;
+                        var stateAndStream = await GetFileStreamAndState(keys.PropertyPath!, keys.Adjustment!, maxWaitMs, firstInQueue: firstInQueue);
                         r.Stream = stateAndStream.Stream;
                         r.Cacheable = stateAndStream.IsReady;
                         r.ContentType = FileFormatUtil.GetContentType(stateAndStream.RequestedFormat);
@@ -77,9 +78,9 @@ public sealed partial class DataStoreLocal : IDataStore {
                     }
                 }
                 break;
-            default: throw new InvalidOperationException("Unexpected UrlType in this context: " + result.Target);
+            default: throw new InvalidOperationException("Unexpected UrlType in this context: " + keys.Target);
         }
-        return r != null;
+        return r;
     }
 
     public string GetUrl(NodeKey nodeKey, bool absolute, QueryContext? ctx = null) {

@@ -79,12 +79,51 @@ export interface DashboardInfo {
   relationTypes?: number;
 }
 
+/** Cumulative since the provider was created: reads and writes made through it, and the bytes they moved. */
+export interface IoCounters {
+  reads: number;
+  writes: number;
+  bytesRead: number;
+  bytesWritten: number;
+}
+
+export interface IoProviderCounters extends IoCounters {
+  id: string;
+  name: string;
+  type: string;
+}
+
+/** Every storage provider of the server summed, and each of them on its own. */
+export interface IoActivity extends IoCounters {
+  providers: IoProviderCounters[];
+}
+
+/** The caches' own counts, cumulative since they were last cleared: a drop means they were cleared. */
+export interface LiveCacheCounters {
+  nodeCacheHits: number;
+  nodeCacheMisses: number;
+  nodeCacheOverflows: number;
+  setCacheHits: number;
+  setCacheMisses: number;
+  setCacheOverflows: number;
+  aggregateCacheCount: number;
+  aggregateCacheHits: number;
+  aggregateCacheMisses: number;
+  aggregateCacheOverflows: number;
+}
+
 export interface DashboardLive {
   open: boolean;
   state: string;
   /** When the counters were read, which is what the rates are measured against. */
   sampledUtc: string;
   nodeCount?: number;
+  /** Every stored revision, a node without revisions counting as one. Unset when the server is older than this page. */
+  revisionCount?: number;
+  /** The inner nodes of embedded properties, in every revision, nested ones included. */
+  embeddedNodeCount?: number;
+  /** Nodes marked deleted in their meta, still stored until they are deleted for good. */
+  markedDeletedNodeCount?: number;
   relationCount?: number;
   /** Cumulative since the caches were last cleared: a drop means a reset, not negative traffic. */
   queries?: number;
@@ -112,6 +151,10 @@ export interface DashboardLive {
   opening?: OpeningProgress | null;
   conversions?: { running: number; queued: number; failed: number };
   activities?: { category: string; description: string | null; percentageProgress: number | null }[];
+  /** The server's storage providers, all of them: cumulative like the counters; unset from an older server. */
+  io?: IoActivity;
+  /** The caches' hits and misses on the live cadence; unset from an older server. */
+  cache?: LiveCacheCounters;
 }
 
 /**

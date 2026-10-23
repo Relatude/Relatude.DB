@@ -43,6 +43,8 @@ export interface MaintenanceInfo {
   actionsNotInState?: number;
   transactionsNotInState?: number;
   truncatableActions?: number;
+  /** Every action in the database file: what the redundant share is measured against. Unset from an older server. */
+  totalActions?: number;
   logFileSize?: number;
   stateFileSize?: number;
   runningRewrite?: string | null;

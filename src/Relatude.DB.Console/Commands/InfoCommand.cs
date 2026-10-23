@@ -30,6 +30,9 @@ public static class InfoCommand {
         Output.WriteLine("Contents");
         Output.Table([
             ("nodes", info.NodeCount.ToString("N0")),
+            ("revisions", info.RevisionCount.ToString("N0")),
+            ("embedded nodes", info.EmbeddedNodeCount.ToString("N0")),
+            ("marked deleted", info.MarkedDeletedNodeCount.ToString("N0")),
             ("relations", info.RelationCount.ToString("N0")),
             ("node types", info.DatamodelNodeTypeCount.ToString("N0")),
             ("properties", info.DatamodelPropertyCount.ToString("N0")),
@@ -55,6 +58,7 @@ public static class InfoCommand {
         Output.Table([
             ("first change", time(info.LogFirstStateUtc)),
             ("last change", time(info.LogLastChange)),
+            ("actions", info.LogTotalActions.ToString("N0")),
             ("actions not in state file", info.LogActionsNotItInStatefile.ToString("N0")),
             ("transactions not in state file", info.LogTransactionsNotItInStatefile.ToString("N0")),
             ("truncatable actions", info.LogTruncatableActions.ToString("N0")),

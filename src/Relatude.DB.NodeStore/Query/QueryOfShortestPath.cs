@@ -14,7 +14,7 @@ public sealed class QueryOfShortestPath<T, TInclude> : IQueryExecutable<GraphPat
             throw new NotSupportedException("Only results of type " + nameof(IGraphPathResultData) + " is supported. Type provided: " + data?.GetType().FullName);
         var nodes = new T[p.Nodes.Count];
         var i = 0;
-        foreach (var nodeData in p.Nodes) nodes[i++] = _query.Store.Mapper.CreateObjectFromNodeData<T>(nodeData, null)!;
+        foreach (var nodeData in p.Nodes) nodes[i++] = _query.Store.Mapper.CreateObjectFromNodeData<T>(nodeData, null, _query.Store)!;
         return new GraphPathResult<T>(p.Found, [.. p.NodeIds], nodes, p.DurationMs);
     }
     public async Task<GraphPathResult<T>> ExecuteAsync() {

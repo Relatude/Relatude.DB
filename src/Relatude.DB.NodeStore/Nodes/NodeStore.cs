@@ -55,6 +55,16 @@ public class DbContext(NodeStore store) {
     public DbContext CultureFallbacks(bool includeFallbacks = true) => change(store.QueryContext.CultureFallbacks(includeFallbacks));
     /// <summary>Reads as the built in master admin user, so no permission or visibility filtering is applied.</summary>
     public DbContext Admin() => change(store.QueryContext.Admin());
+    /// <summary>Reads as the user with this id, so read access is filtered by the user's group memberships. Guid.Empty reads as an anonymous visitor.</summary>
+    public DbContext User(Guid userId) => change(store.QueryContext.User(userId));
+    /// <summary>Includes nodes that are not released yet, or expired. They are left out by default.</summary>
+    public DbContext Unpublished(bool includeUnpublished = true) => change(store.QueryContext.Unpublished(includeUnpublished));
+    /// <summary>Reads as an editor: nodes also have to grant edit view access.</summary>
+    public DbContext EditView(bool editView = true) => change(store.QueryContext.EditViewMode(editView));
+    /// <summary>Evaluates release and expire dates against this time instead of now. Null means now.</summary>
+    public DbContext Now(DateTime? nowUtc) => change(store.QueryContext.Now(nowUtc));
+    /// <summary>Reads with this context, replacing every setting of the builder so far.</summary>
+    public DbContext With(QueryContext queryContext) => change(queryContext);
     DbContext change(QueryContext queryContext) => new DbContext(store.NewStoreWithDifferentContext(queryContext));
     /// <summary>Returns the <see cref="NodeStore"/> configured by the preceding calls. Cheap: it is a thin wrapper around the original store.</summary>
     public NodeStore Create() => store;
@@ -762,7 +772,7 @@ public class NodeStore : IDisposable {
     /// </summary>
     public NodeAndMeta<T>[] GetRevisions<T>(Guid id) {
         var revisions = Datastore.GetRevisions(id);
-        return revisions.Select(r => new NodeAndMeta<T>(Mapper.CreateObjectFromNodeData<T>(r, null), r)).ToArray();
+        return revisions.Select(r => new NodeAndMeta<T>(Mapper.CreateObjectFromNodeData<T>(r, null, this), r)).ToArray();
     }
 
     /// <summary>
@@ -775,7 +785,7 @@ public class NodeStore : IDisposable {
     /// </summary>
     public NodeVersion<T>[] FindOlderVersions<T>(Guid nodeId, int maxCount = 100) {
         var versions = Datastore.FindOlderVersions(nodeId, maxCount);
-        return versions.Select(v => new NodeVersion<T>(Mapper.CreateObjectFromNodeData<T>(v.Node, null), v)).ToArray();
+        return versions.Select(v => new NodeVersion<T>(Mapper.CreateObjectFromNodeData<T>(v.Node, null, this), v)).ToArray();
     }
     /// <summary>Finds strictly older versions of a node as untyped node objects. See <see cref="FindOlderVersions{T}"/>.</summary>
     public NodeVersion<object>[] FindOlderVersions(Guid nodeId, int maxCount = 100) => FindOlderVersions<object>(nodeId, maxCount);
@@ -807,7 +817,7 @@ public class NodeStore : IDisposable {
     public void ChangeType<T>(int nodeId, bool flushToDisk = false) => Execute(new Transaction(this).ChangeType<T>(nodeId), flushToDisk);
 
     /// <summary>Awaitable single node lookup by public id. Throws if the node does not exist or is another type, see TryGet for a softer version.</summary>
-    public async Task<T> GetAsync<T>(Guid id) => Mapper.CreateObjectFromNodeData<T>(await Datastore.GetAsync(id), null);
+    public async Task<T> GetAsync<T>(Guid id) => Mapper.CreateObjectFromNodeData<T>(await Datastore.GetAsync(id), null, this);
     /// <summary>Runs a transaction you have built yourself. Everything in it is applied atomically.</summary>
     public Task<TransactionResult> ExecuteAsync(Transaction transaction, bool flushToDisk = false) => Datastore.ExecuteAsync(transaction._transactionData, flushToDisk);
 
@@ -882,35 +892,35 @@ public class NodeStore : IDisposable {
     // ---------------------------------------------------------------------------------------------------------
 
     /// <summary>Reads one node by internal id, as its mapped model type. Throws if it does not exist.</summary>
-    public object Get(int id) => Mapper.CreateObjectFromNodeData(Datastore.Get(id), null);
+    public object Get(int id) => Mapper.CreateObjectFromNodeData(Datastore.Get(id), null, this);
     /// <summary>Reads one node by public id, as its mapped model type. Throws if it does not exist.</summary>
-    public object Get(Guid id) => Mapper.CreateObjectFromNodeData(Datastore.Get(id), null);
+    public object Get(Guid id) => Mapper.CreateObjectFromNodeData(Datastore.Get(id), null, this);
     /// <summary>Reads one node by a key holding either kind of id. Throws if it does not exist.</summary>
-    public object Get(NodeKey id) => Mapper.CreateObjectFromNodeData(Datastore.Get(id), null);
+    public object Get(NodeKey id) => Mapper.CreateObjectFromNodeData(Datastore.Get(id), null, this);
     /// <summary>Maps raw node data that you already hold into a node object, without touching the store.</summary>
     public object Get(INodeDataExternal nodeData) => Get<object>(nodeData);
 
     /// <summary>Re-reads the node this object represents, giving you a fresh copy of the stored values.</summary>
-    public T Get<T>(T node) where T : notnull => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(Mapper.GetIdGuid(node)), null);
+    public T Get<T>(T node) where T : notnull => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(Mapper.GetIdGuid(node)), null, this);
     /// <summary>Reads the node with this internal id as type T. Throws if it does not exist or is another type.</summary>
-    public T Get<T>(int id) => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(id), null);
+    public T Get<T>(int id) => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(id), null, this);
     /// <summary>Reads the node with this public id as type T. Throws if it does not exist or is another type.</summary>
-    public T Get<T>(Guid id) => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(id), null);
+    public T Get<T>(Guid id) => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(id), null, this);
     /// <summary>Reads the node addressed by a key holding either kind of id, as type T.</summary>
-    public T Get<T>(NodeKey id) => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(id), null);
+    public T Get<T>(NodeKey id) => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(id), null, this);
 
     /// <summary>Reads the node with this internal id in the given culture, for instance "nb-NO".</summary>
-    public T Get<T>(int id, string cultureCode) => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(id, QueryContext.Culture(cultureCode)), null);
+    public T Get<T>(int id, string cultureCode) => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(id, QueryContext.Culture(cultureCode)), null, this);
     /// <summary>Reads the node with this public id in the given culture, for instance "nb-NO".</summary>
-    public T Get<T>(Guid id, string cultureCode) => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(id, QueryContext.Culture(cultureCode)), null);
+    public T Get<T>(Guid id, string cultureCode) => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(id, QueryContext.Culture(cultureCode)), null, this);
     /// <summary>Reads the node addressed by key in the given culture.</summary>
-    public T Get<T>(NodeKey id, string cultureCode) => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(id, QueryContext.Culture(cultureCode)), null);
+    public T Get<T>(NodeKey id, string cultureCode) => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(id, QueryContext.Culture(cultureCode)), null, this);
     /// <summary>Reads the node with this internal id in the culture identified by its culture node id.</summary>
-    public T Get<T>(int id, Guid cultureId) => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(id, QueryContext.Culture(cultureId)), null);
+    public T Get<T>(int id, Guid cultureId) => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(id, QueryContext.Culture(cultureId)), null, this);
     /// <summary>Reads the node with this public id in the culture identified by its culture node id.</summary>
-    public T Get<T>(Guid id, Guid cultureId) => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(id, QueryContext.Culture(cultureId)), null);
+    public T Get<T>(Guid id, Guid cultureId) => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(id, QueryContext.Culture(cultureId)), null, this);
     /// <summary>Reads the node addressed by key in the culture identified by its culture node id.</summary>
-    public T Get<T>(NodeKey id, Guid cultureId) => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(id, QueryContext.Culture(cultureId)), null);
+    public T Get<T>(NodeKey id, Guid cultureId) => Mapper.CreateObjectFromNodeData<T>(Datastore.Get(id, QueryContext.Culture(cultureId)), null, this);
 
     /// <summary>True if a node with this public id exists at all.</summary>
     public bool Exists(Guid id) => Datastore.ExistsAndIsType(id, NodeConstants.BaseNodeTypeId);
@@ -921,16 +931,16 @@ public class NodeStore : IDisposable {
     }
 
     /// <summary>Reads many nodes by internal id in one go, which is much faster than one call each. Lazily evaluated.</summary>
-    public IEnumerable<T> Get<T>(IEnumerable<int> ids) => Datastore.Get(ids).Select(n => Mapper.CreateObjectFromNodeData<T>(n, null));
+    public IEnumerable<T> Get<T>(IEnumerable<int> ids) => Datastore.Get(ids).Select(n => Mapper.CreateObjectFromNodeData<T>(n, null, this));
     /// <summary>Reads many nodes by public id in one go, which is much faster than one call each. Lazily evaluated.</summary>
-    public IEnumerable<T> Get<T>(IEnumerable<Guid> ids) => Datastore.Get(ids).Select(n => Mapper.CreateObjectFromNodeData<T>(n, null));
+    public IEnumerable<T> Get<T>(IEnumerable<Guid> ids) => Datastore.Get(ids).Select(n => Mapper.CreateObjectFromNodeData<T>(n, null, this));
 
     /// <summary>Reads a node by public id, returning false rather than throwing when it does not exist.</summary>
     public bool TryGet(Guid id, [MaybeNullWhen(false)] out object node) => TryGet<object>(id, out node);
     /// <summary>Reads a node by public id as type T, returning false rather than throwing when it does not exist or is of another type.</summary>
     public bool TryGet<T>(Guid id, [MaybeNullWhen(false)] out T node) {
         if (Datastore.TryGet(id, out var nodeData) && Mapper.IsOfType<T>(nodeData.NodeType)) {
-            node = Mapper.CreateObjectFromNodeData<T>(nodeData, null);
+            node = Mapper.CreateObjectFromNodeData<T>(nodeData, null, this);
             return true;
         }
         node = default;
@@ -939,14 +949,14 @@ public class NodeStore : IDisposable {
     /// <summary>Reads a node by internal id as type T, returning false rather than throwing when it does not exist or is of another type.</summary>
     public bool TryGet<T>(int id, [MaybeNullWhen(false)] out T node) {
         if (Datastore.TryGet((int)id, out var nodeData) && Mapper.IsOfType<T>(nodeData.NodeType)) {
-            node = Mapper.CreateObjectFromNodeData<T>(nodeData, null);
+            node = Mapper.CreateObjectFromNodeData<T>(nodeData, null, this);
             return true;
         }
         node = default;
         return false;
     }
     /// <summary>Maps raw node data you already hold into a node object of type T, without touching the store.</summary>
-    public T Get<T>(INodeDataExternal nodeData) => Mapper.CreateObjectFromNodeData<T>(nodeData, null);
+    public T Get<T>(INodeDataExternal nodeData) => Mapper.CreateObjectFromNodeData<T>(nodeData, null, this);
     /// <summary>Not implemented. Related nodes are read through queries or through the relation properties on the node objects.</summary>
     public IEnumerable<T> GetRelatedNodes<T>(Guid propertyId, Guid nodeId) { // used by mapper internally
         throw new NotImplementedException("GetRelated with propertyId is not implemented in NodeStore.");
@@ -957,7 +967,7 @@ public class NodeStore : IDisposable {
     }
     /// <summary>Maps preloaded related node data into node objects. Called by the generated mappers, rarely by application code.</summary>
     public IEnumerable<T> GetRelated<T>(NodeDataWithRelations[] node) { // used by mapper internally
-        foreach (var item in node) yield return Mapper.CreateObjectFromNodeData<T>(item, null);
+        foreach (var item in node) yield return Mapper.CreateObjectFromNodeData<T>(item, null, this);
     }
     /// <summary>Resolves a plain reference property to its node, or default when it is unset or the target has been deleted. Called by the generated mappers.</summary>
     public T? GetReferencedNodeOrDefault<T>(Guid id) { // used by mapper internally, for plain-typed reference properties
@@ -1010,7 +1020,7 @@ public class NodeStore : IDisposable {
     /// </summary>
     public bool TryGetFromAddress<T>(string address, [MaybeNullWhen(false)] out T node) {
         if (Datastore.TryGetNodeDataFromAddress(address, out var nodeData) && Mapper.IsOfType<T>(nodeData.NodeType)) {
-            node = Mapper.CreateObjectFromNodeData<T>(nodeData, null);
+            node = Mapper.CreateObjectFromNodeData<T>(nodeData, null, this);
             return true;
         }
         node = default;
@@ -1490,6 +1500,8 @@ public class NodeStore : IDisposable {
     public bool TryParseUrl(string url, [MaybeNullWhen(false)] out UrlKeys result, QueryContext? ctx = null) => Datastore.TryParseUrl(url, out result, ctx);
     /// <summary>Resolves a URL all the way to the content to serve: node data, or a file stream with content type and file name.</summary>
     public bool TryParseUrlForContent(string url, [MaybeNullWhen(false)] out UrlContent result, int maxWaitMs = -1, QueryContext? ctx = null, bool firstInQueue = false) => Datastore.TryParseUrlForContent(url, out result, maxWaitMs, ctx, firstInQueue);
+    /// <summary>The content to serve for a URL TryParseUrl has taken apart, so a web layer that already has the keys does not parse the URL again.</summary>
+    public Task<UrlContent> GetUrlContentAsync(UrlKeys keys, int maxWaitMs = -1, QueryContext? ctx = null, bool firstInQueue = false) => Datastore.GetUrlContentAsync(keys, maxWaitMs, ctx, firstInQueue);
 
     /// <summary>Opens the file a URL points at. maxWait is how long to wait, in ms, for a variant that is still being produced.</summary>
     public Task<Stream> GetFileStream(string url, int maxWait, QueryContext? ctx = null, bool firstInQueue = false) => Datastore.GetFileStream(url, maxWait, ctx, firstInQueue);

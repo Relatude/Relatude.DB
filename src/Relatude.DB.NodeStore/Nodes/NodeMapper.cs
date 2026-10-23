@@ -130,17 +130,22 @@ public class NodeMapper {
         }
         return mapper!;
     }
-    public object CreateObjectFromNodeData(INodeDataExternal nodeData, PropertyPath? propertyPath) {
+    /// <summary>
+    /// Maps node data to an object. <paramref name="store"/> is the store the object reads its relations and
+    /// references through, and so the context they are read in: pass the store that read the node, as a store
+    /// scoped to a visitor shares this mapper with the root store it was made from. Null is the root store.
+    /// </summary>
+    public object CreateObjectFromNodeData(INodeDataExternal nodeData, PropertyPath? propertyPath, NodeStore? store = null) {
         if (!_nodeValueMapperByTypeId.TryGetValue(nodeData.NodeType, out var mapper)) {
             throw new Exception(nodeData.NodeType + " is not part of the datamodel. ");
         }
-        return mapper.NodeDataToObject(nodeData, _store, propertyPath);
+        return mapper.NodeDataToObject(nodeData, store ?? _store, propertyPath);
     }
-    public T CreateObjectFromNodeData<T>(INodeDataExternal nodeData, PropertyPath? propertyPath) {
+    public T CreateObjectFromNodeData<T>(INodeDataExternal nodeData, PropertyPath? propertyPath, NodeStore? store = null) {
         if (!_nodeValueMapperByTypeId.TryGetValue(nodeData.NodeType, out var mapper)) {
             throw new Exception(nodeData.NodeType + " is not part of the datamodel. ");
         }
-        if (mapper.NodeDataToObject(nodeData, _store, propertyPath) is T node) return node;
+        if (mapper.NodeDataToObject(nodeData, store ?? _store, propertyPath) is T node) return node;
         // a plain cast fails here too, but names only the generated class, and not the node or its type
         throw new InvalidCastException("Node " + nodeData.Id + " is of type " + _store.Datamodel.NodeTypes[nodeData.NodeType].FullName
             + ", not " + typeof(T).FullName + ". ");

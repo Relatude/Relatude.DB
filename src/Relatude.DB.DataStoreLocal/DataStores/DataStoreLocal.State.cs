@@ -17,7 +17,11 @@ public sealed partial class DataStoreLocal : IDataStore {
         // this happens when nodes are added or updated, and the new data is written to the log file
         _nodes.UpdateNodeDataPositionsInLogFile(segments);
     }
-    int _stateFileVersion = 1000;
+    // 1001 added the number of actions in the log, 1002 the embedded and marked deleted node counts. An older file
+    // cannot say them: it is deleted at open, keeping the indexes, and the state rebuilt from the log (see
+    // deleteIncompleteAndLegacyStateFiles)
+    int _stateFileVersion = 1002;
+    static readonly int[] _stateFileVersionsBeforeCounts = [1000, 1001];
     Guid getCheckSumForStateFileAndIndexes() {
         // anything that can affect indexes or state file:
         // (polymorphic serialization with provenance stripped, so index-affecting property settings
@@ -68,6 +72,9 @@ public sealed partial class DataStoreLocal : IDataStore {
             UpdateActivity(activityId, "Saving node type index");
             _definition.NodeTypeIndex.SaveState(stream);
             stream.WriteLong(_noPrimitiveActionsInLogThatCanBeTruncated);
+            stream.WriteLong(_noPrimitiveActionsInLog);
+            stream.WriteLong(_definition.NodeTypeIndex.EmbeddedNodeCount);
+            stream.WriteInt(_definition.NodeTypeIndex.MarkedDeletedNodeCount);
             UpdateActivity(activityId, "Saving version chains");
             _wal.SaveChainState(stream); // secondary log version-chain heads; primary heads equal the node segments saved above
             // must be the very last bytes of the file: a numbered state file that does not end with
@@ -114,6 +121,23 @@ public sealed partial class DataStoreLocal : IDataStore {
             IOIndex.DeleteFileIfItExists(fileKey);
             LogInfo("Deleted state file " + fileKey.AsKeyString() + " in the old naming format; the state is rebuilt from the log. ");
         }
+        // A state file from before the counts were kept cannot say how many actions the log holds, or how many
+        // embedded and marked deleted nodes there are. It goes, and the replay from the beginning rebuilds the state
+        // and counts; the indexes keep their files and replay from their own positions. Read as a version mismatch,
+        // it would reset and rebuild them all.
+        foreach (var fileKey in FileKeyUtility.State_GetNumberedFileKeys(IOIndex)) {
+            if (stateFileVersionOf(fileKey) is not int version || !_stateFileVersionsBeforeCounts.Contains(version)) continue;
+            IOIndex.DeleteFileIfItExists(fileKey);
+            LogInfo("Deleted state file " + fileKey.AsKeyString() + " from before the counts were kept; the state is rebuilt from the log, the indexes are kept. ");
+        }
+    }
+    int? stateFileVersionOf(string[] stateFileKey) {
+        try {
+            using var stream = IOIndex.OpenRead(stateFileKey, 0);
+            return stream.ReadVerifiedInt();
+        } catch {
+            return null; // left for the state read, which reports a file it cannot read
+        }
     }
     void readStateInner(bool throwOnErrors, Guid currentModelHash, long activityId) {
 
@@ -125,6 +149,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         _noPrimitiveActionsSinceLastStateSnapshot = 0;
         _noTransactionsSinceLastStateSnapshot = 0;
         _noPrimitiveActionsInLogThatCanBeTruncated = 0;
+        _noPrimitiveActionsInLog = 0;
         var sw = Stopwatch.StartNew();
         var walFileSize = _wal.FileSize; // while it is open...
         _wal.Close();
@@ -217,6 +242,9 @@ public sealed partial class DataStoreLocal : IDataStore {
                 _relations.ReadState(stream, (d, p) => UpdateActivity(activityId, d, (int)(10 + p! * 0.05))); // 10-15%
                 _definition.NodeTypeIndex.ReadState(stream);
                 _noPrimitiveActionsInLogThatCanBeTruncated = stream.ReadLong();
+                _noPrimitiveActionsInLog = stream.ReadLong();
+                _definition.NodeTypeIndex.EmbeddedNodeCount = stream.ReadLong();
+                _definition.NodeTypeIndex.MarkedDeletedNodeCount = stream.ReadInt();
                 persistedChainState = WALFile.ReadChainState(stream);
                 // written as the very last bytes of the file; the cleanup above only verifies the
                 // file end, this confirms the body parsed up to exactly that point
@@ -367,6 +395,9 @@ public sealed partial class DataStoreLocal : IDataStore {
                 }
                 if (isTransactionRelevantForStateStores) {
                     _noTransactionsSinceLastStateSnapshot++;
+                    // every action the log holds, the ones an invalid id passed over above included: the state file counted
+                    // the log up to its timestamp, the replay the rest (an older transaction is in that count already)
+                    _noPrimitiveActionsInLog += transaction.ExecutedActions.Count;
                 }
                 _wal.EnsureTimestamps(transaction.Timestamp);
             }
@@ -425,8 +456,11 @@ public sealed partial class DataStoreLocal : IDataStore {
             }
         }
 
+        LogInfo(_noPrimitiveActionsInLog.To1000N() + " actions in log file. ");
         LogInfo(_noPrimitiveActionsInLogThatCanBeTruncated.To1000N() + " actions redundant in log file. ");
         LogInfo(_nodes.Count.To1000N() + " nodes in total");
+        LogInfo(_definition.NodeTypeIndex.RevisionCount.To1000N() + " revisions, " + _definition.NodeTypeIndex.EmbeddedNodeCount.To1000N() + " embedded nodes, "
+            + _definition.NodeTypeIndex.MarkedDeletedNodeCount.To1000N() + " nodes marked deleted");
         LogInfo(_relations.TotalCount().To1000N() + " relations in total");
         LogInfo(_nativeModelStore.CountUsers.To1000N() + " system users");
         LogInfo(_nativeModelStore.CountUserGroups.To1000N() + " user groups");

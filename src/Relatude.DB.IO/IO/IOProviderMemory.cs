@@ -16,6 +16,16 @@ public class IOProviderMemory : IIOProvider {
     }
     readonly object _lock = new();
     readonly List<IStream> _openStreams = [];
+    IOCounters _closedStreams;
+    public IOCounters Counters {
+        get {
+            lock (_lock) {
+                var total = _closedStreams;
+                foreach (var stream in _openStreams) total += stream.Counters;
+                return total;
+            }
+        }
+    }
     readonly Dictionary<string, MemFile> _disk = new(StringComparer.OrdinalIgnoreCase);
     public void AddCorruption(string[] path, long from, int length) {
         var fileName = getAndValidateName(path);
@@ -50,6 +60,7 @@ public class IOProviderMemory : IIOProvider {
         stream = new StoreStreamMemoryRead(fileName, file.Bytes, position, () => {
             lock (_lock) {
                 file.Meta.Readers--;
+                _closedStreams += stream!.Counters;
                 _openStreams.Remove(stream!);
             }
         });
@@ -83,6 +94,7 @@ public class IOProviderMemory : IIOProvider {
                 file.Meta.Size = ms.Length;
                 file.Bytes = ms.ToArray();
                 ms.Dispose();
+                _closedStreams += stream!.Counters;
                 _openStreams.Remove(stream!);
             }
         });
@@ -139,6 +151,14 @@ public class IOProviderMemory : IIOProvider {
             return sb.ToString();
         }
     }
+    public Task<IOBenchmarkReport> BenchmarkPerformanceAsync(int testDurationInMs = 5000, IProgress<IOBenchmarkProgress>? progress = null, CancellationToken cancellationToken = default) =>
+        IOBenchmark.RunAsync(this, new IOBenchmarkOptions {
+            Kind = "Memory",
+            ReadFileBytes = IOBenchmarkOptions.ScaledBytes(32L * IOBenchmarkOptions.MB, testDurationInMs, 128L * IOBenchmarkOptions.MB),
+            RecycleFileBytes = 16L * IOBenchmarkOptions.MB,
+            MeasureDurableWrites = false,
+            Notes = ["Memory storage holds every file in the server's own memory and keeps nothing durable: there is nothing to flush to, so durable writes are not measured, and everything in it is gone when the server stops."],
+        }, testDurationInMs, progress, cancellationToken);
     public bool CanRenameFile => true;
     public bool CanTruncate => true;
     public void TruncateFile(string[] path, long newLength) {

@@ -188,6 +188,9 @@ sealed class UIDashboard {
             ProcessorTimeMs = processorTimeMs(),
             ProcessorCount = Environment.ProcessorCount,
             counters.NodeCount,
+            counters.RevisionCount,
+            counters.EmbeddedNodeCount,
+            counters.MarkedDeletedNodeCount,
             counters.RelationCount,
             counters.Queries,
             counters.Transactions,
@@ -198,8 +201,40 @@ sealed class UIDashboard {
             counters.SetCacheCount,
             counters.SetCacheSize,
             TasksQueued = counters.TasksQueued + counters.TasksQueuedPersisted,
+            Cache = new {
+                counters.NodeCacheHits,
+                counters.NodeCacheMisses,
+                counters.NodeCacheOverflows,
+                counters.SetCacheHits,
+                counters.SetCacheMisses,
+                counters.SetCacheOverflows,
+                counters.AggregateCacheCount,
+                counters.AggregateCacheHits,
+                counters.AggregateCacheMisses,
+                counters.AggregateCacheOverflows,
+            },
             Conversions = new { conversions.Running, conversions.Queued, conversions.Failed },
             Activities = activities(status),
+            Io = IoSample(_server),
+        };
+    }
+
+    internal static object IoSample(RelatudeDBServer server) {
+        var report = server.GetIOActivity();
+        return new {
+            report.Total.Reads,
+            report.Total.Writes,
+            report.Total.BytesRead,
+            report.Total.BytesWritten,
+            Providers = report.Providers.Select(p => new {
+                p.Id,
+                p.Name,
+                Type = p.Type.ToString(),
+                p.Counters.Reads,
+                p.Counters.Writes,
+                p.Counters.BytesRead,
+                p.Counters.BytesWritten,
+            }).ToArray(),
         };
     }
 

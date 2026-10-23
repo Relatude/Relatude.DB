@@ -62,6 +62,28 @@ export interface ChartOverlay {
 /** The colour an overlay is drawn in, by its place in the list; see the chart-line-overlay rules. */
 const overlayTone = (index: number) => (index === 0 ? "overlay" : "overlay-b");
 
+/** One line of the band under the plot, drawn in the colour its tone names (see the chart-line-read rules). */
+export interface ChartBandSeries {
+  points: SeriesPoint[];
+  label: string;
+  tone: string;
+  /** More about a point for the tooltip, after its value: the operations behind a byte rate, say. */
+  detail?: (point: SeriesPoint) => string;
+}
+
+/**
+ * A second, lower plot sharing the time axis: a measure of another kind than the first, on a scale
+ * of its own from zero to the round number above its highest point. It takes about a third of the
+ * height, and a point's `values` are listed under it in the tooltip as its parts.
+ */
+export interface ChartBand {
+  series: ChartBandSeries[];
+  format: (value: number) => string;
+}
+
+const bandShare = 0.32;
+const bandGap = 16;
+
 export interface ChartProps {
   kind: SeriesKind;
   points: SeriesPoint[];
@@ -86,6 +108,10 @@ export interface ChartProps {
   height?: number | "fill";
   /** Series on the right-hand scale, drawn over the first; see ChartOverlay. */
   overlays?: ChartOverlay[];
+  /** A lower plot of its own under the first, on the same time axis; see ChartBand. */
+  band?: ChartBand;
+  /** With height "fill": the least it draws at, however little room the box gives it. */
+  minHeight?: number;
   /**
    * Bars instead of a line, for a count or a total: each interval is a quantity of its own, and a
    * line drawn between them reads as a rate changing smoothly from one to the next. Stacked groups
@@ -98,7 +124,7 @@ export interface ChartProps {
   valueLabel?: string;
 }
 
-export function Chart({ kind, points, groups, interval, format, integer = false, compactAxis = true, height: heightProp = 210, overlays, bars = false, onPick, valueLabel }: ChartProps) {
+export function Chart({ kind, points, groups, interval, format, integer = false, compactAxis = true, height: heightProp = 210, overlays, band, minHeight = 90, bars = false, onPick, valueLabel }: ChartProps) {
   const wrap = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
   const [measuredHeight, setMeasuredHeight] = useState(0);
@@ -119,14 +145,18 @@ export function Chart({ kind, points, groups, interval, format, integer = false,
     return () => observer.disconnect();
   }, []);
   // below this the axis labels have nowhere to go and the plot is a line with no room under it
-  const height = fill ? Math.max(90, measuredHeight) : heightProp;
+  const height = fill ? Math.max(minHeight, measuredHeight) : heightProp;
   useEffect(() => setHover(null), [points, kind]);
 
   const over = overlays ?? [];
   const padRight = pad.right + (over.length > 0 ? overlayAxisWidth : 0);
   const plotW = Math.max(0, width - pad.left - padRight);
   const plotH = height - pad.top - pad.bottom;
-  const band = points.length > 0 ? plotW / points.length : 0;
+  const bandSeries = band?.series ?? [];
+  const bandOn = bandSeries.length > 0;
+  const bandH = bandOn ? Math.round(plotH * bandShare) : 0;
+  const mainH = plotH - (bandOn ? bandH + bandGap : 0);
+  const slot = points.length > 0 ? plotW / points.length : 0;
   const stacked = kind === "groups";
 
   // the top of the scale covers whatever is drawn: the band's max where there is one, the stack
@@ -150,17 +180,29 @@ export function Chart({ kind, points, groups, interval, format, integer = false,
   const ticks = axisTicks(bottom, top, integer);
   const scaleTop = ticks[ticks.length - 1];
   const scaleBottom = ticks[0];
+  const mainBase = pad.top + mainH;
   const y = (value: number) => {
-    if (scaleTop === scaleBottom) return pad.top + plotH;
-    return pad.top + plotH - ((value - scaleBottom) / (scaleTop - scaleBottom)) * plotH;
+    if (scaleTop === scaleBottom) return mainBase;
+    return mainBase - ((value - scaleBottom) / (scaleTop - scaleBottom)) * mainH;
   };
-  const xCenter = (index: number) => pad.left + band * (index + 0.5);
+  const xCenter = (index: number) => pad.left + slot * (index + 0.5);
   // the overlays' own scale: 0 at the baseline, the max at the top, whatever the main axis says
   const overlayMax = over[0]?.max ?? 1;
-  const yOverlay = (value: number, max = overlayMax) => pad.top + plotH - (Math.min(Math.max(value, 0), max) / max) * plotH;
+  const yOverlay = (value: number, max = overlayMax) => mainBase - (Math.min(Math.max(value, 0), max) / max) * mainH;
   const overlayTicks = over.length > 0 ? [0, overlayMax / 2, overlayMax] : [];
   const overlayHit = (index: number) => (hover == null ? null : (over[index]?.points[hover] ?? null));
   const anyOverlayHit = over.some((_, i) => overlayHit(i)?.hasValue);
+
+  let bandPeak = 0;
+  for (const s of bandSeries) for (const p of s.points) if (p.hasValue) bandPeak = Math.max(bandPeak, p.value ?? 0);
+  const bandTicks = axisTicks(0, bandPeak, false);
+  const bandMax = bandTicks[bandTicks.length - 1];
+  const bandBase = pad.top + plotH;
+  const bandTop = bandBase - bandH;
+  const yBand = (value: number) => bandBase - (Math.min(Math.max(value, 0), bandMax) / bandMax) * bandH;
+  const bandHit = (index: number) => (hover == null ? null : (bandSeries[index]?.points[hover] ?? null));
+  const anyBandHit = bandSeries.some((_, i) => bandHit(i)?.hasValue);
+  const bandLabel = (value: number) => (compactAxis ? compact(value, band!.format) : band!.format(value));
 
   const hasAny = points.some((p) => p.hasValue);
   const hovered = hover != null && hover >= 0 && hover < points.length ? points[hover] : null;
@@ -169,7 +211,7 @@ export function Chart({ kind, points, groups, interval, format, integer = false,
     <div className={"chart" + (fill ? " chart-fill" : "")} ref={wrap} style={fill ? undefined : { height }}>
       {width > 0 && (
         <svg width={width} height={height} role="img">
-          {ticks.map((t) => (
+          {(mainH / Math.max(1, ticks.length - 1) < 14 ? [ticks[0], ticks[ticks.length - 1]] : ticks).map((t) => (
             <g key={t}>
               <line className="chart-grid" x1={pad.left} x2={width - padRight} y1={y(t)} y2={y(t)} />
               <text className="chart-axis" x={pad.left - 8} y={y(t)} textAnchor="end" dominantBaseline="middle">
@@ -182,7 +224,19 @@ export function Chart({ kind, points, groups, interval, format, integer = false,
               {over[0].format(t)}
             </text>
           ))}
-          {xLabels(points, interval, band, plotW).map((label) => (
+          {bandOn && (
+            <g>
+              <line className="chart-grid" x1={pad.left} x2={width - padRight} y1={bandTop} y2={bandTop} />
+              <line className="chart-grid" x1={pad.left} x2={width - padRight} y1={bandBase} y2={bandBase} />
+              <text className="chart-axis" x={pad.left - 8} y={bandTop} textAnchor="end" dominantBaseline="middle">
+                {bandLabel(bandMax)}
+              </text>
+              <text className="chart-axis" x={pad.left - 8} y={bandBase} textAnchor="end" dominantBaseline="middle">
+                {bandLabel(0)}
+              </text>
+            </g>
+          )}
+          {xLabels(points, interval, slot, plotW).map((label) => (
             <text key={label.index} className="chart-axis" x={xCenter(label.index)} y={height - 6} textAnchor="middle">
               {label.text}
             </text>
@@ -199,7 +253,7 @@ export function Chart({ kind, points, groups, interval, format, integer = false,
                       const y1 = y(acc + value);
                       const y0 = y(acc);
                       acc += value;
-                      return <rect key={g} x={xCenter(i) - Math.max(1, band * 0.4)} width={Math.max(1, band * 0.8)} y={y1} height={Math.max(1, y0 - y1)} fill={groupColor(gi)} />;
+                      return <rect key={g} x={xCenter(i) - Math.max(1, slot * 0.4)} width={Math.max(1, slot * 0.8)} y={y1} height={Math.max(1, y0 - y1)} fill={groupColor(gi)} />;
                     })}
                   </g>
                 );
@@ -213,8 +267,8 @@ export function Chart({ kind, points, groups, interval, format, integer = false,
                     <rect
                       key={i}
                       className="chart-bar"
-                      x={xCenter(i) - Math.max(1, band * 0.4)}
-                      width={Math.max(1, band * 0.8)}
+                      x={xCenter(i) - Math.max(1, slot * 0.4)}
+                      width={Math.max(1, slot * 0.8)}
                       y={Math.min(top, base)}
                       height={Math.max(1, Math.abs(base - top))}
                     />
@@ -223,7 +277,7 @@ export function Chart({ kind, points, groups, interval, format, integer = false,
               : segments(points).map((segment, si) => (
                 <g key={si}>
                   {(kind === "avgminmax" || kind === "full") && <path className="chart-band" d={bandPath(segment, xCenter, y)} />}
-                  <path className="chart-area" d={areaPath(segment, xCenter, y, pad.top + plotH)} />
+                  <path className="chart-area" d={areaPath(segment, xCenter, y, mainBase)} />
                   <path className="chart-line" d={linePath(segment, xCenter, y)} />
                   {segment.length === 1 && <circle className="chart-point" cx={xCenter(segment[0].index)} cy={y(segment[0].point.value ?? 0)} r={2.5} />}
                 </g>
@@ -243,6 +297,14 @@ export function Chart({ kind, points, groups, interval, format, integer = false,
               </g>
             )),
           )}
+          {bandSeries.map((s, si) =>
+            segments(s.points).map((segment, gi) => (
+              <g key={"b" + si + "-" + gi}>
+                <path className={"chart-line chart-line-" + s.tone} d={linePath(segment, xCenter, yBand)} />
+                {segment.length === 1 && <circle className={"chart-point chart-point-" + s.tone} cx={xCenter(segment[0].index)} cy={yBand(segment[0].point.value ?? 0)} r={2.5} />}
+              </g>
+            )),
+          )}
           {hovered && (
             <g>
               <line className="chart-cursor" x1={xCenter(hover!)} x2={xCenter(hover!)} y1={pad.top} y2={pad.top + plotH} />
@@ -251,6 +313,9 @@ export function Chart({ kind, points, groups, interval, format, integer = false,
                 overlayHit(oi)?.hasValue ? (
                   <circle key={oi} className={"chart-point chart-point-" + overlayTone(oi)} cx={xCenter(hover!)} cy={yOverlay(overlayHit(oi)!.value ?? 0, o.max)} r={3.5} />
                 ) : null,
+              )}
+              {bandSeries.map((s, si) =>
+                bandHit(si)?.hasValue ? <circle key={"b" + si} className={"chart-point chart-point-" + s.tone} cx={xCenter(hover!)} cy={yBand(bandHit(si)!.value ?? 0)} r={3.5} /> : null,
               )}
             </g>
           )}
@@ -282,7 +347,7 @@ export function Chart({ kind, points, groups, interval, format, integer = false,
       {hovered && (
         <div className="chart-tip" style={tipPosition(xCenter(hover!), width)}>
           <div className="chart-tip-time">{intervalLabel(hovered.fromUtc, interval)}</div>
-          {!hovered.hasValue && !anyOverlayHit ? (
+          {!hovered.hasValue && !anyOverlayHit && !anyBandHit ? (
             <div className="muted">nothing recorded</div>
           ) : !hovered.hasValue ? null : stacked ? (
             groups
@@ -313,9 +378,35 @@ export function Chart({ kind, points, groups, interval, format, integer = false,
               </div>
             ) : null,
           )}
+          {bandSeries.map((s, si) => {
+            const hit = bandHit(si);
+            if (!hit?.hasValue) return null;
+            const parts = Object.entries(hit.values ?? {}).filter(([, v]) => v > 0);
+            return (
+              <div key={"b" + si}>
+                <div className="chart-tip-row">
+                  <span className={"chart-swatch chart-swatch-" + s.tone} />
+                  <span className="chart-tip-k">{s.label}</span>
+                  <span className="chart-tip-v">
+                    {band!.format(hit.value ?? 0)}
+                    {s.detail ? " · " + s.detail(hit) : ""}
+                  </span>
+                </div>
+                {parts.length > 1 &&
+                  parts.map(([k, v]) => (
+                    <div key={k} className="chart-tip-row chart-tip-sub">
+                      <span className="chart-tip-k">{k}</span>
+                      <span className="chart-tip-v">{band!.format(v)}</span>
+                    </div>
+                  ))}
+              </div>
+            );
+          })}
         </div>
       )}
-      {!hasAny && !over.some((o) => o.points.some((p) => p.hasValue)) && width > 0 && <div className="chart-empty">Nothing recorded in this range.</div>}
+      {!hasAny && !over.some((o) => o.points.some((p) => p.hasValue)) && !bandSeries.some((s) => s.points.some((p) => p.hasValue)) && width > 0 && (
+        <div className="chart-empty">Nothing recorded in this range.</div>
+      )}
     </div>
   );
 }

@@ -70,7 +70,7 @@ public class NodeHelper<T>(NodeStore store, NodeAction action) where T : notnull
     public Guid GetPropertyId(string propertyName) => store.Mapper.GetProperty<T>(propertyName).Id;
     public T GetNode() {
         if (action.Node is NodeDataOnlyId) return store.Get<T>(action.Node.Id);
-        return store.Mapper.CreateObjectFromNodeData<T>(action.Node, null);
+        return store.Mapper.CreateObjectFromNodeData<T>(action.Node, null, store);
     }
     public void SetNode(T node) => action.Node = store.Mapper.CreateNodeDataFromObject(node, null, null);
     public bool HasPropertyChanged(Expression<Func<T, object?>> expression) {

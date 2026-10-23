@@ -49,6 +49,8 @@ public class StoreStreamDiscWrite : IAppendStream {
     }
     long _bytesRead;
     long _bytesWritten;
+    readonly IOCounter _io = new();
+    public IOCounters Counters => _io.Snapshot;
     public long GetBytesWritten() => Interlocked.Read(ref _bytesWritten);
     public long GetBytesRead() => Interlocked.Read(ref _bytesRead);
     public void ResetByteCounter() {
@@ -82,6 +84,7 @@ public class StoreStreamDiscWrite : IAppendStream {
             _checkSum.EvaluateChecksumIfRecording(data);
             _stream.Write(data, 0, data.Length);
             _bytesWritten += data.Length;
+            _io.Write(data.Length);
             Interlocked.Add(ref _length, data.Length);
         }
     }
@@ -90,11 +93,13 @@ public class StoreStreamDiscWrite : IAppendStream {
             _checkSum.EvaluateChecksumIfRecording(data, count);
             _stream.Write(data, 0, count);
             _bytesWritten += count;
+            _io.Write(count);
             Interlocked.Add(ref _length, count);
         }
     }
     public async Task AppendAsyncNoChecksumOrLock(byte[] buffer, int count) {
         await _stream.WriteAsync(buffer, 0, count);
+        _io.Write(count);
         Interlocked.Add(ref _length, count); // no lock by contract: the caller is the only writer while this runs
     }
     // Skipped when everything appended has already had the flush asked for: in the OS for a plain flush,
@@ -133,6 +138,7 @@ public class StoreStreamDiscWrite : IAppendStream {
             totalRead += read;
         }
         Interlocked.Add(ref _bytesRead, count);
+        _io.ReadThreadSafe(count);
     }
     // the stream's write buffer down to the file system (no fsync), so a read at an offset sees all of it
     void pushWritesToFileSystem() {

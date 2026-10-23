@@ -80,6 +80,7 @@ public class SettingsLocal {
     public bool AutoTruncate { get; set; } = false; //true;
     public double AutoTruncateIntervalInMinutes { get; set; } = 240;
     public int AutoTruncateActionCountLowerLimit { get; set; } = 100000;
+    public double AutoTruncateRedundantPercentageLimit { get; set; } = 50; // the share of the log a truncation would drop; due at this or the count above, 0 = off
     public bool AutoTruncateDeleteOldFileOnSuccess { get; set; } = false; //true;
 
     public bool AutoPurgeCache { get; set; } = true;

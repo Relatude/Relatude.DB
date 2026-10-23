@@ -20,6 +20,16 @@ public class IOProviderDisk : IIOProvider {
     readonly Dictionary<string, int> _openReaders = [];
     readonly Dictionary<string, int> _openWriters = [];
     readonly List<IStream> _openStreams = [];
+    IOCounters _closedStreams;
+    public IOCounters Counters {
+        get {
+            lock (_lock) {
+                var total = _closedStreams;
+                foreach (var stream in _openStreams) total += stream.Counters;
+                return total;
+            }
+        }
+    }
     bool _dirExists;
     /// <param name="baseFolder"></param>
     /// <param name="readOnly"></param>    
@@ -81,6 +91,7 @@ public class IOProviderDisk : IIOProvider {
             stream = new StoreStreamDiscRead(filePath, position, () => {
                 lock (_lock) {
                     unregisterReader(fileKey);
+                    _closedStreams += stream!.Counters;
                     _openStreams.Remove(stream!);
                 }
             });
@@ -101,6 +112,7 @@ public class IOProviderDisk : IIOProvider {
             stream = new StoreStreamDiscWrite(fileKey, filePath, _readOnly, () => {
                 lock (_lock) {
                     unregisterWriter(fileKey);
+                    _closedStreams += stream!.Counters;
                     _openStreams.Remove(stream!);
                 }
             });
@@ -178,6 +190,8 @@ public class IOProviderDisk : IIOProvider {
         var dir = Path.GetDirectoryName(filePath);
         if (dir != null && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
     }
+    public Task<IOBenchmarkReport> BenchmarkPerformanceAsync(int testDurationInMs = 5000, IProgress<IOBenchmarkProgress>? progress = null, CancellationToken cancellationToken = default) =>
+        IOBenchmark.RunAsync(this, IOBenchmarkDisk.Options(this, _readOnly, testDurationInMs), testDurationInMs, progress, cancellationToken);
     public bool CanRenameFile => true;
     public bool CanRenameFolder => !_readOnly;
     public bool SupportsEmptyFolders => true;

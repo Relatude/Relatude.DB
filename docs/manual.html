@@ -3287,7 +3287,12 @@ all five at 0 there is no automatic backup, and the backups already there are de
 <tr>
 <td><code>AutoTruncateActionCountLowerLimit</code></td>
 <td>100 000</td>
-<td>Do not bother below this many actions.</td>
+<td>Due once this many actions can go (a remove each: a deleted or replaced node or relation), or at the share below, whichever comes first.</td>
+</tr>
+<tr>
+<td><code>AutoTruncateRedundantPercentageLimit</code></td>
+<td>50</td>
+<td>Due once this share of the log can go: each remove and the add before it, against every action in the log (<code>DataStoreInfo.LogTotalActions</code>). 0 turns it off.</td>
 </tr>
 <tr>
 <td><code>AutoTruncateDeleteOldFileOnSuccess</code></td>
@@ -4124,6 +4129,21 @@ try/catch by the server</strong>: an exception inside one is written to the star
 a callback that silently did nothing is a startup-log question rather than a crash. And <strong>seeding
 belongs in <code>OnStoreOpenBackground</code></strong> — <code>OnStoreOpen</code> blocks the open, and while a store is opening
 every request gets a 503 progress page.</p>
+<p><strong><code>AddRelatudeDB</code> can be called any number of times.</strong> Every call configures the same <code>ServerOptions</code>
+instance, so a library that calls it itself, as Relatude.CMS does, and the host's own call can come
+in any order. A second <code>UseRelatudeDB</code> on the same application does nothing; there is one server per
+process, so a second application throws.</p>
+<p><strong>A library hooks into the start with a service, not a callback.</strong> The callbacks belong to the host,
+and a host that assigns <code>OnStoreInit</code> after a library chained onto it would drop the library's part.
+A library registers an <code>IStoreInitializer</code> instead, which the server calls for every store, right
+after <code>OnStoreInit</code>:</p>
+<div class="codehilite"><pre><span></span><code><span class="k">public</span><span class="w"> </span><span class="k">sealed</span><span class="w"> </span><span class="k">class</span><span class="w"> </span><span class="nc">AuditInitializer</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">IStoreInitializer</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">public</span><span class="w"> </span><span class="k">void</span><span class="w"> </span><span class="nf">Initialize</span><span class="p">(</span><span class="n">NodeStore</span><span class="w"> </span><span class="n">store</span><span class="p">)</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">store</span><span class="p">.</span><span class="n">RegisterTransactionPlugin</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">AuditPlugin</span><span class="p">());</span>
+<span class="p">}</span>
+
+<span class="n">services</span><span class="p">.</span><span class="n">TryAddEnumerable</span><span class="p">(</span><span class="n">ServiceDescriptor</span><span class="p">.</span><span class="n">Singleton</span><span class="o">&lt;</span><span class="n">IStoreInitializer</span><span class="p">,</span><span class="w"> </span><span class="n">AuditInitializer</span><span class="o">&gt;</span><span class="p">());</span>
+</code></pre></div>
+
 <h3 id="two-ways-to-register-a-datamodel">Two ways to register a datamodel<a class="anchor" href="#two-ways-to-register-a-datamodel" aria-label="Link to this section">#</a></h3>
 <p>The JSON sources load first, then <code>OnDatamodelInit</code> runs against the same <code>Datamodel</code> object — so
 the two are additive rather than alternatives.</p>
@@ -4291,7 +4311,7 @@ indistinguishable by timing.</p>
 </tr>
 <tr>
 <td><strong>Storage</strong></td>
-<td>Backups — one click to take one, one to go back to it. Take one before upgrading, the project is pre-1.0. The database file itself lives here too: download it, upload one, or copy it up to a moment in time and open the database on that copy. Any file the Files page lists can be made the database file, which is the way back from all three: whatever is replaced is kept beside the new file, never deleted.</td>
+<td>Backups — one click to take one, one to go back to it. Take one before upgrading, the project is pre-1.0. The database file itself lives here too: download it, upload one, or copy it up to a moment in time and open the database on that copy. Any file the Files page lists can be made the database file, which is the way back from all three: whatever is replaced is kept beside the new file, never deleted. <strong>Benchmark storage</strong> measures the storages you tick: writes and reads of small and large pieces, in order and at random, commits made durable, reads past the operating system's cache on a local disk, and the small requests around a file, each with its throughput and the time one operation takes (typical, 90 %, 99 %, slowest). The report compares the storages side by side; from code the same test is <code>IIOProvider.BenchmarkPerformanceAsync(testDurationInMs)</code>.</td>
 </tr>
 <tr>
 <td><strong>Status</strong></td>
@@ -4318,8 +4338,16 @@ indistinguishable by timing.</p>
 <td>The installation's Relatude Services account: connecting it to a license, what the license carries, the sign-in switch, and a test view for each hosted service. Not needed to run anything. See <a href="#35-relatude-services">§35</a>.</td>
 </tr>
 <tr>
+<td><strong>Performance</strong> (on the dashboard)</td>
+<td>The server process over the last few minutes - its managed heap and cpu - and, in a band under them, what the storage providers read and wrote a second, summed over every provider the server has; the tooltip splits a second's traffic per provider and adds the operations behind the bytes. The counters are kept per stream and folded into the provider as streams close, so the graph costs the database nothing. The database's own rates - queries, transactions, actions, node reads - are in the <strong>Activity</strong> panel below it.</td>
+</tr>
+<tr>
+<td><strong>Activity</strong> and <strong>Running operations</strong> (on the dashboard)</td>
+<td>Activity charts what the database is asked to do a second over the last few minutes - queries, transactions, actions and node reads - with the count since the caches were last cleared. Running operations lists the work going on this second, each with its progress, and the background task and file conversion queues.</td>
+</tr>
+<tr>
 <td><strong>Memory</strong> (on the dashboard)</td>
-<td>Every memory budget of one database on one line - the node and result set caches, each index engine, the state store - each showing what it is actually holding against what it is allowed. Dragging a budget takes effect at once where the part can be re-sized while it runs; saving keeps them for the next start, in <code>relatude.db.overrides.json</code> like every change made on the settings pages.</td>
+<td>Every memory budget of one database on one line - the node and result set caches, each index engine, the state store - each showing what it is actually holding against what it is allowed. Dragging a budget takes effect at once where the part can be re-sized while it runs; saving keeps them for the next start, in <code>relatude.db.overrides.json</code> like every change made on the settings pages. Under the budgets the node, result set and aggregate caches each show the share of lookups they answered, their hits and misses, and the hits and misses a second they take now, updated live with the rest of the page.</td>
 </tr>
 </tbody>
 </table>
@@ -4893,6 +4921,7 @@ Give it a parent relation and the same manager builds <code>/{ancestor addresses
 <span class="c1">// the reverse: what does this URL point at?</span>
 <span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">db</span><span class="p">.</span><span class="n">TryParseUrl</span><span class="p">(</span><span class="n">url</span><span class="p">,</span><span class="w"> </span><span class="k">out</span><span class="w"> </span><span class="n">UrlKeys</span><span class="w"> </span><span class="n">keys</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="err">…</span><span class="w"> </span><span class="p">}</span><span class="w">         </span><span class="c1">// node, file, variant or deeplink</span>
 <span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">db</span><span class="p">.</span><span class="n">TryParseUrlForContent</span><span class="p">(</span><span class="n">url</span><span class="p">,</span><span class="w"> </span><span class="k">out</span><span class="w"> </span><span class="kt">var</span><span class="w"> </span><span class="n">content</span><span class="p">))</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="err">…</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="c1">// …resolved all the way to content</span>
+<span class="kt">var</span><span class="w"> </span><span class="n">file</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">GetUrlContentAsync</span><span class="p">(</span><span class="n">keys</span><span class="p">);</span><span class="w">              </span><span class="c1">// the same, from keys already parsed</span>
 
 <span class="c1">// may this node have this address? (editor-side validation)</span>
 <span class="kt">bool</span><span class="w"> </span><span class="n">ok</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">WillAddressResultInUniqueUrl</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">NodeKey</span><span class="p">(</span><span class="n">article</span><span class="p">.</span><span class="n">Id</span><span class="p">),</span><span class="w"> </span><span class="s">&quot;contact-us&quot;</span><span class="p">);</span>
@@ -5289,6 +5318,11 @@ sees every request:</p>
   <code>UrlContent.NodeData</code>, and <code>UrlKeys.CultureId</code> / <code>CultureCode</code> tell you which culture the URL
   matched. Return your own view, or <code>null</code> to fall through to MVC/Razor routing.</li>
 </ul>
+<p><code>FileHandler</code> answers a <code>Range</code> request with <code>206 Partial Content</code> when the stream can seek, which
+video and audio players depend on. A file kept on local disk opens as a seekable <code>FileStream</code>; one on
+blob storage or in a single-file store streams through a pipe and is served whole. A web layer that
+takes URLs apart before it decides what serves them, as Relatude.CMS's content routes do, calls
+<code>TryParseUrl</code> once and <code>GetUrlContentAsync(keys)</code> for the files, rather than parsing twice.</p>
 <p><code>examples/Website.Simple</code> has the whole thing running: a two-domain page tree, a rename demo that
 shows stored <code>rdb:</code> tokens surviving it, and endpoints that print every node's computed URL.</p>
 <hr />
@@ -6234,7 +6268,16 @@ that return a new context.</p>
 </code></pre></div>
 
 <p><code>db.Context.Admin()</code> returns a store that bypasses ACL filtering. Use it in trusted server code
-only — <strong>never hand it to a request handler</strong>.</p>
+only — <strong>never hand it to a request handler</strong>. The builder has every setting of the context:
+<code>Culture</code>, <code>User(userId)</code> (the id of a user node; <code>Guid.Empty</code> reads as an anonymous visitor),
+<code>Hidden</code>, <code>CultureFallbacks</code>, <code>Unpublished</code>, <code>EditView</code>, <code>Now(utc)</code>, <code>Admin</code>, and <code>With(queryContext)</code>
+for a context built elsewhere. A web layer builds one store per request this way, as the visitor:</p>
+<div class="codehilite"><pre><span></span><code><span class="kt">var</span><span class="w"> </span><span class="n">visitor</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">Context</span><span class="p">.</span><span class="n">Culture</span><span class="p">(</span><span class="n">cultureCode</span><span class="p">).</span><span class="n">User</span><span class="p">(</span><span class="n">userId</span><span class="w"> </span><span class="o">??</span><span class="w"> </span><span class="n">Guid</span><span class="p">.</span><span class="n">Empty</span><span class="p">).</span><span class="n">Create</span><span class="p">();</span>
+</code></pre></div>
+
+<p>Note that <code>Get</code> and <code>TryGet</code> by id apply the context's culture but not its read access: queries and
+relation properties filter by it. To ask whether a visitor may read a node, query for it:
+<code>visitor.Query().Where(id).Count() &gt; 0</code>.</p>
 <hr />
 <h2 id="30-pitfalls-and-gotchas">30. Pitfalls and gotchas<a class="anchor" href="#30-pitfalls-and-gotchas" aria-label="Link to this section">#</a></h2>
 <p>A checklist of the things that actually bite people.</p>

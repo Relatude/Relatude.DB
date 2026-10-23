@@ -348,38 +348,42 @@ public sealed partial class DataStoreLocal : IDataStore {
             _lock.ExitReadLock();
         }
     }
+    // The related nodes the context may read, filtered through the same sets queries filter with (read access,
+    // publication, deletion, hidden types), so a relation property read off a node shows a reader what a query
+    // would. Under the read lock, as the sets are.
+    int[] relatedForContext(RelationPropertyModel relProp, Guid from, QueryContext ctx, int max = int.MaxValue) {
+        if (!_guids.TryGetId(from, out var fromId)) return [];
+        var related = _definition.Relations[relProp.RelationId].GetRelated(fromId, relProp.FromTargetToSource);
+        var readable = new List<int>();
+        foreach (var id in related.Enumerate()) {
+            if (_definition.NodeTypeIndex.TryGetType(id, out var typeId) && _definition.GetAllIdsForType(typeId, ctx).Has(id)) {
+                readable.Add(id);
+                if (readable.Count == max) break;
+            }
+        }
+        return [.. readable];
+    }
+    static RelationPropertyModel relationProperty(Datamodel datamodel, Guid propertyId) =>
+        datamodel.Properties[propertyId] as RelationPropertyModel ?? throw new ArgumentException("Property is not a relation property");
+
     public INodeDataExternal[] GetRelatedNodesFromPropertyId(Guid propertyId, Guid from, QueryContext? ctx = null) {
-        var propDef = _definition.Datamodel.Properties[propertyId];
-        if (propDef is not RelationPropertyModel relProp) throw new ArgumentException("Property is not a relation property");
-        return readMany(ctx, () => {
-            if (!_guids.TryGetId(from, out var fromId)) return [];
-            var relation = _definition.Relations[relProp.RelationId];
-            return relation.GetRelated(fromId, relProp.FromTargetToSource).ToArray();
-        });
+        var relProp = relationProperty(_definition.Datamodel, propertyId);
+        return readMany(ctx, () => relatedForContext(relProp, from, ctx ?? _defaultQueryCtx));
     }
     public bool TryGetRelatedNodeFromPropertyId(Guid propertyId, Guid from, [MaybeNullWhen(false)] out INodeDataExternal node, QueryContext? ctx = null) {
-        var propDef = _definition.Datamodel.Properties[propertyId];
-        if (propDef is not RelationPropertyModel relProp) throw new ArgumentException("Property is not a relation property");
-        var nodes = readMany(ctx, () => {
-            if (!_guids.TryGetId(from, out var fromId)) return [];
-            var relation = _definition.Relations[relProp.RelationId];
-            var relatedIds = relation.GetRelated(fromId, relProp.FromTargetToSource);
-            return relatedIds.Count == 0 ? [] : [relatedIds.First()];
-        });
+        var relProp = relationProperty(_definition.Datamodel, propertyId);
+        var nodes = readMany(ctx, () => relatedForContext(relProp, from, ctx ?? _defaultQueryCtx, max: 1));
         node = nodes.Length > 0 ? nodes[0] : null;
         return node != null;
     }
     public int GetRelatedCountFromPropertyId(Guid propertyId, Guid from, QueryContext? ctx = null) {
-        var propDef = _definition.Datamodel.Properties[propertyId];
-        if (propDef is not RelationPropertyModel relProp) throw new ArgumentException("Property is not a relation property");
+        var relProp = relationProperty(_definition.Datamodel, propertyId);
         _lock.EnterReadLock();
         var activityId = RegisterActvity(DataStoreActivityCategory.Querying);
         try {
             validateDatabaseState();
             _queryActivity.Record();
-            if (!_guids.TryGetId(from, out var fromId)) return 0;
-            var relation = _definition.Relations[relProp.RelationId];
-            return relation.GetRelated(fromId, relProp.FromTargetToSource).Count;
+            return relatedForContext(relProp, from, ctx ?? _defaultQueryCtx).Length;
         } finally {
             DeRegisterActivity(activityId);
             _lock.ExitReadLock();

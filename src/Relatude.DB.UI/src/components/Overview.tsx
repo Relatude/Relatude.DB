@@ -14,7 +14,7 @@ import {
   type ServerOverview,
 } from "../server/overview";
 import { subscribe, subscribeResync } from "../server/channel";
-import { ProcessChart, currentCpu, currentDisk, formatPercent, useProcessSamples, type ProcessSample } from "./ProcessChart";
+import { ProcessChart, currentCpu, currentDisk, currentIo, formatBytesPerSecond, formatPercent, hasIo, useProcessSamples, type ProcessSample } from "./ProcessChart";
 import { useLive } from "../live";
 import { formatBytes, formatCount, formatDuration, formatTime } from "../format";
 import { Loading } from "./Loading";
@@ -181,6 +181,8 @@ export function Overview() {
   const last = samples[samples.length - 1];
   const cpu = currentCpu(samples);
   const disk = currentDisk(samples);
+  const io = currentIo(samples);
+  const ioShown = hasIo(samples);
   const processPanel = (
     <section className="panel panel-fill">
       <h3>
@@ -190,6 +192,7 @@ export function Overview() {
             ? `${formatBytes(last.managedMemory)} in the managed heap · ${formatBytes(last.processMemory)} resident`
               + (cpu === null ? "" : ` · ${formatPercent(cpu)} cpu of ${last.processorCount} cores`)
               + (disk === null ? "" : ` · ${formatBytes(disk.free)} free on disk`)
+              + (io === null ? "" : ` · ${formatBytesPerSecond(io.read.value ?? 0)} read · ${formatBytesPerSecond(io.written.value ?? 0)} written`)
             : "sampling…"}
         </span>
       </h3>
@@ -202,8 +205,14 @@ export function Overview() {
               {" · "}
               <span className="chart-key chart-key-third">Disk used</span>
             </>
+          )}
+          {ioShown && (
+            <>
+              {" · "}
+              <span className="chart-key chart-key-read">Read</span> · <span className="chart-key chart-key-write">Written</span>
+            </>
           )}{" "}
-          — the whole server process: one heap, one cpu budget and one disk serve every database on it
+          — the whole server process: one heap, one cpu budget and one disk serve every database on it{ioShown ? "; the traffic is every storage provider summed" : ""}
         </span>
       </div>
     </section>
@@ -233,6 +242,7 @@ function readProcess(live: ServerLive): ProcessSample {
     processorCount: live.processorCount ?? 1,
     diskTotalBytes: live.diskTotalBytes ?? 0,
     diskFreeBytes: live.diskFreeBytes ?? 0,
+    io: live.io,
   };
 }
 

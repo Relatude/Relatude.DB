@@ -44,6 +44,7 @@ internal class AzureBlobRestClient : IDisposable {
     readonly KeyValuePair<string, string>[]? _sas;     // ...otherwise SAS query parameters
     readonly string _containerUrl;
     readonly string _canonicalContainerPath;           // path part used in the string to sign
+    public string ContainerUrl => _containerUrl;
     public AzureBlobRestClient(string connectionString, string containerName) {
         if (string.IsNullOrWhiteSpace(connectionString)) throw new ArgumentException("Blob connection string is required. ");
         if (string.IsNullOrWhiteSpace(containerName)) throw new ArgumentException("Blob container name is required. ");

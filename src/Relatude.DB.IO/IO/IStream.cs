@@ -2,4 +2,5 @@
 public interface IStream : IDisposable {
     string FileKey { get; }
     long Length { get; }
+    IOCounters Counters => default;
 }

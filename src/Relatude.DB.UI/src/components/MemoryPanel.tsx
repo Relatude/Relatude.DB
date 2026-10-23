@@ -1,13 +1,13 @@
 import { useCallback, useState } from "react";
 import { IconDeviceFloppy, IconEraser, IconRecycle, IconRotate } from "@tabler/icons-react";
 import { showError } from "../dialogs";
-import { clearCaches } from "../server/dashboard";
+import { clearCaches, type LiveCacheCounters } from "../server/dashboard";
 import { collectGarbage } from "../server/overview";
 import { applyMemoryBudget, fetchMemory, type MemoryBudget, type MemoryReport } from "../server/memory";
 import { saveDatabaseSettings } from "../server/settings";
 import { useLive } from "../live";
 import { usePanelMaximized } from "../panelMaximized";
-import { formatBytes, formatCount } from "../format";
+import { formatBytes, formatCount, formatRate } from "../format";
 
 const mb = 1024 * 1024;
 const gb = 1024 * mb;
@@ -39,6 +39,12 @@ export interface CacheCounts {
   nodeCacheSize?: number;
   setCacheCount?: number;
   setCacheSize?: number;
+}
+
+/** One reading of the caches' counters, taken with the dashboard's live sample at `at`. */
+export interface CacheSample {
+  at: number;
+  cache: LiveCacheCounters | null;
 }
 
 /** One figure in the detail of a row: the label, the value, and the whole of it for the title. */
@@ -73,11 +79,13 @@ export function MemoryPanel({
   storeId,
   cache,
   counts,
+  cacheSamples,
   onChanged,
 }: {
   storeId: string;
   cache?: CacheStats;
   counts?: CacheCounts;
+  cacheSamples?: CacheSample[];
   onChanged?: () => void;
 }) {
   const [report, setReport] = useState<MemoryReport | null>(null);
@@ -91,6 +99,8 @@ export function MemoryPanel({
   const apply = useCallback((data: MemoryReport) => setReport(data), []);
   useLive<MemoryReport>("memory", { storeId }, apply);
 
+  const latest = cacheSamples?.[cacheSamples.length - 1]?.cache ?? null;
+  const hitStats: LiveCacheCounters | null = latest ?? (cache ? { ...cache, aggregateCacheOverflows: cache.aggregateCacheOverflows ?? 0 } : null);
   const budgets = report?.budgets ?? [];
   const valueOf = (b: MemoryBudget) => drafts[b.key] ?? b.limitBytes;
   const changed = budgets.filter((b) => b.settingPath && valueOf(b) !== b.settingBytes);
@@ -187,12 +197,12 @@ export function MemoryPanel({
 
   /** The hit counts of one row, where it is a cache the store keeps count of: node and result sets. */
   function hitCounts(b: MemoryBudget): { hits: number; misses: number; overflows: number; entries: number | null } | null {
-    if (cache == null) return null;
+    if (hitStats == null) return null;
     if (b.kind === "NodeCache") {
-      return { hits: cache.nodeCacheHits, misses: cache.nodeCacheMisses, overflows: cache.nodeCacheOverflows, entries: counts?.nodeCacheCount ?? null };
+      return { hits: hitStats.nodeCacheHits, misses: hitStats.nodeCacheMisses, overflows: hitStats.nodeCacheOverflows, entries: counts?.nodeCacheCount ?? null };
     }
     if (b.kind === "SetCache") {
-      return { hits: cache.setCacheHits, misses: cache.setCacheMisses, overflows: cache.setCacheOverflows, entries: counts?.setCacheCount ?? null };
+      return { hits: hitStats.setCacheHits, misses: hitStats.setCacheMisses, overflows: hitStats.setCacheOverflows, entries: counts?.setCacheCount ?? null };
     }
     return null;
   }
@@ -268,7 +278,7 @@ export function MemoryPanel({
    * to drag - it is a fixed number of entries, and the bytes behind them are the sets it points at,
    * which the set cache is already accounting for - so it is only here where there is room for it.
    */
-  function aggregateDetails(c: CacheStats): Detail[] {
+  function aggregateDetails(c: LiveCacheCounters): Detail[] {
     const lookups = c.aggregateCacheHits + c.aggregateCacheMisses;
     return [
       { k: "Entries", v: formatCount(c.aggregateCacheCount) },
@@ -298,7 +308,7 @@ export function MemoryPanel({
             onCommit={() => void commit(b)}
           />
         ))}
-        {detailed && report?.open && cache != null && (
+        {detailed && report?.open && hitStats != null && (
           // a cache with no bar of its own: the row is its name, what it holds, and the figures
           <div className="mem-row detailed" title={"Counts, sums and facet totals a query already worked out.\nNo budget to set: a fixed number of entries."}>
             <span className="mem-name">
@@ -306,12 +316,13 @@ export function MemoryPanel({
               <span className="mem-engine">Sets</span>
             </span>
             <span className="mem-track mem-resident muted">no budget</span>
-            <span className="mem-figures">{formatCount(cache.aggregateCacheCount)} entries</span>
-            <DetailBlock help="Counts, sums and facet totals a query already worked out, so a repeated count or a facet drilled into does not walk the sets again." details={aggregateDetails(cache)} />
+            <span className="mem-figures">{formatCount(hitStats.aggregateCacheCount)} entries</span>
+            <DetailBlock help="Counts, sums and facet totals a query already worked out, so a repeated count or a facet drilled into does not walk the sets again." details={aggregateDetails(hitStats)} />
           </div>
         )}
         {report != null && !report.open && <div className="muted">The database is {report.state.toLowerCase()}, so it is holding nothing.</div>}
       </div>
+      {report?.open !== false && hitStats != null && <CacheCards samples={cacheSamples ?? []} stats={hitStats} counts={counts} />}
       <div className="dash-cache-actions">
         {changed.length > 0 && (
           <>
@@ -334,6 +345,102 @@ export function MemoryPanel({
         {message ?? (detailed ? "drag to change a budget now, save to keep it; the hit counts are since the caches were last cleared" : "drag to change a budget now, save to keep it; hover a row for what it is for")}
       </div>
     </section>
+  );
+}
+
+interface CacheKind {
+  key: string;
+  label: string;
+  help: string;
+  hits: (c: LiveCacheCounters) => number;
+  misses: (c: LiveCacheCounters) => number;
+  trims: (c: LiveCacheCounters) => number;
+  entries: (c: LiveCacheCounters, counts?: CacheCounts) => number | null;
+}
+
+const cacheKinds: CacheKind[] = [
+  {
+    key: "node",
+    label: "Node cache",
+    help: "Nodes answered from memory rather than read and decoded from the database file again.",
+    hits: (c) => c.nodeCacheHits,
+    misses: (c) => c.nodeCacheMisses,
+    trims: (c) => c.nodeCacheOverflows,
+    entries: (_, counts) => counts?.nodeCacheCount ?? null,
+  },
+  {
+    key: "set",
+    label: "Result set cache",
+    help: "Sets of node ids a query already worked out - a filter, a sort, a search - answered from memory instead of being worked out again.",
+    hits: (c) => c.setCacheHits,
+    misses: (c) => c.setCacheMisses,
+    trims: (c) => c.setCacheOverflows,
+    entries: (_, counts) => counts?.setCacheCount ?? null,
+  },
+  {
+    key: "aggregate",
+    label: "Aggregate cache",
+    help: "Counts, sums and facet totals a query already worked out, so a repeated count or a facet drilled into does not walk the sets again.",
+    hits: (c) => c.aggregateCacheHits,
+    misses: (c) => c.aggregateCacheMisses,
+    trims: (c) => c.aggregateCacheOverflows,
+    entries: (c) => c.aggregateCacheCount,
+  },
+];
+
+const rateWindow = 5;
+
+/**
+ * How well each cache answers, live: the share of lookups it answered since the caches were last
+ * cleared, as a number and a bar, the counts behind it, and how many hits and misses a second it is
+ * taking now - measured over the last few samples, so one quiet sample does not read as idle. A
+ * counter that went backwards means the caches were cleared, and the rate waits for the next pair.
+ */
+function CacheCards({ samples, stats, counts }: { samples: CacheSample[]; stats: LiveCacheCounters; counts?: CacheCounts }) {
+  const withCache = samples.filter((s): s is CacheSample & { cache: LiveCacheCounters } => s.cache != null);
+  const last = withCache[withCache.length - 1];
+  const first = withCache[Math.max(0, withCache.length - 1 - rateWindow)];
+  const seconds = last && first ? (last.at - first.at) / 1000 : 0;
+  return (
+    <div className="mem-caches">
+      {cacheKinds.map((k) => {
+        const hits = k.hits(stats);
+        const misses = k.misses(stats);
+        const lookups = hits + misses;
+        const share = lookups > 0 ? hits / lookups : null;
+        const entries = k.entries(stats, counts);
+        const trims = k.trims(stats);
+        let now: string | null = null;
+        if (seconds > 0) {
+          const hitRate = (k.hits(last.cache) - k.hits(first.cache)) / seconds;
+          const missRate = (k.misses(last.cache) - k.misses(first.cache)) / seconds;
+          if (hitRate >= 0 && missRate >= 0) now = hitRate + missRate < 0.05 ? "idle now" : `now ${formatRate(hitRate)} hits/s · ${formatRate(missRate)} misses/s`;
+        }
+        const title = [
+          k.help,
+          lookups > 0 ? `${formatCount(hits)} hits and ${formatCount(misses)} misses since the caches were last cleared.` : "No lookups since the caches were last cleared.",
+          entries != null ? `${formatCount(entries)} entries held now.` : null,
+          `Trimmed ${formatCount(trims)} time${trims === 1 ? "" : "s"}: filled up and cut back to half.`,
+        ]
+          .filter((line): line is string => line != null)
+          .join(String.fromCharCode(10));
+        return (
+          <div key={k.key} className="mem-cache" title={title}>
+            <div className="mem-cache-head">
+              <span className="mem-cache-name">{k.label}</span>
+              <span className="mem-cache-ratio">{share == null ? "—" : `${share >= 0.995 && share < 1 ? (share * 100).toFixed(1) : Math.round(share * 100)}%`}</span>
+            </div>
+            <span className="mem-cache-bar" aria-hidden="true">
+              <span style={{ width: `${Math.round((share ?? 0) * 100)}%` }} />
+            </span>
+            <div className="mem-cache-line">
+              {formatCount(hits)} hits · {formatCount(misses)} misses
+            </div>
+            <div className="mem-cache-line muted">{now ?? (entries != null ? `${formatCount(entries)} entries` : "")}</div>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 

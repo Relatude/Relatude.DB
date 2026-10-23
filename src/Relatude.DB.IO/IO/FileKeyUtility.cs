@@ -292,7 +292,7 @@ public static class FileKeyUtility {
     /// <summary>Whether the key names a database backup in the backup folder (backup/db.2026-01-31-02-00-00.bkup).</summary>
     public static bool WAL_IsBackUpFileKey(string[] fileKey) => fileKey.MatchesPattern(walFileBackupPattern);
     public static string[] WAL_GetFileKeyForBackup(DateTime dt, bool keepForever)
-        => fill(keepForever ? walFileBackupPatternKeepForever : walFileBackupPattern, dt.ToString(dateTimeTemplate));
+        => fill(keepForever ? walFileBackupPatternKeepForever : walFileBackupPattern, dateTimeStamp(dt));
     public static bool WAL_KeepForever(string[] fileKey) => fileKey.MatchesPattern(walFileBackupPatternKeepForever);
 
     public static string[] FileStore_GetFileKey(int n) => fill(fileStorePattern, n.ToString("00000000"));
@@ -302,10 +302,13 @@ public static class FileKeyUtility {
     public static DateTime FileStore_GetBackUpDateTimeFromFileKey(string[] fileKey) => backupDateTime(fileKey);
     public static string[][] FileStore_GetAllBackUpFileKeys(IIOProvider io) => [.. io.Search(fileStoreBackupPattern)];
     public static string[] FileStore_GetFileKeyForBackup(DateTime dt, bool keepForever)
-        => fill(keepForever ? fileStoreBackupPatternKeepForever : fileStoreBackupPattern, dt.ToString(dateTimeTemplate));
+        => fill(keepForever ? fileStoreBackupPatternKeepForever : fileStoreBackupPattern, dateTimeStamp(dt));
     public static bool FileStore_KeepForever(string[] fileKey) => fileKey.MatchesPattern(fileStoreBackupPatternKeepForever);
 
     static string[] nextFileKey(string[] fileKey, Func<int, string[]> getFileKey) => getFileKey(int.Parse(fileKey.FileName().Split('.')[^2]) + 1);
+    // written as backupDateTime reads it back, in the invariant culture: in one with another calendar (Thai Buddhist,
+    // Um Al-Qura) the year came out as 2569 or 1447, and the automatic backup never found the hour's backup again
+    static string dateTimeStamp(DateTime dt) => dt.ToString(dateTimeTemplate, System.Globalization.CultureInfo.InvariantCulture);
     static DateTime backupDateTime(string[] fileKey) => DateTime.SpecifyKind(DateTime.ParseExact(fileKey.FileName().Split('.')[^2], dateTimeTemplate, System.Globalization.CultureInfo.InvariantCulture), DateTimeKind.Utc);
 
     public static string[] MapperDll_GetFileKey(ulong hash) => fill(mapperDllFilePattern, hash.ToString());
@@ -375,7 +378,7 @@ public static class FileKeyUtility {
     /// <summary>The datamodel overrides made on this installation, on the database's storage.</summary>
     public static string[] Datamodel_OverridesFileKey => datamodelOverridesFileKey;
     /// <summary>The history file for a model that was active at the given (UTC) time.</summary>
-    public static string[] Datamodel_GetHistoryFileKey(DateTime utc) => fill(datamodelHistoryFilePattern, utc.ToString(dateTimeTemplate));
+    public static string[] Datamodel_GetHistoryFileKey(DateTime utc) => fill(datamodelHistoryFilePattern, dateTimeStamp(utc));
     /// <summary>Whether the key names a datamodel history file (the draft has the same shape but no timestamp).</summary>
     public static bool Datamodel_IsHistoryFileKey(string[] key) => key.MatchesPattern(datamodelHistoryFilePattern) && !key.IsSameKey(datamodelDraftFileKey)
         && DateTime.TryParseExact(key.FileName().Split('.')[^2], dateTimeTemplate, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out _);

@@ -107,6 +107,7 @@ public interface IDataStore : IDisposable {
 
     bool TryParseUrl(string url, [MaybeNullWhen(false)] out UrlKeys result, QueryContext? ctx = null);
     bool TryParseUrlForContent(string url, [MaybeNullWhen(false)] out UrlContent result, int maxWaitMs = -1, QueryContext? ctx = null, bool firstInQueue = false);
+    Task<UrlContent> GetUrlContentAsync(UrlKeys keys, int maxWaitMs = -1, QueryContext? ctx = null, bool firstInQueue = false);
 
     Task<Stream> GetFileStream(string url, int maxWait, QueryContext? ctx = null, bool firstInQueue = false);
     Task<StateAndStream> GetFileStreamAndState(string url, int maxWait = -1, QueryContext? ctx = null, bool firstInQueue = false);

@@ -17,8 +17,12 @@ public class StoreStreamDiscRead : IReadStream {
         _stream.Position = position;
     }
     long _bytesRead;
-    public Task<int> ReadAsync(byte[] buffer, int count) {
-        return _stream.ReadAsync(buffer, 0, count);
+    readonly IOCounter _io = new();
+    public IOCounters Counters => _io.Snapshot;
+    public async Task<int> ReadAsync(byte[] buffer, int count) {
+        var read = await _stream.ReadAsync(buffer, 0, count);
+        _io.Read(read);
+        return read;
     }
     public long GetBytesRead() => _bytesRead;
     public void ResetByteCounter() => _bytesRead = 0;
@@ -46,6 +50,7 @@ public class StoreStreamDiscRead : IReadStream {
         if (_stream.Read(block, 0, length) != length) throw new Exception("Read error");
         _checkSum.EvaluateChecksumIfRecording(block);
         _bytesRead += length;
+        _io.Read(length);
         return block;
     }
     public int ReadInto(Span<byte> buffer) {
@@ -60,6 +65,7 @@ public class StoreStreamDiscRead : IReadStream {
         }
         _checkSum.EvaluateChecksumIfRecording(dest[..total]);
         _bytesRead += total;
+        _io.Read(total);
         return total;
     }
     public long Length => _stream.Length;

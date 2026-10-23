@@ -85,6 +85,7 @@ sealed class BufferReaderStream(BufferReader r) : IReadStream {
     public void ValidateChecksum() => r.ValidateChecksum();
     public long GetBytesRead() => 0;
     public void ResetByteCounter() { }
+    public IOCounters Counters => default;
     public Task<int> ReadAsync(byte[] buffer, int count) => Task.FromResult(r.ReadIntoSpan(buffer.AsSpan(0, count)));
     public void Dispose() { }
 }

@@ -18,8 +18,7 @@ import {
   IconReload,
   IconSchema,
 } from "@tabler/icons-react";
-import { Chart } from "./Chart";
-import { ProcessChart, currentCpu, formatPercent, padToWindow, type ProcessSample } from "./ProcessChart";
+import { ProcessChart, currentCpu, currentIo, formatBytesPerSecond, formatPercent, hasIo, type ProcessSample } from "./ProcessChart";
 import { MemoryPanel } from "./MemoryPanel";
 import { PanelGrid, type PanelRow } from "./PanelGrid";
 import { PowerOrb, powerTone } from "./PowerOrb";
@@ -28,16 +27,15 @@ import { TypeChart, otherSliceId, shade, type TypeChartShape, type TypeSlice } f
 import { KindIcon } from "./DatamodelIcons";
 import { openInDatamodel, openInQuery } from "../navigate";
 import { showConfirm, showError, showInfo } from "../dialogs";
-import { fetchDashboard, type DashboardInfo, type DashboardLive, type TypeCount } from "../server/dashboard";
+import { fetchDashboard, type DashboardInfo, type DashboardLive, type LiveCacheCounters, type TypeCount } from "../server/dashboard";
 import { codeSourceGuid, sourceColors } from "../server/datamodel";
 import type { TraceInfo } from "../server/logs";
-import { useMeasuredEvery, useRefreshInterval } from "../refresh";
 import { useLive } from "../live";
+import { useRefreshInterval } from "../refresh";
 import { closeStore, openStore } from "../server/storage";
 import type { DatabaseInfo } from "../server/serverInfo";
-import type { SeriesPoint } from "../server/logs";
-import { formatBytes, formatCount, formatDuration, formatRate, formatTime } from "../format";
-import { ActivityList, RightNowPanel, useTick } from "./RightNow";
+import { formatBytes, formatCount, formatDuration, formatTime } from "../format";
+import { ActivityList, ActivityPanel, RunningPanel, useTick } from "./RightNow";
 import { Loading } from "./Loading";
 import "../datamodel.css";
 
@@ -45,12 +43,9 @@ import "../datamodel.css";
  * The landing page of one database: what it holds, what it is doing right now, and anything worth
  * noticing before the other sections.
  *
- * The rate graph is built here rather than on the server. The database keeps cumulative counters
- * (queries, transactions, actions, node reads) which cost nothing to read; this page samples them
- * and takes the difference, so the graph exists without the activity log being recorded, and
- * without asking the store for anything expensive on a timer. Those counters reset when the caches
- * are cleared, which the store does on its own schedule - a drop is therefore a gap in the graph,
- * never a negative rate.
+ * The performance graph is the server process - its heap, its cpu and what its storages read and write -
+ * sampled here on the refresh cadence. The database's own rates (queries, transactions, actions,
+ * node reads) are drawn in the "Activity" panel from the same samples.
  */
 // the full picture takes the store's write lock and counts every type, backup and state file: worth
 // it when the page opens, never worth it on the refresh rate, however fast that is set
@@ -60,41 +55,18 @@ const maxSamples = 90;
 
 /** A reading of the counters, taken together with one of the process (see ProcessChart). */
 interface Sample extends ProcessSample {
+  cache: LiveCacheCounters | null;
   queries: number;
   transactions: number;
   actions: number;
   nodeReads: number;
 }
 
-/**
- * What the graph can draw, and how the samples turn into it. A "rate" is a cumulative counter and is
- * drawn as its difference per second; a "level" is a measurement that already stands on its own and
- * is drawn as it was sampled. Mixing the two would be a graph that lies: the difference between two
- * memory readings is not a rate of anything, and the level of a counter is only how long the
- * database has been up.
- */
-/*
- * Memory and cpu lead, and are what the panel opens on. They are the reading that means something
- * whatever the database is doing - an idle one still has a heap and a process - where the four rates
- * are flat lines until something is asking the database for something, which is not what anyone
- * wants a dashboard to open on.
- */
-const metrics = [
-  { id: "managedMemory", label: "Memory & CPU", kind: "level", unit: "in the managed heap" },
-  { id: "queries", label: "Queries", kind: "rate", unit: "queries/s" },
-  { id: "transactions", label: "Transactions", kind: "rate", unit: "transactions/s" },
-  { id: "actions", label: "Actions", kind: "rate", unit: "actions/s" },
-  { id: "nodeReads", label: "Node reads", kind: "rate", unit: "reads/s" },
-] as const;
-
-type MetricId = (typeof metrics)[number]["id"];
-
 export function DashboardSection({ db }: { db: DatabaseInfo }) {
   const [info, setInfo] = useState<DashboardInfo | null>(null);
   const [live, setLive] = useState<DashboardLive | null>(null);
   const [trace, setTrace] = useState<TraceInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [metric, setMetric] = useState<MetricId>(metrics[0].id);
   const [openBusy, setOpenBusy] = useState(false);
   // the page asked for an open itself: from the click on it is opening, not from the first sample
   // that happens to say so a couple of seconds later
@@ -104,7 +76,6 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
   const [kick, setKick] = useState(0);
   const samples = useRef<Sample[]>([]);
   const [, setSampleTick] = useState(0);
-  const measuredEvery = useMeasuredEvery();
   const refreshMs = useRefreshInterval();
 
   // asked for by hand after something that changes the whole picture - a database opened, closed or
@@ -154,6 +125,8 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
             processMemory: sample.processMemory ?? 0,
             processorTimeMs: sample.processorTimeMs ?? 0,
             processorCount: sample.processorCount ?? 1,
+            io: sample.io,
+            cache: sample.cache ?? null,
           },
         ].slice(-maxSamples);
         setSampleTick((t) => t + 1);
@@ -259,87 +232,45 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
   // counted from when the database opened rather than taken from the full picture, which is up to a
   // minute old: a clock that only moves once a minute reads as a broken one
   const uptime = open && info.openedUtc ? Math.max(0, Date.now() - new Date(info.openedUtc).getTime()) : null;
-  const chosen = metrics.find((m) => m.id === metric)!;
-  const level = chosen.kind === "level";
-  const measured = seriesPoints(samples.current, metric, chosen.kind);
-  const current = measured.length > 0 ? (measured[measured.length - 1].value ?? 0) : 0;
-  // the axis spans the whole window from the first sample on, and the line grows into it from the
-  // right - a graph that stretches two points across the panel and then squeezes as more arrive
-  // reads as activity that is not there
-  const points = padToWindow(measured, maxSamples - 1, samples.current, refreshMs);
-  const cpuNow = level ? currentCpu(samples.current) : null;
+  const cpuNow = currentCpu(samples.current);
+  const ioNow = currentIo(samples.current);
+  const ioShown = hasIo(samples.current);
 
-  const activityPanel = (
+  const performancePanel = (
     <section className="panel panel-fill">
       <h3>
-        Activity{" "}
+        Performance{" "}
         <span className="panel-sub">
-          {level
-            ? `${formatBytes(live?.managedMemory ?? 0)} in the managed heap · ${formatBytes(live?.processMemory ?? 0)} resident in the process${cpuNow === null ? "" : ` · ${formatPercent(cpuNow)} cpu`}`
-            : `${formatRate(current)} ${chosen.unit} · ${formatCount(live?.[metric] ?? 0)} since the caches were last cleared`}
+          {`${formatBytes(live?.managedMemory ?? 0)} in the managed heap · ${formatBytes(live?.processMemory ?? 0)} resident in the process${cpuNow === null ? "" : ` · ${formatPercent(cpuNow)} cpu`}${ioNow === null ? "" : ` · ${formatBytesPerSecond(ioNow.read.value ?? 0)} read · ${formatBytesPerSecond(ioNow.written.value ?? 0)} written`}`}
         </span>
         <button className="icon-button storage-refresh" title="Refresh" onClick={loadInfo}>
           <IconRefresh size={14} stroke={1.8} />
         </button>
       </h3>
-      <div className="logs-series">
-        {metrics.map((m) => (
-          <button key={m.id} className={"logs-chip" + (m.id === metric ? " active" : "")} onClick={() => setMetric(m.id)}>
-            {m.label}
-          </button>
-        ))}
-      </div>
-      {level ? (
-        // the process, memory and cpu together: the same chart the server overview draws
-        <ProcessChart samples={samples.current} maxSamples={maxSamples} />
-      ) : (
-        <Chart kind="sum" points={points} groups={[]} interval="Second" format={formatRate} height="fill" />
-      )}
+      <ProcessChart samples={samples.current} maxSamples={maxSamples} />
       <div className="logs-chart-foot">
-        {level ? (
-          // the two lines are on scales of their own, so which is which is worth saying in one word
-          // each, in the colour it is drawn in; what the numbers are about takes four more
-          <span className="muted">
-            <span className="chart-key chart-key-second">CPU</span> · <span className="chart-key chart-key-first">Memory</span> · the whole server process
-          </span>
-        ) : (
-          <span className="muted">measured here, {measuredEvery === "Off" ? "when the page is refreshed" : "every " + measuredEvery}</span>
-        )}
+        <span className="muted">
+          <span className="chart-key chart-key-second">CPU</span> · <span className="chart-key chart-key-first">Memory</span>
+          {ioShown && (
+            <>
+              {" · "}
+              <span className="chart-key chart-key-read">Read</span> · <span className="chart-key chart-key-write">Written</span>
+            </>
+          )}{" "}
+          · the whole server process{ioShown ? ", the storage summed over every provider" : ""}
+        </span>
       </div>
     </section>
   );
 
-  // the rates this second, what is running and the two queues (see RightNow.tsx); the samples are
-  // the same ones the activity graph is drawn from
-  const nowPanel = <RightNowPanel live={live} samples={samples.current} rewrite={info.maintenance?.runningRewrite} />;
+  // what the database is asked to do, a chart per rate, and what it is busy with this second (see
+  // RightNow.tsx); both are drawn from the same samples as the performance graph
+  const activityPanel = <ActivityPanel samples={samples.current} maxSamples={maxSamples} refreshMs={refreshMs} />;
+  const runningPanel = <RunningPanel live={live} rewrite={info.maintenance?.runningRewrite} />;
 
-  // the hit counts come from the full picture and the entry counts from the live sample: the panel
-  // writes both out when it is maximized
-  const memoryPanel = <MemoryPanel storeId={db.id} cache={info.cache} counts={live ?? undefined} onChanged={loadInfo} />;
-
-  const enginesPanel = (
-    <section className="panel">
-      <h3>
-        Engines <span className="panel-sub">what is behind this database</span>
-      </h3>
-      <div className="facts-grid storage-facts">
-        <Fact k="Text index" v={info.engines.textIndex} />
-        <Fact k="Value indexes" v={info.engines.valueIndex} />
-        <Fact k="Task queue" v={info.engines.queue} />
-        <Fact k="Semantic index" v={info.engines.semanticIndex ?? "off"} />
-        <Fact k="AI provider" v={info.ai?.provider ?? "none"} />
-        <Fact k="Embedding model" v={info.ai?.embeddingModel ?? "—"} />
-      </div>
-      <div className="facts-grid storage-facts">
-        <Fact k="Database file" v={formatBytes(info.files.database)} />
-        <Fact k="State snapshot" v={formatBytes(info.files.state)} />
-        <Fact k="Backups" v={formatBytes(info.files.backups)} />
-        <Fact k="Activity logs" v={formatBytes(info.files.logs)} />
-        <Fact k="Opened" v={info.openedUtc ? formatTime(info.openedUtc) : "—"} />
-        <Fact k="Last change" v={info.lastChangeUtc ? formatTime(info.lastChangeUtc) : "—"} />
-      </div>
-    </section>
-  );
+  // the budgets, and how well the caches answer: the hit counts come from the live sample, so they
+  // move with the rest of the page
+  const memoryPanel = <MemoryPanel storeId={db.id} cache={info.cache} counts={live ?? undefined} cacheSamples={samples.current} onChanged={loadInfo} />;
 
   // Watching a database open. The first part of an open has no percentage to give - the model is
   // loaded and the mappers built before the store exists - so until the store starts reading its
@@ -368,7 +299,7 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
         </span>
       </div>
       <div className="dash-opening-step">{progress?.step ?? (progress ? "Opening" : "Asking the server to open it…")}</div>
-      {/* the steps of the open, one row each, as "Right now" shows the work of an open database */}
+      {/* the steps of the open, one row each, as "Activity" shows the work of an open database */}
       <div className="dash-now fill-body">
         <ActivityList activities={live?.activities ?? []} />
       </div>
@@ -458,10 +389,8 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
       : [
           // rows given a height of their own hold a panel that fills whatever it is handed - a chart
           // or a terminal sized to its own content has no height at all
-          // the budgets take the sized row: a row per part with a bar has a shape of its own, and
-          // what is running is a list of nothing most of the time, which does not need the height
-          { id: "activity", height: 300, cells: [activityPanel, memoryPanel] },
-          { id: "engines", cells: [enginesPanel, nowPanel] },
+          { id: "performance", height: 400, cells: [performancePanel, memoryPanel] },
+          { id: "activity-rates", height: 340, cells: [runningPanel, activityPanel] },
           { id: "trace", height: 260, cells: [tracePanel, <ContentPanel key="content" info={info} storeId={db.id} />] },
         ];
 
@@ -523,7 +452,13 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
           </span>
         </StateTile>
         {/* a store that is not up has counted nothing yet: a zero there would read as an empty database */}
-        <Tile label="Nodes" icon={IconCircles} value={open ? formatCount(live?.nodeCount ?? 0) : "—"} />
+        <Tile
+          label="Nodes"
+          icon={IconCircles}
+          value={open ? formatCount(live?.nodeCount ?? 0) : "—"}
+          detail={open ? nodeDetail(live) : null}
+          title="Revisions: every stored version, a node without revisions counting as one. Embedded: the inner nodes of embedded properties, in every revision. Marked deleted: still stored until deleted for good."
+        />
         <Tile label="Relations" icon={IconArrowsExchange} value={open ? formatCount(live?.relationCount ?? 0) : "—"} />
         {opening ? (
           <Tile label="Opening for" icon={IconClock} value={openingFor == null ? "—" : formatDuration(openingFor)} />
@@ -539,30 +474,6 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
       <PanelGrid id="dashboard" rows={rows} defaultSplit={0.5} />
     </div>
   );
-}
-
-/**
- * Samples turned into what the graph draws.
- *
- * A rate is the difference between two counter readings over the time between them. The first sample
- * has nothing to compare against, and a counter that went backwards was reset by a cache clear -
- * both are gaps, so the line breaks instead of inventing a value.
- *
- * A level is drawn as it was measured, one point per sample. Zero there means the server had nothing
- * to report rather than a heap holding nothing, so that is a gap too.
- */
-function seriesPoints(samples: Sample[], metric: MetricId, kind: "rate" | "level"): SeriesPoint[] {
-  if (kind === "level") return []; // the shared ProcessChart draws the memory and the cpu itself
-  const points: SeriesPoint[] = [];
-  for (let i = 1; i < samples.length; i++) {
-    const previous = samples[i - 1];
-    const sample = samples[i];
-    const seconds = (sample.at - previous.at) / 1000;
-    const delta = sample[metric] - previous[metric];
-    const valid = seconds > 0 && delta >= 0;
-    points.push({ fromUtc: sample.iso, hasValue: valid, value: valid ? delta / seconds : null });
-  }
-  return points;
 }
 
 const chartShapes: { id: TypeChartShape; label: string; icon: typeof IconLayoutList; help: string }[] = [
@@ -840,11 +751,24 @@ function TypeMenu({
  * The icon goes beside the LABEL rather than over the number: the top right corner of a tile is
  * where its buttons are, and the number is what the tile is for and should have the row to itself.
  */
-function Tile({ label, icon: Icon, value }: { label: string; icon?: typeof IconCircles; value: string }) {
+function Tile({
+  label,
+  icon: Icon,
+  value,
+  detail,
+  title,
+}: {
+  label: string;
+  icon?: typeof IconCircles;
+  value: string;
+  /** a line under the label for what the number leaves out */
+  detail?: string | null;
+  title?: string;
+}) {
   // a count that goes up is the same number moving, and changes in place; a dash that becomes a
   // number (or a number that becomes a dash, as the database closes) is what crossfades
   return (
-    <div className="dash-tile">
+    <div className="dash-tile" title={title}>
       <div className="dash-tile-value">
         <FadeText fadeKey={value === "—" ? "none" : "value"}>{value}</FadeText>
       </div>
@@ -852,8 +776,18 @@ function Tile({ label, icon: Icon, value }: { label: string; icon?: typeof IconC
         {Icon && <Icon size={13} stroke={1.8} />}
         <FadeText fadeKey={label}>{label}</FadeText>
       </div>
+      {detail && <div className="dash-tile-detail">{detail}</div>}
     </div>
   );
+}
+
+/** What the node count leaves out: the revisions, the embedded nodes they hold, and the nodes only marked deleted.
+ * Nothing from a server older than this page, which does not send them. */
+function nodeDetail(live: DashboardLive | null): string | null {
+  if (live?.revisionCount == null) return null;
+  const parts = [`${formatCount(live.revisionCount)} revisions`, `${formatCount(live.embeddedNodeCount ?? 0)} embedded`];
+  if (live.markedDeletedNodeCount) parts.push(`${formatCount(live.markedDeletedNodeCount)} marked deleted`);
+  return parts.join(" · ");
 }
 
 /**

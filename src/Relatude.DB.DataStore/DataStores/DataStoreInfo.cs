@@ -17,6 +17,7 @@ public class DataStoreInfo {
     public DateTime? LogLastChange { get; set; } = null;
 
     public long LogTruncatableActions { get; set; }
+    public long LogTotalActions { get; set; }
     public long LogActionsNotItInStatefile { get; set; }
     public long LogTransactionsNotItInStatefile { get; set; }
     public int NoIndexesOutOfSync { get; set; }
@@ -45,6 +46,9 @@ public class DataStoreInfo {
     public int RelationCount { get; set; }
 
     public int NodeCount { get; set; }
+    public long RevisionCount { get; set; }
+    public long EmbeddedNodeCount { get; set; }
+    public int MarkedDeletedNodeCount { get; set; }
     public int NodeCacheCount { get; set; }
     public long NodeCacheSize { get; set; }
     public int NodeCacheCountOfUnsaved { get; set; }

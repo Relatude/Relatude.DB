@@ -28,6 +28,9 @@ public class TraceEntry(DateTime timestamp, SystemLogEntryType type, string text
 /// </summary>
 public class StoreCounters {
     public int NodeCount { get; set; }
+    public long RevisionCount { get; set; }
+    public long EmbeddedNodeCount { get; set; }
+    public int MarkedDeletedNodeCount { get; set; }
     public int RelationCount { get; set; }
     public long Queries { get; set; }
     public long Transactions { get; set; }
@@ -39,6 +42,16 @@ public class StoreCounters {
     public long SetCacheSize { get; set; }
     public int TasksQueued { get; set; }
     public int TasksQueuedPersisted { get; set; }
+    public long NodeCacheHits { get; set; }
+    public long NodeCacheMisses { get; set; }
+    public long NodeCacheOverflows { get; set; }
+    public long SetCacheHits { get; set; }
+    public long SetCacheMisses { get; set; }
+    public long SetCacheOverflows { get; set; }
+    public int AggregateCacheCount { get; set; }
+    public long AggregateCacheHits { get; set; }
+    public long AggregateCacheMisses { get; set; }
+    public long AggregateCacheOverflows { get; set; }
 }
 public class StoreMetrics {
     public long MemUsage { get; set; }

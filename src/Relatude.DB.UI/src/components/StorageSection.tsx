@@ -12,6 +12,7 @@ import {
   IconDownload,
   IconFileSearch,
   IconFolderDown,
+  IconGauge,
   IconHistory,
   IconPhotoCancel,
   IconReplace,
@@ -23,7 +24,9 @@ import {
 } from "@tabler/icons-react";
 import { runWithProgress, showChoice, showConfirm, showError, showInfo } from "../dialogs";
 import { useProgressTask } from "./DialogHost";
-import { deleteFiles, downloadUrl, pickDirectory } from "../server/files";
+import { deleteFiles, downloadUrl, fetchIoList, pickDirectory, type IoInfo } from "../server/files";
+import { fetchLatestBenchmark, runStorageBenchmark, type BenchmarkRun } from "../server/benchmark";
+import { BenchmarkReportDialog, BenchmarkSetupDialog, BenchmarkSummary } from "./StorageBenchmark";
 import { waitForSharedJob } from "../server/sharedTasks";
 import {
   addDemoContent,
@@ -79,6 +82,11 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
   const [nodeSizes, setNodeSizes] = useState(false);
   // the file stores the rewrite dialog offers, while it is up
   const [rewriteStores, setRewriteStores] = useState<FileStoreChoice[] | null>(null);
+  const [benchmarkStorages, setBenchmarkStorages] = useState<IoInfo[] | null>(null);
+  const [benchmark, setBenchmark] = useState<BenchmarkRun | null>(null);
+  const [benchmarkOpen, setBenchmarkOpen] = useState(false);
+  const [benchmarkMessage, setBenchmarkMessage] = useState<string | null>(null);
+  const shown = useRef(true);
   const [message, setMessage] = useState<string | null>(null); // the backups panel
   const [dbFileMessage, setDbFileMessage] = useState<string | null>(null); // the database file panel
   const [maintenanceMessage, setMaintenanceMessage] = useState<string | null>(null);
@@ -101,6 +109,7 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
   const storageDownloadKey = `storage-download:${db.id}`;
   const uploadKey = `db-upload:${db.id}`;
   const dbDownloadKey = `db-download:${db.id}`;
+  const benchmarkKey = `benchmark:${db.id}`;
   const demoTask = useProgressTask(demoKey);
   const truncateTask = useProgressTask(truncateKey);
   const backupTask = useProgressTask(backupKey);
@@ -113,6 +122,7 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
   const storageDownloadTask = useProgressTask(storageDownloadKey);
   const uploadTask = useProgressTask(uploadKey);
   const dbDownloadTask = useProgressTask(dbDownloadKey);
+  const benchmarkTask = useProgressTask(benchmarkKey);
   const demoRunning = demoTask?.status === "running";
   const truncateRunning = truncateTask?.status === "running";
   const backupRunning = backupTask?.status === "running";
@@ -125,6 +135,14 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
   const storageDownloadRunning = storageDownloadTask?.status === "running";
   const uploadRunning = uploadTask?.status === "running";
   const dbDownloadRunning = dbDownloadTask?.status === "running";
+  const benchmarkRunning = benchmarkTask?.status === "running";
+
+  useEffect(() => {
+    shown.current = true;
+    return () => {
+      shown.current = false;
+    };
+  }, []);
 
   const load = useCallback(() => {
     fetchBackupList(db.id)
@@ -144,6 +162,9 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
       .catch(() => {});
     fetchDemoInfo(db.id)
       .then(setDemo)
+      .catch(() => {});
+    fetchLatestBenchmark(db.id)
+      .then(setBenchmark)
       .catch(() => {});
   }, [db.id]);
   useEffect(load, [load]);
@@ -594,6 +615,30 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
     load();
   }
 
+  async function onBenchmark() {
+    try {
+      setBenchmarkStorages(await fetchIoList(db.id));
+    } catch (e) {
+      showError("Benchmark storage", e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function runBenchmark(ioIds: string[], durationMs: number) {
+    setBenchmarkStorages(null);
+    setBenchmarkMessage(null);
+    const finished: { run: BenchmarkRun | null } = { run: null };
+    const title = ioIds.length === 1 ? "Benchmark storage" : `Benchmark ${ioIds.length} storages`;
+    const result = await runWithProgress(title, (ctl) => runStorageBenchmark(ctl, db.id, ioIds, durationMs, (run) => (finished.run = run)), {
+      minimizable: true,
+      key: benchmarkKey,
+    });
+    const run = result ?? finished.run;
+    if (!run) return;
+    setBenchmark(run);
+    if (run.cancelled) setBenchmarkMessage("Stopped before the end - the report has what was measured until then.");
+    if (shown.current) setBenchmarkOpen(true);
+  }
+
   /**
    * The database as it was at a moment in time, once the dialog has been through with it. The
    * dialog does the work - which file is copied and up to when are both its questions, so the
@@ -776,12 +821,23 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
           <>
             <div className="facts-grid storage-facts">
               <div className="fact">
-                <div className="fact-k">Actions not in state snapshot</div>
-                <div className="fact-v">{maintenance.open ? formatCount(maintenance.actionsNotInState ?? 0) : "—"}</div>
+                <div className="fact-k">Actions in database file</div>
+                <div className="fact-v">{maintenance.open && maintenance.totalActions != null ? formatCount(maintenance.totalActions) : "—"}</div>
               </div>
               <div className="fact">
                 <div className="fact-k">Truncatable actions</div>
                 <div className="fact-v">{maintenance.open ? formatCount(maintenance.truncatableActions ?? 0) : "—"}</div>
+              </div>
+              <div
+                className="fact"
+                title="How much of the file a truncation drops: each truncatable action takes the one that added what it removes along with it. Automatic truncation is due at the redundant share set under Settings › Log truncation."
+              >
+                <div className="fact-k">Redundant share</div>
+                <div className="fact-v">{maintenance.open ? redundantShare(maintenance) : "—"}</div>
+              </div>
+              <div className="fact">
+                <div className="fact-k">Actions not in state snapshot</div>
+                <div className="fact-v">{maintenance.open ? formatCount(maintenance.actionsNotInState ?? 0) : "—"}</div>
               </div>
               <div className="fact">
                 <div className="fact-k">State snapshot size</div>
@@ -954,8 +1010,40 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
       </section>
       </div>
       </div>
+      <div className="storage-group">
+        <div className="storage-group-head">
+          <IconGauge size={18} stroke={1.7} />
+          <h2>Performance</h2>
+          <span className="muted">how fast the storages write and read, measured from this server</span>
+        </div>
+        <section className="panel">
+          <div className="process-action">
+            <button className="action-button" onClick={onBenchmark} disabled={benchmarkRunning}>
+              <IconGauge size={14} stroke={1.8} /> Benchmark storage…
+            </button>
+            <span className="muted">
+              {benchmarkRunning
+                ? `${benchmarkTask?.label || "measuring…"}${benchmarkTask?.meta ? " · " + benchmarkTask.meta : ""}`
+                : (benchmarkMessage ??
+                  (benchmark
+                    ? `last run ${formatTime(benchmark.finishedUtc)}, ${benchmark.storages.length} storage${benchmark.storages.length === 1 ? "" : "s"} - the report compares them`
+                    : "writes and reads test files on the storages you pick - small and large pieces, in order and at random - and compares them in a report"))}
+            </span>
+            {benchmark && (
+              <button className="action-button" onClick={() => setBenchmarkOpen(true)}>
+                Open report
+              </button>
+            )}
+          </div>
+          {benchmark && <BenchmarkSummary run={benchmark} />}
+        </section>
+      </div>
       {timeTravel && <TimeTravelDialog db={db} onCancel={() => setTimeTravel(false)} onDone={onWentBackInTime} />}
       {nodeSizes && <NodeSizesDialog db={db} onClose={() => setNodeSizes(false)} />}
+      {benchmarkStorages && (
+        <BenchmarkSetupDialog dbId={db.id} storages={benchmarkStorages} onCancel={() => setBenchmarkStorages(null)} onRun={runBenchmark} />
+      )}
+      {benchmarkOpen && benchmark && <BenchmarkReportDialog run={benchmark} dbName={db.name} onClose={() => setBenchmarkOpen(false)} />}
       {rewriteStores && (
         <RewriteFilesDialog stores={rewriteStores} onCancel={() => setRewriteStores(null)} onRewrite={(choice) => rewriteFiles(choice, rewriteStores)} />
       )}
@@ -981,5 +1069,13 @@ function startDownload(url: string) {
 function storageHint(storage: FileStorageInfo): string {
   const where = storage.folder ?? storage.files.map((f) => f.key).join(", ");
   return storage.type + (where ? " · " + where : "");
+}
+
+/** The share of the database file a truncation drops, as automatic truncation measures it: a truncatable action is a
+ * remove, and the add before it goes too. A dash from a server older than this page, which does not send the total. */
+function redundantShare(m: MaintenanceInfo): string {
+  if (m.totalActions == null) return "—";
+  if (m.totalActions === 0) return "0%";
+  return Math.min(100, Math.round((200 * (m.truncatableActions ?? 0)) / m.totalActions)) + "%";
 }
 

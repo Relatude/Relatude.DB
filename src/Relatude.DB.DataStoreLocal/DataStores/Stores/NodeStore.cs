@@ -350,6 +350,13 @@ internal sealed class NodeStore {
             s.NodeCacheOverflows = _cache.Overflows;
         }
     }
+    internal void AddCacheCounters(StoreCounters counters) {
+        lock (_lock) {
+            counters.NodeCacheHits = _cache.Hits;
+            counters.NodeCacheMisses = _cache.Misses;
+            counters.NodeCacheOverflows = _cache.Overflows;
+        }
+    }
     internal long CacheSize { get { lock (_lock) { return _cache.Size; } } }
     internal int CacheCount { get { lock (_lock) { return _cache.Count; } } }
     internal int Count { get { lock (_lock) { return _segments.Count; } } }

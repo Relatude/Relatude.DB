@@ -41,6 +41,8 @@ namespace Relatude.DB.IO {
         }
         long _bytesRead;
         long _bytesWritten;
+        readonly IOCounter _io = new();
+        public IOCounters Counters => _io.Snapshot;
         public long GetBytesWritten() => _bytesWritten;
         public long GetBytesRead() => _bytesRead;
         public void ResetByteCounter() {
@@ -63,6 +65,7 @@ namespace Relatude.DB.IO {
                 _writeBuffer.Write(data, 0, data.Length);
                 _length += data.Length;
                 _bytesWritten += data.Length;
+                _io.Write(data.Length);
                 if (_writeBuffer.Length > _maxBufferBeforeFlush) Flush(true);
             }
         }
@@ -73,6 +76,7 @@ namespace Relatude.DB.IO {
                 _writeBuffer.Write(data, 0, count);
                 _length += count;
                 _bytesWritten += count;
+                _io.Write(count);
                 if (_writeBuffer.Length > _maxBufferBeforeFlush) Flush(true);
             }
         }
@@ -174,6 +178,7 @@ namespace Relatude.DB.IO {
                 var lengthToRead = (int)Math.Min(committedLength - position, _readBufferSize);
                 var buffer = new byte[lengthToRead];
                 _client.DownloadRange(_blobName, position, lengthToRead, null, buffer); // a lease guards writes, reading needs none
+                _io.ReadThreadSafe(lengthToRead);
                 Array.Copy(buffer, 0, result, 0, committedCount);
                 lock (_lock) {
                     _readBuffer = buffer;
@@ -182,6 +187,7 @@ namespace Relatude.DB.IO {
                 }
             } else { // too big for the read buffer, straight into the result
                 _client.DownloadRange(_blobName, position, committedCount, null, result);
+                _io.ReadThreadSafe(committedCount);
             }
         }
         public void RecordChecksum() => _checkSum.RecordChecksum();
@@ -211,6 +217,7 @@ namespace Relatude.DB.IO {
             await _writeBuffer.WriteAsync(data, 0, data.Length);
             _length += data.Length;
             _bytesWritten += data.Length;
+            _io.Write(data.Length);
             if (_writeBuffer.Length > _maxBufferBeforeFlush) await flushAsync(true);
         }
     }

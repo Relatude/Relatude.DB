@@ -33,11 +33,16 @@ public interface IFileStore : IDisposable {
     bool TryGetLocalFilePath(FileValue value, [MaybeNullWhen(false)] out string localFilePath);
 }
 public static class FileStoreExtensions {
-    public static async Task<Stream> GetFileStream(this IFileStore fs, FileValue file) {
+    public static Task<Stream> GetFileStream(this IFileStore fs, FileValue file) {
+        // a file on local disk opens as itself, which can seek, so a web response can answer the range requests
+        // video and audio make; FileShare.Delete lets the store remove or replace the file while it is read
+        if (fs.TryGetLocalFilePath(file, out var localFilePath)) {
+            return Task.FromResult<Stream>(new FileStream(localFilePath, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete, 81920, useAsync: true));
+        }
         var stream = new WriteToReadStream();
         _ = fs.ExtractAsync(file, stream)
             .ContinueWith(t => stream.Complete(t.IsFaulted ? t.Exception : null));
-        return stream;
+        return Task.FromResult<Stream>(stream);
     }
 }
 public interface IFileStoreMultiPartSupport : IFileStore {

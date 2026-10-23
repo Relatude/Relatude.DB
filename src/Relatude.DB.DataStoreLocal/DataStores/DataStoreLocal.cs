@@ -82,6 +82,7 @@ public sealed partial class DataStoreLocal : IDataStore {
     long _noPrimitiveActionsSinceLastStateSnapshot;
 
     long _noPrimitiveActionsInLogThatCanBeTruncated;
+    long _noPrimitiveActionsInLog; // every action in the log file: kept in the state file, counted on replay and write, recounted by a hot swap rewrite
     long _noPrimitiveActionsSinceClearCache;
 
     long _noTransactionsSinceLastStateSnapshot;

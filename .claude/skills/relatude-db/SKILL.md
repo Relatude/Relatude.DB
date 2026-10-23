@@ -387,7 +387,7 @@ builder.AddRelatudeDB(options => {
 });
 ```
 
-Fire order: *file read, `RelatudeDB` section merged* → `OnServerSettingsInit` → `OnContainerSettingsInit` → `OnStoreSettingsInit` → *JSON datamodel sources load* → `OnDatamodelInit` → `OnStoreInit` → `OnStoreOpen` / `OnStoreOpenBackground` → `OnStoreClose`. **Every callback's exceptions are caught and logged, never rethrown** — a callback that silently did nothing is a startup-log question, not a crash. Values a callback sets are written back to the file on admin-UI saves; only configuration-section values are stripped.
+Fire order: *file read, `RelatudeDB` section merged* → `OnServerSettingsInit` → `OnContainerSettingsInit` → `OnStoreSettingsInit` → *JSON datamodel sources load* → `OnDatamodelInit` → `OnStoreInit` → `OnStoreOpen` / `OnStoreOpenBackground` → `OnStoreClose`. **Every callback's exceptions are caught and logged, never rethrown** — a callback that silently did nothing is a startup-log question, not a crash. Values a callback sets are written back to the file on admin-UI saves; only configuration-section values are stripped. `AddRelatudeDB` may be called any number of times and in any order: every call configures the same `ServerOptions`. A library hooks into the start with an `IStoreInitializer` service (`Relatude.DB.NodeServer`), which the server calls for every store right after `OnStoreInit`; it never chains `OnStoreInit`, which a host's later assignment would replace.
 
 ### Two ways to register a datamodel
 
@@ -442,7 +442,7 @@ var url = db.GetUrl(article.Photo, adj);       // throws if the file slot is emp
 
 **3. Conversion runs in the background.** The URL is not servable the moment you build it. Check `db.IsFileReady(path, adj, requestIfNot: true)`, and expect a generated status placeholder — not an error — while it runs. Converters must be registered at startup (`options.FileConverters.Add(new SkiaImageConverter(1))`), or every conversion fails.
 
-**4. Serve it from your own middleware.** Relatude.DB maps no file endpoint. The whole thing is `TryParseUrlForContent` plus `FileHandler.HandleFileAsync`, which gives you cache headers, `Content-Disposition` and HTTP range support (so video seeking works):
+**4. Serve it from your own middleware.** Relatude.DB maps no file endpoint. The whole thing is `TryParseUrlForContent` plus `FileHandler.HandleFileAsync`, which gives you cache headers, `Content-Disposition` and HTTP range support (so video seeking works; a range needs a seekable stream, which files on local disk are, while blob-stored files are served whole). A layer that parses URLs before deciding what serves them calls `TryParseUrl` once and `GetUrlContentAsync(keys)` for the files:
 
 ```csharp
 public async Task Invoke(HttpContext http, RelatudeDBContext ctx) {

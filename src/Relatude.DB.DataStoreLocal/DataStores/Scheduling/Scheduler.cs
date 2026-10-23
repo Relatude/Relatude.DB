@@ -409,9 +409,14 @@ internal class Scheduler {
             if (!_s.AutoTruncate) return;
             if (isTooBusy()) return;
             var noActionsToBeTruncated = _db.GetNoPrimitiveActionsInLogThatCanBeTruncated();
-            var belowLowerLimit = noActionsToBeTruncated < _s.AutoTruncateActionCountLowerLimit;
-            if (belowLowerLimit) {
-                // _db.Log("Truncate not due yet, unsaved action count below lower limit. ");
+            var noActionsInLog = _db.GetNoPrimitiveActionsInLog();
+            // the truncatable count is the removes, and each takes the add before it along: a truncation drops twice as many
+            var redundantPercentage = noActionsInLog > 0 ? Math.Min(100, 200d * noActionsToBeTruncated / noActionsInLog) : 0;
+            var countLimitReached = noActionsToBeTruncated >= _s.AutoTruncateActionCountLowerLimit;
+            var percentageLimitReached = _s.AutoTruncateRedundantPercentageLimit > 0 && noActionsToBeTruncated > 0
+                && redundantPercentage >= _s.AutoTruncateRedundantPercentageLimit;
+            if (!countLimitReached && !percentageLimitReached) {
+                // _db.Log("Truncate not due yet, below both the truncatable action count and the redundant percentage limit. ");
                 return;
             }
             var belowTimeLimit = (now - _lastTruncate).TotalMinutes < _s.AutoTruncateIntervalInMinutes;
@@ -419,7 +424,9 @@ internal class Scheduler {
                 // _db.Log("Truncate not due yet, based on time interval. ");
                 return;
             } else {
-                _db.LogInfo("Auto truncate due, time interval and lower unsaved action count limit exceeded. ");
+                _db.LogInfo("Auto truncate due, time interval and " + (countLimitReached ? "truncatable action count" : "redundant percentage")
+                    + " limit exceeded: " + noActionsToBeTruncated.To1000N() + " truncatable of " + noActionsInLog.To1000N()
+                    + " actions in the log, " + redundantPercentage.ToString("0") + "% redundant. ");
             }
             var sw = Stopwatch.StartNew();
             _db.LogInfo("Auto truncate started");
@@ -534,6 +541,9 @@ internal class Scheduler {
         // any backup in this period counts, one taken by hand or marked keep included
         var hasOne = FileKeyUtility.WAL_GetAllBackUpFileKeys(_db.IOBackup).Any(f => periodStart(FileKeyUtility.WAL_GetBackUpDateTimeFromFileKey(f), cadence) == period);
         if (hasOne) return;
+        // a backup has no file until it starts, and the queue holds one back while the database is busy or a long
+        // batch is ahead of it: one already waiting is enough, or every pass would queue another meanwhile
+        if (autoBackupQueued()) return;
         var task = new RewriteTask() {
             HotSwapToNewFile = false,
             DeleteOldDbFilesAfterHotSwap = false,
@@ -542,7 +552,13 @@ internal class Scheduler {
             Truncate = _s.TruncateBackups,
             IsBackup = true
         };
-        _db.EnqueueTask(task);
+        _db.EnqueueTask(task, autoBackupGroupKey);
+    }
+    // the automatic backup's batches in the task queue (a backup is not persisted, so always the memory queue)
+    const string autoBackupGroupKey = "AutoBackup";
+    bool autoBackupQueued() {
+        _db.TaskQueue.GetBatchMeta([BatchState.Pending, BatchState.Waiting, BatchState.Running], [], [autoBackupGroupKey], 0, 1, out var count);
+        return count > 0;
     }
     /// <summary>Deletes the backups the retention settings do not keep: of each generation (hourly, daily,
     /// weekly, monthly and yearly copies kept) the first backup of each of its last N periods is kept, N being

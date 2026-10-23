@@ -1,5 +1,6 @@
 ﻿using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
+using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.DataStores.Definitions;
 using Relatude.DB.DataStores.Sets;
 using Relatude.DB.DataStores.Stores;
@@ -200,11 +201,16 @@ internal class NodeTypesByIds {
     readonly Cache<ctxAndType, idSet> _cachedNodeIdsByCtx;
     readonly NativeModelStore _nativeModelStore;
     readonly SettingsLocal _settings;
+    readonly Dictionary<Guid, Guid[]> _embeddedPropertiesByType; // only the types that have any
     internal NodeTypesByIds(Definition definition, NativeModelStore nativeModelStore, SettingsLocal settings) {
         _definition = definition;
         _cachedNodeIdsByCtx = new(1000); // TODO: Make this configurable
         _nativeModelStore = nativeModelStore;
         _settings = settings;
+        _embeddedPropertiesByType = definition.NodeTypes
+            .Select(kv => (typeId: kv.Key, propertyIds: kv.Value.AllProperties.Values.Where(p => p.PropertyType == PropertyType.Embedded).Select(p => p.Id).ToArray()))
+            .Where(t => t.propertyIds.Length > 0)
+            .ToDictionary(t => t.typeId, t => t.propertyIds);
     }
     bool isReleased(DateTime nowUtc, IInnerNodeMeta? meta) {
         if (meta == null) return true;
@@ -360,6 +366,39 @@ internal class NodeTypesByIds {
         if (_countByType.TryGetValue(typeId, out var count)) return count;
         return 0;
     }
+    /// <summary>Every stored revision, a node without revisions counting as one: the counts by type added up, kept as
+    /// they change so it is a field to read, without a lock, for the counters the dashboard polls (PeekCounters).</summary>
+    public long RevisionCount => _revisionCount;
+    long _revisionCount;
+    // Two more counts of what is stored now, kept as the counts by type are: up on every add, down on every remove, an
+    // update being a remove and an add. They are saved in the main state file (DataStoreLocal.saveMainState), not in
+    // this index's own section, whose format version cannot change without every index being rebuilt.
+    /// <summary>The embedded inner nodes of every revision, nested ones included: each revision holds its own copy.</summary>
+    public long EmbeddedNodeCount { get; internal set; }
+    /// <summary>The nodes marked deleted in their meta, which stay stored until they are deleted for good.</summary>
+    public int MarkedDeletedNodeCount { get; internal set; }
+    void countEmbeddedAndMarkedDeleted(INodeData node, int sign) {
+        var markedDeleted = false;
+        if (node is NodeDataRevisions ndr) {
+            foreach (var rev in ndr.Revisions) {
+                EmbeddedNodeCount += sign * countEmbedded(rev);
+                markedDeleted |= rev.Meta?.Deleted == true;
+            }
+        } else {
+            EmbeddedNodeCount += sign * countEmbedded(node);
+            markedDeleted = node.Meta?.Deleted == true;
+        }
+        if (markedDeleted) MarkedDeletedNodeCount += sign;
+    }
+    long countEmbedded(INodeData node) {
+        if (!_embeddedPropertiesByType.TryGetValue(node.NodeType, out var propertyIds)) return 0; // most types have none: one lookup
+        long count = 0;
+        foreach (var propertyId in propertyIds) {
+            if (!node.TryGetValue(propertyId, out var value) || value is not IInnerNodeDataMap map) continue;
+            foreach (var inner in map) count += 1 + countEmbedded(inner); // enumerated: map.Count builds the map's key index
+        }
+        return count;
+    }
     public Guid GetType(int id) {
         if (TryGetType(id, out var typeId)) return typeId;
         throw new Exception("Internal error. Unable to determine type of unknown node with id: " + id);
@@ -381,6 +420,7 @@ internal class NodeTypesByIds {
                         index(rev.__Id, rev.NodeType, rev.Meta);
                     }
                 } else throw new Exception("Internal error. Unsupported node data type in primitive action during state load: " + na.Node.GetType().FullName);
+                countEmbeddedAndMarkedDeleted(na.Node, 1);
             } else if (na.Operation == PrimitiveOperation.Remove) {
                 if (na.Node is NodeData nd) deIndex(nd.__Id, nd.NodeType, nd.Meta);
                 else if (na.Node is NodeDataRevisions ndr) {
@@ -388,6 +428,7 @@ internal class NodeTypesByIds {
                         deIndex(rev.__Id, rev.NodeType, rev.Meta);
                     }
                 } else throw new Exception("Internal error. Unsupported node data type in primitive action during state load: " + na.Node.GetType().FullName);
+                countEmbeddedAndMarkedDeleted(na.Node, -1); // a remove in the log carries the whole node it removed
             }
         } catch (Exception ex) {
             if (throwOnErrors) throw;
@@ -410,6 +451,7 @@ internal class NodeTypesByIds {
                 index(rev.__Id, rev.NodeType, rev.Meta);
             }
         } else throw new Exception("Internal error. Unsupported node data type in primitive action during indexing: " + node.GetType().FullName);
+        countEmbeddedAndMarkedDeleted(node, 1);
     }
     void index(int nodeId, Guid nodeTypeId, IInnerNodeMeta? meta) {
         metaAndType mt = new(meta ?? IInnerNodeMeta.Empty, nodeTypeId);
@@ -438,6 +480,7 @@ internal class NodeTypesByIds {
         } else {
             _countByType[nodeTypeId] = 1;
         }
+        _revisionCount++;
     }
     public void DeIndex(INodeData node) {
         if (node is NodeData nd) deIndex(nd.__Id, nd.NodeType, nd.Meta);
@@ -446,6 +489,7 @@ internal class NodeTypesByIds {
                 deIndex(rev.__Id, rev.NodeType, rev.Meta);
             }
         } else throw new Exception("Internal error. Unsupported node data type in primitive action during state load: " + node.GetType().FullName);
+        countEmbeddedAndMarkedDeleted(node, -1);
     }
     void deIndex(int nodeId, Guid nodeTypeId, IInnerNodeMeta? meta) {
         //Console.WriteLine("Deindexing node " + node.__Id + " meta: " + node.Meta);
@@ -461,6 +505,7 @@ internal class NodeTypesByIds {
         if (_countByType.TryGetValue(nodeTypeId, out var count)) {
             if (count <= 1) _countByType.Remove(nodeTypeId);
             else _countByType[nodeTypeId] = count - 1;
+            _revisionCount--;
         } else {
             throw new Exception("Internal error. Attempting to deindex node of type that has no count registered: " + nodeTypeId);
         }
@@ -558,6 +603,7 @@ internal class NodeTypesByIds {
             var typeId = stream.ReadGuid();
             var count = stream.ReadInt();
             _countByType[typeId] = count;
+            _revisionCount += count;
         }
     }
 

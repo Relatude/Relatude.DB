@@ -2,16 +2,19 @@
 using Relatude.DB.NodeServer;
 using Relatude.DB.NodeServer.Json;
 public static class DBBuilderExtensions {
-    static bool _isAdded = false;
+    /// <summary>
+    /// Adds Relatude.DB to the application. Every call configures the same <see cref="ServerOptions"/>, so it can
+    /// be called any number of times and in any order, also by libraries that build on it.
+    /// </summary>
     public static IHostApplicationBuilder AddRelatudeDB(this IHostApplicationBuilder builder, Action<ServerOptions>? configureOptions = null) {
-        if (_isAdded) return builder;
-        _isAdded = true;
-        var options = new ServerOptions();
+        var options = builder.Services.Where(d => !d.IsKeyedService).Select(d => d.ImplementationInstance).OfType<ServerOptions>().FirstOrDefault();
+        if (options == null) {
+            options = new ServerOptions();
+            builder.Services.ConfigureHttpJsonOptions(o => RelatudeDBJsonOptions.ConfigureDefault(o.SerializerOptions));
+            builder.Services.AddSingleton<RelatudeDBContext>();
+            builder.Services.AddSingleton(options);
+        }
         configureOptions?.Invoke(options);
-        builder.Services.ConfigureHttpJsonOptions(o => RelatudeDBJsonOptions.ConfigureDefault(o.SerializerOptions));
-        builder.Services.AddSingleton<RelatudeDBContext>();
-        builder.Services.AddTransient<Database>();
-        builder.Services.AddSingleton(options);
         return builder;
     }
 }
@@ -27,10 +30,15 @@ public static class DBAppExtensions {
     public static IEndpointRouteBuilder UseRelatudeDB(this WebApplication app, string? urlPath = null) {
         return UseRelatudeDBAsync(app, urlPath).Result;
     }
-    static bool _isUsed = false;
+    const string usedKey = "Relatude.DB.Used";
+    /// <summary>
+    /// Starts the server and adds its middleware and endpoints. A second call on the same application does nothing.
+    /// There is one server per process, held by <see cref="RelatudeDBRuntime"/>, so a second application throws.
+    /// </summary>
     public static async Task<IEndpointRouteBuilder> UseRelatudeDBAsync(this WebApplication app, string? urlPath = null) {
-        if (_isUsed) return app;
-        _isUsed = true;
+        var properties = ((IApplicationBuilder)app).Properties;
+        if (properties.ContainsKey(usedKey)) return app;
+        properties[usedKey] = true;
         var server = new RelatudeDBServer(urlPath);
         RelatudeDBRuntime.Initialize(server);
         var options = app.Services.GetRequiredService<ServerOptions>();
@@ -41,11 +49,5 @@ public static class DBAppExtensions {
         app.Use(server.GraphQL.Middleware); // the GraphQL endpoints defined per database in the admin UI
         server.MapAdminAPI(app);
         return app;
-    }
-}
-public class Database : NodeStore {
-    public Database() : base(RelatudeDBRuntime.Database.Datastore, settings: RelatudeDBRuntime.Server.CustomSettings.SourceFor(RelatudeDBRuntime.Server.Settings.DefaultStoreId)) { }
-    public override void Dispose() {
-        // do nothing!
     }
 }

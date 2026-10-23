@@ -525,6 +525,15 @@ public class SetRegister(long maxSize) {
         _cache.HalfSize();
         _aggregateCache.HalfSize();
     }
+    internal void AddCacheCounters(StoreCounters counters) {
+        counters.SetCacheHits = _cache.Hits;
+        counters.SetCacheMisses = _cache.Misses;
+        counters.SetCacheOverflows = _cache.Overflows;
+        counters.AggregateCacheCount = _aggregateCache.Count;
+        counters.AggregateCacheHits = _aggregateCache.Hits;
+        counters.AggregateCacheMisses = _aggregateCache.Misses;
+        counters.AggregateCacheOverflows = _aggregateCache.Overflows;
+    }
     internal long CacheSize => _cache.Size + _aggregateCache.Size;
     internal int CacheCount => _cache.Count + _aggregateCache.Count;
 }

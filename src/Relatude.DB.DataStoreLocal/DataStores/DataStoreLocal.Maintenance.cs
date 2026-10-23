@@ -12,6 +12,10 @@ public sealed partial class DataStoreLocal : IDataStore {
         if (_state != DataStoreState.Open) return 0;
         return Interlocked.Read(ref _noPrimitiveActionsInLogThatCanBeTruncated);
     }
+    public long GetNoPrimitiveActionsInLog() {
+        if (_state != DataStoreState.Open) return 0;
+        return Interlocked.Read(ref _noPrimitiveActionsInLog);
+    }
     internal int FlushToDisk(bool deepFlush, long parentActivityId) {
         FlushToDisk(deepFlush, parentActivityId, out int transactionCount, out _, out _);
         return transactionCount;
@@ -401,6 +405,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             info.LogLastChange = new DateTime(_wal.LastTimestamp, DateTimeKind.Utc);
             info.StartUpMs = _startUpTimeMs;
             info.LogTruncatableActions = _noPrimitiveActionsInLogThatCanBeTruncated;
+            info.LogTotalActions = _noPrimitiveActionsInLog;
             info.LogActionsNotItInStatefile = _noPrimitiveActionsSinceLastStateSnapshot;
             info.NoIndexesOutOfSync = _definition.GetAllIndexes().Where(i => i.PersistedTimestamp < _wal.LastTimestamp).Count();
             info.LogTransactionsNotItInStatefile = _noTransactionsSinceLastStateSnapshot;
@@ -434,6 +439,9 @@ public sealed partial class DataStoreLocal : IDataStore {
             info.CpuUsagePercentageLastMinute = _cpuMonitorInfo.Estimate(TimeSpan.FromMinutes(1)) * 100.0;
             _definition.AddInfo(info);
             _nodes.AddInfo(info);
+            info.RevisionCount = _definition.NodeTypeIndex.RevisionCount;
+            info.EmbeddedNodeCount = _definition.NodeTypeIndex.EmbeddedNodeCount;
+            info.MarkedDeletedNodeCount = _definition.NodeTypeIndex.MarkedDeletedNodeCount;
             info.RelationCount = _relations.TotalCount();
             try { _wal.AddInfo(info); } catch { } // as files may be closed...
 

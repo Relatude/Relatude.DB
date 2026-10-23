@@ -193,13 +193,13 @@ public class DataStoreSession : IDataStore {
     public int GetId(Guid guid) => _datastore.GetId(guid);
     public Guid GetGuid(int id) => _datastore.GetGuid(id);
 
-    INodeDataExternal IDataStore.Get(Guid id, QueryContext? ctx) => _datastore.Get(id, ctx);
+    INodeDataExternal IDataStore.Get(Guid id, QueryContext? ctx) => _datastore.Get(id, ctx ?? QueryContext);
 
-    INodeDataExternal IDataStore.Get(int id, QueryContext? ctx) => _datastore.Get(id, ctx);
-    INodeDataExternal IDataStore.Get(NodeKey id, QueryContext? ctx) => _datastore.Get(id, ctx);
-    IEnumerable<INodeDataExternal> IDataStore.Get(IEnumerable<int> __ids, QueryContext? ctx) => _datastore.Get(__ids, ctx);
-    IEnumerable<INodeDataExternal> IDataStore.Get(IEnumerable<Guid> __ids, QueryContext? ctx) => _datastore.Get(__ids, ctx);
-    INodeDataExternal[] IDataStore.GetRelatedNodesFromPropertyId(Guid propertyId, Guid from, QueryContext? ctx) => _datastore.GetRelatedNodesFromPropertyId(propertyId, from, ctx);
+    INodeDataExternal IDataStore.Get(int id, QueryContext? ctx) => _datastore.Get(id, ctx ?? QueryContext);
+    INodeDataExternal IDataStore.Get(NodeKey id, QueryContext? ctx) => _datastore.Get(id, ctx ?? QueryContext);
+    IEnumerable<INodeDataExternal> IDataStore.Get(IEnumerable<int> __ids, QueryContext? ctx) => _datastore.Get(__ids, ctx ?? QueryContext);
+    IEnumerable<INodeDataExternal> IDataStore.Get(IEnumerable<Guid> __ids, QueryContext? ctx) => _datastore.Get(__ids, ctx ?? QueryContext);
+    INodeDataExternal[] IDataStore.GetRelatedNodesFromPropertyId(Guid propertyId, Guid from, QueryContext? ctx) => _datastore.GetRelatedNodesFromPropertyId(propertyId, from, ctx ?? QueryContext);
 
     public bool TryGetNodeMeta(Guid id, [MaybeNullWhen(false)] out NodeMeta meta, QueryContext? ctx = null) => _datastore.TryGetNodeMeta(id, out meta, ctx ?? QueryContext);
     public bool TryGetNodeMeta(int id, [MaybeNullWhen(false)] out NodeMeta meta, QueryContext? ctx = null) => _datastore.TryGetNodeMeta(id, out meta, ctx ?? QueryContext);
@@ -232,6 +232,7 @@ public class DataStoreSession : IDataStore {
 
     public bool TryParseUrl(string url, [MaybeNullWhen(false)] out UrlKeys parseResult, QueryContext? ctx = null) => _datastore.TryParseUrl(url, out parseResult, ctx ?? QueryContext);
     public bool TryParseUrlForContent(string url, [MaybeNullWhen(false)] out UrlContent parseResultContent, int maxWait = -1, QueryContext? ctx = null, bool firstInQueue = false) => _datastore.TryParseUrlForContent(url, out parseResultContent, maxWait, ctx ?? QueryContext, firstInQueue);
+    public Task<UrlContent> GetUrlContentAsync(UrlKeys keys, int maxWaitMs = -1, QueryContext? ctx = null, bool firstInQueue = false) => _datastore.GetUrlContentAsync(keys, maxWaitMs, ctx ?? QueryContext, firstInQueue);
 
 
     public Task<Stream> GetFileStream(string url, int maxWait, QueryContext? ctx = null, bool firstInQueue = false) => _datastore.GetFileStream(url, maxWait, ctx ?? QueryContext, firstInQueue);

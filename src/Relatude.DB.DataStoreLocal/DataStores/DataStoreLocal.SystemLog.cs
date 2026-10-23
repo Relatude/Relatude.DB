@@ -150,8 +150,11 @@ public sealed partial class DataStoreLocal : IDataStore {
         // deliberately not DequeMetrics: that one resets what it reads, and the metrics log is the
         // only thing allowed to do that. Everything here is a field read or a count already kept.
         if (_state != DataStoreState.Open) return new();
-        return new StoreCounters {
+        var counters = new StoreCounters {
             NodeCount = _nodes.Count,
+            RevisionCount = _definition.NodeTypeIndex.RevisionCount,
+            EmbeddedNodeCount = _definition.NodeTypeIndex.EmbeddedNodeCount,
+            MarkedDeletedNodeCount = _definition.NodeTypeIndex.MarkedDeletedNodeCount,
             RelationCount = _relations.TotalCount(),
             Queries = _noQueriesSinceClearCache,
             Transactions = _noTransactionsSinceClearCache,
@@ -164,6 +167,9 @@ public sealed partial class DataStoreLocal : IDataStore {
             TasksQueued = TaskQueue.Count([BatchState.Pending, BatchState.Running]),
             TasksQueuedPersisted = TaskQueuePersisted?.Count([BatchState.Pending, BatchState.Running]) ?? 0,
         };
+        _nodes.AddCacheCounters(counters);
+        _sets.AddCacheCounters(counters);
+        return counters;
     }
     public StoreMetrics DequeMetrics() {
         var metrics = new StoreMetrics() {

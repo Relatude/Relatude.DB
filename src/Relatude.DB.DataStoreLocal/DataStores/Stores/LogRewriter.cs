@@ -64,6 +64,8 @@ internal class LogRewriter {
     readonly WALFile _newWAL;
     readonly ReadSegmentsFunc _threadSafeReadSegments;
     bool _finalizing = false;
+    /// <summary>Every action written to the new log file: the snapshot's and those of the transactions that came during the rewrite.</summary>
+    public long ActionsWritten { get; private set; }
     public LogRewriter(string[] newFileKey, Definition definition,
         IIOProvider destinationIO,
         (int nodeId, NodeSegment segment)[] snapshot,
@@ -100,6 +102,10 @@ internal class LogRewriter {
     public void RegisterNewTransactionWhileRewriting(ExecutedPrimitiveTransaction t) {
         lock (_newTransactionsWhileRewriting) _newTransactionsWhileRewriting.Add(t);
     }
+    void queueDiskWrites(ExecutedPrimitiveTransaction t) {
+        _newWAL.QueDiskWrites(t);
+        ActionsWritten += t.ExecutedActions.Count;
+    }
     public void Step1_RewriteLog_NoLockRequired(Action<string, int> reportProgress) { // does not block simultaneous writes or reads
         if (_finalizing) throw new Exception("Finalizing already started. ");
         try {
@@ -128,7 +134,7 @@ internal class LogRewriter {
                 actions.Add(action);
             }
             var t = new ExecutedPrimitiveTransaction(actions, _newWAL.NewTimestamp());
-            _newWAL.QueDiskWrites(t);
+            queueDiskWrites(t);
             _newWAL.DequeuAllTransactionWritesAndFlushStreamsThreadSafe(true);
         }
         i = 0;
@@ -143,14 +149,14 @@ internal class LogRewriter {
             }
             actions.AddRange(r.reorders); // restores list orders that the plain add sequence cannot reproduce
             var t = new ExecutedPrimitiveTransaction(actions, _newWAL.NewTimestamp());
-            _newWAL.QueDiskWrites(t);
+            queueDiskWrites(t);
             _newWAL.DequeuAllTransactionWritesAndFlushStreamsThreadSafe(true);
         }
         // add transactions added while running above code, swap variable to allow new writes to be added while writing
         var d2 = _newTransactionsWhileRewriting;
         lock (_newTransactionsWhileRewriting) _newTransactionsWhileRewriting = new(); // make new so that new transactions can be added while writing
         
-        foreach (var t in d2) _newWAL.QueDiskWrites(t);
+        foreach (var t in d2) queueDiskWrites(t);
         _newWAL.DequeuAllTransactionWritesAndFlushStreamsThreadSafe(true);
     }
     public void Step2_HotSwap_RequiresWriteLock(WALFile oldLogStore, bool swapToNewFile) { // does rely on simulatenous writes or reads to be blocked
@@ -159,7 +165,7 @@ internal class LogRewriter {
 
         foreach (var t in _newTransactionsWhileRewriting) {
             if (_cancelled) throw new OperationCanceledException("Log rewrite cancelled. ");
-            _newWAL.QueDiskWrites(t); // final transactions, added while last step was running
+            queueDiskWrites(t); // final transactions, added while last step was running
         }
         _newWAL.DequeuAllTransactionWritesAndFlushStreamsThreadSafe(true); // flush all writes to disk, so that the new file is ready to be used
         _newWAL.Dispose(); // dispose new store, so that it can be used by the db
