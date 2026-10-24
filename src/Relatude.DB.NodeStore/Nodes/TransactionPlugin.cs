@@ -171,7 +171,8 @@ public abstract class NodeTransactionPlugin<T> : INodeTransactionPlugin where T 
         if (action is NodeAction nodeAction) {
             Guid nodeTypeId;
             if (nodeAction.Node is NodeDataOnlyId) {
-                nodeTypeId = typeInfo![nodeAction.Node.IdKey]; // typeInfo should never be null here, as we added the IdKey in AddIdKeysThatNeedTypeInfo
+                // looked up for every key AddIdKeysThatNeedTypeInfo names (Transaction.nodeTypesNeeded); a node of no known type concerns no plugin
+                if (typeInfo == null || !typeInfo.TryGetValue(nodeAction.Node.IdKey, out nodeTypeId)) return [];
             } else {
                 nodeTypeId = nodeAction.Node.NodeType;
             }
@@ -181,13 +182,13 @@ public abstract class NodeTransactionPlugin<T> : INodeTransactionPlugin where T 
             List<NodeKey> nodeIds = [];
             if (nodePropertyAction.NodeGuids != null) {
                 foreach (var guid in nodePropertyAction.NodeGuids) {
-                    var nodeTypeId = typeInfo![new(guid)];
+                    if (typeInfo == null || !typeInfo.TryGetValue(new(guid), out var nodeTypeId)) continue;
                     var isRelevant = nodeTypeModel.ThisAndDescendingTypes.ContainsKey(nodeTypeId);
                     if (isRelevant) nodeIds.Add(new(guid));
                 }
             } else if (nodePropertyAction.NodeIds != null) {
                 foreach (var id in nodePropertyAction.NodeIds) {
-                    var nodeTypeId = typeInfo![new(id)];
+                    if (typeInfo == null || !typeInfo.TryGetValue(new(id), out var nodeTypeId)) continue;
                     var isRelevant = nodeTypeModel.ThisAndDescendingTypes.ContainsKey(nodeTypeId);
                     if (isRelevant) nodeIds.Add(new(id));
                 }

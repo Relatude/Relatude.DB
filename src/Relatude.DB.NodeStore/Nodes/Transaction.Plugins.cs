@@ -1,5 +1,6 @@
 ﻿using System;
 using Relatude.DB.Common;
+using Relatude.DB.Datamodels;
 using Relatude.DB.Transactions;
 namespace Relatude.DB.Nodes;
 public partial class Transaction {
@@ -36,20 +37,17 @@ public partial class Transaction {
     internal void PrepareRelevantPlugins() {
         if (Store.TransactionPlugins.Count == 0) return; // no plugins, nothing to do
 
-        List<NodeKey>? needTypeInfo = null; // we need type info to determine relevant plugins
-        foreach (var plugin in Store.TransactionPlugins) {
-            foreach (var action in _transactionData.Actions) {
-                plugin.AddIdKeysThatNeedTypeInfo(action, ref needTypeInfo);
-            }
-        }
-        Dictionary<NodeKey, Guid>? typeByNodeId = null;
-        if (needTypeInfo != null && needTypeInfo.Count > 0) { // for most actions we don't need type info as it is already in the action
-            typeByNodeId = Store.Datastore.GetNodeType(needTypeInfo); // all this to reduce callbacks to datastore to max one call per transaction
-        }
-
+        Dictionary<NodeKey, Guid>? typeByNodeId = null; // we need type info to determine relevant plugins
+        var typedActions = 0;
         foreach (var plugin in Store.TransactionPlugins) {
             List<ActionsWithIds>? actionNodeIds = null;
             var initialActions = _transactionData.Actions.ToList();
+            // looked up again when an earlier plugin's OnBefore added actions, such as an address set on a node this
+            // transaction inserts, so the plugins after it can tell whether those concern them
+            if (initialActions.Count != typedActions) {
+                typeByNodeId = nodeTypesNeeded(initialActions, typeByNodeId);
+                typedActions = initialActions.Count;
+            }
             foreach (var action in initialActions) {
                 var ids = plugin.GetRelevantNodeIds(action, typeByNodeId);
                 if (ids.Count > 0) {
@@ -63,6 +61,33 @@ public partial class Transaction {
                 _relevantPlugins.Add(new(plugin, actionNodeIds));
             }
         }
+    }
+    /// <summary>
+    /// The node types the plugins need to tell which actions concern them, added to those already known. For most
+    /// actions none are needed, as the type is in the action. A node this transaction inserts has its type in its insert,
+    /// since the store does not know it yet; the rest are asked of the store, in one call.
+    /// </summary>
+    Dictionary<NodeKey, Guid>? nodeTypesNeeded(List<ActionBase> actions, Dictionary<NodeKey, Guid>? known) {
+        List<NodeKey>? needTypeInfo = null;
+        foreach (var plugin in Store.TransactionPlugins) {
+            foreach (var action in actions) plugin.AddIdKeysThatNeedTypeInfo(action, ref needTypeInfo);
+        }
+        if (needTypeInfo == null) return known;
+        var missing = needTypeInfo.Where(k => known == null || !known.ContainsKey(k)).Distinct().ToList();
+        if (missing.Count == 0) return known;
+        known ??= [];
+        foreach (var action in actions) {
+            if (action is not NodeAction nodeAction || nodeAction.Node is NodeDataOnlyId) continue;
+            var key = nodeAction.Node.IdKey;
+            known[key] = nodeAction.Node.NodeType;
+            if (key.HasGuid) known[new(key.Guid)] = nodeAction.Node.NodeType;
+            if (key.Int != 0) known[new(key.Int)] = nodeAction.Node.NodeType;
+        }
+        missing = [.. missing.Where(k => !known.ContainsKey(k))];
+        if (missing.Count > 0) {
+            foreach (var (key, type) in Store.Datastore.GetNodeType(missing)) known[key] = type;
+        }
+        return known;
     }
     internal void OnBeforeExecute() {
         if (_relevantPlugins == null) return; // no plugins, nothing to do

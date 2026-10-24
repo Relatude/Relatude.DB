@@ -2862,6 +2862,18 @@ public sealed class AuditInitializer : IStoreInitializer {
 services.TryAddEnumerable(ServiceDescriptor.Singleton<IStoreInitializer, AuditInitializer>());
 ```
 
+Two more services cover the other moments a library needs (all three in `Relatude.DB.NodeServer`):
+
+| Service | Called | Use it for |
+|---|---|---|
+| `IDatamodelInitializer.Initialize(datamodel, database)` | every datamodel as it is built, right after `OnDatamodelInit` | the library's model types, so the host need not list them |
+| `IStoreInitializer.Initialize(store)` | every store set up, not yet open, right after `OnStoreInit` | transaction plugins, task runners, jobs |
+| `IStoreOpenHandler.OpenedAsync(store)` | every store once open, on a background thread, beside `OnStoreOpenBackground` | seeding, work that needs the store open |
+
+Open handlers run one after another in the order they were registered, and an exception in one is
+logged without stopping the next. A datamodel initializer also runs when the admin UI builds a
+datamodel to check a draft of the model, so it should only add types.
+
 ### Two ways to register a datamodel
 
 The JSON sources load first, then `OnDatamodelInit` runs against the same `Datamodel` object — so

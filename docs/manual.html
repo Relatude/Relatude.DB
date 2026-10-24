@@ -4144,6 +4144,36 @@ after <code>OnStoreInit</code>:</p>
 <span class="n">services</span><span class="p">.</span><span class="n">TryAddEnumerable</span><span class="p">(</span><span class="n">ServiceDescriptor</span><span class="p">.</span><span class="n">Singleton</span><span class="o">&lt;</span><span class="n">IStoreInitializer</span><span class="p">,</span><span class="w"> </span><span class="n">AuditInitializer</span><span class="o">&gt;</span><span class="p">());</span>
 </code></pre></div>
 
+<p>Two more services cover the other moments a library needs (all three in <code>Relatude.DB.NodeServer</code>):</p>
+<table>
+<thead>
+<tr>
+<th>Service</th>
+<th>Called</th>
+<th>Use it for</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>IDatamodelInitializer.Initialize(datamodel, database)</code></td>
+<td>every datamodel as it is built, right after <code>OnDatamodelInit</code></td>
+<td>the library's model types, so the host need not list them</td>
+</tr>
+<tr>
+<td><code>IStoreInitializer.Initialize(store)</code></td>
+<td>every store set up, not yet open, right after <code>OnStoreInit</code></td>
+<td>transaction plugins, task runners, jobs</td>
+</tr>
+<tr>
+<td><code>IStoreOpenHandler.OpenedAsync(store)</code></td>
+<td>every store once open, on a background thread, beside <code>OnStoreOpenBackground</code></td>
+<td>seeding, work that needs the store open</td>
+</tr>
+</tbody>
+</table>
+<p>Open handlers run one after another in the order they were registered, and an exception in one is
+logged without stopping the next. A datamodel initializer also runs when the admin UI builds a
+datamodel to check a draft of the model, so it should only add types.</p>
 <h3 id="two-ways-to-register-a-datamodel">Two ways to register a datamodel<a class="anchor" href="#two-ways-to-register-a-datamodel" aria-label="Link to this section">#</a></h3>
 <p>The JSON sources load first, then <code>OnDatamodelInit</code> runs against the same <code>Datamodel</code> object — so
 the two are additive rather than alternatives.</p>

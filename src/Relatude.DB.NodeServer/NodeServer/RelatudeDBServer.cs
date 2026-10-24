@@ -198,7 +198,9 @@ public partial class RelatudeDBServer {
         _configuration = app.Configuration;
         _environmentName = app.Environment.EnvironmentName;
         registerCustomSettings(app.Services); // a definition that is wrong stops the start before anything is read
+        _datamodelInitializers = [.. app.Services.GetServices<IDatamodelInitializer>()];
         _storeInitializers = [.. app.Services.GetServices<IStoreInitializer>()];
+        _storeOpenHandlers = [.. app.Services.GetServices<IStoreOpenHandler>()];
 
         var dataFolderPath = options.DefaultDataFolderPath;
         var tempFolderPath = options.DefaultTempFolderPath;
@@ -543,12 +545,19 @@ public partial class RelatudeDBServer {
             Log("Error occurred during OnStoreSettingsInit event: " + err.Message);
         }
     }
+    IDatamodelInitializer[] _datamodelInitializers = [];
     internal void RaiseEventDatamodelInit(Datamodel datamodel, NodeStoreContainerSettingsBase containerSettings) {
-        if (Options?.OnDatamodelInit == null) return;
         try {
-            Options.OnDatamodelInit(datamodel, containerSettings);
+            Options?.OnDatamodelInit?.Invoke(datamodel, containerSettings);
         } catch (Exception err) {
             Log("Error occurred during OnDatamodelInit event: " + err.Message);
+        }
+        foreach (var initializer in _datamodelInitializers) {
+            try {
+                initializer.Initialize(datamodel, containerSettings);
+            } catch (Exception err) {
+                Log("Error occurred in the datamodel initializer " + initializer.GetType().FullName + ": " + err.Message);
+            }
         }
     }
     IStoreInitializer[] _storeInitializers = [];
@@ -583,7 +592,21 @@ public partial class RelatudeDBServer {
                 }
             });
         }
+        if (_storeOpenHandlers.Length > 0) {
+            // one after the other, in the order registered: a library's handler may build on what an earlier one did
+            var handlers = _storeOpenHandlers;
+            _ = Task.Run(async () => {
+                foreach (var handler in handlers) {
+                    try {
+                        await handler.OpenedAsync(store);
+                    } catch (Exception err) {
+                        Log("Error occurred in the store open handler " + handler.GetType().FullName + ": " + err.Message);
+                    }
+                }
+            });
+        }
     }
+    IStoreOpenHandler[] _storeOpenHandlers = [];
     internal void RaiseEventStoreClose(NodeStoreContainer nodeStoreContainer, NodeStore store) {
         if (Options?.OnStoreClose == null) return;
         try {
@@ -665,6 +688,7 @@ public class ServerOptions {
     /// Gets or sets the callback that is invoked when a new datamodel is initialized.
     /// This is called every time a new datamodel is initialized, and before it is opened.
     /// This is a good place to register custom task runners and plugins.
+    /// A library adds its model types with an <see cref="IDatamodelInitializer"/> service instead, which runs after this.
     /// </summary>
     public Action<Datamodel, NodeStoreContainerSettingsBase>? OnDatamodelInit { get; set; }
     /// <summary>
@@ -684,6 +708,7 @@ public class ServerOptions {
 
     /// <summary>
     /// Gets or sets the callback that is invoked when the database is opened, but in a background thread.
+    /// A library hooks in with an <see cref="IStoreOpenHandler"/> service instead.
     /// </summary>
     public Action<NodeStore>? OnStoreOpenBackground { get; set; }
 
