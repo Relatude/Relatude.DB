@@ -19,25 +19,27 @@
 // Applied before first paint so a chosen theme does not flash the other one.
 // Same storage key as the manual, so the choice carries across the docs.
 // localStorage access itself can throw on file:// origins, so guard.
-// Black and white, like the rest of the docs, unless the reader has turned
-// full colour on. That choice is this page's own, so it keeps a key of its
-// own, and only "on" is ever stored. Light or dark follows the system until
-// the reader picks one; the weather is sunny until they pick another.
+// Dark and in full colour for everyone, whatever the system prefers, until
+// the reader picks otherwise: the dawn over the fjord is the page's own
+// look. Light or dark is stored once picked; the colour choice is this
+// page's own, so it keeps a key of its own, and only "off" is ever stored.
 // The weather is kept the same way: only a sky other than the sunny default.
 (function () {
-  var colour = false, weather = "sunny";
+  var theme = "dark", colour = true, weather = "sunny";
   try {
     var t = window.localStorage.getItem("relatude-manual-theme-v1");
-    if (t === "dark" || t === "light") document.documentElement.setAttribute("data-theme", t);
-    colour = window.localStorage.getItem("relatude-docs-colour-v1") === "on";
+    if (t === "dark" || t === "light") theme = t;
+    colour = window.localStorage.getItem("relatude-docs-colour-v2") !== "off";
     var w = window.localStorage.getItem("relatude-docs-weather-v1");
     if (w === "storm" || w === "snow") weather = w;
   } catch (e) {}
+  document.documentElement.setAttribute("data-theme", theme);
   if (colour) document.documentElement.setAttribute("data-colour", "on");
   document.documentElement.setAttribute("data-weather", weather);
-  // The effective light/dark, whether it came from the stored choice or from the
-  // OS, and the palette the background scene should wear: that answer, in full
-  // colour when the colour switch is on. The scene asks for it at boot and the
+  // The effective light/dark (always set above; the system's preference is
+  // only a fallback for a page that lost the attribute), and the palette the
+  // background scene should wear: that answer, in full colour when the
+  // colour switch is on. The scene asks for it at boot and the
   // switchers at the end of the body hand it over on every change, so the two
   // can never disagree.
   window.__resolveTheme = function () {
@@ -59,18 +61,23 @@
    and in dark #0a0a0a, a step darker than their #111111, close to black. Light is the base palette; dark is applied
    twice — under the system preference (unless the reader explicitly chose light)
    and under an explicit data-theme="dark". The two dark blocks are identical.
+   The head script always sets data-theme, dark unless the reader picked
+   light, so the system preference only counts where scripts do not run.
    The dark greys are neutral — no blue tint in any ground, scrim or glass.
 
    Behind all of it is a WebGL scene grown out of NodeAnimation.html: a slow
-   flight over ridged terrain toward a low sun, under a broken cloud deck it
-   breaks through in shafts, with a graph rewiring itself across the peaks,
-   pulses of light running along its edges, and now and then a flock of birds
-   heading into the light. It is drawn in HDR and finished with bloom, but it is
+   glide down a fjord toward a low sun, under a broken cloud deck it breaks
+   through in shafts, which opens above the water and goes down below it to
+   where Relatude.DB lies, a graph on the fjord's drowned floor, with beams
+   of light coming down to it from a graph rewiring itself on the peaks, and
+   now and then a flock of birds heading into the light (the scene's own
+   comment says more). It is drawn in HDR and finished with bloom, but it is
    still a background: its palette follows this page's switches and nothing
-   else. By default it is black and white, every tone in it grey, to match
-   the rest of the docs; the colour switch brings it into full colour for
-   either ground — a dawn in the dark, a clear morning in the light — while
-   the text and the panels stay black and white. The weather switch
+   else. For everyone it starts dark and in full colour, a dawn over the
+   fjord, whatever the system prefers; the switches turn it light (a clear
+   morning) or black and white, every tone in it grey to match the rest of
+   the docs, and the page keeps the reader's choice. The text and the
+   panels stay black and white either way. The weather switch
    changes the sky: calm and sunny, a storm with rain, a snow storm — in which
    Santa crosses now and then. A double-click anywhere (or the full-screen
    switch) goes full screen with the page cleared away, the wordmark alone over
@@ -117,10 +124,11 @@
   --logo-edge: rgba(255,255,255,.75);
   --vig-dark: 0;
   --vig-light: 1;
-  /* the scene in one still: a white sun low on the right, over a pale horizon */
+  /* the scene in one still: a white sun low over the far end of the fjord,
+     and below the waterline the water darkening into its depth */
   --fallback:
-    radial-gradient(22% 30% at 84% 28%, #ffffff 0%, rgba(255,255,255,0) 100%),
-    linear-gradient(to bottom, #d2d6db 0%, #eceef1 42%, #f7f8f9 50%, #dfe2e6 58%, #f3f4f6 100%);
+    radial-gradient(18% 24% at 60% 52%, #ffffff 0%, rgba(255,255,255,0) 100%),
+    linear-gradient(to bottom, #d2d6db 0%, #eceef1 40%, #f7f8f9 57%, #b9bfc6 57.5%, #c9ced4 64%, #8f969f 100%);
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
 }
@@ -150,8 +158,8 @@
     --vig-dark: 1;
     --vig-light: 0;
     --fallback:
-      radial-gradient(20% 28% at 84% 28%, rgba(255,255,255,.16) 0%, rgba(255,255,255,0) 100%),
-      linear-gradient(to bottom, #050505 0%, #0a0a0a 40%, #1e1e1e 50%, #090909 58%, #0a0a0a 100%);
+      radial-gradient(16% 22% at 60% 52%, rgba(255,255,255,.16) 0%, rgba(255,255,255,0) 100%),
+      linear-gradient(to bottom, #050505 0%, #0a0a0a 40%, #1e1e1e 57%, #2a2a2a 57.5%, #121212 64%, #030303 100%);
   }
 }
 :root[data-theme="dark"] {
@@ -179,8 +187,8 @@
   --vig-dark: 1;
   --vig-light: 0;
   --fallback:
-    radial-gradient(20% 28% at 84% 28%, rgba(255,255,255,.16) 0%, rgba(255,255,255,0) 100%),
-    linear-gradient(to bottom, #050505 0%, #0a0a0a 40%, #1e1e1e 50%, #090909 58%, #0a0a0a 100%);
+    radial-gradient(16% 22% at 60% 52%, rgba(255,255,255,.16) 0%, rgba(255,255,255,0) 100%),
+    linear-gradient(to bottom, #050505 0%, #0a0a0a 40%, #1e1e1e 57%, #2a2a2a 57.5%, #121212 64%, #030303 100%);
 }
 /* Full colour recolours only what belongs to the scene: the still shown in
    place of WebGL, and in the dark the scrim, which takes the night-blue of the
@@ -189,8 +197,8 @@
    pattern as the dark blocks above; one extra attribute on each wins over them. */
 :root[data-colour="on"] {
   --fallback:
-    radial-gradient(22% 30% at 84% 28%, #fffaf0 0%, rgba(255,250,240,0) 100%),
-    linear-gradient(to bottom, #8fb3e3 0%, #cbdcef 40%, #f4ede4 50%, #b9c3d6 58%, #e9edf3 100%);
+    radial-gradient(18% 24% at 60% 52%, #fffaf0 0%, rgba(255,250,240,0) 100%),
+    linear-gradient(to bottom, #8fb3e3 0%, #cbdcef 40%, #f4ede4 57%, #6fa7a8 57.5%, #3d7f88 70%, #0e3a4e 100%);
 }
 @media (prefers-color-scheme: dark) {
   :root[data-colour="on"]:not([data-theme="light"]) {
@@ -203,8 +211,8 @@
     --glass-code: rgba(26,26,26,.62);
     --halo: 0 1px 16px rgba(17,17,17,.95), 0 0 3px rgba(17,17,17,.80);
     --fallback:
-      radial-gradient(20% 28% at 84% 28%, rgba(255,200,130,.30) 0%, rgba(255,200,130,0) 100%),
-      linear-gradient(to bottom, #03060f 0%, #0b1026 40%, #3a2a3c 50%, #0c0f24 58%, #080b18 100%);
+      radial-gradient(16% 22% at 60% 52%, rgba(255,200,130,.30) 0%, rgba(255,200,130,0) 100%),
+      linear-gradient(to bottom, #03060f 0%, #0b1026 40%, #3a2a3c 57%, #0c2a33 57.5%, #06161e 70%, #01060a 100%);
   }
 }
 :root[data-colour="on"][data-theme="dark"] {
@@ -217,8 +225,8 @@
   --glass-code: rgba(26,26,26,.62);
   --halo: 0 1px 16px rgba(17,17,17,.95), 0 0 3px rgba(17,17,17,.80);
   --fallback:
-    radial-gradient(20% 28% at 84% 28%, rgba(255,200,130,.30) 0%, rgba(255,200,130,0) 100%),
-    linear-gradient(to bottom, #03060f 0%, #0b1026 40%, #3a2a3c 50%, #0c0f24 58%, #080b18 100%);
+    radial-gradient(16% 22% at 60% 52%, rgba(255,200,130,.30) 0%, rgba(255,200,130,0) 100%),
+    linear-gradient(to bottom, #03060f 0%, #0b1026 40%, #3a2a3c 57%, #0c2a33 57.5%, #06161e 70%, #01060a 100%);
 }
 
 * { box-sizing: border-box; }
@@ -548,7 +556,7 @@ footer a:hover { color: var(--fg); }
 <body>
 
 <div id="fallback"></div>
-<canvas id="scene"></canvas>
+<canvas id="scene" data-dive="descend"></canvas>
 <div class="vig vig-dark"></div>
 <div class="vig vig-light"></div>
 <div class="scrim"></div>
@@ -637,10 +645,10 @@ footer a:hover { color: var(--fg); }
 <script>
 (function () {
   "use strict";
-  // Two states, light and dark. With nothing stored the page follows the
-  // system: the prefers-color-scheme rule does that on its own, so the button
-  // only has to show which one it is. A click stores an explicit choice, which
-  // from then on outranks the system. Same key as the manual.
+  // Two states, light and dark. With nothing stored the page is dark,
+  // whatever the system prefers (the head script set that before first
+  // paint), so the button only has to show which one it is. A click stores
+  // the reader's choice. Same key as the manual.
   var KEY = "relatude-manual-theme-v1";
   var THEMES = {
     light: { icon: "☀", label: "Theme: light — click for dark" },
@@ -667,13 +675,6 @@ footer a:hover { color: var(--fg); }
 
   show();
 
-  // Until a choice is stored the system decides, and it can change its mind
-  // while the page is open (a scheduled dark mode, say). The CSS follows by
-  // itself; the button and the scene need telling.
-  var mq = window.matchMedia("(prefers-color-scheme: dark)");
-  if (mq.addEventListener) mq.addEventListener("change", show);
-  else if (mq.addListener) mq.addListener(show);           // older Safari
-
   // The reader's own pick of theme: shown, and stored for the rest of the docs.
   function pickTheme(t) {
     document.documentElement.setAttribute("data-theme", t);
@@ -687,11 +688,11 @@ footer a:hover { color: var(--fg); }
 
   // Full colour: a second switch, on or off, that works under either ground.
   // It only ever recolours the scene, so it keeps its own key rather than
-  // adding a state the manual and the introduction would not understand. Off
-  // by default (black and white), so what is stored is the choice of colour.
-  var CKEY = "relatude-docs-colour-v1";
+  // adding a state the manual and the introduction would not understand. On
+  // by default, so what is stored is the choice of black and white.
+  var CKEY = "relatude-docs-colour-v2";
   var $col = document.getElementById("colour");
-  var colour = lsGet(CKEY) === "on";
+  var colour = lsGet(CKEY) !== "off";
 
   function applyColour(on) {
     colour = on;
@@ -709,8 +710,8 @@ footer a:hover { color: var(--fg); }
   function pickColour(on) {
     applyColour(on);
     try {
-      if (on) window.localStorage.setItem(CKEY, "on");
-      else window.localStorage.removeItem(CKEY);
+      if (on) window.localStorage.removeItem(CKEY);
+      else window.localStorage.setItem(CKEY, "off");
     } catch (e) {}
   }
   $col.addEventListener("click", function () {
@@ -989,7 +990,7 @@ footer a:hover { color: var(--fg); }
   function storeLook() {
     try {
       window.localStorage.setItem(KEY, window.__resolveTheme());
-      if (colour) window.localStorage.setItem(CKEY, "on"); else window.localStorage.removeItem(CKEY);
+      if (colour) window.localStorage.removeItem(CKEY); else window.localStorage.setItem(CKEY, "off");
       if (weather === "sunny") window.localStorage.removeItem(WKEY); else window.localStorage.setItem(WKEY, weather);
     } catch (e) {}
   }
@@ -1008,15 +1009,23 @@ footer a:hover { color: var(--fg); }
 </script>
 
 <!-- ===========================================================================
-     The background scene. It grew out of
-     src/Relatude.DB.UI/src/components/NodeAnimation.html, and the terrain
-     field, the flight and the way the graph picks its anchors are still that
-     file's. The light is this page's own: a low sun behind a broken cloud
-     deck, the whole scene drawn in HDR and finished with bloom and light
-     shafts, pulses running along the graph's edges, and a short opening in
-     which the camera lifts its eyes to the horizon as the light comes up.
-     The palette follows the page switcher above instead of carrying a
-     switcher of its own.
+     The background scene: a glide down a deep fjord toward a low sun, seen
+     through a half-submerged lens, like an over-under photograph, so a
+     waterline can cross the frame. Relatude.DB lies on the fjord's floor, a
+     drowned range of its own: a graph of nodes and relations on its rises,
+     which keeps, with data running along it. Above the water, on the peaks,
+     the graph of what is built on it rewires itself; beams run down from its
+     nodes, bend where they go into the water (the path light takes, by
+     Fermat), and land on the database's nodes, and pulses travel down them
+     and back up: a query, and its answer.
+
+     The page opens above the water as the light comes up, sinks to the
+     surface, waits there a moment with the frame halved, and goes on down
+     to the database, where it stays (data-dive="descend" on the canvas).
+     The scene is the same code as Relatude.CMS's front page (docs/index.html
+     in its repository), whose scroll drives the same dive instead: keep the
+     two copies alike. The palette follows the page's switches rather than
+     carrying any of its own.
      ======================================================================== -->
 <script>
 (() => {
@@ -1067,7 +1076,7 @@ footer a:hover { color: var(--fg); }
      plain  1: the simple look black and white keeps — no sky, only the
             flat ground the far ridges fade into; the land lit from the
             side in plain lit and shaded faces, with no rims or glints,
-            no lattice or survey band, no mist in the valleys and a
+            no caustics or shafts in the water, no mist in the valleys and a
             thinner haze; no motes; half the rain (shorter) and snow
             (smaller); no birds; the graph as sharp lines and rings, with
             no pulses, flares or ripples. With halo, bloom, rays and
@@ -1078,6 +1087,18 @@ footer a:hover { color: var(--fg); }
    `flashC` are what the weather brings — snow lying on the ground,
    rain, snowflakes and lightning — and `noseC` and `trailC` are
    Rudolph's nose and the sparkles the sleigh leaves behind.
+
+   The water and what lies in it:
+     wTop / wDeep  the water's own colour near the surface and deep down
+     wAbs          how fast it swallows each channel, per unit (in colour,
+                   red first, so whatever is far off goes blue-green)
+     db / dbHot    the database's graph on the floor, and its pulses and flares
+     beamA / beamW a beam in the air, and in the water
+     snowW         the marine snow drifting down through the depth
+     wsub          `sub` for what is drawn under the water: in colour the
+                   water is dark enough for light to show, even by day
+     shaft, caus   the sun's shafts in the water, its net on the floor
+     wref          how much of the world the surface mirrors
    ============================================================ */
 const THEMES = {
   dark: {
@@ -1090,6 +1111,10 @@ const THEMES = {
     bird :[0.012,0.012,0.012], snowC:[0.780,0.780,0.780], rainC:[0.660,0.660,0.660],
     flakeC:[0.920,0.920,0.920], flashC:[1.000,1.000,1.000],
     noseC:[1.000,1.000,1.000], trailC:[0.950,0.950,0.950],
+    wTop :[0.110,0.110,0.110], wDeep:[0.014,0.014,0.014], wAbs:[0.016,0.016,0.016],
+    db   :[0.800,0.800,0.800], dbHot:[1.000,1.000,1.000],
+    beamA:[0.900,0.900,0.900], beamW:[0.880,0.880,0.880], snowW:[0.560,0.560,0.560],
+    wsub:0, shaft:0.00, caus:0.00, wref:0.90,
     // the plain look: no sky (sunI and cloud only matter while a change
     // from colour crosses over), no glow anywhere
     star:1, sub:0, sunI:0.06, shine:1.00, cloud:0.25, cov:0.52, mist:1.0,
@@ -1109,6 +1134,10 @@ const THEMES = {
     bird :[0.130,0.136,0.146], snowC:[0.970,0.972,0.975], rainC:[0.380,0.390,0.405],
     flakeC:[0.990,0.990,0.992], flashC:[1.000,1.000,1.000],
     noseC:[0.200,0.200,0.200], trailC:[0.540,0.548,0.560],
+    wTop :[0.800,0.804,0.810], wDeep:[0.500,0.505,0.512], wAbs:[0.012,0.012,0.012],
+    db   :[0.120,0.125,0.135], dbHot:[0.060,0.062,0.066],
+    beamA:[0.140,0.145,0.155], beamW:[0.120,0.125,0.135], snowW:[0.330,0.335,0.345],
+    wsub:1, shaft:0.00, caus:0.00, wref:0.90,
     star:0, sub:1, sunI:0.07, shine:0.20, cloud:0.25, cov:0.55, mist:0.8,   // plain, as the dark
     bloom:0.00, thresh:1.30, rays:0.00, rthr:1.00, knee:0.98, halo:0.00, noseG:0.0, flashI:0.5,
     plain:1
@@ -1123,6 +1152,10 @@ const THEMES = {
     bird :[0.014,0.016,0.040], snowC:[0.660,0.720,0.840], rainC:[0.560,0.640,0.780],
     flakeC:[0.880,0.920,1.000], flashC:[0.860,0.890,1.000],
     noseC:[1.000,0.200,0.110], trailC:[1.000,0.860,0.580],
+    wTop :[0.028,0.085,0.110], wDeep:[0.003,0.010,0.024], wAbs:[0.020,0.012,0.010],
+    db   :[1.000,0.680,0.320], dbHot:[1.000,0.880,0.620],
+    beamA:[0.720,0.920,1.000], beamW:[1.000,0.840,0.560], snowW:[0.520,0.720,0.820],
+    wsub:0, shaft:0.90, caus:0.22, wref:1.00,
     star:1, sub:0, sunI:1.00, shine:1.00, cloud:1.00, cov:0.52, mist:1.0,
     bloom:0.32, thresh:1.00, rays:0.38, rthr:0.50, knee:0.72, halo:1.00, noseG:1.0, flashI:1.0,
     plain:0
@@ -1137,6 +1170,10 @@ const THEMES = {
     bird :[0.110,0.125,0.180], snowC:[0.960,0.970,1.000], rainC:[0.300,0.360,0.460],
     flakeC:[0.985,0.990,1.000], flashC:[0.920,0.940,1.000],
     noseC:[0.900,0.140,0.100], trailC:[0.940,0.700,0.320],
+    wTop :[0.190,0.460,0.490], wDeep:[0.020,0.110,0.180], wAbs:[0.020,0.011,0.009],
+    db   :[1.000,0.750,0.360], dbHot:[1.000,0.920,0.700],
+    beamA:[0.090,0.240,0.480], beamW:[0.860,0.960,1.000], snowW:[0.680,0.860,0.900],
+    wsub:0, shaft:0.60, caus:0.20, wref:1.00,
     star:0, sub:1, sunI:0.60, shine:0.25, cloud:0.85, cov:0.55, mist:0.8,
     bloom:0.08, thresh:1.30, rays:0.16, rthr:1.00, knee:0.96, halo:0.35, noseG:0.6, flashI:1.0,
     plain:0
@@ -1159,14 +1196,19 @@ const K1 = Object.keys(THEMES.dark).filter(k => !Array.isArray(THEMES.dark[k]));
      wind   cloud drift, rain slant, snow drive  fogK   distance haze, as a multiple
      dim    light on the land                    cover  snow lying on the flatter faces
      dust   motes                 rain  rain     snow   snowfall    flash  lightning
-     birds  whether flocks fly */
+     birds  whether flocks fly
+     chop   waves on the fjord    murk  how much more the water swallows
+     drops  rings where rain lands on it */
 const WEATHER = {
   sunny: { sunV: 1.00, rays: 1, clouds: 1, cov:  0.00, over: 0, mist: 0.0, stars: 1, wind: 1.0,
-           fogK: 1.0, dim: 1.00, cover: 0, dust: 1.0, rain: 0, snow: 0, flash: 0, birds: 1 },
+           fogK: 1.0, dim: 1.00, cover: 0, dust: 1.0, rain: 0, snow: 0, flash: 0, birds: 1,
+           chop: 0.22, murk: 1.00, drops: 0 },
   storm: { sunV: 0.00, rays: 0, clouds: 1, cov: -0.34, over: 1, mist: 0.0, stars: 0, wind: 4.5,
-           fogK: 2.1, dim: 0.55, cover: 0, dust: 0.0, rain: 1, snow: 0, flash: 1, birds: 0 },
+           fogK: 2.1, dim: 0.55, cover: 0, dust: 0.0, rain: 1, snow: 0, flash: 1, birds: 0,
+           chop: 1.00, murk: 1.70, drops: 1 },
   snow:  { sunV: 0.08, rays: 0, clouds: 1, cov: -0.30, over: 1, mist: 0.4, stars: 0, wind: 3.2,
-           fogK: 1.7, dim: 0.90, cover: 1, dust: 0.0, rain: 0, snow: 1, flash: 0, birds: 0 }
+           fogK: 1.7, dim: 0.90, cover: 1, dust: 0.0, rain: 0, snow: 1, flash: 0, birds: 0,
+           chop: 0.35, murk: 1.35, drops: 0 }
 };
 const WEATHERS = Object.keys(WEATHER), WK = Object.keys(WEATHER.sunny);
 // The sky colours each weather changes, per theme: `top` and `fog` are the
@@ -1278,6 +1320,9 @@ const canvas = document.getElementById('scene');
 function fallback() {
   canvas.classList.remove('ready');
   document.getElementById('fallback').style.display = 'block';
+  // no scene, no waterline for the page's words to ride on
+  const t = document.querySelector('.tide');
+  if (t) t.style.setProperty('--tide-o', 0);
 }
 
 // Everything is drawn into offscreen targets and composited in a last pass,
@@ -1302,7 +1347,7 @@ const COARSE  = matchMedia('(pointer: coarse)').matches;
    makes the mountains read as hard angular facets rather than
    soft dunes. The field repeats exactly every DEPTH units in z,
    so the flight can loop forever with a seamless join — and
-   anything else laid on the ground (the lattice, the mist, the
+   anything else laid on the ground (the fjord, the mist, the
    dust) repeats on a divisor of DEPTH, so it joins seamlessly too.
    ============================================================ */
 
@@ -1343,7 +1388,7 @@ const smoothstep = (e0, e1, x) => {
   return t * t * (3 - 2 * t);
 };
 
-function heightAt(x, z) {
+function mountainsAt(x, z) {
   let sum = 0, prev = 1;
   for (let i = 0; i < OCT.length; i++) {
     const o = OCT[i];
@@ -1356,6 +1401,31 @@ function heightAt(x, z) {
   // dense massifs. Either way there is always something tall to fly past.
   const m = smoothstep(0.24, 0.82, vnoise(x, z, 1 / 320, 0.25));
   return Math.pow(sum / OCT_NORM, 2.8 - 1.65 * m) * 130 - 12;
+}
+
+/* ---- the fjord ------------------------------------------------------------
+   The same ranges with a deep trough cut down the middle: a glacial U, its
+   walls falling hard to the water and on below it to a floor that is a
+   drowned range of its own, ridges and hollows, which is where Relatude.DB
+   lies. The water is at y = 0. The trough winds a little and its width
+   breathes, both on the loop period, so the join stays invisible. */
+const TAU   = Math.PI * 2;
+const BED   = -64;                 // the deepest hollows of the fjord's floor
+const FLOOR = 0.62;                // the share of its width that is floor rather than wall
+function fjordX(z)    { const w = TAU * z / DEPTH; return 20 * Math.sin(w) + 8 * Math.sin(2 * w + 1.3); }
+function fjordHalf(z) { const w = TAU * z / DEPTH; return 80 + 12 * Math.sin(3 * w + 0.6) + 6 * Math.sin(5 * w + 2.1); }
+function heightAt(x, z) {
+  const m = mountainsAt(x, z), half = fjordHalf(z);
+  const u = Math.abs(x - fjordX(z)) / half;          // 0 down the middle, 1 at the shore
+  if (u < 1) {
+    // under the water: the drowned range — the same field as the ranges
+    // above, so its ridges have their facets — then the wall up to the shore
+    const k = smoothstep(FLOOR, 1, u);
+    return (BED + (m + 12) * 0.32) * (1 - Math.pow(k, 1.6)) + m * 0.35 * k * (1 - k);
+  }
+  // above it: the wall, rising hard from the shore into the range behind
+  const lift = 1 - Math.exp(-(u - 1) * half / 24);
+  return lift * (46 + (m + 12) * 0.9);
 }
 
 /* ---- build the mesh (indexed; normals come from screen derivatives) ---- */
@@ -1391,7 +1461,9 @@ const ANCH = [];
   for (let j = R; j < VZ - R; j++) {
     for (let i = R; i < VX - R; i++) {
       const h = positions[(j * VX + i) * 3 + 1];
-      if (h < 6) continue;                      // ignore valley floors
+      if (h < 24) continue;                     // peaks and crests, not the shore
+      const ax = positions[(j * VX + i) * 3], az = positions[(j * VX + i) * 3 + 2];
+      if (Math.abs(ax - fjordX(az)) / fjordHalf(az) > 2.4) continue;   // on the fjord's walls
       let isMax = true;
       for (let dj = -R; dj <= R && isMax; dj++) {
         for (let di = -R; di <= R; di++) {
@@ -1488,6 +1560,76 @@ float fbm(vec2 p){
   return s * 1.0666667;          // over 0.5 + 0.25 + 0.125 + 0.0625
 }`;
 
+// The water. The camera looks through a half-submerged lens (a dome port),
+// so the frame is split by a waterline that need not be the horizon: each
+// pixel is seen from just above the surface or from just below it, as that
+// part of the lens would see it, whatever the camera's own height. The
+// waterline sits on the horizon while the lens rests on the surface, below
+// it while the lens is above, above it while the lens is below. The
+// reflection pass (uRefl 1) sees from the air throughout. A shader that
+// includes MEDIUM_PIX declares uRes; one that includes MEDIUM_PATH, uCam.
+const MEDIUM_U = `uniform float uSplit, uRefl, uWTime;`;
+const MEDIUM_PIX = `
+float waterline(float xn){
+  float k = clamp(1.6 - abs(uSplit), 0.0, 1.0);        // still, once out of the frame
+  return uSplit + k * (0.010 * sin(xn * 4.7 + uWTime * 0.83) + 0.005 * sin(xn * 12.3 - uWTime * 1.41)
+                     + 0.0022 * sin(xn * 29.0 + uWTime * 2.3));
+}
+bool underNdc(vec2 n){ return uRefl < 0.5 && n.y < waterline(n.x); }`;
+// the same, for the pixel a fragment shader is working on
+const PIX_FS = `
+bool underPix(){ return underNdc(gl_FragCoord.xy / uRes * 2.0 - 1.0); }`;
+// What lies between a point and the eye: how much of the way is water, and
+// the colour the water has along it, lighter near the surface and looking up.
+const MEDIUM_PATH = `
+uniform vec3  W_TOP, W_DEEP, W_ABS;
+uniform float W_MURK;
+vec3 eyeFor(bool u){
+  if (uRefl > 0.5) return uCam;
+  return vec3(uCam.x, u ? min(uCam.y, -0.03) : max(uCam.y, 0.03), uCam.z);
+}
+float wetLen(vec3 e, vec3 p){
+  if (uRefl > 0.5) return 0.0;
+  float L = distance(e, p);
+  if (e.y < 0.0 && p.y < 0.0) return L;
+  if (e.y >= 0.0 && p.y >= 0.0) return 0.0;
+  float f = e.y / (e.y - p.y);
+  return e.y < 0.0 ? f * L : (1.0 - f) * L;
+}
+vec3 wAbs(){ return W_ABS * W_MURK; }
+// the hue the water gives the light that comes down through it
+vec3 wTint(){ return W_TOP / max(max(W_TOP.r, max(W_TOP.g, W_TOP.b)), 1e-3); }
+vec3 waterCol(float y, vec3 d){
+  float lift = exp(min(y, 0.0) * 0.032 * W_MURK) * (0.40 + 0.60 * smoothstep(-0.9, 0.8, d.y));
+  return mix(W_DEEP, W_TOP, lift);
+}`;
+// The sun under the water: the net of light it throws on the floor, and the
+// shafts it lights in the water, both from where its light came in through
+// the waves — refracted, so steeper than the sun itself (uLw). Needs uNoise.
+const LIGHTW = `
+uniform vec3  uLw;
+uniform float W_SHAFT, W_CAUS;
+vec2 inlet(vec3 p){ return p.xz - uLw.xz * (p.y / uLw.y); }
+float caustic(vec3 p){
+  vec2 s = inlet(p) * 0.032;
+  float a = texture(uNoise, s + uWTime * vec2(0.008, 0.004)).r;
+  float b = texture(uNoise, s * 1.37 + vec2(0.37, 0.11) - uWTime * vec2(0.004, 0.009)).r;
+  return pow(clamp(1.0 - abs(a - b) * 3.4, 0.0, 1.0), 12.0);
+}
+// light scattered toward the eye along the wet stretch a..b of a ray, in steps
+float shafts(vec3 e, vec3 d, float a, float b){
+  if (b <= a + 0.01) return 0.0;
+  b = min(b, a + 180.0);
+  float st = (b - a) / 8.0, ab = dot(wAbs(), vec3(0.3333)), acc = 0.0;
+  for (int i = 0; i < 8; i++){
+    float t = a + st * (float(i) + 0.5);
+    vec3  q = e + d * t;
+    float n = texture(uNoise, inlet(q) * 0.0085 + uWTime * vec2(0.0011, 0.0007)).g;
+    acc += smoothstep(0.46, 0.74, n) * exp(q.y * 0.030) * exp(-ab * (t - a));
+  }
+  return acc * st * ab;
+}`;
+
 const SKY_VS = `#version 300 es
 out vec2 vNdc;
 void main(){
@@ -1501,6 +1643,7 @@ precision highp float;
 in vec2 vNdc;
 uniform mat4  uInvVP;
 uniform vec3  uCam, uLight, uSunH, uFlashDir;
+uniform vec2  uRes;
 uniform float uTime, uTravel, uSunAmt, uSunV, uCloudT;
 uniform float uOver, uClouds, uCovShift, uMist, uStars, uFlash;
 uniform sampler2D uNoise;
@@ -1508,20 +1651,23 @@ out vec4 frag;
 ${PAL_SKY}
 ${HAZE}
 ${FBM}
+${MEDIUM_U}
+${MEDIUM_PIX}
+${PIX_FS}
+${MEDIUM_PATH}
+${LIGHTW}
 float hash13(vec3 p){
   p = fract(p * 0.1031);
   p += dot(p, p.yzx + 33.33);
   return fract((p.x + p.y) * p.z);
 }
-void main(){
+vec3 skyCol(vec3 dir){
   // The plain look has no sky: one flat ground behind the ranges, the
   // colour the far ridges fade into, lit only by the lightning. All of it
   // there, the clouds are not worked out at all.
   vec3 plainSky = C_FOG + C_FLASHC * (uFlash * 0.25);
-  if (C_PLAIN > 0.999) { frag = vec4(plainSky, 1.0); return; }
+  if (C_PLAIN > 0.999) return plainSky;
 
-  vec4 w = uInvVP * vec4(vNdc, 1.0, 1.0);
-  vec3 dir = normalize(w.xyz / w.w - uCam);
   float up = dir.y;
   float mu = max(dot(dir, uLight), 0.0);
 
@@ -1584,9 +1730,30 @@ void main(){
   }
   // in a snow storm the sky half dissolves into the whiteout
   col  = mix(col, mix(C_FOG, C_TOP, pow(clamp(up, 0.0, 1.0), 0.8) * 0.35), uMist);
-  col  = mix(col, plainSky, C_PLAIN);
+  return mix(col, plainSky, C_PLAIN);
+}
+void main(){
+  vec4 w = uInvVP * vec4(vNdc, 1.0, 1.0);
+  vec3 dir = normalize(w.xyz / w.w - uCam);
+  bool und = underPix();
   // alpha 1 marks open sky: the light shafts are fed from it
-  frag = vec4(col, 1.0);
+  if (uRefl > 0.5 || (!und && dir.y >= 0.0)) { frag = vec4(skyCol(dir), 1.0); return; }
+  // Under the surface, or looking down into the water with nothing in the
+  // way: the water's own colour and the shafts in it — and from below, the
+  // sky through the surface overhead (where that is not a mirror: the
+  // water pass covers it there).
+  vec3 e = eyeFor(und);
+  float a = und ? 0.0 : e.y / max(-dir.y, 1e-4), b = a + 260.0;
+  vec3 col;
+  if (und && dir.y > 0.0) {
+    b = -e.y / dir.y;
+    vec3 T = exp(-wAbs() * b);
+    col = skyCol(dir) * T + waterCol(e.y * 0.5, dir) * (1.0 - T);
+  } else {
+    col = waterCol(min(e.y + dir.y * (a + 70.0), 0.0), dir);
+  }
+  col += C_SUNC * wTint() * (shafts(e, dir, a, b) * W_SHAFT * uSunAmt * uSunV * (1.0 - uOver) * (1.0 - C_PLAIN));
+  frag = vec4(col, 0.0);
 }`;
 
 const TER_VS = `#version 300 es
@@ -1604,13 +1771,22 @@ const TER_FS = `#version 300 es
 precision highp float;
 in vec3 vW;
 uniform vec3  uCam, uLight, uSunH;
-uniform float uPulse, uSunAmt, uSunV, uMistT;
+uniform vec2  uRes;
+uniform float uSunAmt, uSunV, uMistT;
 uniform float uOver, uDim, uCover, uFogK, uFlash;
 uniform sampler2D uNoise;
 out vec4 frag;
 ${PAL_TER}
 ${HAZE}
+${MEDIUM_U}
+${MEDIUM_PIX}
+${PIX_FS}
+${MEDIUM_PATH}
+${LIGHTW}
 void main(){
+  // The reflection is of what stands above the water.
+  if (uRefl > 0.5 && vW.y < -0.15) discard;
+
   // Exact per-facet normal: vW is planar across each triangle, so its
   // screen-space derivative IS that triangle's normal. Flat shading,
   // no normal attribute, no split vertices. A triangle seen exactly
@@ -1621,10 +1797,14 @@ void main(){
   vec3  n  = c2 > 1e-24 ? cr * inversesqrt(c2) : vec3(0.0, 1.0, 0.0);
   if (n.y < 0.0) n = -n;
 
-  vec3  toCam = uCam - vW;
+  // seen from the side of the lens this pixel looks through
+  bool  und   = underPix();
+  vec3  eye   = eyeFor(und);
+  vec3  toCam = eye - vW;
   float dist  = max(length(toCam), 1e-3);
   vec3  V     = toCam / dist;
   vec3  rd    = -V;
+  bool  wetP  = vW.y < 0.0;
 
   // Under an overcast the sun gives way to the even light of the whole sky.
   float ndl   = dot(n, uLight);
@@ -1642,6 +1822,15 @@ void main(){
   const vec3 PLAIN_SIDE_LIGHT = vec3(-0.78, 0.52, -0.22);
   float plainLam   = max(dot(n, normalize(PLAIN_SIDE_LIGHT)), 0.0) * (1.0 - 0.6 * uOver);
   float plainShade = 0.03 + 0.95 * plainLam + (0.10 + 0.30 * uOver) * skyf * skyf;
+
+  // Under the water the sun comes down refracted, and dimmer the deeper it
+  // goes; the rest of the light is the water's own, from above.
+  float dk = exp(min(vW.y, 0.0) * 0.028 * W_MURK);
+  if (wetP) {
+    float lw = max(dot(n, uLw), 0.0) * (1.0 - 0.8 * uOver);
+    shade      = (0.06 + 0.30 * skyf * skyf) * (0.35 + 0.65 * dk) + 0.70 * lw * dk;
+    plainShade = plainShade * (0.40 + 0.60 * dk);
+  }
   shade = mix(shade, plainShade, C_PLAIN);
 
   vec3 col = mix(C_DEEP, C_MID, clamp(shade * 1.55, 0.0, 1.0));
@@ -1649,57 +1838,62 @@ void main(){
   col = mix(col, C_HOT,  clamp((shade - 0.98) * 1.10, 0.0, 1.0));
   col *= uDim;
 
-  // --- the flight looks into a low sun, so the ridges are backlit: facets
-  // seen edge-on catch a silver rim, and the odd one turned just right
-  // flashes the sun back. Both run past white, so they bloom.
-  float into = pow(max(dot(rd, uLight), 0.0), 3.0);
-  float rim  = pow(fres, 1.4) * into * clamp((ndl + 0.35) / 1.35, 0.0, 1.0);
-  float spec = pow(max(dot(n, normalize(uLight + V)), 0.0), 90.0) * lam;
-  col += C_SUNC * (C_SHINE * uSunAmt * uSunV * (1.0 - C_PLAIN)) * (rim * 0.60 + spec * 0.85);
+  if (!wetP) {
+    // --- the flight looks into a low sun, so the ridges are backlit: facets
+    // seen edge-on catch a silver rim, and the odd one turned just right
+    // flashes the sun back. Both run past white, so they bloom.
+    float into = pow(max(dot(rd, uLight), 0.0), 3.0);
+    float rim  = pow(fres, 1.4) * into * clamp((ndl + 0.35) / 1.35, 0.0, 1.0);
+    float spec = pow(max(dot(n, normalize(uLight + V)), 0.0), 90.0) * lam;
+    col += C_SUNC * (C_SHINE * uSunAmt * uSunV * (1.0 - C_PLAIN)) * (rim * 0.60 + spec * 0.85);
 
-  // --- snow lies on the flatter faces, and more of it higher up
-  float snow = uCover * smoothstep(0.35, 0.70, n.y) * smoothstep(-10.0, 25.0, vW.y);
-  col = mix(col, C_SNOWC * (0.70 + 0.30 * skyf) * (0.90 + 0.30 * lam), snow);
+    // --- snow lies on the flatter faces, and more of it higher up
+    float snow = uCover * smoothstep(0.35, 0.70, n.y) * smoothstep(2.0, 25.0, vW.y);
+    col = mix(col, C_SNOWC * (0.70 + 0.30 * skyf) * (0.90 + 0.30 * lam), snow);
 
-  // --- lightning, from above
-  col += C_FLASHC * uFlash * (0.10 + 0.35 * max(n.y, 0.0));
+    // --- lightning, from above
+    col += C_FLASHC * uFlash * (0.10 + 0.35 * max(n.y, 0.0));
+  } else {
+    // --- the rock takes the water's colour, and the net of light the sun
+    // throws through the waves
+    col *= mix(vec3(1.0), wTint(), 0.6 * (1.0 - C_PLAIN));
+    col += C_SUNC * wTint() * (caustic(vW) * W_CAUS * dk * smoothstep(0.5, 0.9, n.y) * (1.0 - smoothstep(20.0, 80.0, dist))
+                               * uSunAmt * uSunV * (1.0 - uOver) * (1.0 - C_PLAIN) * 0.8);
+  }
 
-  // --- ground lattice: only on near-flat low terrain, like a substrate.
-  // Every 12.8 units — four facets — which also divides the loop period.
-  vec2 gp = vW.xz * 0.078125;
-  vec2 gw = fwidth(gp);
-  vec2 gg = abs(fract(gp - 0.5) - 0.5) / max(gw, vec2(1e-5));
-  float grid = 1.0 - min(min(gg.x, gg.y), 1.0);
-  grid *= smoothstep(3.0, -10.0, vW.y) * pow(max(n.y, 0.0), 5.0);
-  grid *= 1.0 - smoothstep(45.0, 195.0, dist);
-
-  // --- survey sweep: a slow band of light travelling toward the viewer.
-  // Squared by hand, because pow() of a negative base is undefined and one
-  // NaN pixel would be smeared across the frame by the bloom.
-  float dz   = vW.z - uCam.z;
-  float q    = (dz - uPulse) / 9.0;
-  float band = exp(-q * q);
-
-  float survey = 1.0 - C_PLAIN;
-  col += C_GRID * grid * 0.64 * (0.170 + 0.70 * band) * survey;
-  col += C_GRID * band * 0.080 * (0.25 + 0.75 * lam) * survey;
-
-  // --- atmosphere: thicker down low, so the valleys pool with haze, and
-  // patchy there — a slow drift of mist sampled at the ground point. The
-  // mist repeats three times per loop period, so the join stays invisible.
+  // --- the air between it and the eye: thicker down low, so the fjord
+  // pools with haze, and patchy there — a slow drift of mist sampled at the
+  // ground point, repeating three times per loop period so the join stays
+  // invisible
+  float wet  = wetLen(eye, vW);
+  float dry  = dist - wet;
   float low  = exp(-max(vW.y + 8.0, 0.0) * 0.048);
   vec2  mp   = vW.xz * 0.0046875 + uMistT * vec2(0.0040, 0.0095);
   float mist = texture(uNoise, mp).g * 0.62 + texture(uNoise, mp * 2.0 + 0.37).b * 0.38;
   mist = smoothstep(0.34, 0.70, mist) * C_MIST;
   float lowM = low * (0.55 + 0.95 * mist) * (1.0 - C_PLAIN);
-  float fd   = dist * (0.0048 + 0.0064 * lowM) * uFogK * (1.0 - 0.25 * C_PLAIN);
+  float fd   = dry * (0.0048 + 0.0064 * lowM) * uFogK * (1.0 - 0.25 * C_PLAIN);
   float fog  = 1.0 - exp(-fd * fd * 0.85 - fd * 0.18);
-  // melt the sides of the tile into the air rather than letting them end
-  fog = max(fog, smoothstep(292.0, 380.0, abs(vW.x)));
+  // melt the sides of the tile, and the far end of the copy ahead of it,
+  // into the air rather than letting them end: from the water the eye can
+  // see down the fjord as far as the land goes
+  fog = max(fog, max(smoothstep(292.0, 380.0, abs(vW.x)), smoothstep(1020.0, 1270.0, vW.z)));
   vec3 fogC = haze(rd) * mix(0.93 + 0.46 * lowM, 1.0, C_PLAIN);
 
+  // --- and the water: what it swallows of the light, the colour it adds and
+  // the shafts in it, in the order the light meets them on its way to the eye
+  if (wet > 0.0) {
+    float a = eye.y < 0.0 ? 0.0 : dry, b = eye.y < 0.0 ? wet : dist;
+    vec3  T  = exp(-wAbs() * wet);
+    vec3  wc = waterCol(min(eye.y + rd.y * (a + b) * 0.5, 0.0), rd) * (1.0 - T)
+             + C_SUNC * wTint() * (shafts(eye, rd, a, b) * W_SHAFT * uSunAmt * uSunV * (1.0 - uOver) * (1.0 - C_PLAIN));
+    col = eye.y < 0.0 ? mix(col, fogC, fog) * T + wc : mix(col * T + wc, fogC, fog);
+  } else {
+    col = mix(col, fogC, fog);
+  }
+
   // alpha 0 marks terrain: it blocks the light shafts
-  frag = vec4(mix(col, fogC, fog), 0.0);
+  frag = vec4(col, 0.0);
 }`;
 
 // Side of the camera-relative box the motes wrap inside. Tighter than the
@@ -1715,8 +1909,14 @@ uniform mat4  uVP;
 uniform vec3  uCam, uLight;
 uniform float uTime, uPx, uFwd, uDust;
 uniform float uPlain;
+uniform float uWet;            // 1: the marine snow sinking through the water instead
+uniform vec2  uRes;
+${MEDIUM_U}
+${MEDIUM_PIX}
+${MEDIUM_PATH}
 out float vA;
 out float vB;
+out vec3  vT;
 void main(){
   const float SPAN = ${DUST_SPAN}.0;
   float r = aSeed.w;
@@ -1724,6 +1924,8 @@ void main(){
   p.x = aSeed.x + sin(uTime * 0.035 + aSeed.z * 0.11) * 7.0;
   p.y = aSeed.y + sin(uTime * 0.080 + aSeed.x * 0.23) * 3.0;
   p.z = aSeed.z + cos(uTime * 0.028 + aSeed.x * 0.09) * 7.0;
+  // in the water, a slow fall from the surface to the floor, round and round
+  if (uWet > 0.5) p.y = -1.0 - mod(aSeed.y * 0.53 + uTime * (0.25 + 0.35 * r), 30.0);
   p.x = mod(p.x - uCam.x + SPAN * 0.5, SPAN) - SPAN * 0.5 + uCam.x;
   p.z = mod(p.z - uCam.z + SPAN * 0.5, SPAN) - SPAN * 0.5 + uCam.z;
   gl_Position  = uVP * vec4(p, 1.0);
@@ -1741,20 +1943,39 @@ void main(){
   float fwd = pow(max(dot((p - uCam) / d, uLight), 0.0), 10.0);
   float tw  = 0.70 + 0.30 * sin(uTime * (0.9 + 2.3 * r) + r * 97.0);
   vB = tw * (1.0 + fwd * 2.5 * uFwd);
+
+  // Each keeps to its own side of the surface. The marine snow is only seen
+  // close by, and fades at the two ends of its fall rather than jumping.
+  if (uWet > 0.5) {
+    vA = smoothstep(1.5, 5.0, d) * (1.0 - smoothstep(28.0, 60.0, d)) * (0.30 + 0.50 * r)
+       * smoothstep(-1.0, -3.0, p.y) * smoothstep(-31.0, -28.0, p.y) * (1.0 - uPlain);
+    vB = tw;
+  } else vA *= step(0.4, p.y);
+  // and is seen through whatever water lies between it and the eye
+  bool und = underNdc(gl_Position.xy / max(gl_Position.w, 1e-3));
+  vT = exp(-wAbs() * wetLen(eyeFor(und), p));
 }`;
 
 const DUST_FS = `#version 300 es
-precision mediump float;
+precision highp float;
 in float vA;
 in float vB;
-uniform vec3 uTint;
-uniform float uSub;
+in vec3  vT;
+uniform vec3  uTint;
+uniform float uSub, uGroup;
+uniform vec2  uRes;
+${MEDIUM_U}
+${MEDIUM_PIX}
+${PIX_FS}
 out vec4 frag;
 void main(){
+  // uGroup 1: only where the lens is above the water; 2: only below it
+  if (uGroup > 0.5 && (uGroup < 1.5) == underPix()) discard;
   float d = length(gl_PointCoord - 0.5);
   float a = smoothstep(0.5, 0.06, d) * vA;
+  float t = dot(vT, vec3(0.3333));
   // added (softened once more by its own alpha) or laid over, as the graph
-  frag = mix(vec4(uTint * (a * vB * a), 0.0), vec4(uTint * (a * vB), a), uSub);
+  frag = mix(vec4(uTint * vT * (a * vB * a), 0.0), vec4(uTint * (a * vB * t), a * t), uSub);
 }`;
 
 /* Graph edges are instanced screen-space quads rather than GL lines: a line
@@ -1773,8 +1994,12 @@ uniform vec3  uCam;
 uniform vec2  uRes;
 uniform float uPx, uHalo, uFog;
 uniform float uCore;           // line width: thin for the graph, full for the lightning
+${MEDIUM_U}
+${MEDIUM_PIX}
+${MEDIUM_PATH}
 out float vS, vA, vHw, vDw, vW;
 out vec4  vP;
+out vec3  vT;                  // what the water between this end and the eye lets through
 float haze(float d){ return exp(-pow(d * 0.0034 * uFog, 2.0)) * smoothstep(10.0, 38.0, d); }
 float ring(float d){ return mix(10.0, 6.0, smoothstep(60.0, 400.0, d)) * uPx; }
 void main(){
@@ -1788,7 +2013,7 @@ void main(){
   float sa = 0.0, sb = 1.0;
   if (ca.w < NW && cb.w < NW) {
     gl_Position = vec4(0.0, 0.0, -2.0, 1.0);
-    vS = vA = vHw = vDw = 0.0; vW = 1.0; vP = vec4(-9.0);
+    vS = vA = vHw = vDw = 0.0; vW = 1.0; vP = vec4(-9.0); vT = vec3(0.0);
     return;
   }
   if (ca.w < NW) { float k = (NW - ca.w) / (cb.w - ca.w); ca = mix(ca, cb, k); sa = k; }
@@ -1822,17 +2047,25 @@ void main(){
   vS  = atB ? sb : sa;
   vA  = atB ? iB.w * haze(db) : iA.w * haze(da);
   vP  = iP;
+  vT  = exp(-wAbs() * wetLen(eyeFor(underNdc(c.xy / c.w)), atB ? iB.xyz : iA.xyz));
 }`;
 
 const EDGE_FS = `#version 300 es
 precision highp float;
 in float vS, vA, vHw, vDw, vW;
 in vec4  vP;
+in vec3  vT;
 uniform vec3  uTint, uHot;
 uniform float uSub, uHalo, uPx, uCore;
 uniform float uPlain;          // the plain look: a sharp line, no pulse
+uniform float uGroup;          // 1: only where the lens is above the water; 2: only below it
+uniform vec2  uRes;
+${MEDIUM_U}
+${MEDIUM_PIX}
+${PIX_FS}
 out vec4 frag;
 void main(){
+  if (uGroup > 0.5 && (uGroup < 1.5) == underPix()) discard;
   float d    = abs(vDw / vW);                          // px from the centre line
   float core = smoothstep(vHw + 0.65, vHw - 0.65, d);
   float sg   = (1.2 + 1.4 * uCore) * uPx;              // the glow narrows with the line
@@ -1850,8 +2083,8 @@ void main(){
   // from one theme to the other a blend of the two, as far as uSub has come,
   // so a slow change of theme never flips the overlays on a single frame.
   // Drawn with ONE, ONE_MINUS_SRC_ALPHA: an alpha of 0 adds, a lays over.
-  float ao = min(a, 1.0);
-  frag = mix(vec4((uTint + uHot * (p * 1.1)) * a, 0.0), vec4(uTint * ao, ao), uSub);
+  float ao = min(a, 1.0), tt = dot(vT, vec3(0.3333));
+  frag = mix(vec4((uTint + uHot * (p * 1.1)) * vT * a, 0.0), vec4(uTint * (ao * tt), ao * tt), uSub);
 }`;
 
 /* Nodes, sparks and ripples share one point pass. A node is the hollow
@@ -1865,9 +2098,15 @@ in vec4 aK;                    // kind (0 node, 1 spark, 2 ripple, 3 sparkle), p
 uniform mat4  uVP;
 uniform vec3  uCam;
 uniform float uPx, uMaxPt, uHalo, uFog;
+uniform vec2  uRes;
+${MEDIUM_U}
+${MEDIUM_PIX}
+${MEDIUM_PATH}
 out float vA, vSize, vKind, vPar, vRing;
+out vec3  vT;
 void main(){
   gl_Position = uVP * vec4(aP.xyz, 1.0);
+  vT = exp(-wAbs() * wetLen(eyeFor(underNdc(gl_Position.xy / max(gl_Position.w, 1e-3))), aP.xyz));
   float d = distance(aP.xyz, uCam);
   // same haze the terrain uses, plus a near fade so nothing pops in your face
   vA = aP.w * exp(-pow(d * 0.0034 * uFog, 2.0)) * smoothstep(10.0, 38.0, d);
@@ -1889,9 +2128,15 @@ void main(){
 const PT_FS = `#version 300 es
 precision highp float;
 in float vA, vSize, vKind, vPar, vRing;
+in vec3  vT;
 uniform vec3  uTint, uHot;
 uniform float uSub, uHalo;
 uniform float uPlain;          // the plain look: sharp rings and nothing else
+uniform float uGroup;          // 1: only where the lens is above the water; 2: only below it
+uniform vec2  uRes;
+${MEDIUM_U}
+${MEDIUM_PIX}
+${PIX_FS}
 out vec4 frag;
 // Measured in device pixels rather than fractions of the sprite: a purely
 // proportional stroke ends up thinner than the anti-alias feather once the
@@ -1904,6 +2149,7 @@ float glyph(float pr, float D){
   return mix(ring, disc, smoothstep(4.8, 3.0, D));      // too small to hole -> dot
 }
 void main(){
+  if (uGroup > 0.5 && (uGroup < 1.5) == underPix()) discard;
   float S  = max(vSize, 2.0);
   float pr = length(gl_PointCoord - 0.5) * S;          // px from the sprite centre
   float a, hot = 0.0;
@@ -1930,8 +2176,8 @@ void main(){
     hot = 1.0;
   }
   a *= vA;
-  float ao = min(a, 1.0);                             // added or laid over, as the edges
-  frag = mix(vec4((uTint + uHot * (hot * 2.0)) * a, 0.0), vec4(uTint * ao, ao), uSub);
+  float ao = min(a, 1.0), tt = dot(vT, vec3(0.3333));  // added or laid over, as the edges
+  frag = mix(vec4((uTint + uHot * (hot * 2.0)) * vT * a, 0.0), vec4(uTint * (ao * tt), ao * tt), uSub);
 }`;
 
 /* Birds: one small mesh drawn once per bird, flapped in the vertex stage.
@@ -2030,6 +2276,11 @@ void main(){
   p.y = mod(iSeed.y - uTime * fall, HGT) - HGT * 0.5 + uCam.y;
   p.x = mod(iSeed.x + uTime * uWind - uCam.x + SPAN * 0.5, SPAN) - SPAN * 0.5 + uCam.x;
   p.z = mod(iSeed.z - uCam.z + SPAN * 0.5, SPAN) - SPAN * 0.5 + uCam.z;
+  if (p.y < 0.4) {                                   // it has reached the water
+    gl_Position = vec4(0.0, 0.0, -2.0, 1.0);
+    vA = vT = vDw = vHw = 0.0; vW = 1.0;
+    return;
+  }
   vec3  tail = p - v * (0.028 * (1.0 - 0.35 * uPlain)); // the streak one glance draws
   vec4  ch = uVP * vec4(p, 1.0), ct = uVP * vec4(tail, 1.0);
   if (ch.w < 0.6 || ct.w < 0.6) {                    // at or behind the eye: nothing to draw
@@ -2093,7 +2344,7 @@ void main(){
   gl_PointSize = mix(clamp(240.0 / d, 1.2, 7.5) * (0.6 + 0.6 * r),
                      clamp(150.0 / d, 1.0, 4.0) * (0.6 + 0.4 * r), uPlain) * uPx;
   vA = smoothstep(1.5, 6.0, d) * (1.0 - smoothstep(SPAN * 0.30, SPAN * 0.47, d))
-     * exp(-pow(d * 0.008 * uFog, 2.0)) * (0.32 + 0.40 * r);
+     * exp(-pow(d * 0.008 * uFog, 2.0)) * (0.32 + 0.40 * r) * step(0.4, p.y);   // and gone into the water
 }`;
 
 const SNOW_FS = `#version 300 es
@@ -2278,6 +2529,124 @@ void main(){
   frag = vec4(mix(body, C_NOSE * hot, core) * a + C_NOSE * (hot * 0.5 * glow * uEnv), a);
 }`;
 
+/* The surface of the fjord, worked out per pixel rather than drawn as a
+   plane: each pixel's ray is met with the surface from the side of the lens
+   that pixel looks through, and the depth it writes is where they meet, so
+   the depth test still sorts it against the land. From above it is a
+   mirror by Fresnel — the reflection pass, nudged by the waves — with the
+   sun's glitter on it; from below it is Snell's window, the world above in
+   a circle overhead and the water mirrored everywhere else. Where a beam
+   goes through it, rings run out and the way through glows. Drawn twice:
+   once for its colour, and once (uDepthOnly) to write the depth of what it
+   hides from below, so the lights of the air drawn after it are hidden
+   there too. */
+const WATER_FS = `#version 300 es
+precision highp float;
+in vec2 vNdc;
+uniform mat4  uInvVP, uVP;
+uniform vec3  uCam, uLight, uSunH;
+uniform vec2  uRes;
+uniform float uSunAmt, uSunV, uOver, uFogK, uFlash, uChop, uDrops, uDepthOnly, uHasRefl;
+uniform sampler2D uNoise, uReflT;
+uniform vec4  uRip[12];        // where a beam goes through: xz, seconds since, strength
+uniform vec3  C_FOG, C_SUN, C_SUNC, C_BEAMA, C_BEAMW, C_FLASHC;
+uniform float C_PLAIN, C_WREF, C_SUB;
+out vec4 frag;
+${HAZE}
+${MEDIUM_U}
+${MEDIUM_PIX}
+${PIX_FS}
+${MEDIUM_PATH}
+float wv(vec2 p){
+  return texture(uNoise, p * 0.0105 + uWTime * vec2(0.0040, 0.0062)).b * 0.62
+       + texture(uNoise, p * 0.0290 - uWTime * vec2(0.0071, 0.0030)).a * 0.38;
+}
+void main(){
+  bool und = underPix();
+  vec3 e = eyeFor(und);
+  vec4 w = uInvVP * vec4(vNdc, 1.0, 1.0);
+  vec3 d = normalize(w.xyz / w.w - uCam);
+  if (und ? d.y <= 0.0 : d.y >= 0.0) discard;      // this ray never meets the surface
+  // The surface runs on to the horizon. A ray that only just dips toward it
+  // still meets it, far off: left out, the sliver of rays next to the
+  // horizon showed the dark of the water behind as a line, blinking as the
+  // camera bobbed across the pixel rows. For the depth test a point short of
+  // the far plane stands in for one beyond it, still behind all the land.
+  float t = min(-e.y / (und ? max(d.y, 1e-6) : min(d.y, -1e-6)), 2e4);
+  vec3 h = e + d * t;
+  vec4 cl = uVP * vec4(e + d * min(t, 1300.0), 1.0);
+  gl_FragDepth = clamp(cl.z / cl.w * 0.5 + 0.5, 0.0, 1.0);
+  if (uDepthOnly > 0.5) {
+    // what it hides from below: everything but Snell's window
+    if (!und || d.y > 0.62) discard;
+    frag = vec4(0.0);
+    return;
+  }
+
+  // waves: small, and smaller with distance, where they would only shimmer
+  float amp = uChop / (1.0 + t * 0.012);
+  float c0 = wv(h.xz);
+  vec3 n = vec3(-(wv(h.xz + vec2(0.7, 0.0)) - c0) * amp * 9.0, 1.0,
+                -(wv(h.xz + vec2(0.0, 0.7)) - c0) * amp * 9.0);
+  // rain: a ring where each drop lands, near the eye
+  if (uDrops > 0.01 && t < 70.0) {
+    vec2  g  = h.xz * 0.6, id = floor(g), f = fract(g) - 0.5;
+    float hs = fract(sin(dot(id, vec2(127.1, 311.7))) * 43758.5453);
+    float ph = fract(uWTime * 1.1 + hs);
+    vec2  dv = f - (vec2(fract(hs * 13.1), fract(hs * 7.7)) - 0.5) * 0.4;
+    float rr = length(dv), kk = rr - ph * 0.45;
+    n.xz += dv / max(rr, 1e-3) * exp(-kk * kk * 1400.0) * (1.0 - ph) * uDrops * (1.0 - t / 70.0) * 0.9;
+  }
+  // where beams go through: two rings at a time run out from the way
+  // through, which glows, brightest as a pulse passes
+  float glow = 0.0;
+  for (int i = 0; i < 12; i++){
+    vec4 r = uRip[i];
+    if (r.w < 0.002) continue;
+    vec2  dv = h.xz - r.xy;
+    float rr = length(dv);
+    for (int k = 0; k < 2; k++){
+      float ph = fract(r.z * 0.33 + float(k) * 0.5);
+      float kk = rr - ph * 16.0;
+      float ring = exp(-kk * kk * 0.35) * (1.0 - ph) * smoothstep(0.0, 0.08, ph);
+      n.xz += dv / max(rr, 1e-3) * cos(kk * 1.9) * ring * 0.22 * r.w;
+      glow += ring * 0.30 * r.w;
+    }
+    glow += exp(-rr * rr * 0.09) * 1.4 * r.w;
+  }
+  n = normalize(n);
+
+  vec3 col, gc = mix(C_BEAMA, C_BEAMW, 0.35);
+  float F;
+  if (!und) {
+    float ci = max(dot(n, -d), 0.0);
+    F = 0.02 + 0.98 * pow(1.0 - ci, 5.0);
+    vec2 uv = gl_FragCoord.xy / uRes + n.xz * (0.10 / (1.0 + t * 0.025));
+    // With the lens on the surface no reflection is drawn; the sliver of
+    // water the waterline's wobble still shows from above mirrors the haze.
+    vec3 refl = (uHasRefl > 0.5 ? texture(uReflT, clamp(uv, vec2(0.001), vec2(0.999))).rgb
+                                : haze(reflect(d, n))) * C_WREF;
+    float m = max(dot(reflect(d, n), uLight), 0.0);
+    float glit = (pow(m, 900.0) * 30.0 + pow(m, 140.0) * 0.9 + pow(m, 24.0) * 0.06)
+               * uSunAmt * uSunV * (1.0 - 0.85 * uOver) * (1.0 - C_PLAIN);
+    float fa = 1.0 - exp(-pow(t * 0.0048 * uFogK, 2.0));     // the air it shines through
+    col = refl * F + C_SUNC * (glit * (1.0 - fa)) + C_FLASHC * (uFlash * 0.25 * F);
+    col = mix(col + gc * (glow * (1.0 - fa)), mix(col, gc * F, clamp(glow * 0.8, 0.0, 1.0)), C_SUB);
+  } else {
+    float ci = clamp(dot(d, n), 0.0, 1.0);
+    float s  = sqrt(1.0 - ci * ci) * 1.333;               // past 1, total internal reflection
+    F = mix(0.02 + 0.98 * pow(1.0 - ci, 5.0), 1.0, smoothstep(0.88, 1.0, s));
+    // the underside mirrors the water below it, and the window's rim is
+    // bright (squared by hand: pow() of a negative base is undefined, and
+    // one NaN pixel would be smeared across the frame by the bloom)
+    float rim = (s - 1.0) * 9.0;
+    vec3 tir = waterCol(-4.0, reflect(d, n)) * 1.2 + W_TOP * (0.6 * exp(-rim * rim));
+    vec3 T = exp(-wAbs() * t);
+    col = (tir * F + C_BEAMW * (glow * 0.8)) * T + waterCol(e.y * 0.5, d) * ((1.0 - T) * F);
+  }
+  frag = vec4(col, F);
+}`;
+
 /* ---- post chain -------------------------------------------------------
    One full-screen triangle drives every pass below. */
 const POST_VS = `#version 300 es
@@ -2406,11 +2775,24 @@ precision highp float;
 in vec2 vUv;
 uniform sampler2D uScene, uBloom, uRays;
 uniform float uBloomI, uRaysI, uKnee;
+uniform vec2  uRes;
+uniform float uPxK, uLine;
+uniform vec3  uLineC;
+${MEDIUM_U}
+${MEDIUM_PIX}
 out vec4 frag;
 void main(){
-  vec3 c = texture(uScene, vUv).rgb;
+  // The waterline: the image swells a little on either side of it, as
+  // through the curve of the water on the lens, and the meniscus catches
+  // the light in a thin line.
+  vec2  nd = vUv * 2.0 - 1.0;
+  float dp = (nd.y - waterline(nd.x)) * 0.5 * uRes.y / uPxK;     // CSS px above the line
+  vec2  uv = vUv;
+  uv.y += sign(dp) * exp(-dp * dp / 26.0) * 2.0 * uPxK / uRes.y * uLine;
+  vec3 c = texture(uScene, uv).rgb;
   c += texture(uBloom, vUv).rgb * uBloomI;
   c += texture(uRays,  vUv).rgb * uRaysI;
+  c = mix(c, uLineC, exp(-dp * dp / 1.4) * uLine);
   // A shoulder, not a clip: unchanged up to the knee, then eased into white,
   // so the sun and the flares roll off instead of flattening. Per channel,
   // so a grey stays exactly grey.
@@ -2458,9 +2840,10 @@ function attrib(prog, name, size, stride, offset, divisor) {
 
 // A driver that refuses a shader or a format leaves the page on its static
 // fallback rather than on a blank canvas.
-let skyP, terP, birdP, dustP, edgeP, ptP, rainP, snowP, santaP, downP, upP, rsrcP, rblurP, compP;
+let skyP, terP, birdP, dustP, edgeP, ptP, rainP, snowP, santaP, waterP, downP, upP, rsrcP, rblurP, compP;
 try {
   skyP   = program(SKY_VS,  SKY_FS);
+  waterP = program(SKY_VS,  WATER_FS);
   terP   = program(TER_VS,  TER_FS);
   birdP  = program(BIRD_VS, BIRD_FS);
   rainP  = program(RAIN_VS, RAIN_FS);
@@ -2566,10 +2949,19 @@ gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
 gl.bufferData(gl.ARRAY_BUFFER, slabSeeds(SNOW_N, SNOW_SPAN, 110), gl.STATIC_DRAW);
 attrib(snowP, 'aSeed', 4, 0, 0);
 
-const LINK_MAX = 52;
+const LINK_MAX = 52, BEAM_MAX = 10;
 const EDGE_F = 16, PT_F = 8;                   // floats per edge instance / per point
 const edgeBuf = new Float32Array(LINK_MAX * EDGE_F);
-const ptBuf   = new Float32Array(LINK_MAX * 6 * PT_F);
+// the graph's points, then the beams' own in the air: a node and a spark each
+const ptBuf   = new Float32Array((LINK_MAX * 6 + BEAM_MAX * 2) * PT_F);
+// the beams' two runs, and what is drawn under the water: the database's
+// relations, its nodes and pulses, and the beams' sparks and ripples there
+// (through the same buffers on the GPU)
+const beamAirBuf = new Float32Array(BEAM_MAX * EDGE_F), beamWetBuf = new Float32Array(BEAM_MAX * EDGE_F);
+const DBE_MAX = 360, DBPT_MAX = 420;
+const dbEdgeBuf = new Float32Array(DBE_MAX * EDGE_F);
+const dbPtBuf = new Float32Array(DBPT_MAX * PT_F);
+const WSNOW_N = COARSE ? 5000 : 9000;          // marine snow: the first of the motes' seeds
 
 const edgeVao = gl.createVertexArray();
 gl.bindVertexArray(edgeVao);
@@ -2578,7 +2970,7 @@ gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, -1, 0, 1, 1, -1, 1, 1]), gl.
 attrib(edgeP, 'aCorner', 2, 0, 0);
 const edgeVbo = gl.createBuffer();
 gl.bindBuffer(gl.ARRAY_BUFFER, edgeVbo);
-gl.bufferData(gl.ARRAY_BUFFER, edgeBuf.byteLength, gl.DYNAMIC_DRAW);
+gl.bufferData(gl.ARRAY_BUFFER, Math.max(edgeBuf.byteLength, dbEdgeBuf.byteLength), gl.DYNAMIC_DRAW);
 attrib(edgeP, 'iA', 4, EDGE_F * 4,  0, 1);
 attrib(edgeP, 'iB', 4, EDGE_F * 4, 16, 1);
 attrib(edgeP, 'iP', 4, EDGE_F * 4, 32, 1);
@@ -2588,7 +2980,7 @@ const ptVao = gl.createVertexArray();
 gl.bindVertexArray(ptVao);
 const ptVbo = gl.createBuffer();
 gl.bindBuffer(gl.ARRAY_BUFFER, ptVbo);
-gl.bufferData(gl.ARRAY_BUFFER, ptBuf.byteLength, gl.DYNAMIC_DRAW);
+gl.bufferData(gl.ARRAY_BUFFER, Math.max(ptBuf.byteLength, dbPtBuf.byteLength), gl.DYNAMIC_DRAW);
 attrib(ptP, 'aP', 4, PT_F * 4,  0);
 attrib(ptP, 'aK', 4, PT_F * 4, 16);
 
@@ -2664,10 +3056,14 @@ gl.activeTexture(gl.TEXTURE0);
 
 /* ---- render targets ----
    scene    full size: multisampled renderbuffers resolved into a texture
+   refl     the world above the water mirrored in it, at half size (a third
+            on phones), with a depth buffer of its own
    bloom[]  half size and down, one level per halving
    rays[]   quarter size, ping-ponged by the radial blur */
 const BLOOM_LEVELS = COARSE ? 5 : 6;
+const RS = COARSE ? 3 : 2;
 let sceneT = null, sceneDepth = null, msFbo = null, msColor = null, msDepth = null;
+let reflT = null, reflDepth = null;
 let bloomT = [], raysT = [];
 
 function target(w, h) {
@@ -2687,10 +3083,16 @@ function target(w, h) {
 function drop(t) { if (t) { gl.deleteTexture(t.tex); gl.deleteFramebuffer(t.fbo); } }
 
 function buildTargets() {
-  drop(sceneT); bloomT.forEach(drop); raysT.forEach(drop);
-  for (const rb of [sceneDepth, msColor, msDepth]) if (rb) gl.deleteRenderbuffer(rb);
+  drop(sceneT); drop(reflT); bloomT.forEach(drop); raysT.forEach(drop);
+  for (const rb of [sceneDepth, msColor, msDepth, reflDepth]) if (rb) gl.deleteRenderbuffer(rb);
   if (msFbo) gl.deleteFramebuffer(msFbo);
-  sceneDepth = msColor = msDepth = msFbo = null;
+  sceneDepth = msColor = msDepth = msFbo = reflDepth = null;
+
+  reflT = target(Math.max(1, Math.round(W / RS)), Math.max(1, Math.round(H / RS)));
+  reflDepth = gl.createRenderbuffer();
+  gl.bindRenderbuffer(gl.RENDERBUFFER, reflDepth);
+  gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, reflT.w, reflT.h);
+  gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, reflDepth);
 
   sceneT = target(W, H);
   if (SAMPLES) {
@@ -2747,12 +3149,37 @@ const SKY_PAL = [['C_FOG','fog'], ['C_TOP','top'], ['C_SUN','sun'], ['C_SUNC','s
                  ['C_PLAIN','plain']];
 const BIRD_PAL = [['C_BIRD','bird'], ['C_FOG','fog'], ['C_SUN','sun'], ['C_SUNC','sunC']];
 const SANTA_PAL = [['C_BIRD','bird'], ['C_FOG','fog'], ['C_SUN','sun'], ['C_NOSE','noseC']];
+const SURF_PAL = [['C_FOG','fog'], ['C_SUN','sun'], ['C_SUNC','sunC'], ['C_FLASHC','flashC'],
+                  ['C_PLAIN','plain'], ['C_SUB','sub']];
+const WATER_PAL = [['W_DEEP','wDeep'], ['W_ABS','wAbs'], ['W_SHAFT','shaft'], ['W_CAUS','caus'],
+                   ['W_SUB','wsub'], ['C_DB','db'], ['C_DBHOT','dbHot'], ['C_BEAMA','beamA'],
+                   ['C_BEAMW','beamW'], ['C_WREF','wref']];
 function setPalette(prog, list) {
   for (let i = 0; i < list.length; i++) {
     const loc = prog.u[list[i][0]], v = P[list[i][1]];
     if (loc === undefined) continue;
     if (typeof v === 'number') gl.uniform1f(loc, v); else gl.uniform3fv(loc, v);
   }
+}
+// Everything a shader needs to know about the water: where the waterline
+// is, which side of the lens a pixel looks through, and the water itself.
+// A storm darkens the water as it darkens the land.
+let split = -2;
+const WTOP = [0, 0, 0];
+function setMedium(prog, refl) {
+  const u = prog.u;
+  if (u.uSplit !== undefined) gl.uniform1f(u.uSplit, split);
+  if (u.uRefl  !== undefined) gl.uniform1f(u.uRefl, refl ? 1 : 0);
+  if (u.uWTime !== undefined) gl.uniform1f(u.uWTime, time);
+  if (u.uRes   !== undefined) gl.uniform2f(u.uRes, refl ? reflT.w : W, refl ? reflT.h : H);
+  if (u.uLw    !== undefined) gl.uniform3fv(u.uLw, LW);
+  if (u.W_MURK !== undefined) gl.uniform1f(u.W_MURK, wx.murk);
+  if (u.W_TOP  !== undefined) {
+    const k = 0.45 + 0.55 * wx.dim;
+    WTOP[0] = P.wTop[0] * k; WTOP[1] = P.wTop[1] * k; WTOP[2] = P.wTop[2] * k;
+    gl.uniform3fv(u.W_TOP, WTOP);
+  }
+  setPalette(prog, WATER_PAL);
 }
 
 /* ---- minimal mat4 ---- */
@@ -2810,61 +3237,74 @@ function invert(o, m) {
 }
 
 const proj = M(), view = M(), vp = M(), invVP = M();
+// the reflection's: the frame's view of the world turned upside down in the surface
+const vpR = M(), invVpR = M(), FLIP = new Float32Array([1, 0, 0, 0, 0, -1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
 
 /* ============================================================
    4. FLIGHT
    ============================================================ */
 
-const SPEED = REDUCED ? 0.8 : 3.2;            // world units / second
+const SPEED = REDUCED ? 0.8 : 2.6;            // world units / second, down the fjord
 
-// The sun sits low and ahead, a little to the right of the flight line — in
-// the frame, clear of the text column, and low enough that the ranges on
-// that side pass in front of it now and then and break it into shafts.
-// (The camera's right is world -x.)
-const SUN_EL = 8 * Math.PI / 180, SUN_AZ = 33 * Math.PI / 180;
+// The sun sits low over the far end of the fjord, a little right of its
+// line, so its glitter runs up the water toward the camera. (The camera's
+// right is world -x.) In the water its light comes down steeper, bent at
+// the surface: LW is the way to the sun as seen from below.
+const SUN_EL = 9.5 * Math.PI / 180, SUN_AZ = 7 * Math.PI / 180;
 const LIGHT = [-Math.sin(SUN_AZ) * Math.cos(SUN_EL), Math.sin(SUN_EL), Math.cos(SUN_AZ) * Math.cos(SUN_EL)];
 const SUNH  = (() => { const l = Math.hypot(LIGHT[0], LIGHT[2]); return [LIGHT[0] / l, 0, LIGHT[2] / l]; })();
-const EYE = [0, 0, 0], TGT = [0, 0, 0], UP = [0, 1, 0];
+const LW    = (() => { const h = Math.cos(SUN_EL) / 1.333; return [LIGHT[0] / 1.333, Math.sqrt(1 - h * h), LIGHT[2] / 1.333]; })();
+const EYE = [0, 0, 0], TGT = [0, 0, 0], UP = [0, 1, 0], EYE_R = [0, 0, 0];
+const AHEAD = 95;                   // how far down the fjord the camera looks
 
-// Terrain-following altitude: clear only the ground on the flight line,
-// not the peaks either side — so the ranges tower past the camera.
-const RING = [[0,0],[11,0],[-11,0],[0,15],[0,-15],[8,8],[-8,8]];
-function clearance(x, z) {
-  let m = -1e9;
-  for (let i = 0; i < RING.length; i++) m = Math.max(m, heightAt(x + RING[i][0], z + RING[i][1]));
-  return m;
+/* ---- the dive ------------------------------------------------------------
+   How far the lens has sunk, from 0 to 1, follows the page (on this page;
+   Relatude.DB's goes down on its own, below): 0 at the top,
+   0.4 with the CMS panel in the middle of the window, 1 with Relatude.DB's
+   there (or at the foot of the page, if that comes first). In logo only —
+   the page opens that way — it cannot scroll, and the lens stays above the
+   water, where the page starts. At 0 the camera is
+   a little above the water, looking down into it; at 0.4 it sits on the
+   surface, the waterline on the horizon; at 1 it is down among the
+   database's nodes, looking at them (the frame keeps it clear of the
+   drowned summits). DOME is the lens's radius: how far it sinks while the
+   waterline crosses the frame. */
+const DOME = 1.6;
+function diveCam(v) {               // -> [the camera's height, its pitch]
+  const y = v < 0.4 ? 6.5 * Math.pow(1 - v / 0.4, 2) : -32 * Math.pow(smoothstep(0.4, 1, v), 1.5);
+  // a touch down at the surface, so the frame holds as much of the depth as of the sky
+  const deg = v < 0.4 ? 0.5 - 2.5 * v / 0.4 : -2 - 15 * smoothstep(0.42, 1, v);
+  return [y, deg * Math.PI / 180];
 }
-
-// Lateral routing: probe a fan of corridors ahead and steer toward the
-// lowest one, so the flight threads the passes instead of climbing over
-// the ranges. Penalties keep it from swerving or wandering to the edge.
-//
-// Candidates sit on a FIXED world grid rather than being offset from the
-// current position, and the incumbent gets a bonus. Without both, the
-// winner flip-flops between neighbouring corridors and the chosen target
-// jumps a whole grid step several times a second.
-const GRID = 24;
-function routeX(x, z, cur) {
-  const base = Math.round(x / GRID) * GRID;
-  let bestX = base, bestC = Infinity;
-  for (let i = -6; i <= 6; i++) {
-    const cx = base + i * GRID;
-    if (Math.abs(cx) > 170) continue;
-    let c = 0;
-    for (let dz = 40; dz <= 190; dz += 21) c = Math.max(c, heightAt(cx, z + dz));
-    c += Math.abs(cx - x) * 0.05 + Math.abs(cx) * 0.10;
-    if (Math.abs(cx - cur) < GRID * 0.5) c -= 6;      // hysteresis
-    if (c < bestC) { bestC = c; bestX = cx; }
+let clearY = null;                  // eased: the height that clears the floor just ahead
+// the page's words at the waterline (CMS above, DB below), and what they were last told
+const tide = document.querySelector('.tide');
+let tideY = null, tideO = null;
+let dive = 0, diveMarks = null, diveMarkAt = 0;
+// The scroll positions at which the two panels sit in the middle of the
+// window, read again once a second, since the layout can move under them.
+function diveMarksNow() {
+  const max = Math.max(1, document.documentElement.scrollHeight - innerHeight);
+  const at = el => el ? scrollY + el.getBoundingClientRect().top + el.offsetHeight / 2 - innerHeight / 2 : max;
+  const a = Math.max(40, Math.min(at(document.querySelector('.layer-cms')), max));
+  return [a, Math.max(a + 40, Math.min(at(document.querySelector('.layer-db')), max))];
+}
+// Relatude.DB's page tells the story the other way round, on its own rather
+// than by its scroll (data-dive="descend" on the canvas; the page is about
+// one screen tall): it opens above the water as the light comes up, sinks
+// to the surface, waits there a moment with the frame halved, and goes on
+// down to the database, where it stays.
+const DESCEND = canvas.dataset.dive === 'descend';
+function diveGoal(now) {
+  if (DESCEND) {
+    const s = time - T0;
+    return s < 12 ? 0 : s < 17 ? 0.4 * smoothstep(12, 17, s) : s < 20 ? 0.4 : 0.4 + 0.5 * smoothstep(20, 28, s);
   }
-  return bestX;
+  if (document.documentElement.classList.contains('logo-only')) return 0;
+  if (!diveMarks || now >= diveMarkAt) { diveMarks = diveMarksNow(); diveMarkAt = now + 1000; }
+  const y = Math.max(0, scrollY), a = diveMarks[0], b = diveMarks[1];
+  return y <= a ? 0.4 * y / a : 0.4 + 0.6 * Math.min(1, (y - a) / (b - a));
 }
-
-// Both axes are speed-capped as a fraction of forward speed, which is what
-// keeps the camera from swiping: the flight path stays inside ~13 deg
-// horizontally and ~31 deg vertically no matter what the terrain does.
-const MAX_LAT = 0.16;
-const V_CAP   = 0.42;
-const AHEAD   = 72;                 // how far down the track the camera looks
 
 /* ---- the node graph ----------------------------------------------------
    Edges are picked between anchors that are currently ahead of the camera,
@@ -3052,15 +3492,266 @@ function updateGraph(dt, camX, camZ, cap) {
   }
 }
 
-// The opening: the camera starts low, looking down into the range, and
-// lifts its eyes to the horizon as the sun comes up and the graph spreads
-// across the peaks. It plays once per load, in the first seconds, while
-// the text above it is already readable.
+/* ---- Relatude.DB: a graph on the floor of the fjord ------------------------
+   The same idea as the CMS above — nodes, and relations between them — on
+   the rises of the drowned range: a node on each, kept 18 units apart,
+   related to its two nearest (half the time three). Unlike the graph above it keeps: its nodes
+   and relations stay where they are, as a database's do, while data moves
+   along them. Pulses run along the relations now and then; a query that a
+   beam brings down spreads on along the relations of the node it lands on
+   before the answer goes back up; and a node lights up whenever something
+   reaches it. Found once from the finished mesh, which wraps in z, and so
+   does everything here. */
+const DB_PULSE = 16;                // world units / second along a relation
+const DBN = [], DBE = [];
+{
+  const R = 1;                      // any rise of the floor, not only its peaks: a denser graph
+  for (let j = 0; j < NZ; j++) {
+    for (let i = R; i < VX - R; i++) {
+      const p = (j * VX + i) * 3, h = positions[p + 1];
+      if (h > -10) continue;                                    // well under the water
+      const x = positions[p], z = positions[p + 2];
+      if (Math.abs(x - fjordX(z)) / fjordHalf(z) > FLOOR) continue;    // on the floor, not the walls
+      let top = true;
+      for (let dj = -R; dj <= R && top; dj++) {
+        const jj = (j + dj + NZ) % NZ;
+        for (let di = -R; di <= R; di++) {
+          if ((di || dj) && positions[(jj * VX + i + di) * 3 + 1] > h) { top = false; break; }
+        }
+      }
+      if (!top || DBN.some(n => Math.hypot(n.x - x, Math.min(Math.abs(n.z - z), DEPTH - Math.abs(n.z - z))) < 18)) continue;
+      DBN.push({ i: DBN.length, x, y: h + 2.0, z, s: h2(i, j + 191) * TAU, f: 0, edges: [] });
+    }
+  }
+  DBN.forEach((a, ai) => {
+    const near = [];
+    DBN.forEach((b, bi) => {
+      if (bi === ai) return;
+      let dz = b.z - a.z;
+      const o = dz > DEPTH / 2 ? -1 : dz < -DEPTH / 2 ? 1 : 0;   // which copy of b is the near one
+      dz += o * DEPTH;
+      const d = Math.hypot(b.x - a.x, b.y - a.y, dz);
+      if (d > 18 && d < 70) near.push([d, bi, o]);
+    });
+    near.sort((p, q) => p[0] - q[0]);
+    for (const [d, bi, o] of near.slice(0, h2(ai, 5) < 0.5 ? 3 : 2)) {
+      if (a.edges.some(e => e.a === bi || e.b === bi)) continue;
+      const e = { a: ai, b: bi, o, len: d, p: -9, pd: 1, next: 0 };
+      DBE.push(e); a.edges.push(e); DBN[bi].edges.push(e);
+    }
+  });
+}
+// A pulse leaves node ni along up to max of its relations that are free.
+function dbSend(ni, max) {
+  for (const e of DBN[ni].edges) {
+    if (max <= 0) break;
+    if (e.p > -1 || Math.random() < 0.3) continue;
+    e.pd = e.a === ni ? 1 : -1;
+    e.p = e.pd > 0 ? 0 : 1;
+    max--;
+  }
+}
+let nDbPt = 0, nDbE = 0;
+function dbPoint(x, y, z, a, kind, par) {
+  if (nDbPt >= DBPT_MAX) return;
+  const o = nDbPt++ * PT_F;
+  dbPtBuf[o] = x; dbPtBuf[o + 1] = y; dbPtBuf[o + 2] = z; dbPtBuf[o + 3] = a;
+  dbPtBuf[o + 4] = kind; dbPtBuf[o + 5] = par;
+}
+function fillDB(dt, camZ) {
+  nDbPt = nDbE = 0;
+  for (const n of DBN) n.f = Math.max(0, n.f - dt * 0.8);
+  for (const e of DBE) {
+    if (!e.next) e.next = time + 2 + Math.random() * 14;
+    if (e.p < -1 && time >= e.next) { e.pd = Math.random() < 0.5 ? 1 : -1; e.p = e.pd > 0 ? 0 : 1; }
+    if (e.p > -1) {
+      e.p += e.pd * DB_PULSE / e.len * dt;
+      if (e.p >= 1 || e.p <= 0) {
+        DBN[e.pd > 0 ? e.b : e.a].f = 1;
+        e.p = -9;
+        e.next = time + (REDUCED ? 10 : 5) + Math.random() * 12;
+      }
+    }
+  }
+  // the tile and its copy ahead: nodes, relations, and the pulses on them
+  for (let t = 0; t <= 1; t++) {
+    for (const n of DBN) {
+      const z = n.z + t * DEPTH, dz = z - camZ;
+      if (dz > -10 && dz < 330) dbPoint(n.x, n.y, z, 0.72 + 0.28 * Math.sin(time * 0.55 + n.s), 0, n.f);
+    }
+    for (const e of DBE) {
+      const a = DBN[e.a], b = DBN[e.b], za = a.z + t * DEPTH, zb = b.z + (t + e.o) * DEPTH;
+      if (Math.max(za, zb) - camZ < -10 || Math.min(za, zb) - camZ > 330 || nDbE >= DBE_MAX) continue;
+      dbEdgeBuf.set([a.x, a.y, za, 1, b.x, b.y, zb, 1, e.p, e.pd, e.len, e.p > -1 ? 1 : 0, 1, 1, 0, 0], nDbE++ * EDGE_F);
+      if (e.p > -1) dbPoint(a.x + (b.x - a.x) * e.p, a.y + (b.y - a.y) * e.p, za + (zb - za) * e.p, 1, 1, 0);
+    }
+  }
+}
+
+/* ---- beams: the CMS reading from the database ------------------------------
+   Every so often a node of the graph sends a beam down to a node of the
+   database: through the air, into the water, where it bends — the path light
+   takes, the quickest, by Fermat, light being a third slower in water — and
+   on down to the floor. Once it lands, pulses travel down it and back up: a
+   query, and a moment later its answer, lighting the node at each end and
+   the way through the surface as they pass. A beam starts from a node of a
+   live link that has a clear line down to the water, and outlives the
+   link if it has to. */
+const beams = [];
+const PULSE_B = 26;                 // world units / second along a beam
+const rip = new Float32Array(12 * 4);
+let nBeamA = 0, nBeamW = 0, lastBeamZ = 0, nextBeam = 0;
+
+// Where the path of light from a (in the air) to b (in the water) crosses
+// the surface: the point on the line between them, seen from above, that
+// makes the trip quickest.
+function surfacePoint(a, b) {
+  const dx = b[0] - a[0], dz = b[2] - a[2];
+  const f = s => Math.hypot(dx * s, a[1], dz * s) + 1.333 * Math.hypot(dx * (1 - s), b[1], dz * (1 - s));
+  let lo = 0, hi = 1;
+  for (let i = 0; i < 40; i++) {
+    const m1 = lo + (hi - lo) / 3, m2 = hi - (hi - lo) / 3;
+    if (f(m1) < f(m2)) hi = m2; else lo = m1;
+  }
+  const s = (lo + hi) / 2;
+  return [a[0] + dx * s, 0, a[2] + dz * s];
+}
+// nothing of the land in the way between a peak and the water
+function clearLine(a, s) {
+  for (let i = 1; i < 10; i++) {
+    const f = i / 10;
+    if (heightAt(a[0] + (s[0] - a[0]) * f, a[2] + (s[2] - a[2]) * f) > a[1] * (1 - f) - 1.5) return false;
+  }
+  return true;
+}
+function nearestDB(x, z, camZ) {
+  let best = null, bd = Infinity;
+  for (const n of DBN) {
+    for (let o = -1; o <= 1; o++) {
+      const nz = n.z + o * DEPTH, dz = nz - camZ;
+      if (dz < 50 || dz > 260) continue;
+      const d = Math.hypot(n.x - x, nz - z);
+      if (d < bd) { bd = d; best = [n.x, n.y, nz, n]; }
+    }
+  }
+  return best;
+}
+function newBeam(camZ) {
+  for (let k = 0; k < 12; k++) {
+    const l = links[(Math.random() * links.length) | 0];
+    if (!l || !l.landed) continue;
+    const a = endOf(l), dz = a[2] - camZ;
+    if (dz < 110 || dz > 330 || beams.some(q => q.ax === a[0] && q.az === a[2])) continue;
+    // down to a node of the database nearer the camera, on the peak's side
+    // of the floor, so the beam runs down toward the eye and lands where it
+    // can be seen
+    const fx = fjordX(a[2]);
+    const b = nearestDB(fx + (a[0] - fx) * 0.3, camZ + 80 + Math.random() * 100, camZ);
+    if (!b || beams.some(q => q.node === b[3])) continue;
+    const s = surfacePoint(a, b);
+    if (!clearLine(a, s)) continue;
+    return { ax: a[0], ay: a[1], az: a[2], sx: s[0], sz: s[2], bx: b[0], by: b[1], bz: b[2], node: b[3],
+             la: Math.hypot(s[0] - a[0], a[1], s[2] - a[2]), lb: Math.hypot(b[0] - s[0], b[1], b[2] - s[2]),
+             t: 0, dur: 20 + Math.random() * 10, reach: 3.0 + Math.random() * 1.4, landed: false,
+             pierced: -1, p: -9, pd: 1, next: 0, fa: 0, rb: -1 };
+  }
+  return null;
+}
+
+function updateBeams(dt, camZ, cap) {
+  if (camZ < lastBeamZ) for (const b of beams) { b.az -= DEPTH; b.sz -= DEPTH; b.bz -= DEPTH; }   // with the loop
+  lastBeamZ = camZ;
+  for (let i = beams.length - 1; i >= 0; i--) {
+    const b = beams[i], L = b.la + b.lb;
+    b.t += dt;
+    if (b.t >= b.dur) { beams.splice(i, 1); continue; }
+    const g = Math.min(1, b.t / b.reach);
+    if (b.pierced < 0 && g * g * (3 - 2 * g) * L >= b.la) b.pierced = b.t;
+    if (!b.landed && b.t >= b.reach) { b.landed = true; b.rb = 0; b.node.f = 1; b.next = b.t + 0.8 + Math.random() * 2; }
+    if (b.landed && b.p < -1 && b.t >= b.next && b.t < b.dur * (1 - FADE)) b.p = b.pd > 0 ? 0 : 1;
+    if (b.p > -1) {
+      b.p += b.pd * PULSE_B / L * dt;
+      if (b.p >= 1 || b.p <= 0) {
+        // a query landing spreads on through the node's relations
+        if (b.pd > 0) { b.rb = 0; b.node.f = 1; dbSend(b.node.i, 2); } else b.fa = 1;
+        b.p = -9;
+        // the answer follows the query; the next query takes its time
+        b.next = b.t + (b.pd > 0 ? 0.9 + Math.random() * 0.8 : (REDUCED ? 6 : 3) + Math.random() * 4);
+        b.pd = -b.pd;
+      }
+    }
+    b.fa = Math.max(0, b.fa - dt * 1.2);
+    if (b.rb >= 0 && (b.rb += dt / 2.4) >= 1) b.rb = -1;
+  }
+  if (beams.length < cap && time >= nextBeam && links.length) {
+    const b = newBeam(camZ);
+    if (b) { beams.push(b); nextBeam = time + 1.2 + Math.random() * 1.8; }
+  }
+}
+
+// Each beam as two runs — air and water — with the tip glowing while it
+// still reaches, the pulse in whichever run it is in, and the way through
+// the surface handed to the water pass.
+function fillBeams() {
+  nBeamA = nBeamW = 0;
+  rip.fill(0);
+  let ri = 0;
+  for (const b of beams) {
+    const u = b.t / b.dur, L = b.la + b.lb;
+    let e = Math.max(0, Math.min(1, b.t / 0.5, (1 - u) / FADE));
+    e = e * e * (3 - 2 * e);
+    const g = Math.min(1, b.t / b.reach), head = g * g * (3 - 2 * g) * L;
+    const tipHot = e * (1.0 + 0.6 * (1 - g * g)), tipP = 0.2 + 0.8 * (1 - g * g);
+    const pd = b.p > -1 ? b.p * L : -1;           // the pulse, as a distance down the beam
+
+    // the run through the air, from the graph's node down to the surface
+    const fa = Math.min(1, head / b.la);
+    const ax = b.ax + (b.sx - b.ax) * fa, ay = b.ay * (1 - fa), az = b.az + (b.sz - b.az) * fa;
+    let o = nBeamA++ * EDGE_F;
+    beamAirBuf.set([b.ax, b.ay, b.az, e, ax, ay, az, fa < 1 ? tipHot : e], o);
+    if (fa < 1) beamAirBuf.set([1, 1, Math.max(1, head), tipP], o + 8);
+    else if (pd >= 0 && pd <= b.la) beamAirBuf.set([pd / b.la, b.pd, b.la, 1], o + 8);
+    else beamAirBuf.set([-9, 1, b.la, 0], o + 8);
+    beamAirBuf.set([1, 0, 0, 0], o + 12);
+    putPoint(b.ax, b.ay, b.az, e, 0, b.fa);        // its node: the link may go before the beam does
+    if (fa < 1) putPoint(ax, ay, az, tipHot, 1, 1);
+    else if (pd >= 0 && pd <= b.la) {
+      const f = pd / b.la;
+      putPoint(b.ax + (b.sx - b.ax) * f, b.ay * (1 - f), b.az + (b.sz - b.az) * f, e, 1, 0);
+    }
+    if (head <= b.la) continue;
+
+    // and through the water, from the surface down to the database
+    const fw = Math.min(1, (head - b.la) / b.lb);
+    const wx_ = b.sx + (b.bx - b.sx) * fw, wy = b.by * fw, wz = b.sz + (b.bz - b.sz) * fw;
+    o = nBeamW++ * EDGE_F;
+    beamWetBuf.set([b.sx, 0, b.sz, e, wx_, wy, wz, fw < 1 ? tipHot : e], o);
+    if (fw < 1) beamWetBuf.set([1, 1, Math.max(1, head - b.la), tipP], o + 8);
+    else if (pd > b.la) beamWetBuf.set([(pd - b.la) / b.lb, b.pd, b.lb, 1], o + 8);
+    else beamWetBuf.set([-9, 1, b.lb, 0], o + 8);
+    beamWetBuf.set([0, fw >= 1 ? 1 : 0, 0, 0], o + 12);
+    if (fw < 1) dbPoint(wx_, wy, wz, tipHot, 1, 1);
+    else if (pd > b.la) {
+      const f = (pd - b.la) / b.lb;
+      dbPoint(b.sx + (b.bx - b.sx) * f, b.by * f, b.sz + (b.bz - b.sz) * f, e, 1, 0);
+    }
+    if (b.rb >= 0) dbPoint(b.bx, b.by, b.bz, e, 2, b.rb);
+    // the way through the surface, flaring as a pulse goes through it
+    if (ri < 12) {
+      const fl = pd >= 0 ? Math.exp(-Math.pow((pd - b.la) / 7, 2)) : 0;
+      rip.set([b.sx, b.sz, b.t - b.pierced, e * (0.55 + 1.8 * fl)], ri++ * 4);
+    }
+  }
+}
+
+// The opening: the lens, above the water, looks down into it and lifts its
+// eyes to the far end of the fjord as the sun comes up and the graph spreads
+// across the peaks, the beams following once it has. It plays once per
+// load, in the first seconds, behind the wordmark the page opens on.
 const T0 = 100;                     // start on a surveyed stretch of high range
-const INTRO = REDUCED ? 0 : 7.5;
+const INTRO = REDUCED ? 0 : 9;
 let time = T0;
-let alt = null, flightX = 0, latV = 0, leadS = 0, routeTarget = 0, seeded = false;
-let bank = 0, routeT = 1, px = 0, py = 0, tpx = 0, tpy = 0;
+let px = 0, py = 0, tpx = 0, tpy = 0;
 if (INTRO) graphReady = true;
 
 /* ---- birds -------------------------------------------------------------
@@ -3076,18 +3767,16 @@ const flocks = [];
 let nextFlock = T0 + 9.5, lastBirdZ = 0, nBirds = 0;
 
 function spawnFlock(camX, camY, camZ) {
-  // Placed by bearing from the camera (its right is world -x): off-frame
-  // right on any landscape screen, at about the sun's height and a little
-  // over it. Heading left (+x) and away (+z), faster away than the camera
-  // flies, so the flock recedes while it crosses.
-  const az = (52 + Math.random() * 6) * Math.PI / 180;
-  const el = (8.5 + Math.random() * 3.5) * Math.PI / 180;
-  const d  = 140 + Math.random() * 30;
+  // Out over the fjord ahead, beyond the right of the frame (its right is
+  // world -x), at about the sun's height and a little over it. Heading left
+  // (+x) and away (+z) across the water, faster away than the camera
+  // glides, so the flock recedes while it crosses.
+  const z = camZ + 150 + Math.random() * 30;
   const speed = REDUCED ? 4 : 8 + Math.random() * 1.5;
   const f = {
-    x: camX - Math.sin(az) * Math.cos(el) * d,
-    y: camY + Math.sin(el) * d,
-    z: camZ + Math.cos(az) * Math.cos(el) * d,
+    x: fjordX(z) - 70 - Math.random() * 10,
+    y: 26 + Math.random() * 10,
+    z,
     yaw: Math.atan2(4, 7) + (Math.random() - 0.5) * 0.2,
     vy: -0.15 - Math.random() * 0.15,
     speed, t: 0, seed: Math.random() * 100, birds: []
@@ -3174,7 +3863,7 @@ function buildBolt(camX, camY, camZ) {
   const az = (Math.random() - 0.5) * 1.2, d = 160 + Math.random() * 110;
   const gx = camX - Math.sin(az) * d, gz = camZ + Math.cos(az) * d;
   const top = [gx + (Math.random() - 0.5) * 40, camY + 150 + Math.random() * 60, gz + (Math.random() - 0.5) * 30];
-  let pts = [top, [gx, heightAt(gx, gz), gz]];
+  let pts = [top, [gx, Math.max(0, heightAt(gx, gz)), gz]];        // on the land, or the water
   for (let pass = 0; pass < 4; pass++) {               // midpoint displacement: 16 jagged segments
     const next = [pts[0]];
     for (let i = 1; i < pts.length; i++) {
@@ -3293,11 +3982,11 @@ function poseTeam(t) {
 }
 
 /* ---- Santa ----------------------------------------------------------------
-   In the snow storm, now and then, the sleigh crosses the sky: in from beyond
-   one edge and out past the other, keeping pace with the flight so it holds
-   its distance, above the ranges and clear of the wordmark, from alternate
-   sides. A trail of sparkles falls from the runners. Gone, like the birds,
-   dissolving into the air, when the weather turns. */
+   In the snow storm, now and then, the sleigh crosses the fjord far ahead:
+   out from behind one wall and in behind the other, keeping pace with the
+   flight so it holds its distance, from alternate sides. A trail of
+   sparkles falls from the runners. Gone, like the birds, dissolving into
+   the air, when the weather turns. */
 const SANTA_SCALE = 8;
 const santa = { on: false, x: 0, y: 0, z: 0, vx: 0, t: 0, life: 1, dir: -1, next: 0, env: 0 };
 const trail = [];
@@ -3310,13 +3999,13 @@ function updateSanta(dt, camX, camY, camZ) {
   if (!snowing) santa.next = Math.max(santa.next, time + 3);          // the first one waits for the snow
   if (!santa.on && snowing && time >= santa.next) {
     santa.dir = -santa.dir;                                           // +1 flies left to right
-    const d = 200, az = 58 * Math.PI / 180, el = (15 + Math.random() * 3) * Math.PI / 180;
-    santa.x = camX + santa.dir * Math.tan(az) * d;                    // (the camera's right is world -x)
-    santa.y = camY + Math.tan(el) * d;
-    santa.z = camZ + d;
+    const z = camZ + 380 + Math.random() * 40;
+    santa.x = fjordX(z) + santa.dir * 130;                            // (the camera's right is world -x)
+    santa.y = 52 + Math.random() * 12;
+    santa.z = z;
     santa.vx = -santa.dir * (REDUCED ? 8 : 16);
     santa.t = 0;
-    santa.life = 2 * Math.tan(az) * d / Math.abs(santa.vx);
+    santa.life = 260 / Math.abs(santa.vx);
     santa.on = true;
   }
   const fl = Math.hypot(santa.vx, SPEED);
@@ -3384,6 +4073,181 @@ resize();
 let lost = false;
 canvas.addEventListener('webglcontextlost', e => { e.preventDefault(); lost = true; fallback(); });
 
+/* ---- the passes the reflection and the frame share ----------------------
+   fr carries what the frame worked out: the sun's strength, where the
+   camera is along the loop, and whether the surface is seen from above. */
+function drawTerrain(m, eye, refl, fr) {
+  gl.useProgram(terP.p);
+  gl.bindVertexArray(terVao);
+  const u = terP.u;
+  gl.uniformMatrix4fv(u.uVP, false, m);
+  gl.uniform3fv(u.uCam, eye);
+  gl.uniform3fv(u.uLight, LIGHT);
+  gl.uniform3fv(u.uSunH, SUNH);
+  gl.uniform1f(u.uSunAmt, fr.sunAmt);
+  gl.uniform1f(u.uSunV, wx.sunV);
+  gl.uniform1f(u.uMistT, mistT);
+  gl.uniform1f(u.uOver, wx.over);
+  gl.uniform1f(u.uDim, wx.dim);
+  gl.uniform1f(u.uCover, wx.cover);
+  gl.uniform1f(u.uFogK, wx.fogK);
+  gl.uniform1f(u.uFlash, flash * P.flashI);
+  gl.uniform1i(u.uNoise, NOISE_UNIT);
+  setPalette(terP, TER_PAL);
+  setMedium(terP, refl);
+  // the tile and a copy ahead — the field is periodic, so the join is
+  // invisible — and one behind while the lap is young, where the lens,
+  // looking down, sees the floor just behind the tile's start
+  for (let o = fr.camZ < 60 ? -1 : 0; o <= 1; o++) {
+    gl.uniform1f(u.uZOff, o * DEPTH);
+    gl.drawElements(gl.TRIANGLES, indices.length, gl.UNSIGNED_INT, 0);
+  }
+}
+
+// The sky goes after the land and only where the depth is still clear, so
+// the cloud noise is never computed under a mountain.
+function drawSky(inv, eye, refl, fr) {
+  gl.depthFunc(gl.LEQUAL);
+  gl.depthMask(false);
+  gl.useProgram(skyP.p);
+  gl.bindVertexArray(fsVao);
+  const u = skyP.u;
+  gl.uniformMatrix4fv(u.uInvVP, false, inv);
+  gl.uniform3fv(u.uCam, eye);
+  gl.uniform3fv(u.uLight, LIGHT);
+  gl.uniform3fv(u.uSunH, SUNH);
+  gl.uniform1f(u.uTime, time);
+  gl.uniform1f(u.uTravel, time * SPEED);  // unwrapped, so the deck never jumps at the loop
+  gl.uniform1f(u.uSunAmt, fr.sunAmt);
+  gl.uniform1f(u.uSunV, wx.sunV);
+  gl.uniform1f(u.uCloudT, cloudT);
+  gl.uniform1f(u.uOver, wx.over);
+  gl.uniform1f(u.uClouds, wx.clouds);
+  gl.uniform1f(u.uCovShift, wx.cov);
+  gl.uniform1f(u.uMist, wx.mist);
+  gl.uniform1f(u.uStars, wx.stars);
+  gl.uniform1f(u.uFlash, flash * P.flashI);
+  gl.uniform3fv(u.uFlashDir, FLASH_DIR);
+  gl.uniform1i(u.uNoise, NOISE_UNIT);
+  setPalette(skyP, SKY_PAL);
+  setMedium(skyP, refl);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+  gl.depthFunc(gl.LESS);
+}
+
+// Lines and points: the two graphs', the beams' and the bolt's.
+// o: tint, hot, sub, halo, plain, core (lines), fog, group, size (points).
+function edgePass(buf, n, m, eye, refl, o) {
+  gl.useProgram(edgeP.p);
+  gl.bindVertexArray(edgeVao);
+  gl.bindBuffer(gl.ARRAY_BUFFER, edgeVbo);
+  gl.bufferSubData(gl.ARRAY_BUFFER, 0, buf, 0, n * EDGE_F);
+  const u = edgeP.u;
+  gl.uniformMatrix4fv(u.uVP, false, m);
+  gl.uniform3fv(u.uCam, eye);
+  gl.uniform1f(u.uPx, refl ? pxK / RS : pxK);
+  gl.uniform1f(u.uHalo, o.halo);
+  gl.uniform1f(u.uPlain, o.plain);
+  gl.uniform1f(u.uCore, o.core);
+  gl.uniform1f(u.uFog, o.fog);
+  gl.uniform1f(u.uSub, o.sub);
+  gl.uniform1f(u.uGroup, o.group);
+  gl.uniform3fv(u.uTint, o.tint);
+  gl.uniform3fv(u.uHot, o.hot);
+  setMedium(edgeP, refl);
+  gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, n);
+}
+function ptPass(buf, n, m, eye, refl, o) {
+  gl.useProgram(ptP.p);
+  gl.bindVertexArray(ptVao);
+  gl.bindBuffer(gl.ARRAY_BUFFER, ptVbo);
+  gl.bufferSubData(gl.ARRAY_BUFFER, 0, buf, 0, n * PT_F);
+  const u = ptP.u;
+  gl.uniformMatrix4fv(u.uVP, false, m);
+  gl.uniform3fv(u.uCam, eye);
+  gl.uniform1f(u.uPx, (refl ? pxK / RS : pxK) * (o.size || 1));
+  gl.uniform1f(u.uMaxPt, PT_MAX);
+  gl.uniform1f(u.uHalo, o.halo);
+  gl.uniform1f(u.uPlain, o.plain);
+  gl.uniform1f(u.uFog, o.fog);
+  gl.uniform1f(u.uSub, o.sub);
+  gl.uniform1f(u.uGroup, o.group);
+  gl.uniform3fv(u.uTint, o.tint);
+  gl.uniform3fv(u.uHot, o.hot);
+  setMedium(ptP, refl);
+  gl.drawArrays(gl.POINTS, 0, n);
+}
+
+// The lights of the air: the graph (sharp lines and rings in the plain
+// look), the beams' runs down to the surface, and their nodes and sparks.
+function drawAirLights(m, eye, refl) {
+  const o = { tint: P.edge, hot: P.pulse, sub: P.sub, halo: P.halo, plain: P.plain, core: 0.5, fog: wx.fogK, group: 0 };
+  if (nEdges) edgePass(edgeBuf, nEdges, m, eye, refl, o);
+  if (nBeamA) { o.tint = P.beamA; o.core = 0.8; edgePass(beamAirBuf, nBeamA, m, eye, refl, o); }
+  if (nPts) { o.tint = P.node; ptPass(ptBuf, nPts, m, eye, refl, o); }
+}
+// The lights of the water — the database's relations and nodes, the beams'
+// runs down to it, the sparks and ripples there — where the lens looks from
+// above the surface (group 1) or from below it (group 2), and below it the
+// marine snow too. The water's own haze is what fades them, not the air's.
+function drawWetLights(group) {
+  const o = { tint: P.db, hot: P.dbHot, sub: P.wsub, halo: P.halo, plain: P.plain, core: 0.8, fog: 0.5, group };
+  if (nDbE) edgePass(dbEdgeBuf, nDbE, vp, EYE, false, o);
+  o.tint = P.beamW; o.core = 0.8;
+  if (nBeamW) edgePass(beamWetBuf, nBeamW, vp, EYE, false, o);
+  if (nDbPt) { o.tint = P.db; o.size = 1.5; ptPass(dbPtBuf, nDbPt, vp, EYE, false, o); }   // the database's nodes are larger
+  if (group !== 2 || P.plain > 0.999) return;
+  gl.useProgram(dustP.p);
+  gl.bindVertexArray(dustVao);
+  const u = dustP.u;
+  gl.uniformMatrix4fv(u.uVP, false, vp);
+  gl.uniform3fv(u.uCam, EYE);
+  gl.uniform3fv(u.uLight, LIGHT);
+  gl.uniform1f(u.uTime, time);
+  gl.uniform1f(u.uPx, pxK);
+  gl.uniform1f(u.uFwd, 0);
+  gl.uniform1f(u.uDust, 1);
+  gl.uniform3fv(u.uTint, P.snowW);
+  gl.uniform1f(u.uSub, P.wsub);
+  gl.uniform1f(u.uPlain, P.plain);
+  gl.uniform1f(u.uWet, 1);
+  gl.uniform1f(u.uGroup, 2);
+  setMedium(dustP, false);
+  gl.drawArrays(gl.POINTS, 0, WSNOW_N);
+}
+
+// The surface: its colour, or (depthOnly) the depth of what it hides from below.
+function drawWater(depthOnly, fr) {
+  gl.useProgram(waterP.p);
+  gl.bindVertexArray(fsVao);
+  const u = waterP.u;
+  gl.uniformMatrix4fv(u.uInvVP, false, invVP);
+  gl.uniformMatrix4fv(u.uVP, false, vp);
+  gl.uniform3fv(u.uCam, EYE);
+  gl.uniform3fv(u.uLight, LIGHT);
+  gl.uniform3fv(u.uSunH, SUNH);
+  gl.uniform1f(u.uSunAmt, fr.sunAmt);
+  gl.uniform1f(u.uSunV, wx.sunV);
+  gl.uniform1f(u.uOver, wx.over);
+  gl.uniform1f(u.uFogK, wx.fogK);
+  gl.uniform1f(u.uFlash, flash * P.flashI);
+  gl.uniform1f(u.uChop, wx.chop);
+  gl.uniform1f(u.uDrops, wx.drops);
+  gl.uniform1f(u.uDepthOnly, depthOnly ? 1 : 0);
+  gl.uniform1f(u.uHasRefl, fr.mirror ? 1 : 0);
+  gl.uniform1i(u.uNoise, NOISE_UNIT);
+  // unit 3, free of the post passes' 0-2; let go again after, so the
+  // reflection target is never bound for reading while it is drawn into
+  bindTex(3, reflT.tex);
+  gl.uniform1i(u.uReflT, 3);
+  gl.uniform4fv(u['uRip[0]'], rip);
+  setPalette(waterP, SURF_PAL);
+  setMedium(waterP, false);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+  bindTex(3, null);
+  gl.activeTexture(gl.TEXTURE0);
+}
+
 let last = performance.now(), fAcc = 0, fN = 0, warm = 0, badRuns = 0, steps = 0;
 
 function frame(now) {
@@ -3428,66 +4292,65 @@ function frame(now) {
 
   /* ---- camera ---- */
   const camZ = (time * SPEED) % DEPTH;       // wrapped into the tile
-
-  // The route is re-probed on a timer and so changes in steps; everything
-  // downstream of it is integrated, never assigned, so the camera only ever
-  // sees a continuous position and a continuous velocity.
-  routeT += dt;
-  if (routeT > 0.5) {
-    routeT = 0;
-    routeTarget = routeX(flightX, camZ, routeTarget);
-    // Start already on the chosen corridor, or the first seconds are one
-    // long swing from x=0 out to wherever the router picked.
-    if (!seeded) { seeded = true; leadS = routeTarget; flightX = routeTarget; }
-  }
-  const goal = routeTarget + Math.sin(time * 0.015) * 9;
-  leadS += (goal - leadS) * (1 - Math.exp(-dt * 0.24));
-
-  const maxLat = SPEED * MAX_LAT;
-  const vWant  = Math.max(-maxLat, Math.min(maxLat, (leadS - flightX) * 0.10));
-  latV += (vWant - latV) * (1 - Math.exp(-dt * 0.28));
-  flightX += latV * dt;
-  const camX = flightX;
-
-  // Climb briskly, settle gently — an even filter lags behind rising
-  // ground and skims the ridges. The second term is a hard floor.
-  const want = Math.max(clearance(camX, camZ + 12), clearance(camX, camZ + 30),
-                        clearance(camX, camZ + 58)) + 21;
-  const rate = want > alt ? 1.1 : 0.32;
-  if (alt === null) alt = want;
-  else {
-    const step = (want - alt) * (1 - Math.exp(-dt * rate));
-    const lim  = SPEED * V_CAP * dt;         // bound the climb / descent angle
-    alt += Math.max(-lim, Math.min(lim, step));
-  }
-  const camY = Math.max(alt - (1 - open) * 8,
-                        Math.max(heightAt(camX, camZ), clearance(camX, camZ + 18)) + 10);
+  // Down the middle of the fjord, drifting a little from side to side.
+  const camX = fjordX(camZ) + Math.sin(time * 0.017) * 7;
+  // How far the lens has sunk: the page's, eased. Under the water it keeps
+  // clear of the drowned summits ahead, rising gently over them. In the
+  // opening, above the water, it looks down into the fjord and lifts its
+  // eyes to the far end as the light comes up.
+  dive += (diveGoal(now) - dive) * (1 - Math.exp(-dt * 1.5));
+  const [diveY, divePitch] = diveCam(dive);
+  // Relatude.DB's page rests down there, and its text stands in the middle
+  // of the frame: looking out more than down puts the database's graph
+  // below the text and to either side of it rather than behind it.
+  const pitch = divePitch - (1 - open) * 10 * Math.PI / 180
+              + (DESCEND ? smoothstep(0.55, 0.9, dive) * 9 * Math.PI / 180 : 0);
+  const floorY = Math.max(heightAt(camX, camZ), heightAt(camX, camZ + 14), heightAt(camX, camZ + 30)) + 10;
+  clearY = clearY === null ? floorY : clearY + (floorY - clearY) * (1 - Math.exp(-dt * 0.9));
+  const camY = diveY < -1 ? Math.max(diveY, Math.min(clearY, -1)) : diveY;
 
   // Very slow follow. This is the only pan the viewer can trigger directly,
   // so a quick response here is what reads as a sudden jolt.
   px += (tpx - px) * (1 - Math.exp(-dt * 0.35));
   py += (tpy - py) * (1 - Math.exp(-dt * 0.35));
 
-  // Aim along the actual velocity vector — look where you are going.
+  // Down the fjord, at the pitch the dive asks for. No roll: the waterline
+  // is drawn level across the frame, and has to lie on the horizon.
   EYE[0] = camX; EYE[1] = camY; EYE[2] = camZ;
-  TGT[0] = camX + latV * (AHEAD / SPEED) + px * 7;
-  TGT[1] = camY - 3.5 + Math.sin(time * 0.038) * 2.0 - py * 5 - (1 - open) * 17;
+  TGT[0] = fjordX(camZ + AHEAD) + px * 7;
+  TGT[1] = camY + Math.tan(pitch) * AHEAD + Math.sin(time * 0.038) * 1.2 - py * 4;
   TGT[2] = camZ + AHEAD;
-
-  // bank into the turn, the way an aircraft would
-  const wantBank = Math.max(-0.10, Math.min(0.10, (latV / maxLat) * 0.10));
-  bank += (wantBank - bank) * (1 - Math.exp(-dt * 0.30));
-  const roll = bank + Math.sin(time * 0.021) * 0.030 + px * 0.016;
-  UP[0] = Math.sin(roll); UP[1] = Math.cos(roll); UP[2] = 0;
 
   // On portrait viewports, widen the vertical FOV so the horizontal one
   // does not collapse and leave the phone staring at empty haze.
   const asp  = W / H;
   const fovy = Math.min(72, Math.max(55, 2 * Math.atan(Math.tan(27.5 * Math.PI / 180) / Math.min(asp, 1)) * 180 / Math.PI));
-  perspective(proj, fovy * Math.PI / 180, asp, 0.5, 1400);
+  perspective(proj, fovy * Math.PI / 180, asp, 0.4, 1400);
   lookAt(view, EYE, TGT, UP);
   mul(vp, proj, view);
   invert(invVP, vp);
+
+  // Where the waterline crosses the frame: on the horizon while the lens
+  // rests on the surface, below it while the lens is above, above it while
+  // the lens is below, by as much as the lens has risen or sunk.
+  {
+    const hx = TGT[0] - camX, hz = TGT[2] - camZ, hl = Math.hypot(hx, hz);
+    const x = camX + hx / hl * 1000, z = camZ + hz / hl * 1000;
+    const cy = vp[1] * x + vp[5] * camY + vp[9] * z + vp[13], cw = vp[3] * x + vp[7] * camY + vp[11] * z + vp[15];
+    split = cy / cw - camY / DOME;
+  }
+  // Tell the page where the waterline is, for its words: in px from the top,
+  // and shown only while it is well inside the frame. Written only when it moves.
+  if (tide) {
+    const y = Math.round((1 - split) * 0.5 * innerHeight * 2) / 2;
+    const o = Math.round(Math.max(0, Math.min(1, (0.8 - Math.abs(split)) * 6)) * 100) / 100;
+    if (y !== tideY) { tideY = y; tide.style.setProperty('--tide-y', y + 'px'); }
+    if (o !== tideO) { tideO = o; tide.style.setProperty('--tide-o', o); }
+  }
+  // the reflection's eye: this one, mirrored in the surface
+  EYE_R[0] = camX; EYE_R[1] = -Math.max(camY, 0.03); EYE_R[2] = camZ;
+  mul(vpR, vp, FLIP);
+  invert(invVpR, vpR);
 
   // where the sun lands on screen, for the shafts
   const sx = EYE[0] + LIGHT[0] * 1000, sy = EYE[1] + LIGHT[1] * 1000, sz = EYE[2] + LIGHT[2] * 1000;
@@ -3501,11 +4364,36 @@ function frame(now) {
   updateLightning(camX, camY, camZ);
   updateSanta(dt, camX, camY, camZ);
 
-  // survey sweep: 320 -> -20 over 15s, then a long rest
-  const cyc = time % 27;
-  const pulse = cyc < 15 ? 320 - (cyc / 15) * 340 : 1e5;
+  // the two graphs and the beams between them, for this frame; in the
+  // opening the graph above spreads first and the beams follow it down
+  if (ANCH_N) updateGraph(dt, camX, camZ, INTRO ? Math.round(LINK_MAX * smoothstep(0.10, 0.80, k)) : LINK_MAX);
+  updateBeams(dt, camZ, INTRO ? Math.round(BEAM_MAX * smoothstep(0.45, 1.0, k)) : BEAM_MAX);
+  fillDB(dt, camZ);
+  fillBeams();
+  updateBirds(dt, camX, camY, camZ);
+  // Only a lens above the surface ever looks down onto it.
+  const fr = { sunAmt, camZ, mirror: camY > 0.02 };
 
-  /* ---- scene: terrain, sky, then the light overlays ---- */
+  /* ---- the reflection: what stands above the water, mirrored in it ---- */
+  if (fr.mirror) {
+    bindTarget(reflT);
+    gl.colorMask(true, true, true, true);
+    gl.depthMask(true);
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    gl.disable(gl.BLEND);
+    gl.enable(gl.DEPTH_TEST);
+    gl.depthFunc(gl.LESS);
+    drawTerrain(vpR, EYE_R, true, fr);
+    drawSky(invVpR, EYE_R, true, fr);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    drawAirLights(vpR, EYE_R, true);
+    gl.disable(gl.BLEND);
+  }
+
+  /* ---- scene: terrain and sky, what lies in the water, the surface, then
+     the lights of the air ---- */
   gl.bindFramebuffer(gl.FRAMEBUFFER, msFbo || sceneT.fbo);
   gl.viewport(0, 0, W, H);
   gl.colorMask(true, true, true, true);
@@ -3516,30 +4404,8 @@ function frame(now) {
   gl.enable(gl.DEPTH_TEST);
   gl.depthFunc(gl.LESS);
 
-  gl.useProgram(terP.p);
-  gl.bindVertexArray(terVao);
-  gl.uniformMatrix4fv(terP.u.uVP, false, vp);
-  gl.uniform3fv(terP.u.uCam, EYE);
-  gl.uniform3fv(terP.u.uLight, LIGHT);
-  gl.uniform3fv(terP.u.uSunH, SUNH);
-  gl.uniform1f(terP.u.uPulse, pulse);
-  gl.uniform1f(terP.u.uSunAmt, sunAmt);
-  gl.uniform1f(terP.u.uSunV, wx.sunV);
-  gl.uniform1f(terP.u.uMistT, mistT);
-  gl.uniform1f(terP.u.uOver, wx.over);
-  gl.uniform1f(terP.u.uDim, wx.dim);
-  gl.uniform1f(terP.u.uCover, wx.cover);
-  gl.uniform1f(terP.u.uFogK, wx.fogK);
-  gl.uniform1f(terP.u.uFlash, flash * P.flashI);
-  gl.uniform1i(terP.u.uNoise, NOISE_UNIT);
-  setPalette(terP, TER_PAL);
-  // two copies of the tile, one ahead — the field is periodic, so the join is invisible
-  gl.uniform1f(terP.u.uZOff, 0);
-  gl.drawElements(gl.TRIANGLES, indices.length, gl.UNSIGNED_INT, 0);
-  gl.uniform1f(terP.u.uZOff, DEPTH);
-  gl.drawElements(gl.TRIANGLES, indices.length, gl.UNSIGNED_INT, 0);
+  drawTerrain(vp, EYE, false, fr);
 
-  updateBirds(dt, camX, camY, camZ);
   if (nBirds) {
     gl.useProgram(birdP.p);
     gl.bindVertexArray(birdVao);
@@ -3555,38 +4421,29 @@ function frame(now) {
     gl.drawArraysInstanced(gl.TRIANGLES, 0, BIRD_VERTS, nBirds);
   }
 
-  // The sky goes second and only where the depth is still clear, so the
-  // cloud noise is never computed under a mountain.
-  gl.depthFunc(gl.LEQUAL);
-  gl.depthMask(false);
-  gl.useProgram(skyP.p);
-  gl.bindVertexArray(fsVao);
-  gl.uniformMatrix4fv(skyP.u.uInvVP, false, invVP);
-  gl.uniform3fv(skyP.u.uCam, EYE);
-  gl.uniform3fv(skyP.u.uLight, LIGHT);
-  gl.uniform3fv(skyP.u.uSunH, SUNH);
-  gl.uniform1f(skyP.u.uTime, time);
-  gl.uniform1f(skyP.u.uTravel, time * SPEED);  // unwrapped, so the deck never jumps at the loop
-  gl.uniform1f(skyP.u.uSunAmt, sunAmt);
-  gl.uniform1f(skyP.u.uSunV, wx.sunV);
-  gl.uniform1f(skyP.u.uCloudT, cloudT);
-  gl.uniform1f(skyP.u.uOver, wx.over);
-  gl.uniform1f(skyP.u.uClouds, wx.clouds);
-  gl.uniform1f(skyP.u.uCovShift, wx.cov);
-  gl.uniform1f(skyP.u.uMist, wx.mist);
-  gl.uniform1f(skyP.u.uStars, wx.stars);
-  gl.uniform1f(skyP.u.uFlash, flash * P.flashI);
-  gl.uniform3fv(skyP.u.uFlashDir, FLASH_DIR);
-  gl.uniform1i(skyP.u.uNoise, NOISE_UNIT);
-  setPalette(skyP, SKY_PAL);
-  gl.drawArrays(gl.TRIANGLES, 0, 3);
-  gl.depthFunc(gl.LESS);
+  drawSky(invVP, EYE, false, fr);
 
   // The overlays leave alpha alone: it is the sky mask the shafts read.
   // Light theme composites them over a bright ground; the dark one adds.
   gl.colorMask(true, true, true, false);
   gl.enable(gl.BLEND);
   gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);         // the shaders blend added and laid over
+  // What lies in the water, where the lens looks down into it from above:
+  // first, so the surface lies over it.
+  if (camY > 0.02) drawWetLights(1);
+  // The surface. Then, where any of the lens is under it, the depth of what
+  // it hides from below, and what lies in the water there, in front of it.
+  drawWater(false, fr);
+  if (split > -1.05) {
+    gl.colorMask(false, false, false, false);
+    gl.depthMask(true);
+    drawWater(true, fr);
+    gl.colorMask(true, true, true, false);
+    gl.depthMask(false);
+    drawWetLights(2);
+  }
+
+  // --- motes in the air
   gl.useProgram(dustP.p);
   gl.bindVertexArray(dustVao);
   gl.uniformMatrix4fv(dustP.u.uVP, false, vp);
@@ -3599,6 +4456,9 @@ function frame(now) {
   gl.uniform3fv(dustP.u.uTint, P.dust);
   gl.uniform1f(dustP.u.uSub, P.sub);
   gl.uniform1f(dustP.u.uPlain, P.plain);
+  gl.uniform1f(dustP.u.uWet, 0);
+  gl.uniform1f(dustP.u.uGroup, 0);
+  setMedium(dustP, false);
   if (wx.dust > 0.01 && P.plain < 0.999) gl.drawArrays(gl.POINTS, 0, DUST_N);
 
   // --- Santa, laid over the sky as a silhouette in any theme, and his trail
@@ -3640,8 +4500,10 @@ function frame(now) {
     gl.uniform1f(ptP.u.uPlain, 0.0);
     gl.uniform1f(ptP.u.uFog, 1.0);
     gl.uniform1f(ptP.u.uSub, P.sub);
+    gl.uniform1f(ptP.u.uGroup, 0);
     gl.uniform3fv(ptP.u.uTint, P.trailC);
     gl.uniform3fv(ptP.u.uHot, P.trailC);
+    setMedium(ptP, false);
     gl.drawArrays(gl.POINTS, 0, nTrail);
   }
 
@@ -3684,70 +4546,17 @@ function frame(now) {
     gl.drawArrays(gl.POINTS, 0, nSnow);
   }
 
-  // --- node graph: edges as glowing quads, then nodes, sparks and ripples
+  // --- the graph, with the beams' runs down to the water and their nodes
   // (in the plain look sharp lines and rings only)
-  if (ANCH_N) {
-    const cap = INTRO ? Math.round(LINK_MAX * smoothstep(0.10, 0.80, k)) : LINK_MAX;
-    updateGraph(dt, camX, camZ, cap);
-    if (nEdges) {
-      gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-
-      gl.useProgram(edgeP.p);
-      gl.bindVertexArray(edgeVao);
-      gl.bindBuffer(gl.ARRAY_BUFFER, edgeVbo);
-      gl.bufferSubData(gl.ARRAY_BUFFER, 0, edgeBuf, 0, nEdges * EDGE_F);
-      gl.uniformMatrix4fv(edgeP.u.uVP, false, vp);
-      gl.uniform3fv(edgeP.u.uCam, EYE);
-      gl.uniform2f(edgeP.u.uRes, W, H);
-      gl.uniform1f(edgeP.u.uPx, pxK);
-      gl.uniform1f(edgeP.u.uHalo, P.halo);
-      gl.uniform1f(edgeP.u.uPlain, P.plain);
-      gl.uniform1f(edgeP.u.uCore, 0.5);
-      gl.uniform1f(edgeP.u.uFog, wx.fogK);
-      gl.uniform1f(edgeP.u.uSub, P.sub);
-      gl.uniform3fv(edgeP.u.uTint, P.edge);
-      gl.uniform3fv(edgeP.u.uHot, P.pulse);
-      gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, nEdges);
-
-      gl.useProgram(ptP.p);
-      gl.bindVertexArray(ptVao);
-      gl.bindBuffer(gl.ARRAY_BUFFER, ptVbo);
-      gl.bufferSubData(gl.ARRAY_BUFFER, 0, ptBuf, 0, nPts * PT_F);
-      gl.uniformMatrix4fv(ptP.u.uVP, false, vp);
-      gl.uniform3fv(ptP.u.uCam, EYE);
-      gl.uniform1f(ptP.u.uPx, pxK);
-      gl.uniform1f(ptP.u.uMaxPt, PT_MAX);
-      gl.uniform1f(ptP.u.uHalo, P.halo);
-      gl.uniform1f(ptP.u.uPlain, P.plain);
-      gl.uniform1f(ptP.u.uFog, wx.fogK);
-      gl.uniform1f(ptP.u.uSub, P.sub);
-      gl.uniform3fv(ptP.u.uTint, P.node);
-      gl.uniform3fv(ptP.u.uHot, P.pulse);
-      gl.drawArrays(gl.POINTS, 0, nPts);
-    }
-  }
+  drawAirLights(vp, EYE, false);
 
   // --- the bolt, while it lasts: the graph's line, white-hot and wide
   if (boltA > 0.01 && nBolt) {
     for (let i = 0; i < nBolt; i++) boltBuf[i * EDGE_F + 3] = boltBuf[i * EDGE_F + 7] = boltW[i] * boltA * P.flashI;
-    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-    gl.useProgram(edgeP.p);
-    gl.bindVertexArray(edgeVao);
-    gl.bindBuffer(gl.ARRAY_BUFFER, edgeVbo);
-    gl.bufferSubData(gl.ARRAY_BUFFER, 0, boltBuf, 0, nBolt * EDGE_F);
-    gl.uniformMatrix4fv(edgeP.u.uVP, false, vp);
-    gl.uniform3fv(edgeP.u.uCam, EYE);
-    gl.uniform2f(edgeP.u.uRes, W, H);
-    gl.uniform1f(edgeP.u.uPx, pxK);
-    gl.uniform1f(edgeP.u.uHalo, 1.6);
-    gl.uniform1f(edgeP.u.uPlain, 0.0);
-    gl.uniform1f(edgeP.u.uCore, 1.0);
-    gl.uniform1f(edgeP.u.uFog, 1.0);
-    gl.uniform1f(edgeP.u.uSub, P.sub);
     const hot = 1 + 1.5 * (1 - P.sub);
-    gl.uniform3f(edgeP.u.uTint, P.flashC[0] * hot, P.flashC[1] * hot, P.flashC[2] * hot);
-    gl.uniform3fv(edgeP.u.uHot, P.flashC);
-    gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, nBolt);
+    edgePass(boltBuf, nBolt, vp, EYE, false, {
+      tint: [P.flashC[0] * hot, P.flashC[1] * hot, P.flashC[2] * hot], hot: P.flashC,
+      sub: P.sub, halo: 1.6, plain: 0, core: 1.0, fog: 1.0, group: 0 });
   }
   gl.disable(gl.BLEND);
   gl.colorMask(true, true, true, true);
@@ -3825,7 +4634,8 @@ function frame(now) {
     gl.disable(gl.BLEND);
   }
 
-  // composite to the canvas
+  // composite to the canvas, with the meniscus along the waterline: light
+  // on a dark ground, dark on a light one, and only while it is in frame
   gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   gl.viewport(0, 0, W, H);
   gl.useProgram(compP.p);
@@ -3838,6 +4648,11 @@ function frame(now) {
   gl.uniform1f(compP.u.uBloomI, bloomI);
   gl.uniform1f(compP.u.uRaysI, raysI);
   gl.uniform1f(compP.u.uKnee, P.knee);
+  gl.uniform1f(compP.u.uPxK, pxK);
+  gl.uniform1f(compP.u.uLine, (0.30 + 0.25 * P.plain) * smoothstep(1.1, 0.95, Math.abs(split)));
+  const lc = 0.92 - 0.70 * P.sub;
+  gl.uniform3f(compP.u.uLineC, lc, lc, lc);
+  setMedium(compP, false);
   gl.drawArrays(gl.TRIANGLES, 0, 3);
   gl.activeTexture(gl.TEXTURE0);
 }
