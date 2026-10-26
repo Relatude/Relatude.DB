@@ -18,6 +18,8 @@ export interface TypeCount {
   count: number;
   countAll: number;
   kind: ModelKind;
+  /** the icon the type is shown with, its own or the closest base type's: a name of the icon library or SVG source; null for none */
+  icon?: string | null;
   isInterface: boolean;
   sourceId: string;
   /** the types this one is directly under, base type excluded; empty means it is outermost */

@@ -24,7 +24,7 @@ import { PanelGrid, type PanelRow } from "./PanelGrid";
 import { PowerOrb, powerTone } from "./PowerOrb";
 import { FadeText } from "./FadeText";
 import { TypeChart, otherSliceId, shade, type TypeChartShape, type TypeSlice } from "./TypeChart";
-import { KindIcon } from "./DatamodelIcons";
+import { TypeGlyph } from "./TypeIcon";
 import { openInDatamodel, openInQuery } from "../navigate";
 import { showConfirm, showError, showInfo } from "../dialogs";
 import { fetchDashboard, type DashboardInfo, type DashboardLive, type LiveCacheCounters, type TypeCount } from "../server/dashboard";
@@ -727,7 +727,7 @@ function TypeMenu({
       />
       <div className="db-menu type-menu" role="menu" style={{ top, left, width }}>
         <div className="type-menu-head">
-          <KindIcon kind={slice.type.kind} size={14} />
+          <TypeGlyph icon={slice.type.icon} kind={slice.type.kind} size={14} />
           <b title={slice.type.full}>{slice.type.name}</b>
           <span className="muted">{formatCount(slice.value)} nodes</span>
         </div>

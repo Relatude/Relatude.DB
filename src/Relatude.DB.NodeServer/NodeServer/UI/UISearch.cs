@@ -82,6 +82,7 @@ sealed class UISearch {
                 Name = x.Type.CodeName,
                 x.Type.FullName,
                 Kind = x.Type.ModelType.ToString(),
+                Icon = dm.GetIcon(x.Type),
                 x.Type.IsInterface,
                 IsBase = x.Type.Id == NodeConstants.BaseNodeTypeId,
             })];

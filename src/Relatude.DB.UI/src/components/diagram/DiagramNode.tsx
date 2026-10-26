@@ -1,8 +1,11 @@
 import { indexMarks, kindMeta, propertyColor } from "../DatamodelIcons";
+import { SvgTypeIcon, useIconSvg } from "../TypeIcon";
 import { headerHeight, rowHeight, type Box } from "./model";
 
 interface Props {
   box: Box;
+  /** the icon the type is shown with, its own or inherited: drawn before the kind in the header */
+  icon: string | null;
   color: string;
   selected: boolean;
   selectedProperty: string | null;
@@ -18,10 +21,14 @@ interface Props {
  * only exists embedded and the name; then a row per property, with its type's colour, the marks for
  * how it is indexed, and its property type. A row selects the property; the box selects the type.
  */
-export function DiagramNode({ box, color, selected, selectedProperty, dim, open, onPointerDown, onSelectProperty, onToggle }: Props) {
+export function DiagramNode({ box, icon, color, selected, selectedProperty, dim, open, onPointerDown, onSelectProperty, onToggle }: Props) {
   const kind = kindMeta[box.type.ModelType] ?? kindMeta.Class;
-  // the name takes what the kind and the badge leave, so it never runs into them
-  const kindWidth = 12 + kind.label.length * 6.6;
+  const svg = useIconSvg(icon);
+  // the icon leads the header, and the kind moves over for it
+  const iconSize = 14;
+  const kindX = svg ? 12 + iconSize + 6 : 12;
+  // the name takes what the icon, the kind and the badge leave, so it never runs into them
+  const kindWidth = kindX + kind.label.length * 6.6;
   const badgeX = kindWidth + 8;
   const badgeWidth = box.type.IsInnerNode ? 36 : 0;
   const titleChars = Math.max(6, Math.floor((box.w - 10 - badgeX - badgeWidth - 8) / 7.2));
@@ -30,7 +37,8 @@ export function DiagramNode({ box, color, selected, selectedProperty, dim, open,
     <g transform={`translate(${box.x} ${box.y})`} className={"dm-node" + (box.type.IsInnerNode ? " inner" : "") + (box.ghost ? " ghost" : "") + (selected ? " selected" : "") + (dim ? " dim" : "")} onPointerDown={onPointerDown}>
       <rect width={box.w} height={box.h} rx={8} className="dm-node-body" />
       <path d={`M0 8 a8 8 0 0 1 8 -8 h${box.w - 16} a8 8 0 0 1 8 8 v${headerHeight - 8} h-${box.w} z`} fill={color} className="dm-node-head" />
-      <text x={12} y={headerHeight / 2 + 4.5} className="dm-node-kind" fill="#fff" opacity={0.85}>
+      {svg && <SvgTypeIcon svg={svg} x={11} y={(headerHeight - iconSize) / 2} size={iconSize} />}
+      <text x={kindX} y={headerHeight / 2 + 4.5} className="dm-node-kind" fill="#fff" opacity={0.85}>
         {kind.label}
       </text>
       {box.type.IsInnerNode && (

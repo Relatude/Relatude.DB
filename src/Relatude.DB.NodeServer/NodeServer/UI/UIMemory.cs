@@ -71,9 +71,6 @@ sealed class UIMemory {
             SettingPath = path,
             SettingUnit = unit,
             SettingBytes = settingBytes,
-            // where the slider ends: four times what the database is set up with, so the current
-            // value sits a quarter along and there is room to raise it
-            SuggestedMaxBytes = suggestedMax(Math.Max(settingBytes, budget.LimitBytes)),
             Help = help(budget.Kind),
         };
     }
@@ -113,17 +110,6 @@ sealed class UIMemory {
                 };
                 return SettingsLocal.FindIndexEngine(engines, budget.EngineId)?.MaxMemoryUsageInBytes ?? 0;
         }
-    }
-
-    // a round number above four times the current one, so the budget sits a quarter along the track
-    // and the steps either side of it are worth taking
-    static long suggestedMax(long bytes) {
-        const long mb = 1024L * 1024;
-        var wanted = Math.Max(128 * mb, bytes * 4);
-        foreach (var steps in new[] { 128L, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536 }) {
-            if (wanted <= steps * mb) return steps * mb;
-        }
-        return 65536 * mb;
     }
 
     static string help(MemoryBudgetKind kind) => kind switch {

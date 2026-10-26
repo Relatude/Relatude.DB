@@ -3,6 +3,7 @@ import { IconArrowBackUp, IconArrowsMaximize, IconArrowsMinimize, IconArrowsShuf
 import type { EditorContext, Selection } from "./DatamodelEditors";
 import type { GraphShell } from "./DatamodelGraphView";
 import { embeddedColor, kindMeta, propertyColor, relationColor } from "./DatamodelIcons";
+import { SvgTypeIcon, TypeGlyph, modelIcon, useIconSvg } from "./TypeIcon";
 import { fullName, type NodeTypeJson } from "../server/datamodel";
 import { formatCount } from "../format";
 import { downloadSvg } from "../svgExport";
@@ -572,9 +573,7 @@ export function DatamodelGraph({ ctx, visibleTypes, selection, query, storeId, s
                 <title>{`${n.type.CodeName} — ${kind.label}${n.hidden > 0 ? ` · ${n.hidden} more to unfold` : ""}`}</title>
                 {(n.root || n.open) && <circle r={n.r + 5} className="dg-ring" stroke={n.root ? undefined : color} />}
                 <circle r={n.r} fill={color} className="dg-body" />
-                <g transform={`translate(${-iconSize / 2} ${-iconSize / 2})`} className="dg-icon">
-                  <kind.icon size={iconSize} stroke={1.7} color="#fff" />
-                </g>
+                <GraphNodeIcon icon={modelIcon(ctx.model, n.type.Id)} kind={kind} size={iconSize} />
                 {showLabels && (
                   <text y={n.r + 14} textAnchor="middle" className="dg-label">
                     {n.type.CodeName}
@@ -730,7 +729,7 @@ export function TypePicker({ ctx, eligible, query, onPick, tools }: { ctx: Edito
                 const base = t.Id === ctx.baseTypeId;
                 return (
                   <button key={t.Id} className={"dg-picker-type" + (base ? " base" : "")} style={{ borderLeftColor: color }} onClick={() => onPick(t.Id)} title={fullName(t) + " — " + kind.label}>
-                    <kind.icon size={15} stroke={1.9} color={kind.color} />
+                    <TypeGlyph icon={modelIcon(ctx.model, t.Id)} kind={t.ModelType} size={15} />
                     <span className="dg-picker-name">{t.CodeName}</span>
                     <span className="dg-picker-count">{base ? "base type" : count === undefined ? kind.label : formatCount(count) + (count === 1 ? " node" : " nodes")}</span>
                   </button>
@@ -831,4 +830,15 @@ function tick(s: Sim) {
     n.x += n.vx * motionScale;
     n.y += n.vy * motionScale;
   }
+}
+
+/** What a type's circle shows: its icon, white on the circle's colour (a coloured one on a white disc), else the shape of its kind. */
+function GraphNodeIcon({ icon, kind, size }: { icon: string | null; kind: (typeof kindMeta)[keyof typeof kindMeta]; size: number }) {
+  const svg = useIconSvg(icon);
+  if (svg) return <SvgTypeIcon svg={svg} x={-size / 2} y={-size / 2} size={size} />;
+  return (
+    <g transform={`translate(${-size / 2} ${-size / 2})`} className="dg-icon">
+      <kind.icon size={size} stroke={1.7} color="#fff" />
+    </g>
+  );
 }

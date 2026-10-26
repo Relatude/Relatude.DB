@@ -69,6 +69,27 @@ public interface IUrlManager {
 
 }
 
+/// <summary>
+/// Optional: what a URL manager offers an address batch (NodeAddressesAction) to check many addresses at less cost
+/// than one at a time. Without it, every node of a batch gets <see cref="IUrlManager.WillAddressResultInUniqueUrl"/>.
+/// </summary>
+public interface IUrlManagerBatch {
+    /// <summary>The node's parent in URL space; false when it has none: at the top, or when URLs have no parents.</summary>
+    bool TryGetUrlParent(NodeKey node, Guid cultureId, out Guid parentId);
+    /// <summary>
+    /// What <see cref="IUrlManager.WillAddressResultInUniqueUrl"/> answers, for a node whose parent's URL is known to
+    /// be unique: then only another child of that parent can have the URL the address gives, so the parent's children
+    /// are all that is compared.
+    /// </summary>
+    bool WillAddressResultInUniqueUrlAmongSiblings(NodeKey node, Guid cultureId, string address, Guid parentId);
+    /// <summary>Keeps what the checks read, on the calling thread, until <see cref="EndBatch"/>: a batch of checks in one transaction.</summary>
+    void BeginBatch();
+    /// <summary>A node's address in a culture changed during the batch, from one normalized address to another: what
+    /// was kept of the node is read again, and the nodes holding the two addresses are brought up to date.</summary>
+    void AddressChanged(Guid nodeId, int internalId, Guid cultureId, string? oldAddress, string? newAddress);
+    void EndBatch();
+}
+
 /// <summary>What <see cref="IUrlManager.GetAssetUrl"/> is asked to place in URL space.</summary>
 public sealed class AssetUrl {
     /// <summary>Opaque, URL-safe payload encoding the target (and any adjustment and content version). The store encodes and parses it; managers pass it through unmodified.</summary>

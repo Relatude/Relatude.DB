@@ -265,6 +265,7 @@ export type FieldEditor =
   | "stringList"
   | "intList"
   | "color"
+  | "icon"
   | "regex";
 
 export interface FieldDef {
@@ -496,6 +497,43 @@ export function moveOverridesToSettings(storeId: string, entries: OverridePath[]
 /** The SHARED file as moving these entries would make it, without writing anything. */
 export function settingsOverridesText(storeId: string, entries: OverridePath[]): Promise<{ content: string; fileName: string; settingsLocation: string }> {
   return send<{ content: string; fileName: string; settingsLocation: string }>("datamodel-overrides-settings-text", { storeId, entries });
+}
+
+// ---- icons picked by AI ----
+
+export interface IconsAiStatus {
+  available: boolean;
+  reason: string | null;
+  typesPerCall: number;
+  maxTypes: number;
+}
+export interface IconSuggestionType {
+  id: string;
+  name: string;
+  namespace: string | null;
+  kind: string;
+  bases: string[];
+  properties: string[];
+}
+export interface IconSuggestion {
+  typeId: string;
+  icon: string | null;
+  alternatives: string[];
+}
+export interface IconSuggestions {
+  types: IconSuggestion[];
+  calls: number;
+  credits: number;
+  creditsLeft: number;
+  model: string | null;
+  problem: string | null;
+}
+
+export function fetchIconsAi(): Promise<IconsAiStatus> {
+  return send<IconsAiStatus>("datamodel-icons-ai");
+}
+export function suggestIcons(storeId: string, set: string, types: IconSuggestionType[], signal?: AbortSignal): Promise<IconSuggestions> {
+  return send<IconSuggestions>("datamodel-icons-suggest", { storeId, set, types }, signal);
 }
 
 // ---- the type reference form: what the running application can see ----

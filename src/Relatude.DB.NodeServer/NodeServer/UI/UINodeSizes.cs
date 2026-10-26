@@ -89,6 +89,7 @@ sealed class UINodeSizes {
                     Name = type?.CodeName ?? kv.Key.ToString(),
                     Full = type?.FullName ?? kv.Key.ToString(),
                     Kind = type?.ModelType.ToString() ?? "Class",
+                    Icon = type == null ? null : dm.GetIcon(type),
                     Count = lengths.Count,
                     kv.Value.Bytes,
                     Stats = stats(lengths, kv.Value.Bytes),

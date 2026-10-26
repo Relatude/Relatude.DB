@@ -27,7 +27,6 @@ export interface MemoryBudget {
   settingUnit: "GB" | "MB" | null;
   /** what the settings file says, which is what the database opens with */
   settingBytes: number;
-  suggestedMaxBytes: number;
   help: string;
 }
 

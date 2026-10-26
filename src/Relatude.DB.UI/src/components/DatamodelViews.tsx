@@ -5,6 +5,8 @@ import { OverrideMarks, showValue, type EditorContext, type Selection } from "./
 import { RemovedTag, SourceTag } from "./SourceTag";
 import { allProperties, fullName, sourcePath, type HistoryEntry, type ModelDiff, type NodeTypeJson, type OverridesFileInfo, type PropertyJson, type SourceInfo } from "../server/datamodel";
 import { declaringType, hasOverrides, inheritedPropertySetting, isIndexed, layerOf, listOverrides, listResets, setOverride, settingsOverride, type OverrideEntry } from "../server/overrides";
+import { ShownIcon } from "./IconPicker";
+import { TypeGlyph, modelIcon } from "./TypeIcon";
 import { formatBytes, formatTime } from "../format";
 
 export interface ViewProps {
@@ -233,6 +235,7 @@ function TypesTable({ ctx, visibleTypes, ghostTypes, query, selection, diff, jus
                     <KindIcon kind={t.ModelType} />
                   </td>
                   <td className="dm-cell-name">
+                    <ShownIcon ctx={ctx} typeId={t.Id} />
                     {t.CodeName}
                     {changeBadge(diff, t.Id, "type")}
                     {t.Hidden && <span className="badge">hidden</span>}
@@ -420,7 +423,10 @@ function TypeTree({ ctx, visibleTypes, ghostTypes, query, selection, diff, showP
             {isCollapsed ? <IconChevronRight size={13} stroke={2} /> : <IconChevronDown size={13} stroke={2} />}
           </button>
           <KindIcon kind={t.ModelType} />
-          <span className="dm-tree-name">{t.CodeName}</span>
+          <span className="dm-tree-name">
+            <ShownIcon ctx={ctx} typeId={t.Id} />
+            {t.CodeName}
+          </span>
           <SourceDot color={ctx.colors.get(t.DatamodelSourceId) ?? "#888"} title={ctx.sources.find((s) => s.id === t.DatamodelSourceId)?.name} />
           {changeBadge(diff, t.Id, "type")}
           {t.IsInnerNode && <span className="badge">inner</span>}
@@ -495,7 +501,7 @@ export function MatrixView({ ctx, visibleTypes, ghostTypes, query, selection }: 
               {columns.map((t) => (
                 <th key={t.Id} className={"dm-matrix-col" + (ghostTypes.has(t.Id) && !visibleTypes.has(t.Id) ? " dm-ghost" : "") + (isSelected(selection, "type", t.Id) ? " selected" : "")} onClick={() => ctx.select({ kind: "type", id: t.Id })} title={fullName(t)}>
                   <div className="dm-matrix-colname">
-                    <KindIcon kind={t.ModelType} size={13} />
+                    <TypeGlyph icon={modelIcon(ctx.model, t.Id)} kind={t.ModelType} size={13} />
                     <span>{t.CodeName}</span>
                   </div>
                 </th>

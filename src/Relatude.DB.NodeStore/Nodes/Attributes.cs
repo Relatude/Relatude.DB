@@ -39,6 +39,13 @@ public class NodeAttribute : Attribute {
     public BoolValue TextIndex { get; set; }
     public BoolValue SemanticIndex { get; set; }
     public double TextIndexBoost { get; set; } = 0;
+    /// <summary>
+    /// The icon the type is shown with, in the admin UI and in applications such as a CMS: a named icon of
+    /// the server's icon library as "set:name" (<c>Icon = "lucide:house"</c>), or the source of an SVG
+    /// image. Unset takes the icon of the closest type it inherits from. The admin UI's datamodel editor
+    /// has a picker for the library's icons.
+    /// </summary>
+    public string? Icon { get; set; }
 }
 /// <summary>
 /// Overrides attributes of a property this type inherits, for this type and the types inheriting from

@@ -131,7 +131,7 @@ sealed class UILicense(RelatudeDBServer server) {
     /// address the installation really calls rather than from the hosted default. Null when no
     /// database uses the service, or one does with the default address.
     /// </summary>
-    string? configuredAiServiceUrl() => server.GetContainers()
+    internal static string? ConfiguredAiServiceUrl(RelatudeDBServer server) => server.GetContainers()
         .Select(c => c.Settings.AISettings)
         .Where(a => a != null && RelatudeServicesAIProvider.IsProviderName(a.TypeName))
         .Select(a => a!.ServiceUrl)
@@ -146,12 +146,17 @@ sealed class UILicense(RelatudeDBServer server) {
     /// </summary>
     async Task<RelatudeServicesAIProvider> aiTestProvider(AiTestPayload payload, string what, string accountKey, CancellationToken cancellationToken) {
         if (string.IsNullOrWhiteSpace(payload.Text)) throw new Exception(what + " is required.");
-        var status = await server.LicenseLogin.DescribeAsync(cancellationToken);
-        if (status.State != "valid" || status.License == null) throw new Exception("There is no valid license to call the AI service with. " + status.Reason);
-        if (!status.License.Active) throw new Exception("The license is " + (status.License.Expired ? "expired." : "disabled."));
-        if (!CarriesAccount(status.License, accountKey)) throw new Exception($"This license has no '{accountKey}' credit account to charge the call to.");
+        if (await AccountRefusalAsync(server, accountKey, "AI service", cancellationToken) is { } refusal) throw new Exception(refusal);
         var url = string.IsNullOrWhiteSpace(payload.ServiceUrl) ? null : payload.ServiceUrl.Trim();
         return new RelatudeServicesAIProvider(new AIProviderSettings { ServiceUrl = url }, () => server.Settings.ApiKey);
+    }
+
+    internal static async Task<string?> AccountRefusalAsync(RelatudeDBServer server, string accountKey, string service, CancellationToken cancellationToken) {
+        var status = await server.LicenseLogin.DescribeAsync(cancellationToken);
+        if (status.State != "valid" || status.License == null) return $"There is no valid license to call the {service} with. " + status.Reason;
+        if (!status.License.Active) return "The license is " + (status.License.Expired ? "expired." : "disabled.");
+        if (!CarriesAccount(status.License, accountKey)) return $"This license has no '{accountKey}' credit account to charge the call to.";
+        return null;
     }
 
     static string? modelOf(AiTestPayload payload) => string.IsNullOrWhiteSpace(payload.Model) ? null : payload.Model.Trim();
@@ -196,7 +201,7 @@ sealed class UILicense(RelatudeDBServer server) {
             // what Relatude Services knows this installation by, so it can be found there
             status.Installation,
             // where the AI test panel sends its calls, when a database here names an address of its own
-            AiServiceUrl = configuredAiServiceUrl(),
+            AiServiceUrl = ConfiguredAiServiceUrl(server),
             // and the Imaging, FileToText, Translation and IP lookup test panels, likewise
             ImagingServiceUrl = UIServiceTests.ConfiguredImagingUrl(server),
             FileToTextServiceUrl = UIServiceTests.ConfiguredFileToTextUrl(server),

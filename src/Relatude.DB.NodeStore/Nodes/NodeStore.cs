@@ -1378,6 +1378,18 @@ public class NodeStore : IDisposable {
 
     /// <summary>Uploads from a stream into the file property named by the lambda.</summary>
     public Task FileUploadAsync<T>(Guid nodeId, Expression<Func<T, FileValue>> expression, Stream source, string fileName) => FileUploadAsync(nodeId, Mapper.GetProperty(expression).Id, source, fileName);
+
+    /// <summary>
+    /// Copies files from file properties to others in one transaction, each target getting the source's file,
+    /// name and meta. A file kept once per content (a store with SameHashSameFile) is shared, not copied: no
+    /// bytes are read or written. Answers the targets' new values in the order given, null where the source
+    /// holds no file, or one that could not be read; such a target is left as it was. To copy a file in a
+    /// transaction of your own, with the insert of its node, say, add TransactionData.CopyFile to it.
+    /// </summary>
+    public Task<FileValue?[]> FileCopyAsync(IEnumerable<(PropertyPath From, PropertyPath To)> files) => Datastore.FileCopyAsync([.. files]);
+    /// <summary>Copies the file of one file property to another, as the overload for several does.</summary>
+    public async Task<FileValue?> FileCopyAsync(Guid fromNodeId, Guid fromPropertyId, Guid toNodeId, Guid toPropertyId)
+        => (await Datastore.FileCopyAsync([(new PropertyPath(fromNodeId, fromPropertyId), new PropertyPath(toNodeId, toPropertyId))]))[0];
     /// <summary>Uploads a byte array into the file property named by the lambda.</summary>
     public Task FileUploadAsync<T>(Guid nodeId, Expression<Func<T, FileValue>> expression, byte[] data, string fileName) => FileUploadAsync(nodeId, Mapper.GetProperty(expression).Id, new MemoryStream(data), fileName);
     /// <summary>Uploads a file from another IO provider into the file property named by the lambda.</summary>

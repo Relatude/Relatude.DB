@@ -12,6 +12,31 @@ import { formatBytes, formatCount, formatRate } from "../format";
 const mb = 1024 * 1024;
 const gb = 1024 * mb;
 
+const scaleTop = 128 * gb;
+const scaleSteps = buildScaleSteps();
+
+function buildScaleSteps(): number[] {
+  const steps = [0, 1 * mb, 2 * mb, 3 * mb];
+  for (let octave = 4 * mb; octave < scaleTop; octave *= 2) {
+    for (const quarter of [1, 1.25, 1.5, 1.75]) steps.push(octave * quarter);
+  }
+  steps.push(scaleTop);
+  return steps;
+}
+
+function scalePosition(bytes: number): number {
+  if (bytes >= scaleTop) return scaleSteps.length - 1;
+  const clamped = Math.max(0, bytes);
+  let above = 1;
+  while (scaleSteps[above] <= clamped) above++;
+  const below = above - 1;
+  return below + (clamped - scaleSteps[below]) / (scaleSteps[above] - scaleSteps[below]);
+}
+
+function scaleShare(bytes: number): number {
+  return scalePosition(bytes) / (scaleSteps.length - 1);
+}
+
 /**
  * What the dashboard reads about the caches themselves, as opposed to their budgets: how often each
  * one answered, how full it is, and how many times it filled up and was cut back. Cumulative since
@@ -290,7 +315,7 @@ export function MemoryPanel({
     ];
   }
 
-  const totals = report == null ? "" : `${formatBytes(report.managedBytes)} heap · ${formatBytes(report.processBytes)} resident`;
+  const totals = report == null ? "" : `${formatBytes(report.managedBytes)} heap · ${formatBytes(report.processBytes)} resident (log scale)`;
   return (
     <section className="panel panel-fill">
       <h3>
@@ -361,7 +386,7 @@ interface CacheKind {
 const cacheKinds: CacheKind[] = [
   {
     key: "node",
-    label: "Node cache",
+    label: "Node cache hits",
     help: "Nodes answered from memory rather than read and decoded from the database file again.",
     hits: (c) => c.nodeCacheHits,
     misses: (c) => c.nodeCacheMisses,
@@ -370,7 +395,7 @@ const cacheKinds: CacheKind[] = [
   },
   {
     key: "set",
-    label: "Result set cache",
+    label: "Result set cache hits",
     help: "Sets of node ids a query already worked out - a filter, a sort, a search - answered from memory instead of being worked out again.",
     hits: (c) => c.setCacheHits,
     misses: (c) => c.setCacheMisses,
@@ -379,7 +404,7 @@ const cacheKinds: CacheKind[] = [
   },
   {
     key: "aggregate",
-    label: "Aggregate cache",
+    label: "Aggregate cache hits",
     help: "Counts, sums and facet totals a query already worked out, so a repeated count or a facet drilled into does not walk the sets again.",
     hits: (c) => c.aggregateCacheHits,
     misses: (c) => c.aggregateCacheMisses,
@@ -461,10 +486,6 @@ function BudgetRow({
   onCommit: () => void;
 }) {
   const b = budget;
-  // the track runs to four times the saved budget, so the thumb sits a quarter along and the usage
-  // beside it has room to be seen; it only ever grows, or the thumb would jump mid-drag
-  const max = Math.max(b.suggestedMaxBytes, value, b.usedBytes ?? 0);
-  const step = Math.max(16 * mb, Math.round(max / 128 / (16 * mb)) * 16 * mb);
   const used = b.usedBytes;
   const pending = b.settingPath != null && b.settingBytes !== b.limitBytes;
   return (
@@ -480,16 +501,17 @@ function BudgetRow({
       ) : (
         <span className="mem-track">
           <span className="mem-fill">
-            <span style={{ width: Math.min(100, ((used ?? 0) / max) * 100) + "%" }} />
+            <span style={{ width: scaleShare(used ?? 0) * 100 + "%" }} />
           </span>
           <input
             type="range"
             min={0}
-            max={max}
-            step={step}
-            value={value}
+            max={scaleSteps.length - 1}
+            step={1}
+            value={Math.round(scalePosition(value))}
             aria-label={b.label + " budget"}
-            onChange={(e) => onDrag(Number(e.target.value))}
+            aria-valuetext={formatBytes(value)}
+            onChange={(e) => onDrag(scaleSteps[Number(e.target.value)])}
             // where the gesture ends, and nowhere else: committing on blur too would race the click
             // that caused the blur when that click is one of the buttons below
             onPointerUp={onCommit}

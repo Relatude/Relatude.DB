@@ -21,6 +21,21 @@ public sealed partial class DataStoreLocal : IDataStore {
         return Execute(transaction, true, flushToDisk, ctx);
     }
     public TransactionResult Execute(TransactionData transaction, bool transformValues, bool? flushToDisk = null, QueryContext? ctx = null) {
+        // the files it copies, read and stored before the lock is taken (NodeFileCopyAction)
+        var copies = resolveFileCopiesAsync(transaction, ctx ?? _defaultQueryCtx).GetAwaiter().GetResult();
+        if (copies == null) return executeWithRetries(transaction, transformValues, flushToDisk, ctx);
+        try {
+            var result = executeWithRetries(transaction, transformValues, flushToDisk, ctx);
+            fileCopiesDone(copies, ctx ?? _defaultQueryCtx);
+            return result;
+        } catch {
+            fileCopiesFailed(copies);
+            throw;
+        } finally {
+            foreach (var copy in copies) if (copy.Resolved != null) _storeMadeFiles.Remove(copy.Resolved);
+        }
+    }
+    TransactionResult executeWithRetries(TransactionData transaction, bool transformValues, bool? flushToDisk, QueryContext? ctx) {
         var attempt = 0;
         while (true) {
             try {
@@ -230,6 +245,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             _nodeJustRemoved = null;
             _guids.RollbackIfUncommited();
             _addresses.RollbackIfUncommited();
+            _urls.EndAddressBatch(); // an address batch the transaction left under way (NodeAddressesAction)
         }
     }
     INodeData? _nodeJustRemoved;

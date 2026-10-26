@@ -6,7 +6,8 @@ import { useLiveResult } from "../server/hooks";
 import { useIdMatches, type IdMatch } from "../server/idLookup";
 import { globalSearch, minSearchLength, type SearchResults } from "../server/search";
 import type { DatabaseInfo } from "../server/serverInfo";
-import { KindIcon, PropertyIcon } from "./DatamodelIcons";
+import { PropertyIcon } from "./DatamodelIcons";
+import { TypeGlyph } from "./TypeIcon";
 import type { ModelKind } from "../server/datamodel";
 
 /** One row of the panel: what it looks like, and what opening it does. */
@@ -297,7 +298,7 @@ function build(
     hits.push({
       key: "type/" + type.id,
       group: "Data model",
-      icon: <KindIcon kind={(type.kind as ModelKind) ?? "Class"} size={16} />,
+      icon: <TypeGlyph icon={type.icon} kind={(type.kind as ModelKind) ?? "Class"} size={16} />,
       label: type.name,
       hint: (type.isBase ? "every node type" : type.fullName) + " · open in the data model",
       open: () => openInDatamodel({ typeId: type.id }),
@@ -339,7 +340,8 @@ function build(
     hits.push({
       key: "node/" + node.id,
       group: "Nodes",
-      icon: <IconDatabaseSearch size={16} stroke={1.8} />,
+      // the node's type's icon, where it has one: what kind of thing was found, before reading the hint
+      icon: node.icon ? <TypeGlyph icon={node.icon} kind="Class" size={16} /> : <IconDatabaseSearch size={16} stroke={1.8} />,
       label: node.name,
       hint: node.typeName + " · open in query & edit",
       open: () => openInQuery({ typeId: node.typeId, nodeId: node.id }),

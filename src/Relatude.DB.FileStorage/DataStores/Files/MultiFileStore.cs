@@ -12,10 +12,11 @@ namespace Relatude.DB.DataStores.Files;
 /// store keeps one copy of any content: an upload is written as usual, then moved to a place named
 /// after its hash - or dropped, when a file with that hash and length is already there - and the file
 /// value is given the hash based id and name. Such files can be shared by many file values, so only
-/// <see cref="DeleteUnreferenced"/> removes them. Files stored before the option was turned on stay
-/// where they are, and files kept by their hash stay readable after it is turned off.
+/// <see cref="DeleteUnreferenced"/> removes them, and a copy of a value shares its file (<see cref="TryShare"/>).
+/// Files stored before the option was turned on stay where they are, and files kept by their hash stay
+/// readable after it is turned off.
 /// </summary>
-public class MultiFileStore : IDisposable, IFileStore, IFileStoreMultiPartSupport, IFileStoreDeleteUnreferenced {
+public class MultiFileStore : IDisposable, IFileStore, IFileStoreMultiPartSupport, IFileStoreDeleteUnreferenced, IFileStoreSharing {
     readonly IIOProvider _ioProvider;
     readonly string[] _basePath;
     public Guid Id { get; }
@@ -136,6 +137,22 @@ public class MultiFileStore : IDisposable, IFileStore, IFileStoreMultiPartSuppor
             pruneHandedOut(state, now);
         }
         return new FileInsertResult(fileHash, stringToBytes(fileName), length, fileId);
+    }
+    public bool TryShare(FileValue value) {
+        if (value.IsEmpty || !FileValue.IsKeptByHash(value)) return false;
+        // kept by its hash whether or not the store keeps files so now: the state is the provider's, made if the
+        // store has none, as a sweep of the folder looks for it there
+        var state = _write.State ?? _hashStates.GetValue(_ioProvider, _ => new HashState());
+        var path = getFullPath(value);
+        var key = path.AsKeyString();
+        lock (state.LockOf(key)) { // as an upload reusing the file: the sweep finds it handed out, or it is gone
+            var there = value.Size == 0 ? _ioProvider.Exists(path) : _ioProvider.GetFileSizeOrZeroIfUnknown(path) == value.Size;
+            if (!there) return false;
+            var now = DateTime.UtcNow;
+            state.HandedOut[key] = now;
+            pruneHandedOut(state, now);
+        }
+        return true;
     }
     static void pruneHandedOut(HashState state, DateTime now) {
         if (now < state.NextPrune) return; // at most once a minute, so a bulk import is not slowed down

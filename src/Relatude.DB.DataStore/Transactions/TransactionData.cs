@@ -76,6 +76,20 @@ public class TransactionData {
     public void ForceUpdateProperty(Guid[] nodeIds, Guid propetyId, Guid[]? revisionIds, object value) => Add(new NodePropertyAction(NodePropertyOperation.ForceUpdate, null, nodeIds, null, revisionIds, propetyId, value));
     public void ForceUpdateProperty(int[] nodeIds, Guid propetyId, Guid[]? revisionIds, object value) => Add(new NodePropertyAction(NodePropertyOperation.ForceUpdate, null, null, nodeIds, revisionIds, propetyId, value));
 
+    /// <summary>Gives the target file property the source's file (see NodeFileCopyAction); its Result is the target's value once the transaction has run.</summary>
+    public NodeFileCopyAction CopyFile(PropertyPath from, PropertyPath to) {
+        var action = new NodeFileCopyAction(from, to);
+        Add(action);
+        return action;
+    }
+
+    /// <summary>Gives the nodes their addresses, checked for unique URLs together (see NodeAddressesAction): give a branch top first, parents before their children.</summary>
+    public NodeAddressesAction SetAddresses(IEnumerable<(Guid Node, string? Address, bool? AutoAddress)> nodes) {
+        var action = new NodeAddressesAction([.. nodes]);
+        Add(action);
+        return action;
+    }
+
     public void UpdateIfDifferentProperty(Guid nodeId, Guid propetyId, object value) => Add(new NodePropertyAction(NodePropertyOperation.UpdateIfDifferent, null, [nodeId], null, null, propetyId, value));
     public void UpdateIfDifferentProperty(int nodeId, Guid propetyId, object value) => Add(new NodePropertyAction(NodePropertyOperation.UpdateIfDifferent, null, null, [nodeId], null, propetyId, value));
     public void UpdateIfDifferentProperty(Guid[] nodeIds, Guid propetyId, object value) => Add(new NodePropertyAction(NodePropertyOperation.UpdateIfDifferent, null, nodeIds, null, null, propetyId, value));

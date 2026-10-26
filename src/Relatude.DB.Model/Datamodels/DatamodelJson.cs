@@ -15,9 +15,9 @@ public static class DatamodelJson {
     /// <summary>Options for reading and writing datamodel JSON files.</summary>
     public static readonly JsonSerializerOptions Options = create(stripProvenance: false);
     /// <summary>
-    /// Options for checksums of the datamodel (deciding when indexes must be rebuilt): identical
-    /// to Options except that provenance (Sources, DatamodelSourceId, DatamodelSourceFilename) is
-    /// stripped, so moving a type between sources or renaming a source does not trigger a rebuild.
+    /// Options identical to Options except that provenance (Sources, DatamodelSourceId,
+    /// DatamodelSourceFilename) is stripped: what a JSON source file holds, and the base of the
+    /// checksums below, so moving a type between sources or renaming a source changes neither.
     /// </summary>
     public static readonly JsonSerializerOptions ChecksumOptions = create(stripProvenance: true);
     /// <summary>
@@ -27,7 +27,14 @@ public static class DatamodelJson {
     /// attributes and one read from JSON or generated code, without meaning anything different.
     /// </summary>
     public static readonly JsonSerializerOptions CompareOptions = create(stripProvenance: true, stripDerived: true);
-    static JsonSerializerOptions create(bool stripProvenance, bool stripDerived = false) {
+    /// <summary>
+    /// Options for the store's checksum (<see cref="SerializeForChecksum"/>): <see cref="ChecksumOptions"/>
+    /// with what only says how a type is shown left out as well (<see cref="NodeTypeModel.Icon"/>, and its
+    /// override), so choosing an icon does not rebuild the state and every index. The editor's checksum
+    /// (<see cref="Checksum"/>) keeps it: to the editor a new icon is a change of the model.
+    /// </summary>
+    public static readonly JsonSerializerOptions StateOptions = create(stripProvenance: true, stripPresentation: true);
+    static JsonSerializerOptions create(bool stripProvenance, bool stripDerived = false, bool stripPresentation = false) {
         var options = new JsonSerializerOptions {
             PropertyNameCaseInsensitive = true, // accepts files saved with camelCase policies
             ReadCommentHandling = JsonCommentHandling.Skip,
@@ -38,13 +45,37 @@ public static class DatamodelJson {
         options.Converters.Add(new PropertyModelJsonConverter());
         options.Converters.Add(new BrowserSafeInt64Converter());
         options.Converters.Add(new BrowserSafeDecimalConverter());
-        if (stripProvenance || stripDerived) {
+        if (stripProvenance || stripDerived || stripPresentation) {
             var resolver = new DefaultJsonTypeInfoResolver();
             if (stripProvenance) resolver.Modifiers.Add(stripProvenanceProperties);
             if (stripDerived) resolver.Modifiers.Add(stripDerivedProperties);
+            if (stripPresentation) resolver.Modifiers.Add(stripPresentationProperties);
             options.TypeInfoResolver = resolver;
         }
         return options;
+    }
+    static void stripPresentationProperties(JsonTypeInfo typeInfo) {
+        if (typeInfo.Type == typeof(NodeTypeModel)) {
+            removeProperty(typeInfo, nameof(NodeTypeModel.Icon));
+        } else if (typeInfo.Type == typeof(Datamodel)) {
+            // an override of nothing but an icon would still leave its type's entry (and its name) behind
+            foreach (var p in typeInfo.Properties) {
+                if (p.Get == null || !p.Name.Equals(nameof(Datamodel.Overrides), StringComparison.OrdinalIgnoreCase)) continue;
+                var get = p.Get;
+                p.Get = model => withoutPresentation(get(model) as DatamodelOverrides);
+            }
+        }
+    }
+    // the overrides as if no icon were overridden: the types with nothing else overridden are left out
+    static DatamodelOverrides? withoutPresentation(DatamodelOverrides? overrides) {
+        if (overrides == null || !overrides.NodeTypes.Values.Any(t => t.Icon != null)) return overrides;
+        var copy = new DatamodelOverrides();
+        foreach (var (id, t) in overrides.NodeTypes) {
+            var c = JsonSerializer.Deserialize<NodeTypeOverride>(JsonSerializer.Serialize(t, Options), Options)!;
+            c.Icon = null;
+            if (!c.IsEmpty) copy.NodeTypes[id] = c;
+        }
+        return copy.NodeTypes.Count == 0 ? null : copy;
     }
     // The model travels through the admin UI, whose JavaScript numbers are doubles: long.MinValue (the
     // default MinValue of every long property) comes back as -9223372036854776000 and decimal.MaxValue as
@@ -101,7 +132,7 @@ public static class DatamodelJson {
                 typeInfo.Properties.RemoveAt(i);
     }
     public static string Serialize(Datamodel datamodel) => JsonSerializer.Serialize(datamodel, Options);
-    public static string SerializeForChecksum(Datamodel datamodel) => JsonSerializer.Serialize(datamodel, ChecksumOptions);
+    public static string SerializeForChecksum(Datamodel datamodel) => JsonSerializer.Serialize(datamodel, StateOptions);
     /// <summary>
     /// A stable identity of what the model says, ignoring where it came from and the derived name
     /// fields (<see cref="CompareOptions"/>). Two models with the same checksum define the same types,

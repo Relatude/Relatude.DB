@@ -24,6 +24,7 @@ import {
   IconRocket,
   IconSearch,
   IconSitemap,
+  IconSparkles,
   IconStack2,
   IconTable,
   IconTopologyStar3,
@@ -63,17 +64,19 @@ import {
   type Validation,
 } from "../server/datamodel";
 import { formatTime } from "../format";
-import { KindIcon, PropertyIcon, RelationIcon, SourceDot, SourceIcon, kindMeta, relationColor } from "./DatamodelIcons";
+import { PropertyIcon, RelationIcon, SourceDot, SourceIcon, kindMeta, relationColor } from "./DatamodelIcons";
 import { PropertyEditor, readOnlyNote, RelationEditor, SourceEditor, SourcePickerDialog, TypeEditor, type EditorContext, type Selection } from "./DatamodelEditors";
 import { peekSearchTarget, takeDatamodelTarget, takeSearchTarget, useNavigationRequest, type DatamodelTarget } from "../navigate";
 import { HistoryView, MatrixView, ModelsView, RelationsView, SourcesView } from "./DatamodelViews";
 import { DatamodelOverridesDialog } from "./DatamodelOverridesDialog";
+import { IconAssignDialog } from "./IconAssignDialog";
 import { ShareButton } from "./ShareButton";
 import { DatamodelDiagram } from "./diagram/DatamodelDiagram";
 import { DatamodelGraphView } from "./DatamodelGraphView";
 import { modeKey, remember } from "./datamodelGraphModel";
 import { Loading } from "./Loading";
 import "../datamodel.css";
+import { TypeGlyph, modelIcon } from "./TypeIcon";
 
 type ViewId = "models" | "relations" | "diagram" | "graph" | "matrix" | "sources" | "history";
 
@@ -302,6 +305,7 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
   const [planOpen, setPlanOpen] = useState(false);
   // this installation's overrides, and moving them into the shared file
   const [overridesOpen, setOverridesOpen] = useState(false);
+  const [iconsOpen, setIconsOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   // the open source picker: what is being added, where it could go, and what to do once one is picked
@@ -1013,6 +1017,15 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
                     >
                       <IconTable size={15} stroke={1.9} /> Properties matrix
                     </button>
+                    <button
+                      onClick={() => {
+                        setIconsOpen(true);
+                        setMenuOpen(false);
+                      }}
+                      disabled={!ctx}
+                    >
+                      <IconSparkles size={15} stroke={1.9} /> Assign icons with AI…
+                    </button>
                     <hr />
                     <button onClick={() => { setShowHelp(!showHelp); setMenuOpen(false); }}>
                       {showHelp ? <IconMessageOff size={15} stroke={1.9} /> : <IconMessage size={15} stroke={1.9} />}
@@ -1119,7 +1132,7 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
                       setHitsOpen(false);
                     }}
                   >
-                    {h.kind === "type" ? <KindIcon kind={model.NodeTypes[h.id].ModelType} size={14} /> : h.kind === "property" ? <PropertyIcon propertyType={model.NodeTypes[h.typeId!].Properties[h.id].PropertyType} /> : h.kind === "relation" ? <RelationIcon kind={model.Relations[h.id].RelationType} size={14} /> : <SourceIcon type={sourceInfos.find((s) => s.id === h.id)?.type ?? "Code"} size={14} color={colors.get(h.id)} />}
+                    {h.kind === "type" ? <TypeGlyph icon={modelIcon(model, h.id)} kind={model.NodeTypes[h.id].ModelType} size={14} /> : h.kind === "property" ? <PropertyIcon propertyType={model.NodeTypes[h.typeId!].Properties[h.id].PropertyType} /> : h.kind === "relation" ? <RelationIcon kind={model.Relations[h.id].RelationType} size={14} /> : <SourceIcon type={sourceInfos.find((s) => s.id === h.id)?.type ?? "Code"} size={14} color={colors.get(h.id)} />}
                     <span className="dm-hit-label">{h.label}</span>
                     <span className="muted">{h.detail}</span>
                   </button>
@@ -1274,6 +1287,8 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
           onFilesChanged={(files) => setPage((p) => (p ? { ...p, overrides: files } : p))}
         />
       )}
+
+      {iconsOpen && ctx && <IconAssignDialog ctx={ctx} hiddenSources={hiddenSources} onClose={() => setIconsOpen(false)} />}
 
       {sourcePick && (
         <SourcePickerDialog

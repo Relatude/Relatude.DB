@@ -37,6 +37,17 @@ public partial class NodeTypeModel { // with default values
 
     public bool Hidden { get; set; } = false;
 
+    /// <summary>
+    /// The icon the type is shown with, in the admin UI and in applications built on the model such as a
+    /// CMS: a named icon from the server's icon library, written "set:name" ("lucide:house",
+    /// "fluent-color:calendar"), or the source of an SVG image ("&lt;svg ...&gt;...&lt;/svg&gt;"). Null takes
+    /// the icon of the closest type it inherits from that has one (<see cref="Datamodel.GetIcon"/>). It only
+    /// says how the type is shown, so the store's checksum leaves it out: changing it rebuilds nothing.
+    /// Left out of the JSON when null, so a model without icons reads as it did before the member existed.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Icon { get; set; }
+
     public Guid DefaultReadAccess { get; set; } = NodeConstants.UserGroupUnspecified;
     public Guid DefaultEditAccess { get; set; } = NodeConstants.UserGroupUnspecified;
     public Guid DefaultEditViewAccess { get; set; } = NodeConstants.UserGroupUnspecified;

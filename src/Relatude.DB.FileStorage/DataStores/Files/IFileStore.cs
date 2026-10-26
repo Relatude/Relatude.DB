@@ -55,6 +55,14 @@ public interface IFileStoreMultiPartSupport : IFileStore {
     /// file, or drop it in favour of the copy it already has.</summary>
     Task<FileInsertResult> CompletePartialUpload(Guid fileId, byte[] fileKey, string fileHash, long length);
 }
+/// <summary>Optional file store capability: letting another file value point at a file the store keeps
+/// once per content, so a copy of a file value needs no copy of its bytes (IDataStore.FileCopyAsync).</summary>
+public interface IFileStoreSharing : IFileStore {
+    /// <summary>True when the value's file is kept by its hash (<see cref="FileValue.IsKeptByHash"/>) and is
+    /// here, at its length, so another file value may point at it too. The store then counts it as handed
+    /// out, as when an upload of the same bytes finds it, so an unreferenced sweep under way leaves it.</summary>
+    bool TryShare(FileValue value);
+}
 public class DeleteUnReferenceResult(long totalBytesDeleted, int totalFilesDeleted, int totalFoldersDeleted) {
     public long TotalBytesDeleted { get; } = totalBytesDeleted;
     public int TotalFilesDeleted { get; } = totalFilesDeleted;

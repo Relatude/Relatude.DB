@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { IconChartHistogram, IconExternalLink, IconRefresh, IconSearch, IconX } from "@tabler/icons-react";
 import { DialogTools } from "./DialogTools";
-import { KindIcon } from "./DatamodelIcons";
+import { TypeGlyph } from "./TypeIcon";
 import { Loading } from "./Loading";
 import { CopyButton } from "./CopyButton";
 import { CopyText } from "./CopyText";
@@ -356,7 +356,7 @@ export function NodeSizesDialog({ db, onClose }: { db: DatabaseInfo; onClose: ()
                         >
                           <span className="ns-type-name">
                             <span className="ns-swatch" style={{ background: colorOf(t.id) }} />
-                            <KindIcon kind={t.kind} size={13} />
+                            <TypeGlyph icon={t.icon} kind={t.kind} size={13} />
                             <span className="ns-ellipsis">{t.name}</span>
                           </span>
                           <span className="num">{formatCount(t.count)}</span>

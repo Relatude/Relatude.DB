@@ -1,0 +1,140 @@
+{
+  "sets": [
+    {
+      "prefix": "lucide",
+      "name": "Lucide",
+      "colour": false,
+      "total": 1903,
+      "author": "Lucide Contributors",
+      "authorUrl": "https://github.com/lucide-icons/lucide",
+      "license": "ISC",
+      "licenseUrl": "https://github.com/lucide-icons/lucide/blob/main/LICENSE",
+      "samples": [
+        "circle-check",
+        "award",
+        "house",
+        "check",
+        "mountain",
+        "chevron-up"
+      ],
+      "version": "9e811adcac648c8a",
+      "package": "@iconify-json/lucide@1.2.147"
+    },
+    {
+      "prefix": "tabler",
+      "name": "Tabler Icons",
+      "colour": false,
+      "total": 6238,
+      "author": "Paweł Kuna",
+      "authorUrl": "https://github.com/tabler/tabler-icons",
+      "license": "MIT",
+      "licenseUrl": "https://github.com/tabler/tabler-icons/blob/master/LICENSE",
+      "samples": [
+        "alien",
+        "device-desktop",
+        "photo",
+        "chevron-right",
+        "check",
+        "square-root"
+      ],
+      "version": "c017c704701e11c2",
+      "package": "@iconify-json/tabler@1.2.42"
+    },
+    {
+      "prefix": "mdi",
+      "name": "Material Design Icons",
+      "colour": false,
+      "total": 7447,
+      "author": "Pictogrammers",
+      "authorUrl": "https://github.com/Templarian/MaterialDesign",
+      "license": "Apache-2.0",
+      "licenseUrl": "https://github.com/Templarian/MaterialDesign/blob/master/LICENSE",
+      "samples": [
+        "account-check",
+        "bell-alert-outline",
+        "calendar-edit",
+        "skip-previous",
+        "home-variant",
+        "lock-open-outline"
+      ],
+      "version": "724cec5b1beea21d",
+      "package": "@iconify-json/mdi@1.2.3"
+    },
+    {
+      "prefix": "fluent-color",
+      "name": "Fluent UI System Color Icons",
+      "colour": true,
+      "total": 199,
+      "author": "Microsoft Corporation",
+      "authorUrl": "https://github.com/microsoft/fluentui-system-icons",
+      "license": "MIT",
+      "licenseUrl": "https://github.com/microsoft/fluentui-system-icons/blob/main/LICENSE",
+      "samples": [
+        "wrench-24",
+        "shield-24"
+      ],
+      "version": "29c25ec1735eaf05",
+      "package": "@iconify-json/fluent-color@1.2.21"
+    },
+    {
+      "prefix": "flat-color-icons",
+      "name": "Flat Color Icons",
+      "colour": true,
+      "total": 329,
+      "author": "Icons8",
+      "authorUrl": "https://github.com/icons8/flat-Color-icons",
+      "license": "MIT",
+      "licenseUrl": null,
+      "samples": [
+        "edit-image",
+        "donate",
+        "planner",
+        "expand",
+        "music",
+        "checkmark"
+      ],
+      "version": "b731918c3a956a12",
+      "package": "@iconify-json/flat-color-icons@1.2.3"
+    },
+    {
+      "prefix": "icon-park",
+      "name": "IconPark",
+      "colour": true,
+      "total": 2658,
+      "author": "ByteDance",
+      "authorUrl": "https://github.com/bytedance/IconPark",
+      "license": "Apache-2.0",
+      "licenseUrl": "https://github.com/bytedance/IconPark/blob/master/LICENSE",
+      "samples": [
+        "add-one",
+        "english-mustache",
+        "basketball-clothes",
+        "sort",
+        "lightning",
+        "pinwheel"
+      ],
+      "version": "8a9663ea4c6f6b93",
+      "package": "@iconify-json/icon-park@1.2.4"
+    },
+    {
+      "prefix": "fluent-emoji-flat",
+      "name": "Fluent Emoji Flat",
+      "colour": true,
+      "total": 3139,
+      "author": "Microsoft Corporation",
+      "authorUrl": "https://github.com/microsoft/fluentui-emoji",
+      "license": "MIT",
+      "licenseUrl": "https://github.com/microsoft/fluentui-emoji/blob/main/LICENSE",
+      "samples": [
+        "avocado",
+        "ticket",
+        "straight-ruler",
+        "diamond-suit",
+        "egg",
+        "yin-yang"
+      ],
+      "version": "3fda96243aef9f78",
+      "package": "@iconify-json/fluent-emoji-flat@1.2.6"
+    }
+  ]
+}

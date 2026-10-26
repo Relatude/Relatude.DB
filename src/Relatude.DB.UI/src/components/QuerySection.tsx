@@ -37,6 +37,7 @@ import { AddColumnHead, ColumnHead, useColumnDrag, useColumnSizing, type TableCo
 import { CopyButton } from "./CopyButton";
 import { SearchOptions } from "./SearchOptions";
 import { NewNodeDialog, TypePicker } from "./TypePicker";
+import { NodeTypeGlyph, TypeLooksProvider } from "./TypeIcon";
 import { showChoice, showError } from "../dialogs";
 import { peekSearchTarget, takeQueryTarget, takeSearchTarget, useNavigationRequest } from "../navigate";
 import {
@@ -1083,8 +1084,10 @@ function QueryTab({
   const semanticSet = semanticRatio !== null || minSimilarity !== null;
   const lastPage = result ? Math.max(0, Math.ceil(result.total / pageRows) - 1) : 0;
   return (
-    // the summary views run their queries in this tab's run group: the Stop button stops them with the search
+    // the summary views run their queries in this tab's run group: the Stop button stops them with the search;
+    // and the hits, the node form and its chips draw each node's type with its icon
     <RunGroupContext.Provider value={runs}>
+      <TypeLooksProvider types={model.types}>
       <div className="query-toolbar">
         {/* the type and the refresh belong together: both are about which nodes are on the page,
             and the refresh is framed like the picker so the two read as one control */}
@@ -1582,7 +1585,10 @@ function QueryTab({
                     <span className="query-hit-name" title={hit.displayName}>
                       <Sampled sample={hit.nameSample} plain={hit.displayName} />
                     </span>
-                    <span className="query-hit-type">{hit.typeName}</span>
+                    <span className="query-hit-type">
+                      <NodeTypeGlyph typeId={hit.typeId} size={13} />
+                      {hit.typeName}
+                    </span>
                     <span className="query-hit-time">{formatTime(hit.changedUtc)}</span>
                   </div>
                   {hit.snippet && (
@@ -1674,6 +1680,7 @@ function QueryTab({
           }}
         />
       )}
+      </TypeLooksProvider>
     </RunGroupContext.Provider>
   );
 }

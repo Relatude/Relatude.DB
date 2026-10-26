@@ -89,6 +89,7 @@ public static class ModelGen {
             if (nodeDef.SemanticIndex.HasValue) sb.Append(", " + nameof(NodeAttribute.SemanticIndex) + " = " + addAttributeBool(nodeDef.SemanticIndex.Value ? BoolValue.True : BoolValue.False));
             if (nodeDef.InstantTextIndexing.HasValue) sb.Append(", " + nameof(NodeAttribute.InstantTextIndexing) + " = " + addAttributeBool(nodeDef.InstantTextIndexing.Value ? BoolValue.True : BoolValue.False));
             if (nodeDef.TextIndexBoost != 0) sb.Append(", " + nameof(NodeAttribute.TextIndexBoost) + " = " + nodeDef.TextIndexBoost.ToString(CultureInfo.InvariantCulture));
+            if (!string.IsNullOrWhiteSpace(nodeDef.Icon)) sb.Append(", " + nameof(NodeAttribute.Icon) + " = " + stringLiteral(nodeDef.Icon));
             // instance limits are only written when set: the attribute and the model disagree on what
             // "unset" is (0 and int.MinValue), and the model builder treats an unset attribute as no limit
             if (nodeDef.MinNoInstances != int.MinValue && nodeDef.MinNoInstances != 0) sb.Append(", " + nameof(NodeAttribute.MinNoInstances) + " = " + nodeDef.MinNoInstances.ToString(CultureInfo.InvariantCulture));

@@ -9,6 +9,8 @@ export interface TypeHit {
   /** the namespaced name, which is what tells two types of the same name apart */
   fullName: string;
   kind: string;
+  /** the icon the type is shown with, its own or the closest base type's: a name of the icon library or SVG source; null for none */
+  icon?: string | null;
   isInterface: boolean;
   isBase: boolean;
 }
@@ -43,6 +45,8 @@ export interface NodeHit {
   name: string;
   typeName: string;
   typeId: string;
+  /** the icon its type is shown with: a name of the icon library or SVG source; null for none */
+  icon?: string | null;
 }
 
 export interface SearchResults {

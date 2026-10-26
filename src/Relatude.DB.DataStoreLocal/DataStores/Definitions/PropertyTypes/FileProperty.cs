@@ -6,9 +6,11 @@ using Relatude.DB.IO;
 
 namespace Relatude.DB.DataStores.Definitions.PropertyTypes {
     internal class FileProperty : Property {
+        DataStoreLocal? _store;
         public FileProperty(FilePropertyModel pm, Definition def) : base(pm, def) {
         }
         internal override void Initalize(DataStoreLocal store, Definition def, SettingsLocal config, IIOProvider io, AIEngine? ai) {
+            _store = store;
         }
         public override PropertyType PropertyType => PropertyType.ByteArray;
         public override object ForceValueType(object value, out bool changed) {
@@ -16,6 +18,7 @@ namespace Relatude.DB.DataStores.Definitions.PropertyTypes {
         }
         public override object TransformFromOuterToInnerValue(object value, INodeData? oldNodeData) {
             if (value is not FileValue fileValue) throw new Exception("Value is not a file value. ");
+            if (_store != null && _store.IsStoreMadeFile(fileValue)) return fileValue; // a copy the store made for this transaction (NodeFileCopyAction)
             if (oldNodeData == null) return FileValue.Empty; // is insert, so must be empty|
             if (oldNodeData.TryGetValue(Id, out var oldFileValue) && oldFileValue is FileValue oldFv) {
                 return FileValue.BringChangesFromOuterToInner(oldFv, fileValue); // stripping storage id etc, that is not allowed to be changed

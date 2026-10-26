@@ -20,6 +20,8 @@ export interface NodeSizeType {
   name: string;
   full: string;
   kind: ModelKind;
+  /** the icon the type is shown with, its own or the closest base type's: a name of the icon library or SVG source; null for none */
+  icon?: string | null;
   count: number;
   bytes: number;
   stats: SizeStats;

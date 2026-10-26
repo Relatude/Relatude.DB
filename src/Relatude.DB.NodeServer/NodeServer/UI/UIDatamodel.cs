@@ -1,8 +1,10 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Relatude.DB.AI;
 using Relatude.DB.CodeGeneration;
 using Relatude.DB.Datamodels;
 using Relatude.DB.IO;
+using Relatude.DB.NodeServer.Icons;
 using Relatude.DB.NodeServer.ModelEditor;
 
 namespace Relatude.DB.NodeServer.UI;
@@ -40,6 +42,8 @@ sealed class UIDatamodel {
         commands.Register("datamodel-scan-assemblies", ctx => AssemblyScanner.ScanAssemblies());
         commands.Register("datamodel-scan-namespaces", ctx => AssemblyScanner.ScanNamespaces(ctx.Payload<ReferencePayload>().Reference));
         commands.Register("datamodel-probe-types", ctx => { var p = ctx.Payload<ProbePayload>(); return AssemblyScanner.Probe(p.Reference, p.Namespace); });
+        commands.Register("datamodel-icons-ai", async ctx => await iconsAi(ctx.Cancellation));
+        commands.Register("datamodel-icons-suggest", async ctx => await iconsSuggest(ctx.Payload<IconsSuggestPayload>(), ctx.Cancellation));
     }
 
     NodeStoreContainer container(Guid storeId) {
@@ -419,7 +423,23 @@ sealed class UIDatamodel {
         return ModelGen.GenerateCSharpPropertyCode(model, property, attributes);
     }
 
+    async Task<object?> iconsAi(CancellationToken cancellation) {
+        var refusal = await UILicense.AccountRefusalAsync(_server, UILicense.AiCompletionAccountKey, "AI service", cancellation);
+        return new { Available = refusal == null, Reason = refusal, IconSuggester.TypesPerCall, IconSuggester.MaxTypes };
+    }
+
+    async Task<object?> iconsSuggest(IconsSuggestPayload p, CancellationToken cancellation) {
+        var c = container(p.StoreId);
+        if (await UILicense.AccountRefusalAsync(_server, UILicense.AiCompletionAccountKey, "AI service", cancellation) is { } refusal) throw new Exception(refusal);
+        var own = c.Settings.AISettings is { } ai && RelatudeServicesAIProvider.IsProviderName(ai.TypeName) ? ai : null;
+        var url = string.IsNullOrWhiteSpace(own?.ServiceUrl) ? UILicense.ConfiguredAiServiceUrl(_server) : own.ServiceUrl;
+        var model = string.IsNullOrWhiteSpace(own?.CompletionModel) ? null : own.CompletionModel;
+        using var provider = new RelatudeServicesAIProvider(new AIProviderSettings { ServiceUrl = url }, () => _server.Settings.ApiKey);
+        return await IconSuggester.SuggestAsync(p.Set ?? "", p.Types ?? [], (prompt, maxTokens) => provider.CompleteAsync(prompt, model, maxTokens), cancellation);
+    }
+
     sealed record StorePayload(Guid StoreId);
+    sealed record IconsSuggestPayload(Guid StoreId, string? Set, IconSuggestionType[]? Types);
     sealed record DraftPayload(Guid StoreId, JsonElement Model, string? Note);
     sealed record ValidatePayload(Guid StoreId, JsonElement Model, bool DryRun = true);
     sealed record ActivatePayload(Guid StoreId, JsonElement Model, bool AcceptWarnings, string? Note);

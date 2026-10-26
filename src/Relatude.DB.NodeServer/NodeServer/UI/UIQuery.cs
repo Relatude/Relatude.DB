@@ -139,6 +139,9 @@ sealed class UIQuery {
                 // the type picker marks a type the way the model editor does: its kind by icon shape,
                 // the source it came from by colour
                 Kind = t.ModelType.ToString(),
+                // the icon it is shown with, its own or the closest base type's: a name of the icon
+                // library or SVG source, which the page draws (see IconLibrary)
+                Icon = dm.GetIcon(t),
                 SourceId = t.DatamodelSourceId,
                 // whether "New node" can make one: the base type stands for all types at once, and a
                 // type the model knows but no loaded assembly implements has nothing to instantiate
@@ -1914,6 +1917,7 @@ sealed class UIQuery {
                 Name = displayNameOf(dm, n),
                 TypeName = typeName(dm, n),
                 TypeId = n.NodeType,
+                Icon = dm.NodeTypes.TryGetValue(n.NodeType, out var type) ? dm.GetIcon(type) : null,
             })];
         } catch {
             return [];

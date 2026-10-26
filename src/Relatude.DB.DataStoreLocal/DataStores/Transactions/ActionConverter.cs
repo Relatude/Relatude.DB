@@ -14,6 +14,7 @@ internal class ActionConverter {
         var src = complexAction switch {
             RelationAction relationAction => toPrimitiveActions(db, relationAction, newTasks),
             NodeAction nodeAction => toPrimitiveActions(db, nodeAction, transformValues, newTasks),
+            NodeAddressesAction addresses => toPrimitiveActions(db, addresses, transformValues, newTasks, ctx),
             NodePropertyAction nodePropertyAction => toPrimitiveActions(db, nodePropertyAction, transformValues, newTasks, ctx),
             NodePropertyValidation nodePropertyValidation => toPrimitiveActions(db, nodePropertyValidation, newTasks),
             NodeRevisionAction nodeRevisionAction => toPrimitiveActions(db, nodeRevisionAction, transformValues, ctx, newTasks),
@@ -440,6 +441,15 @@ internal class ActionConverter {
                         foreach (var action in actions) yield return action;
                         break; // continue with next node
                     }
+                case NodePropertyOperation.CopyFile: {
+                        // the value the store resolved before the transaction (resolveFileCopiesAsync); none when the source held no file
+                        if (a is not NodeFileCopyAction copy || copy.Resolved == null) break;
+                        node.AddOrUpdate(a.PropertyIds[0], copy.Resolved);
+                        if (!_lastResultingOperation.HasValue) _lastResultingOperation = ResultingOperation.ChangedProperty;
+                        var actions = toPrimitiveActions(db, NodeAction.ForceUpdate(node), transformValues, newTasks, a.PropertyIds);
+                        foreach (var action in actions) yield return action;
+                        break; // continue with next node
+                    }
                 case NodePropertyOperation.Multiply: {
                         if (a.Values == null) throw new("Value cannot be null if adding to a property. ");
                         for (var i = 0; i < a.PropertyIds.Length; i++) {
@@ -459,6 +469,30 @@ internal class ActionConverter {
                     throw new NotImplementedException();
             }
         }
+    }
+    /// <summary>
+    /// Each node's address (and auto-address flag) written as a property update, in the order given, while the URL system
+    /// is in an address batch for the action: a node whose parent got its address earlier in it is checked against its
+    /// siblings alone (UrlSystem.BeginAddressBatch).
+    /// </summary>
+    IEnumerable<PrimitiveActionBase> toPrimitiveActions(DataStoreLocal db, NodeAddressesAction a, bool transformValues, List<KeyValuePair<TaskData, string?>> newTasks, QueryContext ctx) {
+        db._urls.BeginAddressBatch(a.Nodes.Select(n => n.Node));
+        foreach (var (node, address, auto) in a.Nodes) {
+            List<Guid> ids = [];
+            List<object> values = [];
+            if (auto is bool on) {
+                ids.Add(NodeConstants.SystemAutoAddressPropertyId);
+                values.Add(on);
+            }
+            if (address != null) {
+                ids.Add(NodeConstants.SystemAddressPropertyId);
+                values.Add(address);
+            }
+            if (ids.Count == 0) continue;
+            var update = new NodePropertyAction(NodePropertyOperation.ForceUpdate, null, [node], null, null, [.. ids], [.. values]);
+            foreach (var primitive in toPrimitiveActions(db, update, transformValues, newTasks, ctx)) yield return primitive;
+        }
+        db._urls.EndAddressBatch(); // and executeActions ends it, however the transaction ends
     }
     IEnumerable<PrimitiveActionBase> toPrimitiveActions(DataStoreLocal db, NodePropertyValidation a, List<KeyValuePair<TaskData, string?>> newTasks) {
         List<int> uints = [];

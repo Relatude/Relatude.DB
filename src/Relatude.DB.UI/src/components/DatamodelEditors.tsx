@@ -5,6 +5,8 @@ import { IndexMarks, KindIcon, PropertyIcon, RelationIcon, SourceDot, SourceIcon
 import { Combobox, type ComboOption } from "./Combobox";
 import { DialogTools } from "./DialogTools";
 import { ColorField } from "./ColorField";
+import { IconField, ShownIcon } from "./IconPicker";
+import { TypeGlyph, modelIcon } from "./TypeIcon";
 import { CodeTab } from "./DatamodelCodeTab";
 import { RemovedTag, SourceTag } from "./SourceTag";
 import { PatternField, type SiblingAccess } from "./PatternDialog";
@@ -318,6 +320,19 @@ export function FieldEditor({ field, value, onChange, disabled, ctx, typeId, fal
     case "color":
       control = <ColorField value={typeof current === "string" ? current : null} fallback={fallbackColor} disabled={off} onChange={(v) => onChange(v)} />;
       break;
+    case "icon": {
+      // what the type shows while it has no icon of its own: the one the closest type it inherits from has
+      const inherited = typeId ? typeSettingFromBases(ctx.model, typeId, field.path).value : undefined;
+      control = (
+        <IconField
+          value={typeof current === "string" && current.trim() ? current : null}
+          inherited={typeof inherited === "string" && inherited.trim() ? inherited : null}
+          disabled={off}
+          onChange={(v) => onChange(v)}
+        />
+      );
+      break;
+    }
     case "regex":
       control = <PatternField value={current} onChange={onChange} disabled={off} siblings={siblings ?? (() => null)} storeId={ctx.storeId} propertyId={subject?.id} typeId={typeId} propertyName={subject?.name ?? "The value"} />;
       break;
@@ -396,7 +411,7 @@ function TypeRefs({ value, onChange, disabled, ctx }: { value: string[]; onChang
         const t = ctx.model.NodeTypes[id];
         return (
           <span key={id} className="dm-chip" style={{ borderColor: t ? ctx.colors.get(t.DatamodelSourceId) : undefined }}>
-            {t && <KindIcon kind={t.ModelType} size={13} />}
+            {t && <TypeGlyph icon={modelIcon(ctx.model, id)} kind={t.ModelType} size={13} />}
             <button className="link-button dm-chip-name" onClick={() => t && ctx.select({ kind: "type", id })}>
               {t ? t.CodeName : id}
             </button>
@@ -532,7 +547,7 @@ function TypeAdd({ options, ctx, onPick }: { options: NodeTypeJson[]; ctx: Edito
                     title={fullName(t)}
                   >
                     <span className="type-mark">
-                      <KindIcon kind={t.ModelType} size={15} />
+                      <TypeGlyph icon={modelIcon(ctx.model, t.Id)} kind={t.ModelType} size={15} />
                       <SourceDot color={ctx.colors.get(t.DatamodelSourceId) ?? "#8a8781"} />
                     </span>
                     <span className="type-option-name">{t.CodeName}</span>
@@ -1141,7 +1156,10 @@ export function TypeEditor({ type, ctx, onDelete, focusField, onFocused, tab: wa
       <div className="dm-editor-head">
         <KindIcon kind={type.ModelType} size={20} />
         <div className="dm-editor-title">
-          <div className="dm-editor-name">{type.CodeName}</div>
+          <div className="dm-editor-name">
+            <ShownIcon ctx={ctx} typeId={type.Id} size={18} />
+            {type.CodeName}
+          </div>
           <div className="dm-editor-sub">
             <SourceDot color={color} /> {source?.name ?? "unknown source"}
             {type.Namespace ? ` · ${type.Namespace}` : ""}
@@ -1176,6 +1194,7 @@ export function TypeEditor({ type, ctx, onDelete, focusField, onFocused, tab: wa
             target={type as unknown as Record<string, unknown>}
             disabled={!writable}
             ctx={ctx}
+            typeId={type.Id}
             open={["General", "Text search"]}
             focusPath={focusField}
             onFocused={onFocused}
@@ -1210,7 +1229,7 @@ export function TypeEditor({ type, ctx, onDelete, focusField, onFocused, tab: wa
               <div className="dm-proplist">
                 {children.map((c) => (
                   <button key={c.Id} className="dm-proprow" onClick={() => ctx.select({ kind: "type", id: c.Id })}>
-                    <KindIcon kind={c.ModelType} size={14} />
+                    <TypeGlyph icon={modelIcon(ctx.model, c.Id)} kind={c.ModelType} size={14} />
                     <span className="dm-propname">{c.CodeName}</span>
                     <span className="muted">{c.Namespace}</span>
                   </button>
@@ -1591,7 +1610,7 @@ export function SourceEditor({ source, info, ctx, locked, onDelete }: { source: 
                   .sort((a, b) => a.CodeName.localeCompare(b.CodeName))
                   .map((t) => (
                     <button key={t.Id} className="dm-proprow" onClick={() => ctx.select({ kind: "type", id: t.Id })}>
-                      <KindIcon kind={t.ModelType} size={14} />
+                      <TypeGlyph icon={modelIcon(ctx.model, t.Id)} kind={t.ModelType} size={14} />
                       <span className="dm-propname">{t.CodeName}</span>
                       <span className="muted">{t.DatamodelSourceFilename ?? ""}</span>
                     </button>

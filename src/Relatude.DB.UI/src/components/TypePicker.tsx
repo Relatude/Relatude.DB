@@ -1,7 +1,8 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { IconCheck, IconChevronDown, IconCube, IconDatabase, IconSearch, IconX } from "@tabler/icons-react";
 import { DialogTools } from "./DialogTools";
-import { KindIcon, SourceDot } from "./DatamodelIcons";
+import { SourceDot } from "./DatamodelIcons";
+import { TypeGlyph } from "./TypeIcon";
 import { codeSourceGuid, sourceColors, type ModelKind, type SourceType } from "../server/datamodel";
 import { formatCount } from "../format";
 import "../datamodel.css";
@@ -14,6 +15,8 @@ export interface PickableType {
   isInterface: boolean;
   hidden: boolean;
   kind: ModelKind;
+  /** the icon it is shown with, its own or inherited; drawn instead of its kind's shape */
+  icon?: string | null;
   sourceId: string;
   /** whether a node of it can be made here; false is shown, and not choosable, with the reason */
   canCreate: boolean;
@@ -280,7 +283,7 @@ function TypeMark({ type, colors }: { type: PickableType | null; colors: Map<str
   if (type.isBase) return <IconDatabase size={16} stroke={1.9} />;
   return (
     <span className="type-mark">
-      <KindIcon kind={type.kind} size={15} />
+      <TypeGlyph icon={type.icon} kind={type.kind} size={15} />
       <SourceDot color={colors.get(type.sourceId) ?? "#8a8781"} />
     </span>
   );

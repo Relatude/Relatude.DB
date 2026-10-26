@@ -18,6 +18,8 @@ export interface NodeTypeInfo {
   isBase: boolean;
   /** Class | Interface | Record | Struct - the icon shape in the type picker. */
   kind: ModelKind;
+  /** the icon the type is shown with, its own or the closest base type's: a name of the icon library or SVG source; null for none */
+  icon?: string | null;
   /** which model source defines the type; the picker colours it the way the model editor does */
   sourceId: string;
   /** whether a node of this type can be made here: not the base type, and an assembly implements it */

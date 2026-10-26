@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { modelIcon } from "../TypeIcon";
 import { IconArrowsMaximize, IconArrowsShuffle, IconFileTypeSvg, IconHandStop, IconViewportNarrow, IconViewportWide, IconZoomIn, IconZoomOut } from "@tabler/icons-react";
 import { downloadSvg } from "../../svgExport";
 import { FullscreenButton } from "../DatamodelGraph";
@@ -657,6 +658,7 @@ export function DatamodelDiagram({ ctx, visibleTypes, ghostTypes, selection, que
             <DiagramNode
               key={b.id}
               box={b}
+              icon={modelIcon(ctx.model, b.id)}
               color={ctx.colors.get(b.type.DatamodelSourceId) ?? "#888"}
               selected={selectedType === b.id || picked.has(b.id)}
               selectedProperty={selection?.kind === "property" ? selection.id : null}

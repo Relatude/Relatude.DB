@@ -165,6 +165,16 @@ public interface IDataStore : IDisposable {
     Task<FileValue> FileUploadAsync(PropertyPath target, Stream source, string fileName, int? maxWaitForMetaUpdate = null, QueryContext? ctx = null);
     Task FileDeleteAsync(PropertyPath target, QueryContext? ctx = null);
     Task<FileValue> FileDownloadAsync(PropertyPath target, Stream outStream, QueryContext? ctx = null);
+    /// <summary>
+    /// Copies files from file properties to others, all of them in one transaction: each target gets the
+    /// source's file, with its name and what was read from it (size, meta, extracted text). A file kept once per
+    /// content (a store with SameHashSameFile) in the store the target property uses is shared, not copied;
+    /// any other is streamed into the target's store. Answers the targets' new values in the order given:
+    /// null where the source holds no file, or one that could not be read, which leaves that target as it was.
+    /// A target node that is not there fails the transaction, as any write to it does. The copies are
+    /// TransactionData.CopyFile actions, which any transaction can hold (NodeFileCopyAction).
+    /// </summary>
+    Task<FileValue?[]> FileCopyAsync(IReadOnlyList<(PropertyPath From, PropertyPath To)> files, QueryContext? ctx = null);
     /// <summary>The bytes behind a file value, whatever property it was read from - an older version
     /// of a node in the transaction log, say, whose file is still in the store because replacing a
     /// file leaves the old one behind. The value carries the store it is in.</summary>

@@ -209,15 +209,53 @@ internal sealed class UrlSystem {
         if (address != null) {
             var key = new NodeKey(source.Id, source.__Id);
             var cultureId = culture ?? Guid.Empty;
-            if (!_manager.WillAddressResultInUniqueUrl(key, cultureId, address)) {
-                address = makeUnique(address, key, cultureId, source.__Id);
+            if (!isUnique(key, source.Id, cultureId, address)) {
+                address = makeUnique(address, key, cultureId, source.__Id, source.Id);
                 changed = true;
             }
         }
+        var inBatch = _batch != null && _batch.Nodes.Contains(source.Id);
+        string? before = null;
+        if (inBatch) _db._addresses.TryGetAddressAndTryMatchCulture(source.__Id, culture, out before);
         _db._addresses.Register(source.__Id, address, culture);
         if (changed) assignTo.Address = address;
+        if (inBatch) {
+            if (address != null) _batch!.Addressed.Add(source.Id);
+            batchManager?.AddressChanged(source.Id, source.__Id, culture ?? Guid.Empty, before, address);
+        }
     }
-    string makeUnique(string address, NodeKey key, Guid cultureId, int id) {
+
+    // an address batch under way (NodeAddressesAction): its nodes, and those of them it has given an address so far
+    sealed class AddressBatch(HashSet<Guid> nodes) {
+        public readonly HashSet<Guid> Nodes = nodes;
+        public readonly HashSet<Guid> Addressed = [];
+    }
+    AddressBatch? _batch;
+    IUrlManagerBatch? batchManager => _manager as IUrlManagerBatch;
+
+    /// <summary>
+    /// Starts an address batch (NodeAddressesAction): until it ends, a node of it whose parent it has already given an
+    /// address is checked against that parent's other children alone, as only they can have its URL once the parent's
+    /// is unique, and the manager keeps what the checks read. The action ends it, and the transaction does however it ends.
+    /// </summary>
+    public void BeginAddressBatch(IEnumerable<Guid> nodes) {
+        EndAddressBatch();
+        _batch = new([.. nodes]);
+        batchManager?.BeginBatch();
+    }
+    public void EndAddressBatch() {
+        if (_batch == null) return;
+        _batch = null;
+        batchManager?.EndBatch();
+    }
+    bool isUnique(NodeKey key, Guid nodeId, Guid cultureId, string address) {
+        if (_batch != null && _batch.Nodes.Contains(nodeId) && batchManager is { } manager
+            && manager.TryGetUrlParent(key, cultureId, out var parentId) && _batch.Addressed.Contains(parentId)) {
+            return manager.WillAddressResultInUniqueUrlAmongSiblings(key, cultureId, address, parentId);
+        }
+        return _manager.WillAddressResultInUniqueUrl(key, cultureId, address);
+    }
+    string makeUnique(string address, NodeKey key, Guid cultureId, int id, Guid nodeId) {
         var suffix = address.Length == 0 ? id : 2;
         var attemptCount = 0;
         var rnd = Random.Shared;
@@ -230,7 +268,7 @@ internal sealed class UrlSystem {
             } else {
                 candidate = address + "-" + Guid.NewGuid().ToString("N").ToLower();
             }
-            if (_manager.WillAddressResultInUniqueUrl(key, cultureId, candidate)) return candidate;
+            if (isUnique(key, nodeId, cultureId, candidate)) return candidate;
             attemptCount++;
             suffix++;
         }

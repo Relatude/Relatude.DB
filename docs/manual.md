@@ -368,6 +368,34 @@ public interface IOrganizer { /* ... */ }
 constrain how many nodes of the type, its descendants included, may exist - see
 [Validation happens on write](#validation-happens-on-write).
 
+### Optional: an icon for the type
+
+`[Node(Icon = …)]` gives the type the icon it is shown with: across the admin UI - the datamodel's
+lists, diagram and graph, the query page's type picker, hits, node form and relation chips, the
+dashboard's picture of the content, the global search - and in applications built on the model, such
+as a CMS. A type with no icon in its line is shown by the shape of its kind, as before. It is either a name from the icon library the
+server carries, written `set:name`, or the source of an SVG image of your own:
+
+```csharp
+[Node(Icon = "lucide:calendar")]            // a monochrome icon: drawn in the colour of the text around it
+public interface IEvent { /* ... */ }
+
+[Node(Icon = "fluent-color:building-24")]   // a coloured one
+public interface IVenue { /* ... */ }
+```
+
+A type without an icon shows the one of the closest type it inherits from that has one
+(`Datamodel.GetIcon(type)`). The library holds about 22,000 icons from seven open sets: monochrome
+Lucide (`lucide`), Tabler Icons (`tabler`) and Material Design Icons (`mdi`), and in colour Fluent UI
+System Color Icons (`fluent-color`), Flat Color Icons (`flat-color-icons`), IconPark (`icon-park`) and
+Fluent Emoji Flat (`fluent-emoji-flat`), with the names Iconify gives them. The datamodel editor's
+**Icon** field opens a picker over them: search by name, one set or all, browse a set's categories,
+or paste SVG on its second tab. On a type from compiled code the icon is saved as an override of the
+database. `IconLibrary.ToSvg(icon)` (`Relatude.DB.NodeServer.Icons`) gives the SVG of either kind, for
+an application that shows types; SVG with scripts, event attributes, `javascript:` links or
+`foreignObject` is refused, so what it hands out can be shown as it is. An icon only says how a type
+is shown: changing it rebuilds no state and no index.
+
 ---
 
 ## 3. Scalar properties and their attributes
@@ -3418,6 +3446,45 @@ The node has to be stored before any of this: `FileValue.PropertyPath` is what a
 upload, and it is `null` on an unsaved node. The upload writes the bytes *and* the `FileValue` on
 the node, so there is no `Update` to make afterwards.
 
+### Copying files
+
+```csharp
+// one file, from one node's file property to another's
+FileValue? copy = await db.FileCopyAsync(original.Id, photoId, duplicate.Id, photoId);
+
+// several, in one transaction
+FileValue?[] copies = await db.FileCopyAsync(pairs.Select(p =>
+    (new PropertyPath(p.From, photoId), new PropertyPath(p.To, photoId))));
+```
+
+A copy gets the source's file with its name and what was read from it - size, width and height,
+meta, extracted text - so nothing is read from the file again. In a store that keeps one copy per
+content (`SameHashSameFile`, [section 12.1](#121-every-setting-in-relatudedbjson)) the copy points at
+the stored file the source has: no bytes are read or written, `FileDeleteAsync` on either value leaves
+the file for the other, and only the unreferenced-file cleanup removes it once nothing points at it.
+Elsewhere the bytes are streamed into the store the target property uses. Every target is written in
+one transaction, and the answer is the new values in the order given: null where the source holds no
+file, or one that could not be read, which leaves that target as it was; a target node that is not
+there fails it, as any write to it does. Like an upload, it writes the `FileValue` on the node itself.
+
+A copy can also be one action of a transaction of your own, with the insert of the node it goes to,
+say, so the node and its file are written together:
+
+```csharp
+var td = new TransactionData();
+td.InsertOrFail(newNode, null, null);
+var copy = td.CopyFile(new PropertyPath(original.Id, photoId), new PropertyPath(newNode.Id, photoId));
+db.Execute(td);
+FileValue? photo = copy.Result;   // the target's value, once the transaction has run
+```
+
+The store reads and stores the bytes before the transaction takes its lock, so other writes do not wait
+on the files, and if the transaction fails, bytes it stored are deleted again. The source must be stored
+already; the target may be inserted earlier in the same transaction. A file value written from outside
+cannot name a stored file - an insert's is emptied, an update's keeps the file it had - but the one the
+store makes for a copy is its own, and goes through. A transaction plugin sees the copy as a property
+action on the target, with the operation `CopyFile` and no values.
+
 ### Very large files
 
 Files too large to push through a single request go up in chunks — initiate once, append the
@@ -3678,6 +3745,25 @@ from an editor before saving. The store asks the same question at commit time an
 is no, appends `-2`, `-3` … until it is yes, writing the adjusted value back onto the node. So a
 collision is never an error; it is a silently adjusted slug, exactly as before.
 
+The answer comes from looking at every node that holds the same address, so it costs more the more
+nodes share one: many copies of a branch, say, whose every node repeats an address many times over. To
+give many nodes their addresses, `SetAddresses` does it in one transaction for much less:
+
+```csharp
+var td = new TransactionData();
+td.SetAddresses(branch.Select(n => (n.Id, (string?)n.Slug, (bool?)null)));   // top first: parents before their children
+db.Execute(td);
+```
+
+A node whose parent the same call has already given its address is compared with that parent's other
+children alone: the parent's URL has just been checked and is unique, so only a sibling can have the
+node's URL. The nodes holding each address are read once for the whole call. So a copied branch,
+inserted without addresses and given them afterwards top first, costs one full check, for its top,
+however many nodes share its addresses. The answers are the ones one write at a time would give, in
+the same order; a node whose parent comes later in the list, or is not in it, gets the full check. A
+transaction plugin sees each node's address written as a property action with the operation
+`SetAddresses`.
+
 > **Do not put `UniqueValues = true` on an address property** unless you are running flat. That is an
 > index constraint demanding global uniqueness, which is precisely what tree URLs relax — two `info`
 > pages under different parents are legitimate, and the constraint would reject the second one.
@@ -3860,6 +3946,10 @@ public class PageUrlManager : UrlManagerBase {
     public override bool WillAddressResultInUniqueUrl(NodeKey node, Guid cultureId, string address) { … }
 }
 ```
+
+A manager may also implement `IUrlManagerBatch`, which lets `SetAddresses` compare a node with its
+siblings alone and keep what its checks read for the call; without it, every node of the call gets
+`WillAddressResultInUniqueUrl`. `DefaultUrlManager` implements it.
 
 Two things the store keeps for itself, so a manager stays small. **Security is not the manager's
 job**: `GetMatches` returns candidates regardless of publication or access, and the store filters them

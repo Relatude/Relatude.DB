@@ -44,6 +44,7 @@ import { showChoice, showConfirm, showError } from "../dialogs";
 import { selectionCount, type PageSelection } from "../selection";
 import { openInDatamodel } from "../navigate";
 import { IndexMarks } from "./DatamodelIcons";
+import { NodeTypeGlyph } from "./TypeIcon";
 import { useLiveResult } from "../server/hooks";
 import { formatBytes, formatCount, formatTime } from "../format";
 import { FilePreview } from "./MediaPreview";
@@ -575,7 +576,10 @@ export function NodeEditor({
           </div>
         ) : (
           <div className="node-editor-title">
-            <h3>{node.displayName}</h3>
+            <h3>
+              <NodeTypeGlyph typeId={node.typeId} size={18} />
+              {node.displayName}
+            </h3>
             <span className="muted">
               <button className="link-button" title={`Open ${node.fullName} in the data model`} onClick={() => openInDatamodel({ typeId: node.typeId })}>
                 {node.typeName}
@@ -616,6 +620,7 @@ export function NodeEditor({
         <div className="node-editor-chips">
           {nodes.slice(0, maxChips).map((n) => (
             <span className="node-chip" key={n.id} title={`${n.typeName} · id ${n.id} · #${n.intId}`}>
+              <NodeTypeGlyph typeId={n.typeId} size={12} />
               {n.displayName || n.typeName}
               <em>{n.typeName}</em>
               {onDeselect && selection.kind === "ints" && (
@@ -1527,6 +1532,7 @@ function NodePicker({
       <div className="node-picker-targets">
         {targets.map((t) => (
           <span className="node-chip" key={t.id} title={t.id}>
+            <NodeTypeGlyph typeName={t.typeName} size={12} />
             {t.name}
             {t.typeName && <em>{t.typeName}</em>}
             <button className="icon-button" title="Remove" onClick={() => onChange(targets.filter((x) => x.id !== t.id))}>
@@ -1566,6 +1572,7 @@ function NodePicker({
             {!busy && !error && found.length === 0 && <span className="muted">nothing found</span>}
             {found.map((r) => (
               <button className="node-picker-result" key={r.id} onClick={() => add(r)} disabled={targets.some((t) => t.id === r.id)}>
+                <NodeTypeGlyph typeName={r.typeName} size={13} />
                 <span>{r.name}</span>
                 <em>{r.typeName}</em>
               </button>

@@ -138,7 +138,7 @@ public class DefaultUrlManagerOptions {
 /// the plain "/{address}" behavior. <see cref="NodeUrlFormat"/> adds id based URL variants, and
 /// <see cref="AssetUrlStyle"/> lets asset URLs build on top of the owning node's page URL.
 /// </summary>
-public class DefaultUrlManager : UrlManagerBase {
+public class DefaultUrlManager : UrlManagerBase, IUrlManagerBatch {
     /// <summary>A configured parent relation, resolved against the datamodel: the relation to follow and the node types it can find a parent for.</summary>
     sealed record parentRelation(Guid RelationId, bool ParentIsSource, HashSet<Guid> ChildTypes);
 
@@ -319,36 +319,58 @@ public class DefaultUrlManager : UrlManagerBase {
             case NodeUrlFormat.EncodedGuidAndAddress:
                 return true; // URLs resolve by id, so duplicate addresses never collide
         }
-        var owners = _db.GetNodeIdsFromAddress(address);
-        if (owners.Length == 0) return true;
+        var owners = ownersOf(address);
+        if (owners.Count == 0) return true;
         var self = ResolveInternalId(_db, node);
-        string prospectivePath;
+        // the URL the address would give: the chain above the node, its parent first, and the root it ends in
+        List<(Guid Id, string Address)> above;
         Guid prospectiveRoot;
         if (self == 0 || !tryGetMeta(new NodeKey(self), cultureId, out var meta)) {
             // the node does not exist yet, so its parent chain is unknown
             if (!isFlat) return true; // checked again on later updates, once the tree position is committed
-            prospectivePath = "/" + address; // flat: every node is top level, the complete URL is known
+            above = []; // flat: every node is top level, the complete URL is known
             prospectiveRoot = Guid.Empty;
         } else {
             if (isRoot(meta.Id)) return true; // a root is served at "/", its address is not part of any URL
             var parent = getParentMeta(meta);
             if (parent == null) {
-                prospectivePath = "/" + address;
+                above = [];
                 prospectiveRoot = Guid.Empty;
             } else {
-                if (!tryBuildPath(parent, out var parentPath, out prospectiveRoot)) return true; // parent is not routable, so neither is this node
-                prospectivePath = (parentPath == "/" ? "/" : parentPath + "/") + address;
+                if (!tryBuildChain(parent, out above, out prospectiveRoot)) return true; // parent is not routable, so neither is this node
             }
         }
         foreach (var owner in owners) {
             if (owner.IdKey.Int == self && self != 0) continue; // the node itself, any culture
             if (owner.CultureId != cultureId) continue; // urls are culture scoped
             if (!tryGetMeta(owner.IdKey, owner.CultureId, out var ownerMeta)) continue;
-            if (!tryBuildPath(ownerMeta, out var ownerPath, out var ownerRoot)) continue;
-            if (ownerRoot != prospectiveRoot) continue; // another domain: the same path is fine
-            if (string.Equals(ownerPath, prospectivePath, StringComparison.Ordinal)) return false;
+            if (hasUrl(ownerMeta, address, above, prospectiveRoot)) return false;
         }
         return true;
+    }
+
+    /// <summary>
+    /// Whether the owner's URL is the one the address gives under the chain above (its parent first) and in
+    /// the root: what comparing the two URLs, root included, would say, but found a step at a time from the
+    /// bottom, without building either. An owner under another parent is told apart at that parent, where
+    /// the addresses differ, and one that meets the chain at a node has the same URL from there up. So a
+    /// check costs a step or two for each node holding the address, however deep they are, where building
+    /// every owner's URL cost its whole chain: slow once many nodes share an address, as copies of a
+    /// branch do.
+    /// </summary>
+    bool hasUrl(NodeMeta owner, string address, List<(Guid Id, string Address)> above, Guid root) {
+        if (isRoot(owner.Id)) return false; // served at "/"
+        if (!string.Equals(owner.Address, address, StringComparison.Ordinal)) return false;
+        var current = owner;
+        for (var i = 0; ; i++) {
+            var parent = getParentMeta(current, i < above.Count ? above[i].Id : Guid.Empty, out var met);
+            if (met) return true; // the chain's own node: the rest of the URL is the same
+            if (parent == null) return i == above.Count && root == Guid.Empty && !hasDomains; // top level, as is the other
+            if (isRoot(parent.Id)) return i == above.Count && root == parent.Id;
+            if (i == above.Count) return false; // the owner's URL goes on where the other ends
+            if (!string.Equals(parent.Address, above[i].Address, StringComparison.Ordinal)) return false; // an empty one too: no URL at all
+            current = parent;
+        }
     }
 
     // assets ////////////////////////////////////////////////////////////////////////////////////
@@ -530,8 +552,22 @@ public class DefaultUrlManager : UrlManagerBase {
         return _hostByRoot.ContainsKey(nodeId) || nodeId == _fallbackRootId;
     }
     bool tryGetMeta(NodeKey key, Guid cultureId, out NodeMeta meta) {
+        var b = batch;
+        if (b != null) {
+            var id = key.HasGuid ? key.Guid : b.Guids.GetValueOrDefault(key.Int);
+            if (id != Guid.Empty && b.Metas.TryGetValue(id, out var cultures) && cultures.TryGetValue(cultureId, out var kept)) {
+                meta = kept;
+                return true;
+            }
+        }
         var ctx = cultureId == Guid.Empty ? QueryContext.MasterAdmin : QueryContext.MasterAdmin.Culture(cultureId);
-        return _db.TryGetNodeMeta(key, out meta!, ctx);
+        if (!_db.TryGetNodeMeta(key, out meta!, ctx)) return false;
+        if (b != null) {
+            b.Guids[meta.InternalId] = meta.Id;
+            if (!b.Metas.TryGetValue(meta.Id, out var byCulture)) b.Metas[meta.Id] = byCulture = [];
+            byCulture[cultureId] = meta;
+        }
+        return true;
     }
     /// <summary>
     /// The parent of a node: the first configured relation that accepts the node's type and has a
@@ -539,16 +575,124 @@ public class DefaultUrlManager : UrlManagerBase {
     /// parent for this particular node, are skipped, so a node reachable through none of them is
     /// treated as a top-level node.
     /// </summary>
-    NodeMeta? getParentMeta(NodeMeta meta) {
+    NodeMeta? getParentMeta(NodeMeta meta) => getParentMeta(meta, Guid.Empty, out _);
+    /// <param name="known">A node the caller has read in the same culture: when it is the parent, it is not
+    /// read again, and the answer is null with <paramref name="isKnown"/> true.</param>
+    NodeMeta? getParentMeta(NodeMeta meta, Guid known, out bool isKnown) {
+        isKnown = false;
+        if (batch is { } b) {
+            if (!b.Parents.TryGetValue((meta.Id, meta.CultureId), out var parentId)) b.Parents[(meta.Id, meta.CultureId)] = parentId = findParentId(meta);
+            if (parentId is not Guid id) return null;
+            if (known != Guid.Empty && id == known) {
+                isKnown = true;
+                return null;
+            }
+            return tryGetMeta(new NodeKey(id), meta.CultureId, out var parentMeta) ? parentMeta : null;
+        }
         foreach (var parent in _parents) {
             if (!parent.ChildTypes.Contains(meta.NodeTypeId)) continue; // not a relation this node type can hang from
             // when the parent is the relation source, the node is the target and the walk goes target -> source
             foreach (var parentId in _db.GetRelatedNodeIdsFromRelationId(parent.RelationId, meta.Id, parent.ParentIsSource)) {
+                if (known != Guid.Empty && parentId == known) {
+                    isKnown = true;
+                    return null;
+                }
                 if (tryGetMeta(new NodeKey(parentId), meta.CultureId, out var parentMeta)) return parentMeta;
                 break; // the relation has a parent, but it is not readable in this context
             }
         }
         return null;
+    }
+    /// <summary>The id of the parent getParentMeta finds: in a batch, looked for once for each node.</summary>
+    Guid? findParentId(NodeMeta meta) {
+        foreach (var parent in _parents) {
+            if (!parent.ChildTypes.Contains(meta.NodeTypeId)) continue;
+            foreach (var parentId in _db.GetRelatedNodeIdsFromRelationId(parent.RelationId, meta.Id, parent.ParentIsSource)) {
+                if (tryGetMeta(new NodeKey(parentId), meta.CultureId, out _)) return parentId;
+                break; // the relation has a parent, but it is not readable in this context
+            }
+        }
+        return null;
+    }
+    bool hasDomains => _rootByHost.Count > 0 || _fallbackRootId != Guid.Empty;
+
+    // address batches (IUrlManagerBatch) ////////////////////////////////////////////////////////
+
+    /// <summary>What the checks of an address batch read, kept until it ends, for the thread running it (inside the
+    /// store's write lock): node metas by node and culture, each node's parent, and the nodes holding each address.</summary>
+    sealed class BatchReads(int thread) {
+        public readonly int Thread = thread;
+        public readonly Dictionary<Guid, Dictionary<Guid, NodeMeta>> Metas = [];
+        public readonly Dictionary<int, Guid> Guids = [];
+        public readonly Dictionary<(Guid Node, Guid Culture), Guid?> Parents = [];
+        public readonly Dictionary<string, List<NodeKeyWithCulture>> Owners = new(StringComparer.Ordinal);
+        public readonly Dictionary<string, HashSet<(int Id, Guid Culture)>> Holders = new(StringComparer.Ordinal);
+    }
+    BatchReads? _batch;
+    BatchReads? batch => _batch is { } b && b.Thread == Environment.CurrentManagedThreadId ? b : null;
+    public void BeginBatch() => _batch = new(Environment.CurrentManagedThreadId);
+    public void EndBatch() => _batch = null;
+    public void AddressChanged(Guid nodeId, int internalId, Guid cultureId, string? oldAddress, string? newAddress) {
+        if (batch is not { } b) return;
+        b.Metas.Remove(nodeId);
+        if (oldAddress == newAddress) return;
+        // kept up to date rather than read again: the next node of the batch holding the address finds them as they are
+        if (oldAddress != null) {
+            if (b.Owners.TryGetValue(oldAddress, out var owners)) owners.RemoveAll(o => o.IdKey.HasInt && o.IdKey.Int == internalId && o.CultureId == cultureId);
+            if (b.Holders.TryGetValue(oldAddress, out var holders)) holders.Remove((internalId, cultureId));
+        }
+        if (newAddress != null) {
+            if (b.Owners.TryGetValue(newAddress, out var owners)) owners.Add(new NodeKeyWithCulture(new NodeKey(internalId), cultureId));
+            if (b.Holders.TryGetValue(newAddress, out var holders)) holders.Add((internalId, cultureId));
+        }
+    }
+    List<NodeKeyWithCulture> ownersOf(string address) {
+        if (batch is not { } b) return [.. _db.GetNodeIdsFromAddress(address)];
+        if (!b.Owners.TryGetValue(address, out var owners)) b.Owners[address] = owners = [.. _db.GetNodeIdsFromAddress(address)];
+        return owners;
+    }
+    /// <summary>The nodes holding the address, by internal id and culture: in a batch, gathered once for each address.</summary>
+    HashSet<(int Id, Guid Culture)> holdersOf(string address) {
+        var b = batch;
+        if (b != null && b.Holders.TryGetValue(address, out var kept)) return kept;
+        var holders = new HashSet<(int Id, Guid Culture)>();
+        foreach (var owner in ownersOf(address)) {
+            if (owner.IdKey.HasInt) holders.Add((owner.IdKey.Int, owner.CultureId));
+            else if (tryGetMeta(owner.IdKey, owner.CultureId, out var meta)) holders.Add((meta.InternalId, owner.CultureId));
+        }
+        if (b != null) b.Holders[address] = holders;
+        return holders;
+    }
+    public bool TryGetUrlParent(NodeKey node, Guid cultureId, out Guid parentId) {
+        parentId = Guid.Empty;
+        if (isFlat || !tryGetMeta(node, cultureId, out var meta) || isRoot(meta.Id) || getParentMeta(meta) is not { } parent) return false;
+        parentId = parent.Id;
+        return true;
+    }
+    public bool WillAddressResultInUniqueUrlAmongSiblings(NodeKey node, Guid cultureId, string address, Guid parentId) {
+        switch (_o.UrlFormat) {
+            case NodeUrlFormat.OnlyInt:
+            case NodeUrlFormat.OnlyGuid:
+            case NodeUrlFormat.EncodedGuidOnly:
+            case NodeUrlFormat.IntAndAddress:
+            case NodeUrlFormat.GuidAndAddress:
+            case NodeUrlFormat.EncodedGuidAndAddress:
+                return true; // URLs resolve by id, so duplicate addresses never collide
+        }
+        if (!tryGetMeta(node, cultureId, out var meta) || isRoot(meta.Id) || getParentMeta(meta) is not { } parent || parent.Id != parentId) {
+            return WillAddressResultInUniqueUrl(node, cultureId, address); // not under that parent after all: the whole check
+        }
+        if (!tryBuildChain(parent, out _, out _)) return true; // the parent has no URL, so neither has the node
+        var holders = holdersOf(address);
+        if (holders.Count == 0) return true;
+        foreach (var relation in _parents) { // the parent's children, through any relation a child can hang from it by
+            foreach (var siblingId in _db.GetRelatedNodeIdsFromRelationId(relation.RelationId, parentId, !relation.ParentIsSource)) {
+                if (siblingId == meta.Id || !tryGetMeta(new NodeKey(siblingId), cultureId, out var sibling)) continue;
+                if (!holders.Contains((sibling.InternalId, cultureId))) continue;
+                if (getParentMeta(sibling)?.Id == parentId) return false; // the same address under the same parent: the same URL
+            }
+        }
+        return true;
     }
     /// <summary>
     /// The relative segment path of the node: ancestor addresses joined from the domain root
@@ -557,8 +701,21 @@ public class DefaultUrlManager : UrlManagerBase {
     /// </summary>
     bool tryBuildPath(NodeMeta meta, out string path, out Guid rootId) {
         path = string.Empty;
+        if (!tryBuildChain(meta, out var chain, out rootId)) return false;
+        if (chain.Count == 0) {
+            path = "/";
+            return true;
+        }
+        path = "/" + string.Join('/', Enumerable.Reverse(chain).Select(c => c.Address));
+        return true;
+    }
+    /// <summary>
+    /// The nodes whose addresses make up the node's path, the node first and up to below the domain root, with
+    /// the root (Guid.Empty for none). False when the node has no path, as for tryBuildPath.
+    /// </summary>
+    bool tryBuildChain(NodeMeta meta, out List<(Guid Id, string Address)> chain, out Guid rootId) {
+        chain = new(8);
         rootId = Guid.Empty;
-        var segments = new List<string>(8);
         var current = meta;
         var depth = 0;
         while (true) {
@@ -567,21 +724,13 @@ public class DefaultUrlManager : UrlManagerBase {
                 break;
             }
             if (string.IsNullOrEmpty(current.Address)) return false; // a node without an address has no path
-            segments.Add(current.Address);
+            chain.Add((current.Id, current.Address));
             var parent = getParentMeta(current);
             if (parent == null) break; // top of the tree
             current = parent;
             if (++depth > _o.MaxDepth) return false; // cycle guard
         }
-        if (rootId == Guid.Empty && (_rootByHost.Count > 0 || _fallbackRootId != Guid.Empty)) {
-            return false; // domains are configured and this node is not under any configured root
-        }
-        if (segments.Count == 0) {
-            path = "/";
-            return true;
-        }
-        segments.Reverse();
-        path = "/" + string.Join('/', segments);
+        if (rootId == Guid.Empty && hasDomains) return false; // domains are configured and this node is not under any configured root
         return true;
     }
 }

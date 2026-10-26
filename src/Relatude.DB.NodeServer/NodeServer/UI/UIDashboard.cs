@@ -393,6 +393,7 @@ sealed class UIDashboard {
                 Count = r.Own,
                 CountAll = r.All,
                 Kind = r.Type.ModelType.ToString(),
+                Icon = datamodel.GetIcon(r.Type),
                 r.Type.IsInterface,
                 SourceId = r.Type.DatamodelSourceId,
                 // who this type is under: with inheritance counted in, a parent and its children

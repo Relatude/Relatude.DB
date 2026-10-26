@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { KindIcon } from "./DatamodelIcons";
+import { TypeGlyph, TypeIcon } from "./TypeIcon";
 import { formatCount } from "../format";
 import type { TypeCount } from "../server/dashboard";
 import { TypeCubes } from "./TypeCubes";
@@ -69,7 +69,7 @@ function Bars({ slices }: { slices: TypeSlice[] }) {
       {slices.map((s) => (
         <div key={s.type.id} className="dash-type" title={s.type.full}>
           <span className="log-cell dash-type-name">
-            <KindIcon kind={s.type.kind} size={13} />
+            <TypeGlyph icon={s.type.icon} kind={s.type.kind} size={13} />
             {s.type.name}
           </span>
           <span className="scan-bar">
@@ -231,6 +231,8 @@ function Treemap({ slices, total, onTileClick }: { slices: TypeSlice[]; total: n
                 {r.w > 54 && r.h > 26 && (
                   <foreignObject x={r.x + inset(r.w)} y={r.y + inset(r.h)} width={Math.max(0, r.w - inset(r.w) * 2)} height={Math.max(0, r.h - inset(r.h) * 2)}>
                     <div className="dash-tile-label">
+                      {/* the type's icon above its name, on a tile tall enough to hold both */}
+                      {s.type.icon && r.h > 84 && r.w > 64 && <TypeIcon icon={s.type.icon} size={Math.round(Math.min(28, r.h / 4, r.w / 4))} className="dash-tile-icon" />}
                       <span className="dash-tile-name">{s.type.name}</span>
                       {r.h > 40 && <span className="dash-tile-count">{formatCount(s.value)}</span>}
                     </div>
@@ -628,7 +630,10 @@ function Donut({ slices, total }: { slices: TypeSlice[]; total: number }) {
         {slices.map((s) => (
           <div key={s.type.id} className="dash-legend-row" title={title(s, total)}>
             <span className="dash-legend-swatch" style={{ "--tile": s.color } as React.CSSProperties} />
-            <span className="dash-legend-name">{s.type.name}</span>
+            <span className="dash-legend-name">
+              {s.type.icon && <TypeIcon icon={s.type.icon} size={13} className="dash-legend-icon" />}
+              {s.type.name}
+            </span>
             <span className="dash-legend-share">{share(s.value, sum)}</span>
             <span className="num">{formatCount(s.value)}</span>
           </div>

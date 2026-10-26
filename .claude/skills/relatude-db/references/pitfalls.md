@@ -64,6 +64,8 @@ Full treatment in `files-and-media.md`.
 
 ## Operational
 
+- **Writing many addresses one at a time is slow when many nodes share them.** Each write checks its URL against every node holding the same address, so copies of copies grow quadratic. Insert the nodes without addresses and give them their addresses with one `td.SetAddresses(nodes)`, top first: a node under a parent the same call addressed is compared with its siblings alone.
+
 - **Take a backup from the admin UI before upgrading.** The project is pre-1.0.
 - **`UseRelatudeDB()` goes after your own `UseCors` / `UseHttpsRedirection` / `UseAuthentication`.**
 - **Call `UseRouting()` yourself, after `UseStaticFiles()`, when the app maps a catch-all route** such as `MapFallbackToFile` for a single page client. `UseRelatudeDB()` registers endpoints, so `WebApplication` inserts routing at the very start of the pipeline unless the app calls it: the catch-all then matches before the static files are reached, and `UseStaticFiles` skips itself whenever an endpoint is already selected. The symptom is the client's own js and css arriving as `index.html` with `Content-Type: text/html`, and a blank page.

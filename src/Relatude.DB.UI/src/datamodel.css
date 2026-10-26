@@ -3253,3 +3253,457 @@ button.dm-source-card {
     flex-wrap: wrap;
   }
 }
+
+/* ---- a node type's icon (TypeIcon, IconField, IconPicker) ----
+   A stored icon is shown as a picture, never put into the page: a monochrome one is a mask over the
+   text colour, so it takes the colour of where it sits; a coloured one is the image itself. */
+
+.type-icon {
+  display: inline-block;
+  flex: none;
+  vertical-align: middle;
+}
+
+.type-icon.is-mono {
+  background: currentColor;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+}
+
+img.type-icon {
+  object-fit: contain;
+}
+
+/* a type where no icon could be drawn: the shape of its kind, in the same place */
+.kind-glyph {
+  display: inline-flex;
+  flex: none;
+  vertical-align: middle;
+}
+
+/* a node's type beside its name, in the query page's hits, the node form and the chips */
+.node-type-glyph {
+  margin-right: 5px;
+  vertical-align: -2px;
+}
+
+.node-editor-title h3 .node-type-glyph {
+  margin-right: 8px;
+  vertical-align: -3px;
+}
+
+.icon-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.icon-field-current {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  flex: none;
+  padding: 0;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.icon-field-current:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+/* what it inherits is shown, dimmed: it is not the type's own */
+.icon-field-current.is-inherited .type-icon {
+  opacity: 0.45;
+}
+
+.icon-field-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.dialog.icon-picker {
+  display: flex;
+  flex-direction: column;
+  width: min(880px, calc(100vw - 40px));
+  height: min(720px, calc(100vh - 40px));
+}
+
+.icon-picker-tabs {
+  display: flex;
+  gap: 4px;
+  margin-left: 14px;
+}
+
+.icon-picker .chip,
+.icon-assign .chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 10px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.icon-picker .chip,
+.icon-assign .chip:hover {
+  border-color: var(--accent);
+}
+
+.icon-picker .chip,
+.icon-assign .chip.on {
+  color: var(--accent-contrast);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.icon-picker-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.icon-picker-search .text-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.icon-picker-sets {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 10px 0;
+}
+
+.icon-picker-group {
+  margin: 0 2px 0 8px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.icon-picker-grid {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(48px, 1fr));
+  grid-auto-rows: 48px;
+  gap: 4px;
+  align-content: start;
+  padding: 6px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.icon-tile {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  color: inherit;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.icon-tile > svg {
+  width: 26px;
+  height: 26px;
+}
+
+.icon-tile:hover {
+  background: var(--hover);
+}
+
+.icon-tile.is-chosen {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.icon-picker-note {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 160px;
+  font-size: 13px;
+  text-align: center;
+}
+
+.icon-picker-note .spin {
+  animation: spin 0.9s linear infinite;
+}
+
+.icon-picker-more {
+  grid-column: 1 / -1;
+  height: 1px;
+}
+
+.icon-picker-foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+  min-height: 40px;
+  font-size: 13px;
+}
+
+.icon-picker-chosen {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.icon-picker-preview {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 10px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.icon-picker-actions {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.icon-picker-source {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  resize: none;
+  font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+@media (max-width: 760px) {
+  .icon-picker-foot {
+    flex-wrap: wrap;
+  }
+  .icon-picker-actions {
+    margin-left: 0;
+  }
+}
+
+.dm-type-icon {
+  margin-right: 6px;
+  vertical-align: -3px;
+}
+
+.dialog.icon-assign {
+  display: flex;
+  flex-direction: column;
+  width: min(760px, calc(100vw - 40px));
+  max-height: calc(100vh - 40px);
+}
+
+.icon-assign-section {
+  margin-bottom: 14px;
+}
+
+.icon-assign-label {
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+  margin-bottom: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.icon-assign-label .link-button {
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 500;
+}
+
+.icon-assign .icon-picker-sets {
+  margin: 0 0 8px;
+}
+
+.icon-assign .icon-picker-group:first-child {
+  margin-left: 0;
+}
+
+.icon-assign-samples {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.icon-assign-samples > .muted {
+  margin-left: auto;
+  text-align: right;
+}
+
+.icon-assign-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 2px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.icon-assign-option > span:not(.badge):not(.dm-dot) {
+  flex: 1;
+  min-width: 0;
+}
+
+.icon-assign-sources {
+  max-height: 170px;
+  overflow-y: auto;
+}
+
+.icon-assign-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  font-size: 13px;
+  color: var(--data);
+  background: var(--data-soft);
+  border-radius: 8px;
+}
+
+.icon-assign-warning svg {
+  flex: none;
+  margin-top: 2px;
+}
+
+.icon-assign-running {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.icon-assign-running .spin {
+  animation: spin 0.9s linear infinite;
+}
+
+.icon-assign-list {
+  flex: 1;
+  min-height: 120px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.icon-assign-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.icon-assign-row:last-child {
+  border-bottom: none;
+}
+
+.icon-assign-row.is-off .icon-assign-type {
+  opacity: 0.55;
+}
+
+.icon-assign-type {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.icon-assign-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.icon-assign-choices {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 170px;
+  color: var(--text);
+}
+
+.icon-assign-choices .icon-tile {
+  width: 32px;
+  height: 32px;
+}
+
+.icon-assign-choices .icon-tile.is-chosen {
+  width: 38px;
+  height: 38px;
+}
+
+.icon-assign-none {
+  display: inline-flex;
+  align-items: center;
+  height: 38px;
+  font-size: 12px;
+}
+
+@media (max-width: 760px) {
+  .icon-assign-row {
+    flex-wrap: wrap;
+  }
+  .icon-assign-row > .tabler-icon-arrow-right {
+    display: none;
+  }
+  .icon-assign-choices {
+    min-width: 0;
+  }
+}
+
+/* the dashboard's picture of the content: a tile's icon over its name, and one in the donut's legend */
+.dash-tile-icon {
+  margin-bottom: 4px;
+}
+
+.dash-legend-icon {
+  margin-right: 5px;
+  vertical-align: -2px;
+}

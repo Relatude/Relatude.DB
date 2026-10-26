@@ -426,6 +426,8 @@ await db.FileUploadAsync<IArticle>(article, a => a.Photo, stream, "cover.jpg");
 
 Large files go in chunks instead — `InitiateMultipartUploadAsync` → `AppendMultipartUploadAsync` (**in order**) → `FinalizeMultipartUploadAsync`, guarded by `FileStoreSupportsMultipartUploads`. The session is in-memory, per store instance, and expires after 10 minutes idle.
 
+To give another node the same file, `FileCopyAsync(fromId, propertyId, toId, propertyId)` (or a list of `(PropertyPath From, PropertyPath To)` pairs, written in one transaction) beats download-and-upload: with `SameHashSameFile` the copy shares the stored file and no bytes move. In a transaction of your own, `td.CopyFile(from, to)` does the same, so a node and its file can be inserted together; its `Result` is the target's value once the transaction has run.
+
 **2. Build a URL, describing the variant you want.** The adjustment is encoded *into* the URL — there is no server-side list of allowed sizes.
 
 ```csharp

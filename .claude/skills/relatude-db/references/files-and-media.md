@@ -93,6 +93,21 @@ bool there = await db.FileUploadedAndAvailableAsync<IArticle>(article, a => a.Ph
 
 `FileUploadedAndAvailableAsync` matters for remote stores, where the write can complete in the background after the call returns.
 
+Copying a file to another node's file property - `FileCopyAsync` - keeps its name and meta, so nothing is read from it again. In a store with `SameHashSameFile` the copy shares the stored file (no bytes read or written; deleting either value's file leaves it for the other, and only the unreferenced-file cleanup removes it); elsewhere the bytes are streamed into the target's store. A list of pairs is written in one transaction, and the answer has null where the source held no file.
+
+```csharp
+FileValue? copy = await db.FileCopyAsync(original.Id, photoId, duplicate.Id, photoId);
+FileValue?[] copies = await db.FileCopyAsync(pairs.Select(p => (new PropertyPath(p.From, photoId), new PropertyPath(p.To, photoId))));
+
+// in a transaction of your own, with the insert of the node it goes to
+var td = new TransactionData();
+td.InsertOrFail(newNode, null, null);
+var action = td.CopyFile(new PropertyPath(original.Id, photoId), new PropertyPath(newNode.Id, photoId));
+db.Execute(td);   // action.Result: the new node's FileValue
+```
+
+The store reads and stores the bytes before the transaction takes its lock, and deletes them again if the transaction fails. A file value written from outside cannot name a stored file (an insert's is emptied, an update's keeps the file it had); the one the store makes for `CopyFile` goes through. Transaction plugins see it as a property action with the operation `CopyFile` and no values.
+
 ## Partial (multipart) uploads
 
 For files too large to push through one request — video especially, and anything that would hit ASP.NET's request body size limit. The upload is chunked into `Initiate` → `Append`* → `Finalize`.

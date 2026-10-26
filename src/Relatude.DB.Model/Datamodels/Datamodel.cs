@@ -81,4 +81,24 @@ public partial class Datamodel {
         }
         keepRequests();
     }
+
+    /// <summary>
+    /// The icon a node type is shown with: its own <see cref="NodeTypeModel.Icon"/>, else that of the closest
+    /// type it inherits from that has one - its direct base types first, in the order it lists them, then
+    /// theirs. Null when no type in its line has one. Reads the declared icons, so it gives the same answer
+    /// before and after the model is initialized.
+    /// </summary>
+    public string? GetIcon(NodeTypeModel type) {
+        var seen = new HashSet<Guid> { type.Id };
+        var level = new List<NodeTypeModel> { type };
+        while (level.Count > 0) {
+            foreach (var t in level) if (!string.IsNullOrWhiteSpace(t.Icon)) return t.Icon;
+            var next = new List<NodeTypeModel>();
+            foreach (var t in level) {
+                foreach (var id in t.Parents) if (seen.Add(id) && NodeTypes.TryGetValue(id, out var parent)) next.Add(parent);
+            }
+            level = next;
+        }
+        return null;
+    }
 }

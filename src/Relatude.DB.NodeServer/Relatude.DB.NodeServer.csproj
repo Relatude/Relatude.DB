@@ -33,6 +33,14 @@
 		<EmbeddedResource Include="NodeServer\ClientStart\start.html" />
 		<EmbeddedResource Include="NodeServer\ClientUI\**" />
 	</ItemGroup>
+	<!-- The icon library node types are shown with (NodeServer\Icons\IconLibrary.cs): open icon sets made by
+	     src\Relatude.DB.UI	ools\generate-icon-library.py, with their licences. Embedded under names of their
+	     own, and kept out of the content the web SDK would otherwise copy into a publish. -->
+	<ItemGroup>
+		<Content Remove="NodeServer\Icons\**" />
+		<None Remove="NodeServer\Icons\**" />
+		<EmbeddedResource Include="NodeServer\Icons\*.json.gz;NodeServer\Icons\index.json;NodeServer\Icons\LICENSES.md" LogicalName="Relatude.DB.NodeServer.Icons.%(Filename)%(Extension)" />
+	</ItemGroup>
 	<!-- NodeServer\ClientUI is the vite output of src\Relatude.DB.UI (see its vite.config.ts) and is
 	     embedded above. It is the whole admin UI: a build made without it serves an explanatory 501 on
 	     the admin url instead of the UI, so it is called out here rather than discovered in a browser. -->

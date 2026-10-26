@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 ﻿using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.Datamodels.Properties;
@@ -82,6 +83,87 @@ public sealed partial class DataStoreLocal : IDataStore {
         t.ForceUpdateProperty(propertyPath, fileValue);
         Execute(t, false, false, ctx);
         return await updateMetaIfRelevant(fileValue, maxWaitForMetaUpdate, ctx);
+    }
+    public async Task<FileValue?[]> FileCopyAsync(IReadOnlyList<(PropertyPath From, PropertyPath To)> files, QueryContext? ctx = null) {
+        ctx ??= _defaultQueryCtx;
+        var t = new TransactionData();
+        var copies = files.Select(f => t.CopyFile(f.From, f.To)).ToArray();
+        await resolveFileCopiesAsync(t, ctx); // here, so the bytes are read and written without blocking a thread
+        Execute(t, flushToDisk: false, ctx);
+        return [.. copies.Select(c => c.Result)];
+    }
+
+    // the file values this store made for a transaction under way (NodeFileCopyAction), which FileProperty lets
+    // through the guard that keeps a file value written from outside from naming a stored file
+    readonly ConditionalWeakTable<FileValue, object> _storeMadeFiles = new();
+    internal bool IsStoreMadeFile(FileValue value) => _storeMadeFiles.TryGetValue(value, out _);
+
+    /// <summary>
+    /// Gives each file copy of the transaction (NodeFileCopyAction) the value its target gets, before the transaction
+    /// takes its lock, so no file is read or written under it: the source's file, shared where the target's store keeps
+    /// it by its hash (IFileStoreSharing), else its bytes stored again in the target's store. Null when it copies none.
+    /// </summary>
+    async Task<List<NodeFileCopyAction>?> resolveFileCopiesAsync(TransactionData transaction, QueryContext ctx) {
+        List<NodeFileCopyAction>? copies = null;
+        foreach (var action in transaction.Actions) {
+            if (action is not NodeFileCopyAction copy) continue;
+            (copies ??= []).Add(copy);
+            if (copy.IsResolved) continue; // by FileCopyAsync, or before a retry
+            copy.IsResolved = true;
+            if (!Datamodel.Properties.TryGetValue(copy.To.PropertyId, out var prop) || prop is not FilePropertyModel fileProp) throw new Exception("Property is not a file");
+            if (!TryGetValue<FileValue>(copy.From, out var source, ctx) || source.IsEmpty) continue;
+            var fileStore = getFileStoreOfProperty(fileProp.FileStorageProviderId);
+            if (source.StorageId == fileStore.Id && fileStore is IFileStoreSharing sharing && sharing.TryShare(source)) {
+                copy.Resolved = FileValue.CopyAndEnsurePropertyPath(source, copy.To);
+            } else {
+                try {
+                    var stream = await getFileStore(source.StorageId).GetFileStream(source);
+                    if (!stream.CanSeek) { // a store inserts by the stream's length: a stream of a remote store has none
+                        var buffered = new MemoryStream();
+                        await stream.CopyToAsync(buffered);
+                        await stream.DisposeAsync();
+                        buffered.Position = 0;
+                        stream = buffered;
+                    }
+                    await using (stream) {
+                        var r = await fileStore.InsertAsync(Guid.NewGuid(), stream, source.Name);
+                        copy.Resolved = FileValue.CopyAndEnsurePropertyPath(source.CopyWithStoredFile(fileStore.Id, r.FileId, r.StoreKey, r.FileHash, r.Length), copy.To);
+                        copy.Stored = true;
+                    }
+                } catch (Exception error) {
+                    LogWarning("A file could not be copied from " + copy.From + " to " + copy.To + ": " + error.Message);
+                    continue;
+                }
+            }
+            _storeMadeFiles.AddOrUpdate(copy.Resolved, copy);
+        }
+        return copies;
+    }
+    /// <summary>After the transaction: each copy's result, the bytes of one whose target was not there taken away again,
+    /// and what is read from a file read in the background for a copy whose source has not been read yet.</summary>
+    void fileCopiesDone(List<NodeFileCopyAction> copies, QueryContext ctx) {
+        foreach (var copy in copies) {
+            if (copy.Resolved is not { } value) continue;
+            if (TryGetValue<FileValue>(copy.To, out var now, QueryContext.MasterAdmin) && now.FileId == value.FileId && now.StorageId == value.StorageId) {
+                copy.Result = value;
+                if (value.FileType == FileType.Image && value.Width == 0 && _fileConversionEngine.CanConvert(value.Format, FileFormat.FileMetaJson)) {
+                    enqueueUpdateFileMeta(copy.To, value.FileId, ctx);
+                }
+            } else if (copy.Stored) {
+                getFileStore(value.StorageId).DeleteAsync(value).GetAwaiter().GetResult(); // the target was not there
+            }
+        }
+    }
+    void fileCopiesFailed(List<NodeFileCopyAction> copies) {
+        foreach (var copy in copies) {
+            if (copy.Stored && copy.Resolved is { } value) {
+                try {
+                    getFileStore(value.StorageId).DeleteAsync(value).GetAwaiter().GetResult(); // one kept by its hash is left for the sweep
+                } catch (Exception error) {
+                    LogError("A copied file could not be removed after its transaction failed. ", error);
+                }
+            }
+        }
     }
     public FileValue? UpdateFileMetaIfNotSet(PropertyPath propertyPath, Guid fileId, BasicFileMeta meta, QueryContext? ctx = null) {
         // Console.WriteLine("Possible file meta update for fileId: " + fileId);

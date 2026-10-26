@@ -129,6 +129,7 @@ public sealed class DatamodelValidator {
             if (!byFullName.TryGetValue(t.FullName, out var list)) byFullName[t.FullName] = list = [];
             list.Add(t);
             if (t.MaxNoInstances < 0 || t.MaxNoInstances < t.MinNoInstances) issues.Add(DatamodelIssue.Error("bad-range", t.FullName + ": the maximum number of instances cannot be negative or below the minimum.", nodeType: t.Id));
+            if (!string.IsNullOrWhiteSpace(t.Icon) && !Icons.IconLibrary.IsValid(t.Icon, out var iconProblem)) issues.Add(DatamodelIssue.Error("bad-icon", t.FullName + ": " + iconProblem, nodeType: t.Id));
         }
         foreach (var (name, list) in byFullName.Where(kv => kv.Value.Count > 1)) {
             foreach (var t in list) issues.Add(DatamodelIssue.Error("duplicate-type", "Two node types have the full name " + name + ". Rename one of them or give them different namespaces.", nodeType: t.Id));

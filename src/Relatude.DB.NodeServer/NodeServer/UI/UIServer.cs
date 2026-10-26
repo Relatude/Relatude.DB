@@ -4,6 +4,7 @@ using Relatude.DB.DataStores.Stores;
 using Relatude.DB.FileConversion;
 using Relatude.DB.IO;
 using Relatude.DB.NodeServer.API;
+using Relatude.DB.NodeServer.Icons;
 using Relatude.DB.NodeServer.Json;
 using Relatude.DB.Web;
 using System.Text.Json;
@@ -230,7 +231,28 @@ public sealed class UIServer {
         app.MapPost(path + "zip", async (HttpContext ctx, ZipRequestPayload p) => {
             return await zipToResponse(ctx, p.IoId, p.Keys, p.BasePath);
         });
+        // the icon library, for the datamodel editor's icon picker (see IconLibrary): the sets, and a set's
+        // icons as embedded - gzipped JSON, which the browser unpacks and keeps for good, the url carrying
+        // the set's version (?v=) so a new library is fetched afresh
+        app.MapGet(path + "icons", () => Results.Json(IconLibrary.Sets, iconJson));
+        app.MapGet(path + "icons/{prefix}", (HttpContext ctx, string prefix) => serveIconSet(ctx, prefix));
         mapStaticUI(app);
+    }
+    static readonly JsonSerializerOptions iconJson = new(JsonSerializerDefaults.Web);
+    static IResult serveIconSet(HttpContext ctx, string prefix) {
+        var file = IconLibrary.SetFile(prefix);
+        if (file == null) return Results.NotFound(new { error = "The icon library has no set called " + prefix + ". " });
+        ctx.Response.Headers.CacheControl = ctx.Request.Query.ContainsKey("v") ? "private, max-age=31536000, immutable" : "no-cache";
+        // every browser takes gzip; anything else gets the JSON unpacked
+        if (ctx.Request.Headers.AcceptEncoding.ToString().Contains("gzip", StringComparison.OrdinalIgnoreCase)) {
+            ctx.Response.Headers.ContentEncoding = "gzip";
+            ctx.Response.Headers.Vary = "Accept-Encoding";
+            return Results.Bytes(file, "application/json");
+        }
+        using var gz = new System.IO.Compression.GZipStream(new MemoryStream(file), System.IO.Compression.CompressionMode.Decompress);
+        using var json = new MemoryStream();
+        gz.CopyTo(json);
+        return Results.Bytes(json.ToArray(), "application/json");
     }
     async Task<IResult> serveFileAsync(HttpContext ctx, Guid ioId, string key) {
         var io = _server.GetIO(ioId);
