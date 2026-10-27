@@ -196,11 +196,14 @@ public class NativeModelStore(DataStoreLocal store) {
             var collections = stream.ReadIntArray();
             var culture = new NativeSystemCulture {
                 Id = cultureId,
+                // not in the state file: the id registry, read before, knows it
+                Guid = store._guids.TryGetId(cultureId, out var guid) ? guid : Guid.Empty,
                 CultureCode = cultureCode,
                 Collections = collections,
             };
             _cultures.Add(culture.Id, culture);
         }
+        refreshCultureOrder();
     }
     public void RegisterActionDuringStateLoad(PrimitiveActionBase action, bool throwOnErrors, Action<string, Exception> log) {
         try {
@@ -320,6 +323,7 @@ public class NativeModelStore(DataStoreLocal store) {
     }
     void deleteCulture(int nodeId) {
         _cultures.Remove(nodeId);
+        refreshCultureOrder();
     }
     void addCulture(INodeData node) {
         var culture = new NativeSystemCulture {
@@ -328,7 +332,24 @@ public class NativeModelStore(DataStoreLocal store) {
             CultureCode = node.TryGetValue(NodeConstants.NativeCulturePropertyCultureCode, out var objCultureCode) ? (string)objCultureCode : string.Empty,
         };
         _cultures.Add(node.__Id, culture);
+        refreshCultureOrder();
     }
+
+    // culture id -> its place when a reader falls back to another culture. Read without the store lock (a node is
+    // converted for a reader after the lock is let go), so it is replaced whole as cultures come and go.
+    volatile Dictionary<Guid, int> _cultureOrder = [];
+    void refreshCultureOrder() {
+        var order = new Dictionary<Guid, int>();
+        var place = 1;
+        foreach (var c in _cultures.Values.OrderBy(c => c.Id)) order[c.Guid] = place++;
+        _cultureOrder = order;
+    }
+    /// <summary>
+    /// Where a culture comes when a reader falls back to another one: the neutral version first, then the cultures
+    /// in the order they were made in, and last one that is gone.
+    /// </summary>
+    internal int GetCulturePriority(Guid cultureId) =>
+        cultureId == Guid.Empty ? 0 : _cultureOrder.TryGetValue(cultureId, out var place) ? place : int.MaxValue;
 
     static void remove(int value, ref int[] array) {
         for (int i = 0; i < array.Length; i++) {

@@ -259,7 +259,6 @@ internal sealed class Definition {
         return types.SelectMany(t => t.AllProperties.Keys).Distinct().Select(id => Properties[id]).Where(p => p.CanBeFacet());
     }
 
-    internal object GetCulturePriority(Guid cultureId, Guid collectionId) {
-        throw new NotImplementedException();
-    }
+    /// <summary>Where a revision's culture comes when a reader falls back to another culture (see NativeModelStore).</summary>
+    internal int GetCulturePriority(Guid cultureId, Guid collectionId) => Store._nativeModelStore.GetCulturePriority(cultureId);
 }

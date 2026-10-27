@@ -260,6 +260,10 @@ internal class NodeTypesByIds {
         // Showing deleted?
         if (!ctx.IncludeDeleted && meta.Deleted) return false;
 
+        // A revision that is not published - a draft, an archived one - is read in edit view only, or the reader would
+        // find a node it has no revision of to show (PickBestOuter):
+        if (!ctx.IncludeUnpublished && meta.RevisionType != RevisionType.Published) return false;
+
         // Culture:
         if (ctx.OnlyWithCulture && meta.CultureId == Guid.Empty) return false;
         if (!ctx.IncludeCultureFallback) if (meta.CultureId != ctx.CultureId) return false;
@@ -344,7 +348,8 @@ internal class NodeTypesByIds {
     }
     public IdSet GetAllNodeIdsForTypeFilteredByContext(Guid typeId, QueryContext ctx) => getIds(typeId, ctx).AsUnmutableIdSet();
     idSet getIds(Guid typeId, QueryContext ctx) {
-        var ctxKey = _nativeModelStore.GetQueryContextKey(ctx, out var nowUtc);
+        // the same ids whichever revisions the context selects: one cached set for them all
+        var ctxKey = _nativeModelStore.GetQueryContextKey(ctx, out var nowUtc).WithoutSelectedRevisions();
         var ctxAndTypeKey = new ctxAndType(typeId, ctxKey);
         if (_cachedNodeIdsByCtx.TryGet(ctxAndTypeKey, out var ids)) {
             if (ids.IsWithinTimeConstraints(nowUtc)) return ids;
@@ -414,10 +419,11 @@ internal class NodeTypesByIds {
     public void RegisterActionDuringStateLoad(PrimitiveNodeAction na, bool throwOnErrors, Action<string, Exception?> log) {
         try {
             if (na.Operation == PrimitiveOperation.Add) {
-                if (na.Node is NodeData nd) index(nd.__Id, nd.NodeType, nd.Meta);
+                if (na.Node is NodeData nd) index(nd.__Id, nd.NodeType, nd.Meta, null);
                 else if (na.Node is NodeDataRevisions ndr) {
+                    var addedTo = new HashSet<idSet>(); // once into each cached set, as in Index
                     foreach (var rev in ndr.Revisions) {
-                        index(rev.__Id, rev.NodeType, rev.Meta);
+                        index(rev.__Id, rev.NodeType, rev.Meta, addedTo);
                     }
                 } else throw new Exception("Internal error. Unsupported node data type in primitive action during state load: " + na.Node.GetType().FullName);
                 countEmbeddedAndMarkedDeleted(na.Node, 1);
@@ -445,15 +451,18 @@ internal class NodeTypesByIds {
         return sb.ToString();
     }
     public void Index(INodeData node) {
-        if (node is NodeData nd) index(nd.__Id, nd.NodeType, nd.Meta);
+        if (node is NodeData nd) index(nd.__Id, nd.NodeType, nd.Meta, null);
         else if (node is NodeDataRevisions ndr) {
+            // the node goes into a cached context's ids once, whichever of its revisions makes it one the context reads:
+            // a set holds a node once, as one made afresh does (evaluateRelevantIds)
+            var addedTo = new HashSet<idSet>();
             foreach (var rev in ndr.Revisions) {
-                index(rev.__Id, rev.NodeType, rev.Meta);
+                index(rev.__Id, rev.NodeType, rev.Meta, addedTo);
             }
         } else throw new Exception("Internal error. Unsupported node data type in primitive action during indexing: " + node.GetType().FullName);
         countEmbeddedAndMarkedDeleted(node, 1);
     }
-    void index(int nodeId, Guid nodeTypeId, IInnerNodeMeta? meta) {
+    void index(int nodeId, Guid nodeTypeId, IInnerNodeMeta? meta, HashSet<idSet>? addedTo) {
         metaAndType mt = new(meta ?? IInnerNodeMeta.Empty, nodeTypeId);
         //Console.WriteLine("Indexing node " + node.__Id + " meta: " + node.Meta);
         if (!_idByMeta.TryGetValue(mt, out var shortId)) {
@@ -469,7 +478,7 @@ internal class NodeTypesByIds {
             var ctx = kv.Key;
             var ids = kv.Value;
             if (isMetaRelevantForContext(mt, ctx.TypeId, ctx.CxtKey, ids.CreatedWithNowUtc, out var pendingReleaseUtc)) { // no time constraint
-                kv.Value.Add(nodeId, mt.Meta.ReleaseUtc, mt.Meta.ExpireUtc);
+                if (addedTo == null || addedTo.Add(ids)) kv.Value.Add(nodeId, mt.Meta.ReleaseUtc, mt.Meta.ExpireUtc);
             } else if (pendingReleaseUtc.HasValue) {
                 // excluded only until its release date passes, so the cached set must expire then:
                 kv.Value.RegisterExcludedFutureRelease(pendingReleaseUtc.Value);
@@ -542,6 +551,18 @@ internal class NodeTypesByIds {
             }
         }
 
+        // in edit view, the culture's own revision comes before any other culture's: one published but not yet
+        // released, else a draft or one awaiting approval, else an archived one, else one in the bin
+        if (ctxKey.IncludeUnpublished) {
+            var own = ndr.Revisions
+                .Where(r => r.CultureId == ctxKey.CultureId)
+                .OrderBy(r => unpublishedRank(r.RevisionType))
+                .ThenByDescending(r => r.ChangedUtc)
+                .FirstOrDefault();
+            if (own != null)
+                return own;
+        }
+
         // then any published revision with fallback culture
         if (ctxKey.IncludeCultureFallback) {
             var match = ndr.Revisions
@@ -563,8 +584,28 @@ internal class NodeTypesByIds {
                 return match;
         }
 
+        // in edit view a node with nothing in the culture is still the editor's to see: another culture's revision,
+        // in fallback order, and of each culture's the one the culture's own reader would get first
+        if (ctxKey.IncludeUnpublished) {
+            var match = ndr.Revisions
+                .Where(r => !ctxKey.OnlyWithCulture || r.CultureId != Guid.Empty)
+                .OrderBy(r => _definition.GetCulturePriority(r.CultureId, r.CollectionId))
+                .ThenBy(r => unpublishedRank(r.RevisionType))
+                .ThenByDescending(r => r.ChangedUtc)
+                .FirstOrDefault();
+            if (match != null)
+                return match;
+        }
+
         throw new InvalidOperationException("No suitable revision found for node " + node.__Id + " and context " + ctxKey);
     }
+    static int unpublishedRank(RevisionType type) => type switch {
+        RevisionType.Published or RevisionType.PublishOverride => 0,
+        RevisionType.Preliminary or RevisionType.AwaitingPublicationApproval => 1,
+        RevisionType.AwaitingArchiveApproval or RevisionType.AwaitingDeleteApproval => 2,
+        RevisionType.Archived => 3,
+        _ => 4, // binned
+    };
     static int formatVersion = 1000;
     public void SaveState(IAppendStream stream) {
         stream.WriteInt(formatVersion);

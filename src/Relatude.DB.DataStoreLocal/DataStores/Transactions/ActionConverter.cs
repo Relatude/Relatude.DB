@@ -82,6 +82,7 @@ internal class ActionConverter {
                     db._urls.InternalizeContentValues(node, QueryContext.MasterAdmin);
                     db._urls.RegisterAddressAtCommit(node, node);
                     if (node.CreatedUtc == DateTime.MinValue) node.CreatedUtc = DateTime.UtcNow;
+                    stampIfNotGiven(node);
                     Utils.ForceTypeValidateValuesAndCopyMissing(db._definition, node, null, transformValues);
                     Utils.EnsureOrQueueIndex(db, node, doNotRegenTheseProps, newTasks);
                     if (!_lastResultingOperation.HasValue) _lastResultingOperation = ResultingOperation.CreateNode;
@@ -153,6 +154,9 @@ internal class ActionConverter {
                         };
                         if (performUpdate) {
                             if (!_lastResultingOperation.HasValue) _lastResultingOperation = ResultingOperation.UpdateNode;
+                            // its values written: changed now, whatever time the node it came as has (the one it was read
+                            // with), unless only its files moved to another store and its content did not (NoReindex)
+                            if (!nodeAction.NoReindex && node is NodeDataAbstract written) written.SetChangedUtc(DateTime.UtcNow);
                             // NB: the new node is prepared, and the address registered, BEFORE the remove primitive
                             // is yielded: primitives execute as they are enumerated, and the uniqueness probe of the
                             // url manager must still be able to see the node (its parents, its current address).
@@ -186,6 +190,7 @@ internal class ActionConverter {
                         db._urls.InternalizeContentValues(node, QueryContext.MasterAdmin);
                         db._urls.RegisterAddressAtCommit(node, node); // registration was missing on this path before the multi-owner registry
                         if (node.CreatedUtc == DateTime.MinValue) node.CreatedUtc = DateTime.UtcNow;
+                        stampIfNotGiven(node);
                         Utils.ForceTypeValidateValuesAndCopyMissing(db._definition, node, null, transformValues);
                         Utils.EnsureOrQueueIndex(db, node, doNotRegenTheseProps, newTasks);
                         if (!_lastResultingOperation.HasValue) _lastResultingOperation = ResultingOperation.CreateNode;
@@ -241,6 +246,10 @@ internal class ActionConverter {
             default:
                 throw new NotImplementedException();
         }
+    }
+    /// <summary>A node inserted without a change time is changed when it was made; one given (an import) keeps it.</summary>
+    static void stampIfNotGiven(INodeData node) {
+        if (node.ChangedUtc == DateTime.MinValue && node is NodeDataAbstract made) made.SetChangedUtc(node.CreatedUtc);
     }
     // the common case, both ends given as guids, resolves both under one guid store lock
     static void resolveEnds(DataStoreLocal db, RelationAction a, out int source, out int target) {
@@ -578,10 +587,13 @@ internal class ActionConverter {
                     var sourceRevision = revs.Revisions.FirstOrDefault(r => r.RevisionId == sourceRevisionId);
                     if (sourceRevision == null) throw new Exception("Revision with id " + a.SourceRevisionId + " does not exist, cannot create revision. ");
                     if (a.RevisionType == null) throw new Exception("RevisionType must be given to create a new revision. ");
+                    var cultureGiven = a.CultureId != null || a.CultureCode != null;
+                    if (!cultureGiven) cultureId = sourceRevision.CultureId; // none given: the source's culture
                     int revisionKey = RevisionUtil.CreateNewRevisionKey(a.RevisionType.Value, cultureId, revs.Revisions);
                     var newMeta = IInnerNodeMeta.ChangeRevision(sourceRevision.Meta, revisionKey);
-                    if (a.CultureCode != null && newMeta?.CultureId != cultureId) newMeta = IInnerNodeMeta.ChangeCulture(newMeta, cultureId);
+                    if (cultureGiven && (newMeta?.CultureId ?? Guid.Empty) != cultureId) newMeta = IInnerNodeMeta.ChangeCulture(newMeta, cultureId);
                     NodeDataRevision newRev = sourceRevision.CopyAndChangeMetaAndRevisionId(newMeta, a.RevisionId.Value);
+                    newRev.SetChangedUtc(DateTime.UtcNow); // made now, of the source's values
                     var newRevs = new NodeDataRevision[revs.Revisions.Length + 1];
                     Array.Copy(revs.Revisions, newRevs, revs.Revisions.Length);
                     newRevs[^1] = newRev;
@@ -617,11 +629,8 @@ internal class ActionConverter {
                     var newRev = revToChange.CopyAndChangeMeta(newMeta);
                     var newRevs = revs.Revisions.ToArray();
                     newRevs[posOfRevToChange] = newRev;
+                    // published, the revision's values are its culture's alone: the other cultures keep theirs
                     var newNode = new NodeDataRevisions(revs.Id, revs.__Id, revs.NodeType, newRevs);
-                    if (a.RevisionType.Value == RevisionType.Published) { // if changing to published, copy culture specific values to culture invariant props if relevant
-                        var typeDef = db._definition.NodeTypes[revs.NodeType];
-                        Utils.UpdateCultureInsensitiveValues(typeDef, newNode, a.RevisionId.Value); // does not copy node, changes values in place so node must be new and not referenced other places
-                    }
                     yield return new PrimitiveNodeAction(PrimitiveOperation.Remove, existingNode);
                     yield return new PrimitiveNodeAction(PrimitiveOperation.Add, newNode);
                 }

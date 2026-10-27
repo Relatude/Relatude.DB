@@ -112,7 +112,12 @@ public abstract class NodeDataAbstract : INodeData {  // permanently readonly on
     public Guid NodeType { get; }
     public virtual IInnerNodeMeta? Meta { get; }
     public DateTime CreatedUtc { get; set; }
-    public DateTime ChangedUtc { get; }
+    public DateTime ChangedUtc { get; private set; }
+    /// <summary>When the node's values last changed: the database stamps it as it writes them, before the node is read-only.</summary>
+    public void SetChangedUtc(DateTime changedUtc) {
+        if (_readOnly) throw new Exception("Node data is readonly. ");
+        ChangedUtc = changedUtc;
+    }
     public IEnumerable<PropertyEntry<object>> Values => _values.Items;
     public int ValueCount => _values.Count;
     public bool ReadOnly => _readOnly;

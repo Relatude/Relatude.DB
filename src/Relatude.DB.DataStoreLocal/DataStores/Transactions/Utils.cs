@@ -135,25 +135,8 @@ internal static class Utils {
             throw new Exception("Unexpected revision type change. Old revision type: " + oldRev.RevisionType + ", new revision type: " + newRev.RevisionType);
         }
 
-        // update revision
+        // update revision: the other revisions, in other cultures too, keep their own values
         orginialMainNode.Revisions[indexOldRev] = newRev;
-
-        // copy culture insensitve properties to other published revision, if any
-        if (oldRev.RevisionType == RevisionType.Published) {
-            // ensure culture insenensitive properties are copied to the new revision
-            foreach (var other in orginialMainNode.Revisions) {
-                if (other.RevisionType == RevisionType.Published && other.RevisionKey != newRev.RevisionKey) {
-                    // other revision that is published, copy culture insensitive properties:
-                    foreach (var prop in typeDef.Model.AllProperties.Values) {
-                        if (!prop.CultureSensitive) {
-                            if (newRev.TryGetValue(prop.Id, out var newValue)) {
-                                other.AddOrUpdate(prop.Id, newValue);
-                            }
-                        }
-                    }
-                }
-            }
-        }
 
         return orginialMainNode;
 
@@ -182,26 +165,5 @@ internal static class Utils {
         return data;
     }
 
-    internal static void UpdateCultureInsensitiveValues(NodeType typeDef, NodeDataRevisions newNode, Guid masterRevisionId) {
-
-        var masterRev = newNode.Revisions.FirstOrDefault(r => r.RevisionId == masterRevisionId);
-        if (masterRev == null) throw new Exception("Master revision with id " + masterRevisionId + " not found in revisions. ");
-        if (masterRev.RevisionType != RevisionType.Published) return;  // revision will not affect other revisions, as it is not published
-
-        // inlineUpdate, does not copy!!!
-        foreach (var other in newNode.Revisions) {
-            if (other.RevisionType == RevisionType.Published && other.RevisionId != masterRevisionId) {
-                // other revision that is published, copy culture insensitive properties:
-                foreach (var prop in typeDef.Model.AllProperties.Values) {
-                    if (!prop.CultureSensitive) {
-                        if (masterRev.TryGetValue(prop.Id, out var newValue)) {
-                            other.AddOrUpdate(prop.Id, newValue);
-                        }
-                    }
-                }
-            }
-        }
-
-    }
 }
 

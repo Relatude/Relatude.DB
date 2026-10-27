@@ -13,35 +13,33 @@ public enum RevisionType : int {
     AwaitingDeleteApproval = 7 // id from 70000000->79999999 - not published, waiting for approval to be deleted
 }
 public static class RevisionUtil {
+    /// <summary>How many keys each revision type has: its keys are type * KeysPerType and up.</summary>
+    public const int KeysPerType = 10_000_000;
 
+    /// <summary>
+    /// The key a new revision of the type gets: the first of the type's range that no revision of the node has, as
+    /// keys are unique across all of a node's revisions. A published revision is one per culture, so a node published
+    /// in three cultures has the published keys 0, 1 and 2.
+    /// </summary>
     public static int CreateNewRevisionKey(RevisionType keyType, Guid cultureId, NodeDataRevision[] existingRevs) {
         if (keyType == RevisionType.Published) {
             // ensure there is not already a published revision for the given culture
             var hasPublishedRevisionForCulture = existingRevs.Any(r => r.RevisionType == RevisionType.Published && r.CultureId == cultureId);
             if (hasPublishedRevisionForCulture) throw new ArgumentException($"There can only be one published revision for each culture. Culture ID: {cultureId}. ");
-            return 0; // published revision always has key 0
         }
-        var keysOfSameType = existingRevs.Select(r => r.RevisionKey).Where(k => GetRevisionTypeFromKey(k) == keyType).ToArray();
-        int newKey = (int)keyType * 10000000; // start of the range for the given revision type
-        if (keysOfSameType.Length == 0) return newKey;
-        while (keysOfSameType.Contains(newKey)) newKey++; // find the next available key in the range for the given revision type
+        var taken = existingRevs.Select(r => r.RevisionKey).ToHashSet();
+        int newKey = (int)keyType * KeysPerType; // start of the range for the given revision type
+        while (taken.Contains(newKey)) newKey++; // the next available key in the range for the given revision type
+        if (newKey >= ((int)keyType + 1) * KeysPerType) throw new InvalidOperationException($"No revision key is left for {keyType}. ");
         return newKey;
     }
 
+    /// <summary>The type a key is of: the range it lies in, so 0 to 9 999 999 are published, 20 000 000 and up archived.</summary>
     public static RevisionType GetRevisionTypeFromKey(int revisionKey) {
-
-        // is it big enough to have a digit in the place of 10 millions?
-        var noDigitsOfRevisionId = revisionKey == 0 ? 1 : (int)Math.Floor(Math.Log10(Math.Abs(revisionKey)) + 1);
-        if (revisionKey != 0) if (noDigitsOfRevisionId > 8) throw new ArgumentException($"Invalid revision ID: {revisionKey}. Revision ID must have at most 8 digits. ");
-
-        // get the digit in the place of 10 millions, which determines the revision type
-        var digit = revisionKey;
-        while (digit >= 10) digit /= 10;
-
-        // check if the digit corresponds to a defined RevisionType
-        if (!Enum.IsDefined(typeof(RevisionType), digit)) throw new ArgumentException($"Invalid revision ID: {revisionKey}. No corresponding RevisionType found. ");
-
-        return (RevisionType)digit;
+        if (revisionKey < 0) throw new ArgumentException($"Invalid revision ID: {revisionKey}. A revision key is not negative. ");
+        var type = revisionKey / KeysPerType;
+        if (!Enum.IsDefined(typeof(RevisionType), type)) throw new ArgumentException($"Invalid revision ID: {revisionKey}. No corresponding RevisionType found. ");
+        return (RevisionType)type;
     }
     public static void Validate(int revisionId) {
         GetRevisionTypeFromKey(revisionId);

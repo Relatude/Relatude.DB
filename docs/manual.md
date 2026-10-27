@@ -944,7 +944,7 @@ display name.
 |---|---|
 | `Id`, `InternalId` | Public Guid and internal int id. |
 | `NodeTypeId` | The type id from `[Node(Id = …)]`. |
-| `CreatedUtc`, `ChangedUtc` | Timestamps. |
+| `CreatedUtc`, `ChangedUtc` | Timestamps. The database stamps `ChangedUtc` with every write that changes the node's values - as an object, a property, or one revision of several, which alone moves on - and leaves it for a write that changes nothing, a meta write and a change of revision type. An insert keeps a change time it is given. |
 | `DisplayName`, `Address` | Sourced from the marker properties above. |
 | `CultureId` | Culture of this revision. |
 | `RevisionId`, `RevisionType` | Revision tracking — `Draft`, `Published`, `Archived`, … |
@@ -990,7 +990,7 @@ db.CreateTransaction()
 | `CreatedBy`, `ChangedBy` | `Guid`, a user's id | The store does not fill them in; the application writes them if it wants them. |
 
 `CultureId` and `RevisionKey` cannot be written this way (the call throws), and neither can the revision
-type, which the revision methods change ([§16](#16-older-versions-of-a-node)). An unknown name throws too.
+type, which the revision methods change ([§29](#revisions-in-several-cultures)). An unknown name throws too.
 
 On a node with revisions, the overloads that take a `revisionId` write that revision's meta, and the
 access groups, collection and deleted flag are copied to its other revisions; without a `revisionId`
@@ -5075,6 +5075,36 @@ var visitor = db.Context.Culture(cultureCode).User(userId ?? Guid.Empty).Create(
 Note that `Get` and `TryGet` by id apply the context's culture but not its read access: queries and
 relation properties filter by it. To ask whether a visitor may read a node, query for it:
 `visitor.Query().Where(id).Count() > 0`.
+
+### Revisions in several cultures
+
+A node holds one version until it is given revisions (`EnableRevisions`, or the first
+`CreateRevision`, which enables them). Then each version is a revision with an id, a `RevisionType`
+and a culture, and values of its own: `CreateRevision` copies one into a new one - a draft
+(`Preliminary`) of the published version, or a version in another culture, by code - and a write in
+a context that selects a revision changes that one alone. Values are never copied between
+revisions: saving or publishing the `nb-NO` version leaves the `en-US` one as it is.
+
+```csharp
+db.EnableRevisions(id, out var neutral);                                              // its version, published
+db.CreateRevision(id, neutral, RevisionType.Published, out var norwegian, "nb-NO");   // a version in nb-NO
+db.CreateRevision(id, norwegian, RevisionType.Preliminary, out var draft);            // a draft of that one
+db.Execute(db.CreateTransaction()                                                     // published over it: one per culture
+    .ChangeRevisionType(id, norwegian, RevisionType.Archived)
+    .ChangeRevisionType(id, draft, RevisionType.Published));
+```
+
+A culture has one published revision at most: publishing another archives it first, in the same
+transaction. A reader gets published revisions only - its culture's, else with `CultureFallbacks`
+the neutral one first and then the other cultures in the order they were made, else the neutral one -
+and a node with nothing it can read is left out of its queries. In edit view (`Unpublished`) the
+culture's own revision comes first whatever its type, then the others, so a node with only a draft
+or an archived version is still the editor's to find. `QueryContext.SelectedRevisions` names a
+revision to read and write by node, by its key (`NodeDataRevision.RevisionKey`), which changes with
+its type: look it up in `Datastore.GetRevisions(id)` by its `RevisionId`, which does not. A revision's
+keys tell its type: 0 to 9 999 999 are published, one per culture, and each other type has the next
+ten million. Indexes hold a property's value once for all revisions unless the property is
+culture-sensitive, so a `Where`, a sort or a search sees one culture's value of it.
 
 ---
 

@@ -357,6 +357,10 @@ public class QueryContextKey : IEquatable<QueryContextKey> {
         UserType = userType;
         SelectedRevisions = selectedRevisions;
     }
+    /// <summary>The same key with no revisions selected: which nodes a context reads does not depend on them, only which revision of each it shows.</summary>
+    public QueryContextKey WithoutSelectedRevisions() => SelectedRevisions == null ? this : new(
+        CultureId, CollectionIds, MembershipIds, IncludeDeleted, IncludeCultureFallback, OnlyWithCulture, IncludeUnpublished,
+        EditView, IncludeHidden, ExcludeDescendants, UserType, null);
     int _hash = 0;
     public override int GetHashCode() {
         if (_hash != 0) return _hash;
