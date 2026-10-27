@@ -374,6 +374,7 @@ internal static class BuildUtilsProperties {
             p.InnerNodeTypesNames = [nodeType.FullName!];
         }
         p.IncludeTypes = a.IncludeTypes;
+        p.Display = a.Display;
     }
     static EmbeddedPropertyModel getEmbeddedPropertyModel(MemberInfo m, EmbeddedPropertyAttribute a, Type valueType) {
         var p = new EmbeddedPropertyModel();
@@ -432,6 +433,7 @@ internal static class BuildUtilsProperties {
         }
         p.IncludeTypes = a.IncludeTypes;
         p.Indexed = a.Indexed;
+        p.Display = a.Display;
         return p;
     }
     static ReferencesPropertyModel getReferencesPropertyModel(ReferencesPropertyAttribute a, MemberInfo m, Type valueType) {
@@ -479,6 +481,7 @@ internal static class BuildUtilsProperties {
         }
         p.IncludeTypes = a.IncludeTypes;
         p.Indexed = a.Indexed;
+        p.Display = a.Display;
         return p;
     }
     static BooleanPropertyModel getBooleanPropertyModel(BooleanPropertyAttribute a) {
@@ -558,6 +561,7 @@ internal static class BuildUtilsProperties {
         r.TextIndexRelatedDisplayName = attr.TextIndexRelatedDisplayName;
         r.TextIndexRecursiveLevelLimit = attr.TextIndexRecursiveLevelLimit;
         r.Facet = attr.Facet;
+        r.Display = attr.Display;
         Type? typeOfRelated = null;
         Type? relationType = null;
         if (m is PropertyInfo pi && pi.PropertyType.InheritsFromOrImplements<IRelationProperty>()) {

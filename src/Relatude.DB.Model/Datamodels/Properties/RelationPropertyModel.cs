@@ -39,6 +39,13 @@ public class RelationPropertyModel : PropertyModel {
     [JsonInclude]
     public bool AutoAssigned { get; internal set; }
     public bool Facet { get; set; } // opt-in: enables faceting on this relation property
+    /// <summary>
+    /// How an editing interface shows the related nodes. It only says how they are shown, so the store's
+    /// checksum leaves it out, and it is left out of the JSON when List, so a model that does not use it
+    /// reads as it did before the member existed.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public DisplayMode Display { get; set; }
 
     public override object GetDefaultValue() => throw new NotSupportedException();
     public override string GetDefaultValueAsCode() => throw new NotSupportedException();

@@ -247,7 +247,7 @@ public static class SchemaView {
         return i < 0 ? fullName : fullName[(i + 1)..];
     }
 
-    /// <summary>Everything about a property that changes how it behaves: indexes, constraints, markers.</summary>
+    /// <summary>Everything about a property that changes how it behaves: indexes, constraints, markers; and how an editor shows it.</summary>
     public static string[] PropertyNotes(PropertyModel p, NodeTypeModel t, Datamodel dm) {
         var notes = new List<string>();
         if (p.CodeName == t.NameOfDisplayNameProperty) notes.Add("display name");
@@ -295,6 +295,14 @@ public static class SchemaView {
                 break;
         }
         if (p.ExcludeFromTextIndex && p is StringPropertyModel) notes.Add("excluded from text index");
+        var display = p switch {
+            RelationPropertyModel r => r.Display,
+            ReferencePropertyModel r => r.Display,
+            ReferencesPropertyModel r => r.Display,
+            EmbeddedPropertyModel e => e.Display,
+            _ => DisplayMode.List,
+        };
+        if (display != DisplayMode.List) notes.Add("shown as " + display.ToString().ToLowerInvariant());
         return [.. notes];
     }
     static IEnumerable<string> typeNotes(NodeTypeModel t, Datamodel dm) {

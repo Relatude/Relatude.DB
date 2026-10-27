@@ -59,7 +59,7 @@ Everything is a **node**. A node has:
 | Ingredient | What it is |
 |---|---|
 | `Guid Id` | The public identity. The engine also keeps an internal `int __Id` for fast indexing. |
-| `NodeMeta Meta` | System-managed metadata: timestamps, culture, revision, ACL, display name, address. Read it; never write it. |
+| `NodeMeta Meta` | System-managed metadata: timestamps, culture, revision, ACL, display name, address. Never assign it; write it with `db.UpdateMeta(id, nameof(IInnerNodeMeta.ReadAccess), groupId)` (`references/datamodels.md`). |
 | Scalar properties | `string`, `int`, `decimal`, `DateTime`, `bool`, `Guid`, `GeoCoordinate`, `FileValue`, arrays… |
 | Embedded data | Owned sub-objects stored inline in the parent — `Embedded<T>`, `EmbeddedMap<TKey,TValue>`. |
 | References | A stored `Guid` (or `Guid[]`) pointing at other nodes — one-directional, no reverse index. |
@@ -468,7 +468,7 @@ Register it **before** `UseStaticFiles()`, so content addressed by a database UR
 The full checklist is `references/pitfalls.md` — read it before finishing any non-trivial answer. The ones worth carrying in your head:
 
 - **`Reference`/`References` `foreach` yields nothing unless preloaded.** Use `.Get()` / `.TryGet(out …)` or `.Preload(...)`.
-- **Never construct a `NodeMeta`.** Default to `NodeMeta.Empty`, treat it as read-only.
+- **Never construct a `NodeMeta`.** Default to `NodeMeta.Empty` and never assign it; write meta through `db.UpdateMeta`.
 - **Put attributes on the interface, not the implementing class.**
 - **Two parent interfaces may not declare the same property name**, and **property overriding is not supported.** Both are caught at model-build time.
 - **Nullable value types are not supported** — no `int?`, `DateTime?`, `GeoCoordinate?`. Use the type's empty value; that is what `GeoCoordinate.Empty` and `FileValue.Empty` are for.

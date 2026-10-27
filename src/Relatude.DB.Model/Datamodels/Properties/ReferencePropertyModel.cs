@@ -21,6 +21,9 @@ public class ReferencePropertyModel : PropertyModel {
     public List<string>? NodeTypesNames { get; set; }
     public IncludeTypeOptions IncludeTypes { get; set; } = IncludeTypeOptions.ThisTypeAndDescending;
     public ReferenceValueType ReferenceValueType { get; set; } = ReferenceValueType.Wrapper;
+    /// <summary>How an editing interface shows the node referred to; see <see cref="RelationPropertyModel.Display"/>.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public DisplayMode Display { get; set; }
 
     public Guid DefaultValue { get; set; }
     public override PropertyType PropertyType { get => PropertyType.Reference; }

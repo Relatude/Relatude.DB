@@ -20,6 +20,9 @@ public class EmbeddedPropertyModel : PropertyModel {
     public List<Guid> InnerNodeTypes { get; set; } = [];
     public List<string>? InnerNodeTypesNames { get; set; }
     public IncludeTypeOptions IncludeTypes { get; set; } = IncludeTypeOptions.ThisTypeAndDescending;
+    /// <summary>How an editing interface shows the inner nodes; see <see cref="RelationPropertyModel.Display"/>.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public DisplayMode Display { get; set; }
 
     public Guid KeyProperty { get; set; } = Guid.Empty;
     public string? KeyPropertyName { get; set; }

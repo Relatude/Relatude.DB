@@ -9,11 +9,13 @@ Full detail on declaring node types, properties, embedded data, references and r
 - [Scalar property attributes](#scalar-property-attributes)
 - [Marker properties](#marker-properties)
 - [What lives in NodeMeta](#what-lives-in-nodemeta)
+- [Writing meta: UpdateMeta](#writing-meta-updatemeta)
 - [Geo coordinates](#geo-coordinates)
 - [Files](#files)
 - [Embedded data](#embedded-data)
 - [References — lightweight pointers](#references--lightweight-pointers)
 - [Relations — the graph edges](#relations--the-graph-edges)
+- [How an editor shows nodes a property holds: Display](#how-an-editor-shows-nodes-a-property-holds-display)
 - [Validation the model builder enforces](#validation-the-model-builder-enforces)
 - [Native types you must not redefine](#native-types-you-must-not-redefine)
 
@@ -237,7 +239,7 @@ Marker attributes must sit on a compatible type — `[DisplayNameProperty]` and 
 
 ## What lives in NodeMeta
 
-Every node carries system metadata. **Read it; never write it.** Never construct one — default to `NodeMeta.Empty`.
+Every node carries system metadata. **Never construct or assign one** — default to `NodeMeta.Empty`. The store keeps it; change it through the store: `UpdateMeta` for the fields that can be written (below), `UpdateAddress` and `UpdateDisplayName` for the address and display name.
 
 | Field | Meaning |
 |---|---|
@@ -252,6 +254,37 @@ Every node carries system metadata. **Read it; never write it.** Never construct
 | `CreatedBy`, `ChangedBy` | User Guids. |
 | `ReleaseUtc`, `ExpireUtc` | Scheduled publishing. |
 | `Deleted` | Soft-delete flag. |
+
+## Writing meta: UpdateMeta
+
+`UpdateMeta` writes meta values by name: one name and value, or several as key-value pairs in one write. The names are the property names of `IInnerNodeMeta`, matched exactly — write them with `nameof`. A value must have the field's own type (`Guid`, `bool`, `DateTime?`): it is cast, not converted.
+
+```csharp
+using Relatude.DB.Datamodels;   // IInnerNodeMeta, NodeConstants
+
+db.UpdateMeta(article.Id, nameof(IInnerNodeMeta.ReadAccess), membersGroup.Id);
+
+db.UpdateMeta(article.Id, [
+    new(nameof(IInnerNodeMeta.EditAccess), NodeConstants.UserGroupAdmins),
+    new(nameof(IInnerNodeMeta.ReleaseUtc), (DateTime?)new DateTime(2027, 3, 1, 9, 0, 0, DateTimeKind.Utc)),
+    new(nameof(IInnerNodeMeta.ExpireUtc), null!),   // no expiry
+]);
+
+db.CreateTransaction()
+  .Update(article)
+  .UpdateMeta(article.Id, nameof(IInnerNodeMeta.ReadAccess), NodeConstants.UserGroupEveryone)
+  .Execute();
+```
+
+| Name | Value | Notes |
+|---|---|---|
+| `ReadAccess`, `EditViewAccess`, `EditAccess`, `PublishAccess` | `Guid`: a user group's id, or `NodeConstants.UserGroupEveryone` / `UserGroupMember` / `UserGroupAdmins` | `Guid.Empty` (`UserGroupUnspecified`) is none: the type's default applies, else for read and edit view the database's `DefaultReadAccess`. |
+| `CollectionId` | `Guid` | `Guid.Empty` for none. A query whose context names collections reads only nodes in them. |
+| `ReleaseUtc`, `ExpireUtc` | `DateTime?`, UTC | `null` for none. Queries leave the node out before its release and from its expiry on, unless their context reads unpublished nodes (`Unpublished`). |
+| `Deleted` | `bool` | Soft delete: queries leave the node out unless their context includes deleted nodes; the data stays. |
+| `CreatedBy`, `ChangedBy` | `Guid`, a user's id | The store does not fill them in; the application writes them if it wants them. |
+
+`CultureId` and `RevisionKey` cannot be written this way (the call throws), nor can the revision type, which the revision methods change; an unknown name throws too. On a node with revisions, the overloads taking a `revisionId` write that revision's meta and copy the access groups, collection and deleted flag to its other revisions; without one every revision is written. Every overload also takes the internal `int` id, and `Transaction` has the same methods.
 
 ## Geo coordinates
 
@@ -602,6 +635,20 @@ public EventsAtVenue.Events Events { get; }
 ```
 
 Relation properties need `Facet = true` to be facetable.
+
+## How an editor shows nodes a property holds: `Display`
+
+Relation ends, references and embedded properties can say how an editing interface such as the Relatude CMS shows the nodes they hold, with `Display` on `[RelationProperty]`, `[ReferenceProperty]`, `[ReferencesProperty]`, `[EmbeddedProperty]` or `[EmbeddedMapProperty]`:
+
+```csharp
+[RelationProperty(Display = DisplayMode.Table)]
+public EventsAtVenue.Events Events { get; }
+
+[ReferencesProperty(Indexed = true, Display = DisplayMode.Cards)]
+References<IOrganizer> Sponsors { get; }
+```
+
+`DisplayMode` (in `Relatude.DB.Datamodels.Properties`, beside `IncludeTypeOptions`) is `List` (the default: what an editor shows when nothing is said), `Table` (rows with columns, paged), `Inline` (each node as a form of its own that opens in place), `Cards` (a card of information for each node) or `Thumbnail` (the type's icon and the node's first picture). It says nothing to the store: like a type's icon it is left out of the store's checksum, so changing it rebuilds no state and no index. Applications read it as `Display` on `RelationPropertyModel`, `ReferencePropertyModel`, `ReferencesPropertyModel` and `EmbeddedPropertyModel`; the datamodel editor offers it as a choice, and a database can override it on the type that declares the property.
 
 ## Validation the model builder enforces
 

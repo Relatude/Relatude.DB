@@ -249,6 +249,9 @@ public sealed class PropertyOverride {
     public bool? TextIndexRelatedDisplayName { get; set; }
     [OverrideScope(OverrideScope.WholeProperty), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public bool? TextIndexRelatedContent { get; set; }
+    /// <summary>How an editing interface shows a relation, reference, references or embedded property (<see cref="RelationPropertyModel.Display"/>).</summary>
+    [OverrideScope(OverrideScope.WholeProperty), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public DisplayMode? Display { get; set; }
 
     /// <summary>Members the file holds that are not overridable attributes. Reported, kept when the file is written again.</summary>
     [JsonExtensionData]

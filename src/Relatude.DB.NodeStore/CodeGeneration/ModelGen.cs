@@ -497,6 +497,7 @@ public static class ModelGen {
                     if (r.TextIndexRelatedDisplayName) sb.Append(", " + nameof(RelationPropertyAttribute.TextIndexRelatedDisplayName) + " = true");
                     if (r.TextIndexRecursiveLevelLimit != 1) sb.Append(", " + nameof(RelationPropertyAttribute.TextIndexRecursiveLevelLimit) + " = " + r.TextIndexRecursiveLevelLimit);
                     if (r.Facet) sb.Append(", " + nameof(RelationPropertyAttribute.Facet) + " = true");
+                    appendDisplay(r.Display, sb);
                     sb.AppendLine(")]");
                 }
                 break;
@@ -525,6 +526,7 @@ public static class ModelGen {
                             sb.Append(", " + nameof(EmbeddedMapPropertyAttribute.KeyProperty) + " = \"" + e.KeyProperty + "\"");
                         }
                     }
+                    appendDisplay(e.Display, sb);
                     sb.AppendLine(")]");
                 }
                 break;
@@ -538,6 +540,7 @@ public static class ModelGen {
                     if (r.Indexed) sb.Append(", " + nameof(ReferencePropertyAttribute.Indexed) + " = true"); // the attribute member is a plain bool
                     if (r.NotFacet) sb.Append(", " + nameof(ReferencePropertyAttribute.NotFacet) + " = true");
                     if (r.IncludeTypes != IncludeTypeOptions.ThisTypeAndDescending) sb.Append(", " + nameof(ReferencePropertyAttribute.IncludeTypes) + " = " + typeof(IncludeTypeOptions).Namespace + "." + nameof(IncludeTypeOptions) + "." + r.IncludeTypes);
+                    appendDisplay(r.Display, sb);
                     sb.AppendLine(")]");
                 } break;
                 case PropertyType.References: {
@@ -551,12 +554,17 @@ public static class ModelGen {
                     if (r.NotFacet) sb.Append(", " + nameof(ReferencesPropertyAttribute.NotFacet) + " = true");
                     if (r.UniqueValues) sb.Append(", " + nameof(ReferencesPropertyAttribute.UniqueValues) + " = true");
                     if (r.IncludeTypes != IncludeTypeOptions.ThisTypeAndDescending) sb.Append(", " + nameof(ReferencesPropertyAttribute.IncludeTypes) + " = " + typeof(IncludeTypeOptions).Namespace + "." + nameof(IncludeTypeOptions) + "." + r.IncludeTypes);
+                    appendDisplay(r.Display, sb);
                     sb.AppendLine(")]");
                 } break;
             default:
                 throw new NotSupportedException();
         }
 
+    }
+    // the attributes of every property holding other nodes name it the same
+    static void appendDisplay(DisplayMode display, StringBuilder sb) {
+        if (display != DisplayMode.List) sb.Append(", " + nameof(RelationPropertyAttribute.Display) + " = " + typeof(DisplayMode).Namespace + "." + nameof(DisplayMode) + "." + display);
     }
     static void appendRelationCode(RelationModel relation, Datamodel dm, StringBuilder sb, bool addAttributes) {
         if (addAttributes) {

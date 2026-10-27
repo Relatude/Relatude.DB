@@ -13,6 +13,9 @@ public class ReferencesPropertyModel : GuidArrayPropertyModel {
     public List<string>? NodeTypesNames { get; set; }
     public IncludeTypeOptions IncludeTypes { get; set; } = IncludeTypeOptions.ThisTypeAndDescending;
     public ReferenceValueType ReferenceValueType { get; set; } = ReferenceValueType.Wrapper;
+    /// <summary>How an editing interface shows the nodes referred to; see <see cref="RelationPropertyModel.Display"/>.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public DisplayMode Display { get; set; }
 
     // wrapper needs an initialized instance (the mapper calls Initialize on it); plain
     // collection shapes must stay null until preloaded: null means "leave stored value

@@ -176,6 +176,8 @@ public static class DatamodelCatalog {
         ["TextIndexRelatedDisplayName"] = new() { Label = "Index related display names", Help = "The display names of related nodes become part of this node's text index.", Group = "Text search", Order = 12 },
         ["TextIndexRelatedContent"] = new() { Label = "Index related content", Help = "The text of related nodes becomes part of this node's text index.", Group = "Text search", Order = 13 },
         ["TextIndexRecursiveLevelLimit"] = new() { Label = "Related content depth", Help = "How many relation hops the related content indexing follows.", Group = "Text search", Order = 14 },
+        // relation, reference, references and embedded properties
+        ["Display"] = new() { Label = "Display", Help = "How an editing interface, such as a CMS, shows the nodes the property holds: List (the default), Table (rows with columns and paging), Inline (each node as a form that opens in place), Cards, or Thumbnail (the type's icon and the node's first picture). It says nothing to the store: changing it rebuilds nothing.", Order = 8 },
         // files
         ["FileStorageProviderId"] = new() { Label = "File store", Help = "The file store (from the storage settings) the files of this property go into, by id. Empty uses the first one.", Group = "Advanced" },
     };

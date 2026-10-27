@@ -820,7 +820,7 @@ warning, so it never stops the database from opening.
 | Node type, that type only | `Hidden`, `DefaultReadAccess`, `DefaultEditViewAccess` |
 | Property, per type (inherited) | `DefaultValue`, `ExcludeFromTextIndex`, `IndexBoost` (`TextIndexBoost` on the attributes), `DisplayName` |
 | Property, any type that has it | `Indexed`, `NotFacet`: on the declaring type it is what the declaration says; on a type inheriting the property `Indexed = true` asks for the shared index and `NotFacet = false` for the shared facet, which the property keeps while any type asks |
-| Property, on the declaring type | `IndexType`, `IndexedByWords`, `TextIndexType`, `MinLength`, `MaxLength`, `RegularExpression`, `MinValue`, `MaxValue`, `FacetRangePowerBase`, `FacetRangeCount`; on relation properties `Facet`, `TextIndexRelatedContent`, `TextIndexRelatedDisplayName` |
+| Property, on the declaring type | `IndexType`, `IndexedByWords`, `TextIndexType`, `MinLength`, `MaxLength`, `RegularExpression`, `MinValue`, `MaxValue`, `FacetRangePowerBase`, `FacetRangeCount`; on relation properties `Facet`, `TextIndexRelatedContent`, `TextIndexRelatedDisplayName`; on relation, reference, references and embedded properties `Display` ([§10](#how-an-editor-shows-them-display)) |
 | Never | ids and names, the property type, `UniqueValues`, culture settings, enum metadata, what a relation, reference or embedded property points at |
 
 `TextIndexBoost` on `[Node]` is not in the list: the engine does not use it yet.
@@ -935,7 +935,10 @@ public string Address { get; set; } = string.Empty;
 
 ### What lives in `NodeMeta`
 
-Every node carries system metadata. Read it; never write it.
+Every node carries system metadata. Never construct a `NodeMeta` or assign one: the store keeps it, and
+you change it through the store — `UpdateMeta` for the fields below that can be written
+([Writing meta](#writing-meta-updatemeta)), `UpdateAddress` and `UpdateDisplayName` for the address and
+display name.
 
 | Field | Meaning |
 |---|---|
@@ -950,6 +953,49 @@ Every node carries system metadata. Read it; never write it.
 | `CreatedBy`, `ChangedBy` | User Guids. |
 | `ReleaseUtc`, `ExpireUtc` | Scheduled publishing. |
 | `Deleted` | Soft-delete flag. |
+
+### Writing meta: `UpdateMeta`
+
+`UpdateMeta` writes meta values by name: one name and value, or several as key-value pairs in one
+write. The names are the property names of `IInnerNodeMeta`, matched exactly, so write them with
+`nameof`. A value must have the field's own type — a `Guid`, a `bool`, a `DateTime?` — as it is
+cast, not converted.
+
+```csharp
+using Relatude.DB.Datamodels;   // IInnerNodeMeta, NodeConstants
+
+// one value: only the members' group reads the article
+db.UpdateMeta(article.Id, nameof(IInnerNodeMeta.ReadAccess), membersGroup.Id);
+
+// several at once
+db.UpdateMeta(article.Id, [
+    new(nameof(IInnerNodeMeta.EditAccess), NodeConstants.UserGroupAdmins),
+    new(nameof(IInnerNodeMeta.ReleaseUtc), (DateTime?)new DateTime(2027, 3, 1, 9, 0, 0, DateTimeKind.Utc)),
+    new(nameof(IInnerNodeMeta.ExpireUtc), null!),   // no expiry
+]);
+
+// with other writes, in one transaction
+db.CreateTransaction()
+  .Update(article)
+  .UpdateMeta(article.Id, nameof(IInnerNodeMeta.ReadAccess), NodeConstants.UserGroupEveryone)
+  .Execute();
+```
+
+| Name | Value | Notes |
+|---|---|---|
+| `ReadAccess`, `EditViewAccess`, `EditAccess`, `PublishAccess` | `Guid`: a user group's id, or `NodeConstants.UserGroupEveryone`, `UserGroupMember`, `UserGroupAdmins` | `Guid.Empty` (`NodeConstants.UserGroupUnspecified`) is none: the type's default applies, else for read and edit view the database's `DefaultReadAccess`. |
+| `CollectionId` | `Guid` | `Guid.Empty` for none. A query whose context names collections reads only nodes in them. |
+| `ReleaseUtc`, `ExpireUtc` | `DateTime?`, in UTC | `null` for none. Queries leave the node out before its release and from its expiry on, unless their context reads unpublished nodes (`Unpublished`, [§29](#29-cultures-visibility-and-scoped-stores)). |
+| `Deleted` | `bool` | Soft delete: queries leave the node out, unless their context includes deleted nodes; its data stays. |
+| `CreatedBy`, `ChangedBy` | `Guid`, a user's id | The store does not fill them in; the application writes them if it wants them. |
+
+`CultureId` and `RevisionKey` cannot be written this way (the call throws), and neither can the revision
+type, which the revision methods change ([§16](#16-older-versions-of-a-node)). An unknown name throws too.
+
+On a node with revisions, the overloads that take a `revisionId` write that revision's meta, and the
+access groups, collection and deleted flag are copied to its other revisions; without a `revisionId`
+every revision is written. Each overload also takes the node's internal `int` id instead of its `Guid`,
+and `Transaction` has the same methods.
 
 ### Querying by the node's own dates
 
@@ -1513,6 +1559,40 @@ Applied to the running example:
   reorder operations; **duplicates are what rule a relation out**.
 - `Event ↔ Venue`, `Event ↔ Attendee` → relations. Both directions are navigated constantly, and a
   venue's event list is curated by hand — which the relation's stored order handles for free.
+
+### How an editor shows them: `Display`
+
+All three can say how an editing interface, such as the Relatude CMS, shows the nodes they hold, with
+`Display` on `[RelationProperty]`, `[ReferenceProperty]`, `[ReferencesProperty]`, `[EmbeddedProperty]`
+or `[EmbeddedMapProperty]`:
+
+```csharp
+[RelationProperty(Display = DisplayMode.Table)]
+public EventsAtVenue.Events Events { get; }
+
+[ReferencesProperty(Indexed = true, Display = DisplayMode.Cards)]
+References<IOrganizer> Sponsors { get; }
+
+[EmbeddedMapProperty(KeyProperty = nameof(OpeningHours.DayCode), Display = DisplayMode.Inline)]
+EmbeddedMap<string, OpeningHours> Hours { get; }
+```
+
+`DisplayMode` is in `Relatude.DB.Datamodels.Properties`, beside `IncludeTypeOptions`:
+
+| Value | Shown as |
+|---|---|
+| `List` | a list of the nodes: the default, and what an editor shows when nothing is said |
+| `Table` | rows with columns, paged |
+| `Inline` | each node as a form of its own that opens in place |
+| `Cards` | a card of information for each node |
+| `Thumbnail` | the type's icon and the node's first picture |
+
+It says nothing to the store. Like a type's icon it is left out of the store's checksum, so changing
+it rebuilds no state and no index. The model keeps it as `Display` on `RelationPropertyModel`,
+`ReferencePropertyModel`, `ReferencesPropertyModel` and `EmbeddedPropertyModel`, where an application
+reads it; the datamodel editor offers it as a choice on those properties, and on a type from compiled
+code saves it as an override of the database, on the type that declares the property
+([§3.1](#31-overriding-attributes)).
 
 ---
 
@@ -5007,7 +5087,8 @@ A checklist of the things that actually bite people.
 1. **`Reference`/`References` `foreach` yields nothing unless preloaded.** Use `.Get()` /
    `.TryGet(out …)` for lazy access, or `.Preload(...)` in the query. This is deliberate — it makes
    accidental N+1 loads impossible.
-2. **Never construct a `NodeMeta`.** Default it to `NodeMeta.Empty` and treat it as read-only.
+2. **Never construct a `NodeMeta`.** Default it to `NodeMeta.Empty` and never assign it; write meta
+   through `db.UpdateMeta` ([§4](#writing-meta-updatemeta)).
 3. **Prefer interfaces.** No boilerplate, no parameterless-constructor rule, no initialisation to
    forget — and multiple inheritance, which classes cannot give you.
 4. **Put property attributes on the interface,** not on the class implementing it. A property is

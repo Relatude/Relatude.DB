@@ -312,7 +312,8 @@ public class FilePropertyAttribute : PropertyAttribute {
 [AttributeUsage(AttributeTargets.Property)]
 public class EmbeddedPropertyAttribute : PropertyAttribute {
     public IncludeTypeOptions IncludeTypes { get; set; } = IncludeTypeOptions.ThisTypeAndDescending;
-    public string[]? InnerTypeIds { get; set; }    
+    public string[]? InnerTypeIds { get; set; }
+    public DisplayMode Display { get; set; } // how an editing interface shows the inner nodes
 }
 public enum KeyPropertyType {
     NodeGuidId,
@@ -330,6 +331,7 @@ public class ReferencePropertyAttribute : PropertyAttribute, IAttrWithNotFacet {
     public string[]? TypeIds { get; set; }
     public bool Indexed { get; set; } // required for filtering and faceting on the reference
     public bool NotFacet { get; set; } // excluded from faceting even when indexed
+    public DisplayMode Display { get; set; } // how an editing interface shows the node referred to
 }
 [AttributeUsage(AttributeTargets.Property)]
 public class ReferencesPropertyAttribute : PropertyAttribute, IAttrWithUniqueContraints, IAttrWithNotFacet {
@@ -338,6 +340,7 @@ public class ReferencesPropertyAttribute : PropertyAttribute, IAttrWithUniqueCon
     public bool Indexed { get; set; } // required for faceting on the references
     public bool NotFacet { get; set; } // excluded from faceting even when indexed
     public bool UniqueValues { get; set; }
+    public DisplayMode Display { get; set; } // how an editing interface shows the nodes referred to
 }
 [AttributeUsage(AttributeTargets.Property)]
 public class RelationPropertyAttribute : PropertyAttribute {
@@ -348,6 +351,12 @@ public class RelationPropertyAttribute : PropertyAttribute {
     public bool TextIndexRelatedContent { get; set; }
     public int TextIndexRecursiveLevelLimit { get; set; }
     public bool Facet { get; set; } // opt-in: enables faceting on this relation property
+    /// <summary>
+    /// How an editing interface, such as a CMS, shows the related nodes: a list (the default), a table, each
+    /// node as a form in place, cards or thumbnails. It says nothing to the store. Reference, references and
+    /// embedded properties take it too.
+    /// </summary>
+    public DisplayMode Display { get; set; }
 
 }
 [AttributeUsage(AttributeTargets.Property)]
