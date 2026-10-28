@@ -296,8 +296,9 @@ public class DefaultUrlManager : UrlManagerBase, IUrlManagerBatch {
         }
         var pos = path.LastIndexOf('/');
         var last = path[(pos + 1)..];
+        var owners = _db.GetNodeIdsFromAddress(last);
         var matches = new List<NodeKeyWithCulture>();
-        foreach (var candidate in _db.GetNodeIdsFromAddress(last)) {
+        foreach (var candidate in owners.Length <= narrowFrom ? owners : candidatesAt(path, rootId, owners)) {
             if (!tryGetMeta(candidate.IdKey, candidate.CultureId, out var meta)) continue;
             if (!tryBuildPath(meta, out var candidatePath, out var candidateRoot)) continue;
             if (!string.Equals(candidatePath, path, StringComparison.Ordinal)) continue;
@@ -305,6 +306,38 @@ public class DefaultUrlManager : UrlManagerBase, IUrlManagerBatch {
             matches.Add(candidate);
         }
         return [.. matches];
+    }
+    /// <summary>
+    /// The owners of the path's last address that can have the path, found from the root down: the root's children
+    /// holding the first address, their children holding the next, and so on, so a request costs a few steps for each
+    /// level rather than building the URL of every node holding the last address, which copies of a branch multiply.
+    /// No more than a narrowing: matchByTree checks each one it gets. All the owners when a level is too wide to follow.
+    /// </summary>
+    NodeKeyWithCulture[] candidatesAt(string path, Guid rootId, NodeKeyWithCulture[] owners) {
+        var segments = path.Split('/'); // the path starts with "/", so the first is empty
+        HashSet<Guid> level;
+        var k = 1;
+        if (rootId != Guid.Empty) {
+            level = [rootId];
+        } else if (hasDomains) {
+            level = [.. _hostByRoot.Keys]; // a host no domain names, and no fallback: under any root
+        } else {
+            // no roots: the first address is a top-level node's, and a node whose parent cannot be read counts as top level
+            if (segments.Length < 3) return owners;
+            var top = _db.GetNodeIdsFromAddress(segments[1]);
+            if (top.Length > maxTwins) return owners;
+            level = [.. top.Select(guidOf)];
+            k = 2;
+        }
+        for (; k < segments.Length - 1; k++) {
+            if (segments[k].Length == 0) return []; // an empty address is in no URL
+            var below = childrenHolding(level, [.. _db.GetNodeIdsFromAddress(segments[k])]);
+            if (below.Count == 0) return [];
+            if (below.Count > maxTwins) return owners;
+            level = [.. below.Values];
+        }
+        var under = childrenHolding(level, [.. owners]);
+        return [.. owners.Where(o => under.ContainsKey(internalIdOf(o)))];
     }
 
     // addresses /////////////////////////////////////////////////////////////////////////////////
@@ -340,7 +373,7 @@ public class DefaultUrlManager : UrlManagerBase, IUrlManagerBatch {
                 if (!tryBuildChain(parent, out above, out prospectiveRoot)) return true; // parent is not routable, so neither is this node
             }
         }
-        foreach (var owner in owners) {
+        foreach (var owner in candidatesUnder(owners, above, prospectiveRoot)) {
             if (owner.IdKey.Int == self && self != 0) continue; // the node itself, any culture
             if (owner.CultureId != cultureId) continue; // urls are culture scoped
             if (!tryGetMeta(owner.IdKey, owner.CultureId, out var ownerMeta)) continue;
@@ -348,6 +381,85 @@ public class DefaultUrlManager : UrlManagerBase, IUrlManagerBatch {
         }
         return true;
     }
+    /// <summary>
+    /// The owners of the address that can have the URL it gets under the chain (parent first) in the root: those hanging
+    /// from a node that can have the parent's URL (urlTwins), which is the parent alone unless the tree holds another
+    /// with its URL. Every owner is read for the check, and copies of a branch give an address thousands of them, while
+    /// a parent has a few children. All of them when there are few, for a top-level node, or when a level is too wide.
+    /// </summary>
+    List<NodeKeyWithCulture> candidatesUnder(List<NodeKeyWithCulture> owners, List<(Guid Id, string Address)> above, Guid root) {
+        if (owners.Count <= narrowFrom || (above.Count == 0 && root == Guid.Empty)) return owners;
+        if (urlTwins(above, root) is not { } twins) return owners;
+        var under = childrenHolding(twins, owners);
+        return [.. owners.Where(o => under.ContainsKey(internalIdOf(o)))];
+    }
+    /// <summary>
+    /// The nodes that can have the URL of the chain's head (its first, the parent), found from the root down: at each
+    /// level the children of the one above holding the chain's address there, and the chain's own node. Without a root
+    /// the chain's top is top level, where any holder of its address may be (one whose parent cannot be read counts as
+    /// top level). Null when a level is too wide to follow.
+    /// </summary>
+    HashSet<Guid>? urlTwins(List<(Guid Id, string Address)> above, Guid root) {
+        HashSet<Guid> level;
+        var i = above.Count - 1;
+        if (root != Guid.Empty) {
+            level = [root];
+        } else {
+            var top = ownersOf(above[i].Address);
+            if (top.Count > maxTwins) return null;
+            level = [above[i].Id, .. top.Select(guidOf)];
+            i--;
+        }
+        for (; i >= 0; i--) {
+            var below = childrenHolding(level, ownersOf(above[i].Address));
+            if (below.Count > maxTwins) return null;
+            level = [above[i].Id, .. below.Values];
+        }
+        return level;
+    }
+    // below this many owners an address's owners are read one by one, as narrowing them costs more than it saves
+    const int narrowFrom = 8;
+    // a level of a URL holding more nodes than this is a tree full of the same URL: its owners are read one by one
+    const int maxTwins = 1024;
+    /// <summary>
+    /// The holders of an address (in any culture) that hang from one of the parents by any of the relations a node can
+    /// hang from its parent by, by internal id with their ids. Gone through from the side with fewer: the parents'
+    /// children while they are no more than the holders, else each holder's parents. It reads relations and the address
+    /// registry alone, no nodes, so it holds what can have a URL there and possibly more (the parent a node's URL takes,
+    /// and the culture of an address, are left to the caller's check).
+    /// </summary>
+    Dictionary<int, Guid> childrenHolding(HashSet<Guid> parents, List<NodeKeyWithCulture> holders) {
+        var found = new Dictionary<int, Guid>();
+        if (holders.Count == 0 || parents.Count == 0) return found;
+        var budget = Math.Max(holders.Count, 64);
+        var children = new List<Guid>();
+        foreach (var parentId in parents) {
+            foreach (var relation in _parents) children.AddRange(_db.GetRelatedNodeIdsFromRelationId(relation.RelationId, parentId, !relation.ParentIsSource));
+            if (children.Count > budget) break;
+        }
+        if (children.Count <= budget) {
+            var ids = holders.Select(internalIdOf).ToHashSet();
+            foreach (var child in children) {
+                var id = _db.GetId(child);
+                if (ids.Contains(id)) found[id] = child;
+            }
+            return found;
+        }
+        foreach (var holder in holders) {
+            var id = internalIdOf(holder);
+            if (id == 0 || found.ContainsKey(id)) continue; // held in several cultures
+            var nodeId = _db.GetGuid(id);
+            foreach (var relation in _parents) {
+                if (_db.GetRelatedNodeIdsFromRelationId(relation.RelationId, nodeId, relation.ParentIsSource).Any(parents.Contains)) {
+                    found[id] = nodeId;
+                    break;
+                }
+            }
+        }
+        return found;
+    }
+    int internalIdOf(NodeKeyWithCulture owner) => owner.IdKey.HasInt ? owner.IdKey.Int : ResolveInternalId(_db, owner.IdKey);
+    Guid guidOf(NodeKeyWithCulture owner) => owner.IdKey.HasGuid ? owner.IdKey.Guid : _db.GetGuid(owner.IdKey.Int);
 
     /// <summary>
     /// Whether the owner's URL is the one the address gives under the chain above (its parent first) and in

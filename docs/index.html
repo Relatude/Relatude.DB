@@ -80,11 +80,11 @@
   --hover: #ececf0;
   --logo-filter: none;
   /* Scene-facing tokens. The scrim and the panels are all the page ground at a
-     reduced alpha, so the terrain shows through every one of them while the text
-     keeps its contrast against a ground that is still, in effect, --bg. */
-  --scrim-a: rgba(255,255,255,.90);
-  --scrim-b: rgba(255,255,255,.72);
-  --scrim-c: rgba(255,255,255,.26);
+     reduced alpha, so the terrain shows through every one of them. The scrim is
+     a veil, not a ground: the text keeps its contrast through its own halo. */
+  --scrim-a: rgba(255,255,255,.66);
+  --scrim-b: rgba(255,255,255,.42);
+  --scrim-c: rgba(255,255,255,.12);
   --glass: rgba(255,255,255,.72);
   --glass-hover: rgba(255,255,255,.92);
   --glass-code: rgba(255,255,255,.66);
@@ -111,9 +111,9 @@
     --bg-code: #122030;
     --hover: #1b2b3c;
     --logo-filter: invert(1);
-    --scrim-a: rgba(4,8,14,.88);
-    --scrim-b: rgba(4,8,14,.68);
-    --scrim-c: rgba(4,8,14,.22);
+    --scrim-a: rgba(4,8,14,.58);
+    --scrim-b: rgba(4,8,14,.36);
+    --scrim-c: rgba(4,8,14,.10);
     --glass: rgba(10,19,30,.66);
     --glass-hover: rgba(20,34,50,.86);
     --glass-code: rgba(8,15,24,.62);
@@ -138,9 +138,9 @@
   --bg-code: #122030;
   --hover: #1b2b3c;
   --logo-filter: invert(1);
-  --scrim-a: rgba(4,8,14,.88);
-  --scrim-b: rgba(4,8,14,.68);
-  --scrim-c: rgba(4,8,14,.22);
+  --scrim-a: rgba(4,8,14,.58);
+  --scrim-b: rgba(4,8,14,.36);
+  --scrim-c: rgba(4,8,14,.10);
   --glass: rgba(10,19,30,.66);
   --glass-hover: rgba(20,34,50,.86);
   --glass-code: rgba(8,15,24,.62);
@@ -200,14 +200,15 @@ body {
 }
 
 /* The page ground laid over the scene as an ellipse about the size of the text
-   column: nearly opaque through the middle so the copy keeps its contrast, and
-   gone by the edges so the terrain stays in the clear on either side. Capped in
-   pixels, because the column stops growing at 880px: a width in vw alone would
-   lay the ground over most of the scene on a wide screen. */
+   column: a veil through the middle, light enough that the peaks read through
+   it behind the copy (the halo on the text does the rest), and gone by the
+   edges so the terrain stays in the clear on either side. Capped in pixels,
+   because the column stops growing at 880px: a width in vw alone would lay the
+   ground over most of the scene on a wide screen. */
 .scrim {
   position: fixed; inset: 0; z-index: 2; pointer-events: none;
   transition: background .55s ease, opacity .5s ease .35s, visibility 0s linear .35s;
-  background: radial-gradient(ellipse min(66vw, 640px) 62% at 50% 44%,
+  background: radial-gradient(ellipse min(52vw, 520px) 62% at 50% 44%,
     var(--scrim-a) 0%, var(--scrim-b) 50%, var(--scrim-c) 78%, transparent 100%);
 }
 

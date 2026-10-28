@@ -20,7 +20,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                 } else if (node is NodeDataRevisions nr) {
                     foreach (var revision in nr.Revisions) {
                         if (revision.RevisionType == RevisionType.Published) {
-                            extracts.Add(new(nr.__Id, getExtract(nr, indexType), revision.RevisionId));
+                            extracts.Add(new(nr.__Id, getExtract(revision, indexType), revision.RevisionId)); // the container has no values
                         }
                     }
                 }
@@ -105,7 +105,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         if (targets.Count > 0) LogInfo("Cleared the indexed text of " + targets.Count.To1000N() + " nodes. ");
         return targets.Count;
     }
-    string getExtract(INodeDataInternal node, TextIndexType indexType) {
+    string getExtract(INodeData node, TextIndexType indexType) {
         return indexType == TextIndexType.PlainTextSearch ? UtilsText.GetTextExtract(this, node) : UtilsText.GetSemanticExtract(this, node);
     }
 }

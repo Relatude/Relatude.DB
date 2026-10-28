@@ -120,7 +120,7 @@ public static class DatamodelCatalog {
         ["UniqueValues"] = new() { Label = "Unique values", Help = "No two nodes may hold the same value. Needs the property to be indexed.", Group = "Constraints", Order = 1 },
         ["DisplayName"] = new() { Label = "Part of display name", Help = "The value takes part in the node's display name.", Order = 3 },
         ["ExcludeFromTextIndex"] = new() { Label = "Not in text index", Help = "Leaves the value out of the free text index of the node.", Group = "Text search", Order = 1 },
-        ["CultureSensitive"] = new() { Label = "Culture sensitive", Help = "Values are compared and sorted with culture rules.", Group = "Advanced" },
+        ["CultureSensitive"] = new() { Label = "Culture sensitive", Help = "Gives the property's indexes one copy per culture instead of one for all cultures, and indexes the value of every published culture of a node rather than one of them. A query that filters, sorts or searches on the property must then name a culture. Changing it rebuilds the property's indexes.", Group = "Indexing", Order = 7 },
         ["CultureSpecific"] = new() { Label = "Per culture", Help = "Keeps a separate value per culture.", Group = "Advanced" },
         ["Internal"] = new() { Label = "Internal", Help = "An engine-owned property that is not part of the generated code.", Group = "Advanced", ReadOnly = true },
         ["ReadAccess"] = new() { Label = "Read access", Help = "The user group that may read the value, as a group id. Empty leaves it to the node.", Group = "Access", Order = 1 },

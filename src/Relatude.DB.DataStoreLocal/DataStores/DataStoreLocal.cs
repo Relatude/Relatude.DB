@@ -36,7 +36,7 @@ public sealed partial class DataStoreLocal : IDataStore {
     internal NodeStore _nodes = default!;
     internal Variables _variables = default!;
     long _startUpTimeMs;
-    readonly ReaderWriterLockSlim _lock = new(LockRecursionPolicy.SupportsRecursion);
+    readonly StoreLock _lock = new();
     internal readonly UrlSystem _urls;
     readonly FileConversionEngine _fileConversionEngine;
     readonly IIOProvider _io;

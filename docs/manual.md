@@ -820,8 +820,8 @@ warning, so it never stops the database from opening.
 | Node type, that type only | `Hidden`, `DefaultReadAccess`, `DefaultEditViewAccess` |
 | Property, per type (inherited) | `DefaultValue`, `ExcludeFromTextIndex`, `IndexBoost` (`TextIndexBoost` on the attributes), `DisplayName` |
 | Property, any type that has it | `Indexed`, `NotFacet`: on the declaring type it is what the declaration says; on a type inheriting the property `Indexed = true` asks for the shared index and `NotFacet = false` for the shared facet, which the property keeps while any type asks |
-| Property, on the declaring type | `IndexType`, `IndexedByWords`, `TextIndexType`, `MinLength`, `MaxLength`, `RegularExpression`, `MinValue`, `MaxValue`, `FacetRangePowerBase`, `FacetRangeCount`; on relation properties `Facet`, `TextIndexRelatedContent`, `TextIndexRelatedDisplayName`; on relation, reference, references and embedded properties `Display` ([§10](#how-an-editor-shows-them-display)) |
-| Never | ids and names, the property type, `UniqueValues`, culture settings, enum metadata, what a relation, reference or embedded property points at |
+| Property, on the declaring type | `IndexType`, `IndexedByWords`, `TextIndexType`, `CultureSensitive` (an index per culture), `MinLength`, `MaxLength`, `RegularExpression`, `MinValue`, `MaxValue`, `FacetRangePowerBase`, `FacetRangeCount`; on relation properties `Facet`, `TextIndexRelatedContent`, `TextIndexRelatedDisplayName`; on relation, reference, references and embedded properties `Display` ([§10](#how-an-editor-shows-them-display)) |
+| Never | ids and names, the property type, `UniqueValues`, `CultureSpecific`, enum metadata, what a relation, reference or embedded property points at |
 
 `TextIndexBoost` on `[Node]` is not in the list: the engine does not use it yet.
 
@@ -944,7 +944,7 @@ display name.
 |---|---|
 | `Id`, `InternalId` | Public Guid and internal int id. |
 | `NodeTypeId` | The type id from `[Node(Id = …)]`. |
-| `CreatedUtc`, `ChangedUtc` | Timestamps. The database stamps `ChangedUtc` with every write that changes the node's values - as an object, a property, or one revision of several, which alone moves on - and leaves it for a write that changes nothing, a meta write and a change of revision type. An insert keeps a change time it is given. |
+| `CreatedUtc`, `ChangedUtc` | Timestamps. The database stamps `ChangedUtc` with every write that changes the node's values - as an object, a property, or one revision of several, which alone moves on - and leaves it for a write that changes nothing, a meta write, a change of revision type, the indexing tasks' writes of the text and semantic index, and files moving to another store. An insert keeps a change time it is given. |
 | `DisplayName`, `Address` | Sourced from the marker properties above. |
 | `CultureId` | Culture of this revision. |
 | `RevisionId`, `RevisionType` | Revision tracking — `Draft`, `Published`, `Archived`, … |
@@ -3822,12 +3822,20 @@ unique among nodes that would otherwise produce the same complete URL.
 
 `WillAddressResultInUniqueUrl(node, address)` answers whether an address is free *as a URL* — ask it
 from an editor before saving. The store asks the same question at commit time and, when the answer
-is no, appends `-2`, `-3` … until it is yes, writing the adjusted value back onto the node. So a
-collision is never an error; it is a silently adjusted slug, exactly as before.
+is no, appends `-2`, and failing that a number from each of the ranges above it, doubling in size
+(3–4, 5–8, 9–16 …), until it is yes, writing the adjusted value back onto the node. So a collision is
+never an error; it is a silently adjusted slug. The number picked in each range is the node's own:
+giving a node its address again finds the number it has, and nodes added beside each other spread
+over the range, so a free number turns up in about as many tries as the taken ones have binary
+digits, rather than one try per taken number. Writes of the text and semantic index alone (the
+indexing tasks') change neither an address nor the tree, and skip the question.
 
-The answer comes from looking at every node that holds the same address, so it costs more the more
-nodes share one: many copies of a branch, say, whose every node repeats an address many times over. To
-give many nodes their addresses, `SetAddresses` does it in one transaction for much less:
+The answer compares URLs, not addresses: the other nodes holding the same address are found from the
+top down — the root's children holding the URL's first address, their children holding the next, and
+so on to the parent, then the parent's children holding the address — and only those are read. So a
+check costs a few steps for each level of the URL however many nodes share the address, as thousands
+do in many copies of a branch. Incoming URLs are resolved the same way. To give many nodes their
+addresses, `SetAddresses` does it in one transaction for less still:
 
 ```csharp
 var td = new TransactionData();
@@ -3838,8 +3846,7 @@ db.Execute(td);
 A node whose parent the same call has already given its address is compared with that parent's other
 children alone: the parent's URL has just been checked and is unique, so only a sibling can have the
 node's URL. The nodes holding each address are read once for the whole call. So a copied branch,
-inserted without addresses and given them afterwards top first, costs one full check, for its top,
-however many nodes share its addresses. The answers are the ones one write at a time would give, in
+inserted without addresses and given them afterwards top first, costs one full check, for its top. The answers are the ones one write at a time would give, in
 the same order; a node whose parent comes later in the list, or is not in it, gets the full check. A
 transaction plugin sees each node's address written as a property action with the operation
 `SetAddresses`.

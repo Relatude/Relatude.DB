@@ -64,7 +64,7 @@ Full treatment in `files-and-media.md`.
 
 ## Operational
 
-- **Writing many addresses one at a time is slow when many nodes share them.** Each write checks its URL against every node holding the same address, so copies of copies grow quadratic. Insert the nodes without addresses and give them their addresses with one `td.SetAddresses(nodes)`, top first: a node under a parent the same call addressed is compared with its siblings alone.
+- **Writing many addresses one at a time costs a URL check each.** Each write of a node with an address checks its URL is unique, finding the nodes that could share it from the top of the tree down (a few steps for each level of the URL, however many nodes hold the address). For a whole copied branch, insert the nodes without addresses and give them their addresses with one `td.SetAddresses(nodes)`, top first: a node under a parent the same call addressed is compared with its siblings alone, and what the checks read is kept for the call.
 
 - **Take a backup from the admin UI before upgrading.** The project is pre-1.0.
 - **`UseRelatudeDB()` goes after your own `UseCors` / `UseHttpsRedirection` / `UseAuthentication`.**

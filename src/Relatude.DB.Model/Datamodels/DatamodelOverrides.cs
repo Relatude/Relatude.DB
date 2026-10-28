@@ -249,6 +249,9 @@ public sealed class PropertyOverride {
     public bool? TextIndexRelatedDisplayName { get; set; }
     [OverrideScope(OverrideScope.WholeProperty), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public bool? TextIndexRelatedContent { get; set; }
+    /// <summary>Whether the property has an index per culture rather than one for all of them (<see cref="PropertyModel.CultureSensitive"/>).</summary>
+    [OverrideScope(OverrideScope.WholeProperty), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? CultureSensitive { get; set; }
     /// <summary>How an editing interface shows a relation, reference, references or embedded property (<see cref="RelationPropertyModel.Display"/>).</summary>
     [OverrideScope(OverrideScope.WholeProperty), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public DisplayMode? Display { get; set; }

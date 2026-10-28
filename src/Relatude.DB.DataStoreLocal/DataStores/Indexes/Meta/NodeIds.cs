@@ -521,6 +521,13 @@ internal class NodeTypesByIds {
     }
 
     public INodeDataExternal PickBestOuter(INodeDataInternal node, QueryContextKey ctxKey, DateTime nowUtc) {
+        return TryPickBestOuter(node, ctxKey, nowUtc) ?? throw new InvalidOperationException("No suitable revision found for node " + node.__Id + " and context " + ctxKey);
+    }
+    /// <summary>
+    /// The revision the context reads, or null when it reads none: a node holding only a draft, say, outside edit view.
+    /// What a read by id answers as a node not found, where a query would not have listed it.
+    /// </summary>
+    public INodeDataExternal? TryPickBestOuter(INodeDataInternal node, QueryContextKey ctxKey, DateTime nowUtc) {
 
         // no access control, type, deteleted, as this is already taken care of in source of ids: nodesIds or relation
         // this is just picking the best revision for the context, which is based on culture and release/expire date
@@ -597,7 +604,7 @@ internal class NodeTypesByIds {
                 return match;
         }
 
-        throw new InvalidOperationException("No suitable revision found for node " + node.__Id + " and context " + ctxKey);
+        return null;
     }
     static int unpublishedRank(RevisionType type) => type switch {
         RevisionType.Published or RevisionType.PublishOverride => 0,

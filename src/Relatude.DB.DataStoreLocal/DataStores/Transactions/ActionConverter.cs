@@ -74,6 +74,10 @@ internal class ActionConverter {
     }
     // naming an index property among the ones not to regenerate is how an update says it leaves the indexes alone
     static readonly Guid[] _keepIndexes = [NodeConstants.SystemTextIndexPropertyId];
+    // an update writing the index properties alone, as the text and semantic indexing tasks do: what they hold is made
+    // from the node's values, so the write changes neither its address nor its content links
+    static bool writesOnlyIndexes(Guid[]? written) => written is { Length: > 0 }
+        && written.All(p => p == NodeConstants.SystemTextIndexPropertyId || p == NodeConstants.SystemVectorIndexPropertyId);
     IEnumerable<PrimitiveActionBase> toPrimitiveActions(DataStoreLocal db, NodeAction nodeAction, bool transformValues, List<KeyValuePair<TaskData, string?>> newTasks, Guid[]? doNotRegenTheseProps = null) {
         switch (nodeAction.Operation) {
             case NodeOperation.InsertOrFail: {
@@ -137,8 +141,13 @@ internal class ActionConverter {
             case NodeOperation.ForceUpdate: {
                     var node = nodeAction.Node;
                     ensureIdAndGuid(db, node);
+                    // indexing, or files moving to another store (NoReindex), writes back what the node holds: its values
+                    // did not change, so it keeps its change time, its links are stored already and its address stays,
+                    // and neither is run through the URL system again (the address step checks the node's URL against
+                    // the nodes that could share it, under the write lock)
+                    var writesBack = nodeAction.NoReindex || writesOnlyIndexes(doNotRegenTheseProps);
                     // internalize before the diff below, so an unchanged HTML value compares equal to the stored token form
-                    db._urls.InternalizeContentValues(node, QueryContext.MasterAdmin);
+                    if (!writesBack) db._urls.InternalizeContentValues(node, QueryContext.MasterAdmin);
                     if (!db._nodes.TryGet(node.__Id, out var oldNode, out _)) {// is new
                         if (nodeAction.Operation != NodeOperation.UpdateIfExists) {
                             throw new Exception("Node with id " + node.Id + " does not exist, cannot update. Use InsertIfNotExists or Upsert instead. ");
@@ -155,8 +164,8 @@ internal class ActionConverter {
                         if (performUpdate) {
                             if (!_lastResultingOperation.HasValue) _lastResultingOperation = ResultingOperation.UpdateNode;
                             // its values written: changed now, whatever time the node it came as has (the one it was read
-                            // with), unless only its files moved to another store and its content did not (NoReindex)
-                            if (!nodeAction.NoReindex && node is NodeDataAbstract written) written.SetChangedUtc(DateTime.UtcNow);
+                            // with), unless it was only indexed or its files moved to another store (writesBack)
+                            if (!writesBack && node is NodeDataAbstract written) written.SetChangedUtc(DateTime.UtcNow);
                             // NB: the new node is prepared, and the address registered, BEFORE the remove primitive
                             // is yielded: primitives execute as they are enumerated, and the uniqueness probe of the
                             // url manager must still be able to see the node (its parents, its current address).
@@ -165,9 +174,10 @@ internal class ActionConverter {
                                 var typeDef = db._definition.NodeTypes[oldNode.NodeType];
                                 var newNode = Utils.CreateNewRevisionsNodeWithUpdatedValues(revsNode, nodeRev, typeDef, transformValues);
                                 // the creation time is per revision, filled in by CreateNewRevisionsNodeWithUpdatedValues: a
-                                // revision container has none of its own (its CreatedUtc throws)
-                                Utils.EnsureOrQueueIndex(db, newNode, nodeAction.NoReindex ? _keepIndexes : doNotRegenTheseProps, newTasks);
-                                db._urls.RegisterAddressAtCommit(node, newNode);
+                                // revision container has none of its own (its CreatedUtc throws). The revision written is
+                                // indexed, not the container, which has no values either: nodeRev is the one in newNode
+                                Utils.EnsureOrQueueIndex(db, nodeRev, nodeAction.NoReindex ? _keepIndexes : doNotRegenTheseProps, newTasks);
+                                if (!writesBack) db._urls.RegisterAddressAtCommit(node, newNode);
                                 yield return new PrimitiveNodeAction(PrimitiveOperation.Remove, oldNode); // remove old first
                                 yield return new PrimitiveNodeAction(PrimitiveOperation.Add, newNode);
                             } else {
@@ -175,7 +185,7 @@ internal class ActionConverter {
                                 if (node.CreatedUtc == DateTime.MinValue) node.CreatedUtc = oldNode.CreatedUtc;
                                 Utils.ForceTypeValidateValuesAndCopyMissing(db._definition, node, oldNode, transformValues);
                                 Utils.EnsureOrQueueIndex(db, node, nodeAction.NoReindex ? _keepIndexes : doNotRegenTheseProps, newTasks);
-                                db._urls.RegisterAddressAtCommit(node, nodeInner);
+                                if (!writesBack) db._urls.RegisterAddressAtCommit(node, nodeInner);
                                 yield return new PrimitiveNodeAction(PrimitiveOperation.Remove, oldNode); // remove old first
                                 yield return new PrimitiveNodeAction(PrimitiveOperation.Add, nodeInner);
                             }
@@ -517,6 +527,9 @@ internal class ActionConverter {
         }
         yield break;
     }
+    // A revision published by one of these actions has its text made again: the text index task makes it for published
+    // revisions alone, so one that was not published carries the text its source had when it was made, whatever was
+    // saved in it since (unless indexing is instant)
     IEnumerable<PrimitiveActionBase> toPrimitiveActions(DataStoreLocal db, NodeRevisionAction a, bool transformValues, QueryContext key, List<KeyValuePair<TaskData, string?>> newTasks) {
         const bool _forgivingRevisionActions = true;
         int nodeId = db._guids.ValidateAndReturnIntId(a.NodeIdKey);
@@ -543,6 +556,7 @@ internal class ActionConverter {
                         if (revisionToKeep == null) throw new Exception("Revision with id " + a.RevisionId + " does not exist, cannot disable revisions. ");
                         yield return new PrimitiveNodeAction(PrimitiveOperation.Remove, existingNode);
                         var newNode = revisionToKeep.CopyAndConvertToNodeData();
+                        if (revisionToKeep.RevisionType != RevisionType.Published) Utils.EnsureOrQueueIndex(db, newNode, null, newTasks); // published now
                         yield return new PrimitiveNodeAction(PrimitiveOperation.Add, newNode);
                     } else if (existingNode is NodeData) {
                         if (!_forgivingRevisionActions) throw new Exception("Cannot disable revisions for node with id " + a.NodeIdKey + " because it is not of type NodeDataRevisions. ");
@@ -594,6 +608,7 @@ internal class ActionConverter {
                     if (cultureGiven && (newMeta?.CultureId ?? Guid.Empty) != cultureId) newMeta = IInnerNodeMeta.ChangeCulture(newMeta, cultureId);
                     NodeDataRevision newRev = sourceRevision.CopyAndChangeMetaAndRevisionId(newMeta, a.RevisionId.Value);
                     newRev.SetChangedUtc(DateTime.UtcNow); // made now, of the source's values
+                    if (a.RevisionType == RevisionType.Published) Utils.EnsureOrQueueIndex(db, newRev, null, newTasks); // published now
                     var newRevs = new NodeDataRevision[revs.Revisions.Length + 1];
                     Array.Copy(revs.Revisions, newRevs, revs.Revisions.Length);
                     newRevs[^1] = newRev;
@@ -627,6 +642,7 @@ internal class ActionConverter {
                     var newKey = RevisionUtil.CreateNewRevisionKey(a.RevisionType.Value, cultureId, revs.Revisions); // validate that the new revision type can be used with the existing revisions, will throw if not valid
                     var newMeta = IInnerNodeMeta.ChangeRevision(revToChange.Meta, newKey);
                     var newRev = revToChange.CopyAndChangeMeta(newMeta);
+                    if (a.RevisionType == RevisionType.Published) Utils.EnsureOrQueueIndex(db, newRev, null, newTasks); // published now
                     var newRevs = revs.Revisions.ToArray();
                     newRevs[posOfRevToChange] = newRev;
                     // published, the revision's values are its culture's alone: the other cultures keep theirs
@@ -658,6 +674,8 @@ internal class ActionConverter {
                     if (revToChange.CultureId == cultureId) yield break; // nothing to do if culture is the same
                     var newMeta = IInnerNodeMeta.ChangeCulture(revToChange.Meta, cultureId);
                     var newRev = revToChange.CopyAndChangeMeta(newMeta);
+                    // the text of related nodes is taken in the revision's culture (UtilsText)
+                    if (newRev.RevisionType == RevisionType.Published) Utils.EnsureOrQueueIndex(db, newRev, null, newTasks);
                     var newRevs = revs.Revisions.ToArray();
                     newRevs[posOfRevToChange] = newRev;
                     var newNode = new NodeDataRevisions(revs.Id, revs.__Id, revs.NodeType, newRevs);

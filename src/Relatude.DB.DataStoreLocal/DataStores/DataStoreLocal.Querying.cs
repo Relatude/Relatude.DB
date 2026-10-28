@@ -85,8 +85,12 @@ public sealed partial class DataStoreLocal : IDataStore {
                 node = null;
                 return false;
             }
-            node = outer.ToOuter(inner);
-            return true;
+            if (throwIfMissing) {
+                node = outer.ToOuter(inner);
+                return true;
+            }
+            // a node the context reads no revision of is not there for it, as a query would not have listed it
+            return outer.TryToOuter(inner, out node);
         } finally {
             read?.Dispose();
             if (activityId != 0) DeRegisterActivity(activityId);
@@ -571,4 +575,9 @@ public sealed partial class DataStoreLocal : IDataStore {
 /// </summary>
 internal readonly struct OuterConverter(Indexes.Meta.NodeTypesByIds index, QueryContextKey key, DateTime nowUtc) {
     public INodeDataExternal ToOuter(INodeDataInternal node) => index.PickBestOuter(node, key, nowUtc);
+    /// <summary>False when the context reads no revision of the node (only a draft, outside edit view).</summary>
+    public bool TryToOuter(INodeDataInternal node, [MaybeNullWhen(false)] out INodeDataExternal outer) {
+        outer = index.TryPickBestOuter(node, key, nowUtc);
+        return outer != null;
+    }
 }

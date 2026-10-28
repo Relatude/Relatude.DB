@@ -255,23 +255,43 @@ internal sealed class UrlSystem {
         }
         return _manager.WillAddressResultInUniqueUrl(key, cultureId, address);
     }
+    /// <summary>
+    /// The address with a number after it that no other node's URL has: "-2" first (an empty address takes the node's
+    /// id), then a number from each of the ranges above it, doubling in size (3-4, 5-8, 9-16, ...). With n numbers taken,
+    /// as n copies beside each other take them, a free one turns up in about log2(n) checks rather than n, and is no
+    /// longer than the taken ones need. The number in a range is the node's own (pickIn), so the same node finds the
+    /// same one, and nodes added beside each other spread over it. Past 2^40 a guid takes over.
+    /// </summary>
     string makeUnique(string address, NodeKey key, Guid cultureId, int id, Guid nodeId) {
-        var suffix = address.Length == 0 ? id : 2;
-        var attemptCount = 0;
-        var rnd = Random.Shared;
-        while (true) {
-            string candidate;
-            if (attemptCount < 10) {
-                candidate = address.Length > 0 ? address + "-" + suffix : suffix.ToString();
-            } else if (attemptCount < 20) {
-                candidate = address + "-" + rnd.Next(1000, 9999).ToString();
-            } else {
-                candidate = address + "-" + Guid.NewGuid().ToString("N").ToLower();
-            }
+        string withSuffix(long number) => address.Length > 0 ? address + "-" + number : number.ToString();
+        long first = address.Length == 0 ? id : 2;
+        var candidate = withSuffix(first);
+        if (isUnique(key, nodeId, cultureId, candidate)) return candidate;
+        long from = first + 1, size = 2;
+        for (var range = 0; range < 40; range++) {
+            candidate = withSuffix(from + pickIn(nodeId, range, size));
             if (isUnique(key, nodeId, cultureId, candidate)) return candidate;
-            attemptCount++;
-            suffix++;
+            from += size;
+            size *= 2;
         }
+        while (true) {
+            candidate = (address.Length > 0 ? address + "-" : "") + Guid.NewGuid().ToString("N");
+            if (isUnique(key, nodeId, cultureId, candidate)) return candidate;
+        }
+    }
+    /// <summary>
+    /// A number below <paramref name="size"/> made from the node's id and the range: random to look at, but the same for
+    /// the same node, so giving a node its address again gives what it gave before, as a batch of addresses gives what
+    /// they would one at a time (SplitMix64 over the id's halves).
+    /// </summary>
+    static long pickIn(Guid nodeId, int range, long size) {
+        Span<byte> bytes = stackalloc byte[16];
+        nodeId.TryWriteBytes(bytes);
+        var x = BitConverter.ToUInt64(bytes) ^ BitConverter.ToUInt64(bytes[8..]) ^ ((ulong)range * 0x9E3779B97F4A7C15UL);
+        x = (x ^ (x >> 30)) * 0xBF58476D1CE4E5B9UL;
+        x = (x ^ (x >> 27)) * 0x94D049BB133111EBUL;
+        x ^= x >> 31;
+        return (long)(x % (ulong)size);
     }
 
     // content links (HTML and Markdown properties) //////////////////////////////////////////////
