@@ -59,8 +59,7 @@ internal class StringProperty : ValueProperty<string>, IPropertyContainsValue, I
     public IWordIndex GetWordIndex(QueryContext ctx) => _indexUtil.GetIndex(ctx);
     internal override void Initalize(DataStoreLocal store, Definition def, SettingsLocal config, IIOProvider io, AIEngine? ai) {
         if (IndexedByWords) {
-            var indexes = IndexFactory.CreateWordIndexes(store, this, "words");
-            _indexUtil.Initalize(indexes, Model.CultureSensitive, AllIndexes);
+            _indexUtil.Initalize(this, culture => IndexFactory.CreateWordIndex(store, this, culture, "words"));
         }
         base.Initalize(store, def, config, io, ai);
     }

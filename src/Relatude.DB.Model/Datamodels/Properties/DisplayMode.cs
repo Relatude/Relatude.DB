@@ -11,4 +11,8 @@ public enum DisplayMode {
     Cards,
     /// <summary>The type's icon and the node's first picture.</summary>
     Thumbnail,
+    /// <summary>A pill, or tag, with the name of each node.</summary>
+    Pills,
+    /// <summary>A drop-down to choose the nodes from, several where the property holds several. For nodes chosen from others, not for embedded ones.</summary>
+    Dropdown,
 }

@@ -270,8 +270,9 @@ export function FieldEditor({ field, value, onChange, disabled, ctx, typeId, fal
         ? allProperties(ctx.model, typeId, ctx.baseTypeId).map((p) => ({ id: p.property.Id, label: `${p.owner.CodeName}.${p.property.CodeName}` }))
         : Object.values(ctx.model.NodeTypes).flatMap((t) => Object.values(t.Properties).map((p) => ({ id: p.Id, label: `${t.CodeName}.${p.CodeName}` })));
       control = (
-        <select className="select" value={String(current ?? emptyGuid)} disabled={off} onChange={(e) => onChange(e.target.value)}>
-          <option value={emptyGuid}>(none)</option>
+        // an optional reference is left unset rather than given the empty id
+        <select className="select" value={String(current ?? emptyGuid)} disabled={off} onChange={(e) => onChange(e.target.value === emptyGuid && field.optional ? null : e.target.value)}>
+          <option value={emptyGuid}>{frame?.unsetLabel ?? "(none)"}</option>
           {options
             .sort((a, b) => a.label.localeCompare(b.label))
             .map((o) => (
@@ -702,6 +703,15 @@ function overrideFrame(ctx: EditorContext, typeId: string, propertyId: string | 
   return { overridden, chip: null, reset: null };
 }
 /** The base type a value comes from; a click opens it. */
+/** A property named by its id, as Owner.Property, for a propertyRef value. */
+function propertyName(ctx: EditorContext, id: unknown): string {
+  for (const t of Object.values(ctx.model.NodeTypes)) {
+    const p = typeof id === "string" ? t.Properties[id] : undefined;
+    if (p) return t.CodeName + "." + p.CodeName;
+  }
+  return showValue(id);
+}
+
 function FromChip({ ctx, typeId, value, fromOverride }: { ctx: EditorContext; typeId: string; value: unknown; fromOverride?: boolean }) {
   const t = ctx.model.NodeTypes[typeId];
   return (
@@ -781,7 +791,11 @@ function typeOverrides(ctx: EditorContext, type: NodeTypeJson, writable: boolean
           </>
         ),
         reset: marks.reset,
-        unsetLabel: bases ? (bases.kind === "inherited" && bases.typeId ? "Inherit: " + showValue(bases.value) + " from " + (ctx.model.NodeTypes[bases.typeId]?.CodeName ?? "?") : "Database default") : undefined,
+        unsetLabel: bases
+          ? bases.kind === "inherited" && bases.typeId
+            ? "Inherit: " + (field.editor === "propertyRef" ? propertyName(ctx, bases.value) : showValue(bases.value)) + " from " + (ctx.model.NodeTypes[bases.typeId]?.CodeName ?? "?")
+            : field.editor === "propertyRef" ? undefined : "Database default"
+          : undefined,
       },
     };
   };

@@ -167,7 +167,18 @@ internal static class BuildUtils {
             }
         }
         readPropertyOverrides(c, type, all);
+        if (!string.IsNullOrWhiteSpace(nodeAttr.NameProperty)) c.NameProperty = namePropertyId(type, nodeAttr.NameProperty.Trim());
         return c;
+    }
+    // [Node(NameProperty = ...)]: the id of the property the member is, one the type declares or inherits
+    static Guid namePropertyId(Type type, string name) {
+        var where = "The [Node] attribute of " + type.FullName + " names " + name + " as the NameProperty";
+        var member = findMember(type, name) ?? throw new Exception(where + ", but the type has no member of that name. ");
+        if (member.GetCustomAttribute<ExcludeAttribute>() != null) throw new Exception(where + ", which is marked [Exclude] and so is not a property of the model. ");
+        var declaringMember = findMember(GetBaseDeclaringType(member), name) ?? member;
+        var valueType = declaringMember is PropertyInfo pi ? pi.PropertyType : ((FieldInfo)declaringMember).FieldType;
+        if (isSystemMember(declaringMember, valueType)) throw new Exception(where + ", which is a system member of the node (its id, meta, dates, display name or address) rather than a property. ");
+        return BuildUtilsProperties.GetPropertyId(declaringMember);
     }
     // [PropertyOverride]: attributes this type gives properties it inherits. On the type the attribute
     // names the property; on a member - one implementing an interface property, in this type's own code

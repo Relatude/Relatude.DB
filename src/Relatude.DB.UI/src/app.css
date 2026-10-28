@@ -13715,6 +13715,9 @@ body.pg-resizing {
 
 /* the fill is the usage and the thumb is the bound, on one scale: the gap between them is headroom */
 .mem-track {
+  --mem-thumb-w: 6.4px;
+  --mem-thumb-h: 14px;
+  --mem-thumb-shape: polygon(50% 0, 100% 28%, 100% 100%, 0 100%, 0 28%);
   position: relative;
   flex: 1 1 auto;
   min-width: 70px;
@@ -13725,8 +13728,8 @@ body.pg-resizing {
 
 .mem-fill {
   position: absolute;
-  left: 6px;
-  right: 6px;
+  left: calc(var(--mem-thumb-w) / 2);
+  right: calc(var(--mem-thumb-w) / 2);
   height: 6px;
   border-radius: 3px;
   background: var(--badge-bg);
@@ -13772,20 +13775,22 @@ body.pg-resizing {
 
 .mem-track input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
-  width: 12px;
-  height: 12px;
-  margin-top: -3px;
-  border-radius: 50%;
+  width: var(--mem-thumb-w);
+  height: var(--mem-thumb-h);
+  margin-top: calc((6px - var(--mem-thumb-h)) / 2);
+  border-radius: 0;
   background: var(--accent);
+  clip-path: var(--mem-thumb-shape);
   cursor: pointer;
 }
 
 .mem-track input[type="range"]::-moz-range-thumb {
-  width: 12px;
-  height: 12px;
+  width: var(--mem-thumb-w);
+  height: var(--mem-thumb-h);
   border: none;
-  border-radius: 50%;
+  border-radius: 0;
   background: var(--accent);
+  clip-path: var(--mem-thumb-shape);
   cursor: pointer;
 }
 

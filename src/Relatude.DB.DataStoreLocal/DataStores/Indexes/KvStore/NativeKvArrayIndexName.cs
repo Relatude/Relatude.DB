@@ -25,7 +25,7 @@ internal static class NativeKvArrayIndexName {
 
     /// <summary>
     /// Suffix marking the hash-layout generation of an array index. An index unique key is a
-    /// property guid joined to an optional culture and sub key by '_' (see
+    /// property guid joined to an optional culture id and sub key by '_' (see
     /// <see cref="IndexFactory.getUniqueKey"/>), so a '#' can never appear in one and this name
     /// cannot collide with another index's. The legacy (sorted) name is the unique key itself.
     /// </summary>

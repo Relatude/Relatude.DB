@@ -199,6 +199,9 @@ public static class FileKeyUtility {
     /// <summary>The unnumbered state snapshot written by older versions. Not read anymore: it is
     /// deleted at open, and the store rebuilds from the log and saves fresh numbered files.</summary>
     public static string[] State_LegacyFileKey => stateFileLegacyPattern;
+    /// <summary>What the indexes were made by, and for which cultures (DataStoreLocal's index record). Not a state or index
+    /// file by its name, so a reset of those keeps it.</summary>
+    public static string[] State_IndexRecordFileKey => [StateFolderName, "indexrecord.json"];
     public static string[] State_GetFileKey(int n) => fill(stateFilePattern, n.ToString("00000000"));
     public static bool State_IsNumberedFileKey(string[] key) => key.MatchesPattern(stateFilePattern) && hasNumberedFileName(key, 3);
     /// <summary>Whether the key names a state snapshot file, numbered or legacy.</summary>
@@ -396,9 +399,9 @@ public static class FileKeyUtility {
     /// <summary>Database and file store backups in the storage root; they now live in the bkup folder.</summary>
     public static string[][] Legacy_GetRootBackupFileKeys(IIOProvider io)
         => [.. io.Search(["db.*.bkup"]), .. io.Search(["files.*.bkup"])];
-    /// <summary>State snapshot, index states, mapper dlls and queue files in the storage root; they now live in the state folder.</summary>
+    /// <summary>State snapshot, index states and their record, mapper dlls and queue files in the storage root; they now live in the state folder.</summary>
     public static string[][] Legacy_GetRootStateFileKeys(IIOProvider io)
-        => [.. io.Search(["state.bin"]), .. io.Search(["state.*.bin"]), .. io.Search(["index.*.bin"]), .. io.Search(["mapper.*.dll"]), .. io.Search(["queue.*"])];
+        => [.. io.Search(["state.bin"]), .. io.Search(["state.*.bin"]), .. io.Search(["index.*.bin"]), .. io.Search([State_IndexRecordFileKey[^1]]), .. io.Search(["mapper.*.dll"]), .. io.Search(["queue.*"])];
     /// <summary>Logger files and the critical error log in the storage root; they now live in the log folder.</summary>
     public static string[][] Legacy_GetRootLoggerFileKeys(IIOProvider io)
         => [.. io.Search(["log.*"]), .. io.Search(["critical.error.txt"])];

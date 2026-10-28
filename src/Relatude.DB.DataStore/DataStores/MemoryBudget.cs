@@ -26,6 +26,8 @@ public sealed class MemoryBudget {
     public long LimitBytes { get; init; }
     /// <summary>What it holds right now, or null when the component cannot measure it.</summary>
     public long? UsedBytes { get; init; }
+    public long? UsedCount { get; init; }
+    public string? CountUnitPlural { get; init; }
     /// <summary>What it keeps whatever the budget says (the resident part of a vector index); 0 when it can give everything back.</summary>
     public long FloorBytes { get; init; }
     /// <summary>True when a new budget takes effect without reopening the database.</summary>

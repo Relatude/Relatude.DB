@@ -252,6 +252,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         Engines.ResetAll();
         Engines.ResetIndexCaches();
         markEnginesChanged();
+        writeIndexRecord(); // every index is read from the log again, so they are all of this version
     }
     public void SaveIndexCaches(bool force) => saveIndexCaches(force, false);
     /// <summary>The scheduler's save of the index caches: only when the write lock is free (false when put off).</summary>

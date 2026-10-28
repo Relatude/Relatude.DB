@@ -196,6 +196,7 @@ public abstract class IndexEngineBase : IIndexEngine {
 
     /// <summary>What the backend holds in memory; null (the default) when it keeps no account of it.</summary>
     public virtual long? GetMemoryUsage() => null;
+    public virtual (long Count, string UnitPlural)? GetMemoryCount() => null;
     /// <summary>The budget in force; -1 (the default) when the backend has none of its own.</summary>
     public virtual long GetMemoryBudget() => -1;
     /// <summary>Changes the budget at runtime; false (the default) when it only takes effect at open.</summary>

@@ -5110,8 +5110,21 @@ or an archived version is still the editor's to find. `QueryContext.SelectedRevi
 revision to read and write by node, by its key (`NodeDataRevision.RevisionKey`), which changes with
 its type: look it up in `Datastore.GetRevisions(id)` by its `RevisionId`, which does not. A revision's
 keys tell its type: 0 to 9 999 999 are published, one per culture, and each other type has the next
-ten million. Indexes hold a property's value once for all revisions unless the property is
-culture-sensitive, so a `Where`, a sort or a search sees one culture's value of it.
+ten million.
+
+Indexes hold what readers read, of published revisions (release dates are not looked at). A property
+that is not culture-sensitive has one index, holding for each node the version a reader of no
+culture gets: the neutral one, else the culture first in fallback order. A culture-sensitive property
+(`CultureSensitive`, set by a datamodel override) has that index too, which a query with no culture
+uses, and one per culture, holding the culture's own published version of each node and the
+fallback for the rest. So a `Where`, a sort or facets in a culture see the values its readers see,
+at the cost of a copy of the property's indexes per culture. The search index is per culture the
+same way with the store setting `CultureSensitiveTextIndex`; the semantic index stays one. The
+cultures are nodes the store reads as it opens, after it has made its indexes, so it keeps a record
+of the cultures it had indexes for (`state/indexrecord.json`) and makes the indexes of a culture new
+to it from the nodes, at the open or in the transaction that makes the culture. Because what a node
+puts in the indexes depends on the order of its cultures, a culture that nodes or revisions are in
+cannot be deleted, and a revision cannot be put in a culture that does not exist.
 
 ---
 

@@ -66,6 +66,8 @@ sealed class UIMemory {
             budget.Engine,
             budget.LimitBytes,
             budget.UsedBytes,
+            budget.UsedCount,
+            budget.CountUnitPlural,
             budget.FloorBytes,
             budget.Adjustable,
             SettingPath = path,

@@ -527,6 +527,12 @@ internal class ActionConverter {
         }
         yield break;
     }
+    // A revision goes only in a culture there is (or none). One in a culture made after it would change where its node
+    // falls back to when the culture was made, and with it what the node has put in the indexes (Definition.IteratePropertyIndexes).
+    static Guid existingCulture(DataStoreLocal db, Guid cultureId) {
+        if (cultureId != Guid.Empty && !db._nativeModelStore.IsCulture(cultureId)) throw new Exception("There is no culture with the id " + cultureId + ". ");
+        return cultureId;
+    }
     // A revision published by one of these actions has its text made again: the text index task makes it for published
     // revisions alone, so one that was not published carries the text its source had when it was made, whatever was
     // saved in it since (unless indexing is instant)
@@ -570,7 +576,7 @@ internal class ActionConverter {
 
                     Guid cultureId = Guid.Empty;
                     if (a.CultureId != null) {
-                        cultureId = a.CultureId.Value;
+                        cultureId = existingCulture(db, a.CultureId.Value);
                     } else if (a.CultureCode == string.Empty) {
                         cultureId = Guid.Empty;
                     } else if (a.CultureCode != null) {
@@ -662,7 +668,7 @@ internal class ActionConverter {
                     if (a.CultureId == null && a.CultureCode == null) {
                         throw new Exception("Culture must be given to change revision culture. ");
                     } else if (a.CultureId != null) {
-                        cultureId = a.CultureId.Value;
+                        cultureId = existingCulture(db, a.CultureId.Value);
                     } else if (a.CultureCode == string.Empty) {
                         cultureId = Guid.Empty;
                     } else if (a.CultureCode != null) {

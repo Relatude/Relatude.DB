@@ -113,6 +113,12 @@ public class SettingsLocal {
     public bool EnableTextIndexByDefault { get; set; } = false;
     public bool EnableSemanticIndexByDefault { get; set; } = false;
     public bool EnableInstantTextIndexingByDefault { get; set; } = false;
+    /// <summary>
+    /// Gives the search index a copy per culture, as a culture-sensitive property has, so a search in a culture
+    /// finds the words of the version its readers read. Off, it holds one version's text per node: the one a reader
+    /// of no culture reads. The semantic index stays one. Changing it makes the search indexes again at the next open.
+    /// </summary>
+    public bool CultureSensitiveTextIndex { get; set; } = false;
 
     public bool AutoDequeTasks { get; set; } = true;
     /// <summary>

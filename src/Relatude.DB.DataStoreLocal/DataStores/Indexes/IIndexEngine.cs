@@ -72,6 +72,7 @@ public interface IIndexEngine : IDisposable {
     // ---- memory ---------------------------------------------------------------------------------
     /// <summary>What the engine holds in memory right now, or null when it cannot measure it.</summary>
     long? GetMemoryUsage();
+    (long Count, string UnitPlural)? GetMemoryCount();
     /// <summary>The budget the engine is running with, or -1 when it has none of its own.</summary>
     long GetMemoryBudget();
     /// <summary>Changes the budget while the engine runs; false when it can only be set at open.</summary>
@@ -115,6 +116,7 @@ public interface ISemanticIndexEngine : IDisposable {
     string Name { get; }
     /// <summary>What the engine's indexes hold in memory right now, or null when it cannot measure it.</summary>
     long? GetMemoryUsage() => null;
+    (long Count, string UnitPlural)? GetMemoryCount() => null;
     /// <summary>What they hold whatever the budget says (a resident graph); 0 when everything is evictable.</summary>
     long GetMemoryFloor() => 0;
     /// <summary>The budget the engine is running with, or -1 when it has none of its own.</summary>

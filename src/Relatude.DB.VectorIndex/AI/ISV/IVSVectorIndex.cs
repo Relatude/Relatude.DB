@@ -91,6 +91,7 @@ public class IVSVectorIndex : ISemanticIndex, IDisposable {
     }
     /// <summary>Bytes the block cache holds right now.</summary>
     public long CurrentCacheBytes => _cache.Bytes;
+    public int CachedBlockCount => _cache.Count;
     /// <summary>Fraction of clusters probed per search, see <see cref="VectorIndexOptions.Accuracy"/>.</summary>
     public float Accuracy {
         get => _options.Accuracy;

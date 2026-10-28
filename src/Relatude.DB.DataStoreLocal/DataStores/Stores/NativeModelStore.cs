@@ -343,7 +343,14 @@ public class NativeModelStore(DataStoreLocal store) {
         var place = 1;
         foreach (var c in _cultures.Values.OrderBy(c => c.Id)) order[c.Guid] = place++;
         _cultureOrder = order;
+        CultureVersion++;
     }
+    /// <summary>Moves on whenever a culture is made or removed, so a transaction can tell it changed the cultures.</summary>
+    internal int CultureVersion { get; private set; }
+    /// <summary>The cultures' ids in the order they were made in, the order a reader falls back in.</summary>
+    internal Guid[] CultureIdsInOrder => [.. _cultures.Values.OrderBy(c => c.Id).Select(c => c.Guid)];
+    internal bool IsCulture(Guid cultureId) => _cultureOrder.ContainsKey(cultureId);
+    internal bool IsCultureNode(Guid nodeTypeId) => getNativeNodeType(nodeTypeId) == NativeNodeType.SystemCulture;
     /// <summary>
     /// Where a culture comes when a reader falls back to another one: the neutral version first, then the cultures
     /// in the order they were made in, and last one that is gone.

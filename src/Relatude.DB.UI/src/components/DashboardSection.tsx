@@ -270,7 +270,7 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
 
   // the budgets, and how well the caches answer: the hit counts come from the live sample, so they
   // move with the rest of the page
-  const memoryPanel = <MemoryPanel storeId={db.id} cache={info.cache} counts={live ?? undefined} cacheSamples={samples.current} onChanged={loadInfo} />;
+  const memoryPanel = <MemoryPanel storeId={db.id} cache={info.cache} cacheSamples={samples.current} onChanged={loadInfo} />;
 
   // Watching a database open. The first part of an open has no percentage to give - the model is
   // loaded and the mappers built before the store exists - so until the store starts reading its

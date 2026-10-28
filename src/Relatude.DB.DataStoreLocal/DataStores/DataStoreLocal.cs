@@ -351,6 +351,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         _nodes = new(_definition, _settings, _wal, _stateStore.CreateSegmentMap());
         _relations = new(_definition);
         _index = new(_definition);
+        readIndexRecord(); // the cultures the indexes are made for, as the store reads its own only with the state
         _definition.Initialize(this, _settings, _io, _ai);  // this will open all indexes and set up the variables
         Engines.DeleteUnopenedIndexes(); // delete any indexes that were not opened in the current session (e.g. if they were deleted from the datamodel)
         markEnginesChanged(); // new engine instances: the first flush makes them durable at the head, as it always did

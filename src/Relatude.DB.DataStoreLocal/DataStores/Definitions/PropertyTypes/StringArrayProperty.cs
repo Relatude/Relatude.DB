@@ -14,7 +14,7 @@ internal class StringArrayProperty : Property, IPropertyContainsValue, IArrayPro
     public StringArrayProperty(StringArrayPropertyModel pm, Definition def) : base(pm, def) {
     }
     internal override void Initalize(DataStoreLocal store, Definition def, SettingsLocal config, IIOProvider io, AIEngine? ai) {
-        if (Indexed) _indexUtil.Initalize(IndexFactory.CreateStringArrayIndexes(store, this, null), Model.CultureSensitive, AllIndexes);
+        if (Indexed) _indexUtil.Initalize(this, culture => IndexFactory.CreateStringArrayIndex(store, this, culture, null));
     }
     public override PropertyType PropertyType => PropertyType.StringArray;
     public override object ForceValueType(object value, out bool changed) {

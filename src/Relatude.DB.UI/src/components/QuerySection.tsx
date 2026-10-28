@@ -33,7 +33,7 @@ import { VisualPivotView, emptyVisual } from "./VisualPivotView";
 import { MapView, emptyMap } from "./MapView";
 import { WordCloudView } from "./WordCloudView";
 import { EditableTable } from "./EditableTable";
-import { AddColumnHead, ColumnHead, useColumnDrag, useColumnSizing, type TableColumnsUi } from "./TableColumns";
+import { AddColumnHead, ColumnHead, typeColumnKey, useColumnDrag, useColumnSizing, type TableColumnsUi } from "./TableColumns";
 import { CopyButton } from "./CopyButton";
 import { SearchOptions } from "./SearchOptions";
 import { NewNodeDialog, TypePicker } from "./TypePicker";
@@ -1560,6 +1560,7 @@ function QueryTab({
                     >
                       {(hit.cells ?? []).map((value, i) => (
                         <td key={result.columns![i]?.key ?? i} title={value} style={columnSizing.styleOf(result.columns![i]?.key ?? "")}>
+                          {result.columns![i]?.key === typeColumnKey && <NodeTypeGlyph typeId={hit.typeId} size={13} />}
                           {value}
                         </td>
                       ))}

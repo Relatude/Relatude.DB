@@ -24,6 +24,7 @@ internal sealed class VectorBlockCache {
         set { lock (_lock) { _maxBytes = value; evictOverBudget(); } }
     }
     public long Bytes { get { lock (_lock) return _bytes; } }
+    public int Count { get { lock (_lock) return _map.Count; } }
     public bool TryGet(long segmentId, int blockOrdinal, out float[] data) {
         lock (_lock) {
             if (_map.TryGetValue(new(segmentId, blockOrdinal), out var node)) {

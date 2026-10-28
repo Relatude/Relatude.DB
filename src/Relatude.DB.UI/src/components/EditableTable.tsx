@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { IconArrowNarrowDown, IconArrowNarrowUp } from "@tabler/icons-react";
 import { saveNode, type Column, type Hit } from "../server/query";
-import { AddColumnHead, ColumnHead, type TableColumnsUi } from "./TableColumns";
+import { AddColumnHead, ColumnHead, typeColumnKey, type TableColumnsUi } from "./TableColumns";
+import { NodeTypeGlyph } from "./TypeIcon";
 import { useRowWindow } from "../rowWindow";
 
 interface Props {
@@ -293,7 +294,10 @@ export function EditableTable({ storeId, columns, columnsUi, hits, selected, all
                         onClick={(e) => e.stopPropagation()}
                       />
                     ) : (
-                      <span>{textOf(hit, column, col)}</span>
+                      <span>
+                        {column.key === typeColumnKey && <NodeTypeGlyph typeId={hit.typeId} size={13} />}
+                        {textOf(hit, column, col)}
+                      </span>
                     )}
                     {saving === cellKey && <span className="grid-saving" />}
                   </td>

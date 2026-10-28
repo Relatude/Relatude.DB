@@ -107,6 +107,7 @@ public class NativeKvIndexStore : ValueIndexEngineBase {
     }
     public override long GetTimestamp() => _fileStorage.GetTimestamp();
     public override long? GetMemoryUsage() => _fileStorage.GetMemoryUsage();
+    public override (long Count, string UnitPlural)? GetMemoryCount() => (_fileStorage.GetMemoryPageCount(), "pages");
     public override long GetMemoryBudget() => _budgetBytes;
     public override bool TrySetMemoryBudget(long bytes) {
         _fileStorage.SetMemoryBudget(bytes);

@@ -85,14 +85,61 @@ internal sealed class Definition {
     public int GetCountForTypeForStatusInfo(Guid typeId) => _nodeTypeIndex.GetCountForTypeForStatusInfo(typeId);
     public Guid GetTypeOfNode(int id) => _nodeTypeIndex.GetType(id);
     public bool TryGetTypeOfNode(int id, [MaybeNullWhen(false)] out Guid typeId) => _nodeTypeIndex.TryGetType(id, out typeId);
+    // replaced whole when a culture's indexes come or go (SyncCultureIndexes), under the store's write lock, as
+    // the background warm-up lists them without it
     public IEnumerable<IIndex> GetAllIndexes() { return _indexes.Values; }
+    /// <summary>
+    /// The cultures the culture-sensitive properties have indexes for, besides no culture. The indexes are made
+    /// before the store has read its cultures, so these are the ones the store had when it last had them in line
+    /// (DataStoreLocal's index record), and <see cref="SyncCultureIndexes"/> brings them in line again.
+    /// </summary>
+    internal Guid[] IndexedCultures { get; set; } = [];
+    bool _anyCultureSensitive;
     internal void Initialize(DataStoreLocal store, SettingsLocal config, IIOProvider io, AIEngine? ai) {
         foreach (var p in Properties.Values) {
             p.Initalize(store, this, config, io, ai);
         }
         foreach (var t in Relations.Values) t.Initialize(this);
         _indexes = Properties.Values.SelectMany(p => p.AllIndexes).ToDictionary(k => k.UniqueKey, k => k);
+        _anyCultureSensitive = Properties.Values.Any(p => p.CultureIndexes.Count > 0);
     }
+    /// <summary>The culture whose indexes a query reads: its culture, by id or code, or no culture (<see cref="Guid.Empty"/>).</summary>
+    internal Guid IndexCultureOf(QueryContext ctx) {
+        if (ctx.CultureId is { } id && id != Guid.Empty) return id;
+        if (!string.IsNullOrEmpty(ctx.CultureCode) && Store._nativeModelStore.TryGetCultureId(ctx.CultureCode, out var byCode)) return byCode;
+        return Guid.Empty;
+    }
+    /// <summary>
+    /// Makes the indexes of the cultures the culture-sensitive properties have none for, and takes away those of
+    /// cultures that are gone. The ones made are empty: the caller fills them.
+    /// </summary>
+    internal (List<IIndex> made, List<IIndex> removed) SyncCultureIndexes(Guid[] cultures) {
+        var made = new List<IIndex>();
+        var removed = new List<IIndex>();
+        if (_anyCultureSensitive) {
+            foreach (var gone in IndexedCultures.Except(cultures)) foreach (var p in Properties.Values) removed.AddRange(p.RemoveCultureIndexes(gone));
+            foreach (var culture in cultures) foreach (var p in Properties.Values) made.AddRange(p.AddCultureIndexes(culture));
+            if (made.Count > 0 || removed.Count > 0) {
+                var indexes = new Dictionary<string, IIndex>(_indexes);
+                foreach (var index in removed) indexes.Remove(index.UniqueKey);
+                foreach (var index in made) indexes.Add(index.UniqueKey, index);
+                _indexes = indexes;
+            }
+        }
+        IndexedCultures = cultures;
+        return (made, removed);
+    }
+    /// <summary>
+    /// What the node puts in which index. A node with no revisions gives its values to every index. A node with
+    /// revisions gives what its readers read, of its published revisions (release dates are not looked at): to
+    /// every index but a culture's own, the values of the revision a reader of no culture reads, the neutral one,
+    /// else the one of the culture first in fallback order (<see cref="GetCulturePriority"/>); to the index of a
+    /// culture it has a published revision in, that revision's values.
+    /// <para>The same node must give the same entries when it leaves the indexes as when it went in, so what it
+    /// gives depends on nothing but the node and the order of the cultures it has revisions in. That order never
+    /// changes: a culture is made last in it, and one that revisions are in cannot be removed (the store's
+    /// validateCultureRemovals), nor can a revision be put in a culture that does not exist yet (ActionConverter).</para>
+    /// </summary>
     public void IteratePropertyIndexes(INodeData node, Action<INodeData, IIndex, object> action) {
         if (node is NodeData nd) {
             foreach (var kv in nd.Values) {
@@ -104,29 +151,7 @@ internal sealed class Definition {
                 }
             }
         } else if (node is NodeDataRevisions ndr) {
-            HashSet<Guid> indexedProps = new(); // kind of a waste, could be optimized....
-            foreach (var rev in ndr.Revisions) {
-                if (rev.RevisionType == RevisionType.Published) {
-                    foreach (var kv in rev.Values) {
-                        var propDef = Properties[kv.PropertyId];
-                        if (propDef is SystemDateTimeProperty) continue;
-                        if (!propDef.ShouldIndexValue(kv.Value)) continue;
-                        bool shouldIndex = true;
-                        if (!propDef.Model.CultureSensitive) {  // only once for all revisions
-                            if (!indexedProps.Contains(propDef.Id)) {
-                                indexedProps.Add(propDef.Id);
-                            } else {
-                                shouldIndex = false;
-                            }
-                        }
-                        if (shouldIndex) {
-                            foreach (var index in propDef.AllIndexes) {
-                                if (propDef.IsNodeRelevantForIndex(rev.NodeType, index)) action(rev, index, kv.Value);
-                            }
-                        }
-                    }
-                }
-            }
+            iterateRevisionIndexes(ndr, action);
         } else {
             throw new Exception("Unknown node data type");
         }
@@ -134,6 +159,42 @@ internal sealed class Definition {
         foreach (var p in _nodeDateProperties) {
             object value = p.ValueOf(node);
             foreach (var index in p.AllIndexes) action(node, index, value);
+        }
+    }
+    void iterateRevisionIndexes(NodeDataRevisions ndr, Action<INodeData, IIndex, object> action) {
+        NodeDataRevision? read = null; // what a reader of no culture reads
+        var readPriority = int.MaxValue;
+        Dictionary<Guid, NodeDataRevision>? own = null; // a culture's own published revision, for its indexes
+        foreach (var rev in ndr.Revisions) {
+            if (rev.RevisionType != RevisionType.Published) continue;
+            var priority = GetCulturePriority(rev.CultureId, Guid.Empty);
+            if (read == null || priority < readPriority) {
+                read = rev;
+                readPriority = priority;
+            }
+            if (_anyCultureSensitive && rev.CultureId != Guid.Empty) (own ??= []).TryAdd(rev.CultureId, rev);
+        }
+        if (read == null) return; // nothing published
+        foreach (var kv in read.Values) {
+            var propDef = Properties[kv.PropertyId];
+            if (propDef is SystemDateTimeProperty) continue;
+            if (!propDef.ShouldIndexValue(kv.Value)) continue;
+            foreach (var index in propDef.AllIndexes) {
+                if (own != null && propDef.CultureIndexes.Count > 0 && own.ContainsKey(propDef.CultureOf(index))) continue; // the culture's own goes there
+                if (propDef.IsNodeRelevantForIndex(read.NodeType, index)) action(read, index, kv.Value);
+            }
+        }
+        if (own == null) return;
+        foreach (var (culture, rev) in own) {
+            foreach (var kv in rev.Values) {
+                var propDef = Properties[kv.PropertyId];
+                if (propDef.CultureIndexes.Count == 0) continue;
+                if (propDef is SystemDateTimeProperty) continue;
+                if (!propDef.ShouldIndexValue(kv.Value)) continue;
+                foreach (var index in propDef.AllIndexes) {
+                    if (propDef.CultureOf(index) == culture && propDef.IsNodeRelevantForIndex(rev.NodeType, index)) action(rev, index, kv.Value);
+                }
+            }
         }
     }
     internal void IndexNode(INodeData node) {

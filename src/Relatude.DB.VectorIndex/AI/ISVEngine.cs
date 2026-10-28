@@ -25,6 +25,7 @@ public class ISVEngine : ISemanticIndexEngine {
     }
     public string Name => "Native Vector";
     public long? GetMemoryUsage() => _indexes.Values.Sum(i => i.CurrentCacheBytes);
+    public (long Count, string UnitPlural)? GetMemoryCount() => (_indexes.Values.Sum(i => (long)i.CachedBlockCount), "blocks");
     public long GetMemoryBudget() => _defaults.MaxCacheBytes;
     public bool TrySetMemoryBudget(long bytes) {
         _defaults.MaxCacheBytes = bytes;

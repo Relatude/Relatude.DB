@@ -18,6 +18,8 @@ import { IconChevronLeft, IconChevronRight, IconPlus, IconX } from "@tabler/icon
 const minColumnWidth = 60;
 const widthsKey = (scope: string) => "query:columns:" + scope;
 
+export const typeColumnKey = "__type";
+
 export interface ColumnSizing {
   /** Only the columns that have been dragged; the rest size themselves to their contents. */
   widths: Record<string, number>;

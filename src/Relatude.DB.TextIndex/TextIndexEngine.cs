@@ -131,6 +131,7 @@ public class TextIndexEngine : IndexEngineBase, ITextIndexEngine {
         DeleteUnopenedIndexesCore();
     }
     public override long? GetMemoryUsage() => _cache.UsedBytes;
+    public override (long Count, string UnitPlural)? GetMemoryCount() => (_cache.Count, "entries");
     public override long GetMemoryBudget() => _cache.MaxBytes;
     public override bool TrySetMemoryBudget(long bytes) {
         _cache.MaxBytes = bytes;

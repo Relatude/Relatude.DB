@@ -421,6 +421,8 @@ public sealed class BPlusTreeStorageEngine : IStorageEngine, IDisposable
     /// <summary>Bytes the engine holds in memory: cached pages plus pages published but not yet written out.</summary>
     public long GetMemoryUsage() => _pager.MemoryBytes;
 
+    public long GetMemoryPageCount() => _pager.MemoryPages;
+
     /// <summary>
     /// Re-splits the memory budget, two thirds to the page cache and one to the parked writes - the
     /// same split the constructor makes. Takes effect at once: a lowered budget evicts on the spot.

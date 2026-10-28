@@ -110,7 +110,9 @@ public sealed partial class DataStoreLocal : IDataStore {
             var resultingOperations = new ResultingOperation[transaction.Actions.Count];
             Engines.BeginTransaction();
             inEngineTransaction = true;
+            var cultureVersion = _nativeModelStore.CultureVersion;
             execute_inner(transaction, transformValues, out primitiveActionCount, resultingOperations, newTasks, activityId, ctx);
+            if (_nativeModelStore.CultureVersion != cultureVersion) syncCultureIndexes(atOpen: false);
             if (primitiveActionCount == 0) {
                 // it changed nothing (an unchanged upsert, an insert-if-not-exists of a stored node, a delete-if-exists
                 // of a missing one...), so nothing goes to the log and nothing may carry its timestamp. The engines
@@ -224,6 +226,7 @@ public sealed partial class DataStoreLocal : IDataStore {
 
             }
             validateInstanceCounts(executed);
+            validateCultureRemovals(executed);
             if (transaction.InnerCallbackBeforeCommitting != null) {
                 try {
                     transaction.InnerCallbackBeforeCommitting();

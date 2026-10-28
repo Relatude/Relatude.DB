@@ -32,6 +32,7 @@ public class SetRegister(long maxSize) {
     /// <summary>Bytes of cached id sets, against the budget below. The aggregate cache is counted by entries, not bytes, and is not part of it.</summary>
     public long SetCacheBytes => _cache.Size;
     public long SetCacheMaxBytes => _cache.MaxSize;
+    public int SetCacheCount => _cache.Count;
     public void SetSetCacheMaxBytes(long bytes) {
         _disabled = bytes == 0;
         _cache.SetMaxSize(bytes);

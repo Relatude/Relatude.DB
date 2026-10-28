@@ -14,7 +14,7 @@ namespace Relatude.DB.DataStores.Definitions.PropertyTypes {
         IndexUtil<ISemanticIndex> _indexUtil = new();
         public ISemanticIndex GetSemanticIndex(QueryContext ctx) => _indexUtil.GetIndex(ctx);
         internal override void Initalize(DataStoreLocal store, Definition def, SettingsLocal config, IIOProvider io, AIEngine? ai) {
-            if (Indexed && ai != null) _indexUtil.Initalize(IndexFactory.CreateSemanticIndexes(store, ai, this, null), Model.CultureSensitive, AllIndexes);
+            if (Indexed && ai != null) _indexUtil.Initalize(this, culture => IndexFactory.CreateSemanticIndex(store, ai, this, culture, null));
         }
         public override PropertyType PropertyType => PropertyType.FloatArray;
         public override object ForceValueType(object value, out bool changed) {

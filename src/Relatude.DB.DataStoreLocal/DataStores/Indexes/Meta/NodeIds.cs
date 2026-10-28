@@ -450,6 +450,14 @@ internal class NodeTypesByIds {
         );
         return sb.ToString();
     }
+    /// <summary>Whether a node, or a revision of one, is in the culture.</summary>
+    public bool AnyInCulture(Guid cultureId) {
+        var inCulture = _metaById.Where(kv => kv.Value.Meta.CultureId == cultureId).Select(kv => kv.Key).ToHashSet();
+        if (inCulture.Count == 0) return false;
+        var found = false;
+        _metaIdsByNodeId.ForEach((nodeId, metaId) => found |= inCulture.Contains(metaId));
+        return found;
+    }
     public void Index(INodeData node) {
         if (node is NodeData nd) index(nd.__Id, nd.NodeType, nd.Meta, null);
         else if (node is NodeDataRevisions ndr) {

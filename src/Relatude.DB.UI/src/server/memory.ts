@@ -18,6 +18,8 @@ export interface MemoryBudget {
   limitBytes: number;
   /** what it holds, or null when the component keeps no account of it */
   usedBytes: number | null;
+  usedCount: number | null;
+  countUnitPlural: string | null;
   /** what it keeps whatever the budget says (a resident vector graph); 0 when everything is evictable */
   floorBytes: number;
   /** true when a new budget takes effect without reopening the database */

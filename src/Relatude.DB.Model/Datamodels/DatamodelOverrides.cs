@@ -142,6 +142,9 @@ public sealed class NodeTypeOverride {
     /// <summary>The icon the type is shown with (<see cref="NodeTypeModel.Icon"/>), which the types inheriting from it without one of their own show too.</summary>
     [OverrideScope(OverrideScope.Inherited), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Icon { get; set; }
+    /// <summary>The property that is a node's name (<see cref="NodeTypeModel.NameProperty"/>), which the types inheriting from it without one of their own take too.</summary>
+    [OverrideScope(OverrideScope.Inherited), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Guid? NameProperty { get; set; }
     [OverrideScope(OverrideScope.ThisType), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public Guid? DefaultReadAccess { get; set; }
     [OverrideScope(OverrideScope.ThisType), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

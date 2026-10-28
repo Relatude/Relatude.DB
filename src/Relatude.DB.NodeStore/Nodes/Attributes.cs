@@ -46,6 +46,12 @@ public class NodeAttribute : Attribute {
     /// has a picker for the library's icons.
     /// </summary>
     public string? Icon { get; set; }
+    /// <summary>
+    /// The member that is a node's name, which an editing interface such as a CMS shows as a text field at the top
+    /// of the node's form: one of the type's own or one it inherits, <c>NameProperty = nameof(Title)</c>. Unset
+    /// takes the closest type it inherits from that names one.
+    /// </summary>
+    public string? NameProperty { get; set; }
 }
 /// <summary>
 /// Overrides attributes of a property this type inherits, for this type and the types inheriting from

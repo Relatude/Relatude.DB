@@ -1,33 +1,35 @@
 ﻿using Relatude.DB.Datamodels;
-using Relatude.DB.Demo.Models;
 using Relatude.DB.Nodes;
 namespace Relatude.DB.Native.Models;
-
-//public interface ISystemSettings {
-//    Guid Id { get; set; }
-//    [EmbeddedMapProperty(KeyProperty = nameof(ISystemSetting.Key))]
-//    EmbeddedMap<string, ISystemSetting> DynamicSettings { get; }
-//}
-//public interface ISystemSetting {
-//    Guid Id { get; set; }
-//    string Key { get; set; }
-//    string Value { get; set; }
-//}
 
 // Every property below pins its id explicitly. Without it the id is derived from the node type id and
 // the member name, so renaming a property would silently give it a new id and orphan the values already
 // stored - and the engine looks some of these ids up by constant (NativeModelStore).
+
+
+[Node(Id = "38796991-1c9b-4718-bc95-33281ab1beae")]
+public interface IId {
+    public Guid Id { get; set; }
+}
+[Node(Id = "43d71b39-09e7-497c-9095-60e9623806ea")]
+public interface IMeta {
+    public NodeMeta Meta { get; }
+}
+[Node(Id = "643071df-8b38-4ad2-9940-aae8282f032e", NameProperty = nameof(Name))]
+public interface IName{
+    [StringProperty(Id = NodeConstants.NativeCollectionPropertyNameString, Indexed = true)]
+    public string Name { get; set; }
+}
+
 [Node(Id = NodeConstants.BaseUserIdString, TextIndex = BoolValue.False, SemanticIndex = BoolValue.False)]
-public interface ISystemUser {
-    Guid Id { get; set; }
+public interface ISystemUser: IId {    
     [IntegerProperty(Id = NodeConstants.NativeUserPropertyUserTypeString)]
     SystemUserType UserType { get; set; }
     [RelationProperty(Id = NodeConstants.NativeUserPropertyMembershipsString)]
     UsersToGroups.Groups Memberships { get; }
 }
 [Node(Id = NodeConstants.BaseUserGroupIdString, TextIndex = BoolValue.False, SemanticIndex = BoolValue.False)]
-public interface ISystemUserGroup {
-    Guid Id { get; set; }
+public interface ISystemUserGroup : IId {
     [StringProperty(Id = NodeConstants.NativeUserGroupPropertyGroupNameString)]
     string GroupName { get; set; }
     [RelationProperty(Id = NodeConstants.NativeUserGroupPropertyUserMembersString)]
@@ -38,16 +40,12 @@ public interface ISystemUserGroup {
     GroupsToGroups.Members GroupMembers { get; }
 }
 [Node(Id = NodeConstants.BaseCollectionIdString, TextIndex = BoolValue.False, SemanticIndex = BoolValue.False)]
-public interface ISystemCollection {
-    Guid Id { get; set; }
-    [StringProperty(Id = NodeConstants.NativeCollectionPropertyNameString)]
-    string? Name { get; set; }
+public interface ISystemCollection : IId, IName {
     [RelationProperty(Id = NodeConstants.NativeCollectionPropertyCulturesString)]
     CollectionsToCultures.Cultures Cultures { get; }
 }
 [Node(Id = NodeConstants.BaseCultureIdString, TextIndex = BoolValue.False, SemanticIndex = BoolValue.False)]
-public interface ISystemCulture {
-    Guid Id { get; set; }
+public interface ISystemCulture : IId {    
     [StringProperty(Id = NodeConstants.NativeCulturePropertyCultureCodeString, UniqueValues = true)]
     string CultureCode { get; set; }
     [StringProperty(Id = NodeConstants.NativeCulturePropertyNativeNameString)]

@@ -27,6 +27,7 @@ public class HnswEngine : ISemanticIndexEngine {
     }
     public string Name => "HNSW Vector";
     public long? GetMemoryUsage() => _indexes.Values.Sum(i => i.CurrentMemoryBytes);
+    public (long Count, string UnitPlural)? GetMemoryCount() => (_indexes.Values.Sum(i => (long)i.ResidentVectorCount), "vectors");
     // the routing graph is never traded for disk reads, so a budget below it is exceeded by design
     public long GetMemoryFloor() => _indexes.Values.Sum(i => i.FloorMemoryBytes);
     public long GetMemoryBudget() => _defaults.MaxMemoryBytes;

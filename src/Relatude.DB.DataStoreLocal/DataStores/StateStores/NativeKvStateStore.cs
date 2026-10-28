@@ -63,6 +63,7 @@ public sealed class NativeKvStateStore : IndexEngineBase, IStateStore {
     }
     public override long GetTimestamp() => _storage.GetTimestamp();
     public override long? GetMemoryUsage() => _storage.GetMemoryUsage();
+    public override (long Count, string UnitPlural)? GetMemoryCount() => (_storage.GetMemoryPageCount(), "pages");
     public override long GetMemoryBudget() => _budgetBytes;
     public override bool TrySetMemoryBudget(long bytes) {
         _storage.SetMemoryBudget(bytes);

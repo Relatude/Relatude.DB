@@ -22,7 +22,7 @@ internal class EnumArrayProperty : Property, IPropertyContainsValue, IArrayPrope
         }
     }
     internal override void Initalize(DataStoreLocal store, Definition def, SettingsLocal config, IIOProvider io, AIEngine? ai) {
-        if (Indexed) _indexUtil.Initalize(IndexFactory.CreateIntArrayIndexes(store, this, null), Model.CultureSensitive, AllIndexes);
+        if (Indexed) _indexUtil.Initalize(this, culture => IndexFactory.CreateIntArrayIndex(store, this, culture, null));
     }
     public override PropertyType PropertyType => PropertyType.EnumArray;
     public override object ForceValueType(object value, out bool changed) {

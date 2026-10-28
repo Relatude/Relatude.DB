@@ -45,7 +45,9 @@ internal sealed class Pager : IPageSource, IDisposable
     public bool IsMemoryOnly => _mem is not null;
 
     /// <summary>Bytes held in memory: the page cache and the pages published but not yet written out.</summary>
-    public long MemoryBytes => ((long)Cache.Count + _pendingWrites.Count) * PageSize;
+    public long MemoryBytes => MemoryPages * PageSize;
+
+    public long MemoryPages => (long)Cache.Count + _pendingWrites.Count;
 
     /// <summary>Re-splits a byte budget over the page cache and the parked writes, as the constructor did.</summary>
     public void SetMemoryBudget(long cacheBytes, long pendingWriteBytes)

@@ -44,9 +44,7 @@ namespace Relatude.DB.DataStores.Definitions {
         }
         internal override void Initalize(DataStoreLocal store, Definition def, SettingsLocal config, IIOProvider io, AIEngine? ai) {
             if (!Indexed) return;
-            var indexes = IndexFactory.CreateValueIndexes<T>(store, this, null, WriteValue, ReadValue);
-            foreach (var key in indexes.Keys.ToArray()) indexes[key] = WrapValueIndex(indexes[key]);
-            _indexUtil.Initalize(indexes, Model.CultureSensitive, AllIndexes);
+            _indexUtil.Initalize(this, culture => WrapValueIndex(IndexFactory.CreateValueIndex<T>(store, this, culture, null, WriteValue, ReadValue)));
         }
         protected virtual IValueIndex<T> WrapValueIndex(IValueIndex<T> index) => index;
         protected abstract void WriteValue(T v, IAppendStream stream);
@@ -521,8 +519,30 @@ namespace Relatude.DB.DataStores.Definitions {
             if (pm is IPropertyModelUniqueContraints pmuv) UniqueValues = pmuv.UniqueValues;
             AllIndexes = [];
             Definition = def;
+            // the search index is a property of its own, culture-sensitive by the store's setting
+            CultureSensitive = pm.CultureSensitive || (pm.Id == NodeConstants.SystemTextIndexPropertyId && def.Store.Settings.CultureSensitiveTextIndex);
         }
         public bool Indexed { get; }
+        /// <summary>Whether the property has an index per culture (<see cref="IndexUtil{T}"/>).</summary>
+        public bool CultureSensitive { get; }
+        /// <summary>The property's indexes of each kind that have one per culture, empty when it is not culture-sensitive.</summary>
+        internal List<ICultureIndexes> CultureIndexes { get; } = [];
+        // the culture of each index of a culture-sensitive property, Guid.Empty for no culture
+        readonly Dictionary<IIndex, Guid> _cultureOfIndex = [];
+        /// <summary>The culture whose readers the index is for; <see cref="Guid.Empty"/> for no culture, or for every culture when the property is not culture-sensitive.</summary>
+        internal Guid CultureOf(IIndex index) => _cultureOfIndex.TryGetValue(index, out var culture) ? culture : Guid.Empty;
+        internal void AddIndex(IIndex index, Guid cultureId) {
+            AllIndexes.Add(index);
+            if (cultureId != Guid.Empty) _cultureOfIndex[index] = cultureId;
+        }
+        internal void RemoveIndex(IIndex index) {
+            AllIndexes.Remove(index);
+            _cultureOfIndex.Remove(index);
+        }
+        /// <summary>Makes the culture's indexes, the ones made.</summary>
+        internal IEnumerable<IIndex> AddCultureIndexes(Guid cultureId) => [.. CultureIndexes.Select(c => c.AddCulture(cultureId)).OfType<IIndex>()];
+        /// <summary>Takes the culture's indexes away, the ones taken.</summary>
+        internal IEnumerable<IIndex> RemoveCultureIndexes(Guid cultureId) => [.. CultureIndexes.Select(c => c.RemoveCulture(cultureId)).OfType<IIndex>()];
         public virtual bool TryReorder(IdSet unsorted, bool descending, QueryContext ctx, [MaybeNullWhen(false)] out IdSet sorted) {
             sorted = null;
             return false;

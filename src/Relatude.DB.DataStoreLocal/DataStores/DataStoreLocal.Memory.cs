@@ -16,10 +16,12 @@ public sealed partial class DataStoreLocal : IDataStore {
             new() {
                 Kind = MemoryBudgetKind.NodeCache, Label = "Node cache", Engine = "Memory",
                 LimitBytes = _nodes.CacheMaxSize, UsedBytes = _nodes.CacheSize, Adjustable = true,
+                UsedCount = _nodes.CacheCount, CountUnitPlural = "nodes",
             },
             new() {
                 Kind = MemoryBudgetKind.SetCache, Label = "Result set cache", Engine = "Memory",
                 LimitBytes = _sets.SetCacheMaxBytes, UsedBytes = _sets.SetCacheBytes, Adjustable = true,
+                UsedCount = _sets.SetCacheCount, CountUnitPlural = "sets",
             },
             indexBudget(MemoryBudgetKind.ValueIndex, "Value indexes", _settings.DefaultValueIndex, _settings.DefaultValueEngine, Engines.ValueEngine(_settings.DefaultValueIndex)),
             indexBudget(MemoryBudgetKind.TextIndex, "Text indexes", _settings.DefaultTextIndex, _settings.DefaultTextEngine, Engines.TextEngine(_settings.DefaultTextIndex)),
@@ -32,10 +34,12 @@ public sealed partial class DataStoreLocal : IDataStore {
     static MemoryBudget indexBudget(MemoryBudgetKind kind, string label, Guid engineId, IndexEngineSettings? settings, IIndexEngine? engine) {
         if (engine == null || settings == null) return memoryIndexBudget(kind, label);
         var budget = engine.GetMemoryBudget();
+        var count = engine.GetMemoryCount();
         return new() {
             Kind = kind, EngineId = engineId, Label = label, Engine = settings.TypeName ?? engine.Name,
             LimitBytes = budget >= 0 ? budget : settings.MaxMemoryUsageInBytes,
             UsedBytes = engine.GetMemoryUsage(),
+            UsedCount = count?.Count, CountUnitPlural = count?.UnitPlural,
             Adjustable = budget >= 0, // an engine that keeps its own budget is one that can be given another
         };
     }
@@ -45,11 +49,13 @@ public sealed partial class DataStoreLocal : IDataStore {
         var settings = _settings.DefaultVectorEngine;
         if (engine == null || settings == null) return memoryIndexBudget(MemoryBudgetKind.VectorIndex, "Semantic indexes");
         var budget = engine.GetMemoryBudget();
+        var count = engine.GetMemoryCount();
         return new() {
             Kind = MemoryBudgetKind.VectorIndex, EngineId = _settings.DefaultVectorIndex, Label = "Semantic indexes",
             Engine = settings.TypeName ?? engine.Name,
             LimitBytes = budget >= 0 ? budget : settings.MaxMemoryUsageInBytes,
             UsedBytes = engine.GetMemoryUsage(),
+            UsedCount = count?.Count, CountUnitPlural = count?.UnitPlural,
             FloorBytes = engine.GetMemoryFloor(),
             Adjustable = budget >= 0,
         };
@@ -64,10 +70,12 @@ public sealed partial class DataStoreLocal : IDataStore {
             };
         }
         var budget = engine.GetMemoryBudget();
+        var count = engine.GetMemoryCount();
         return new() {
             Kind = MemoryBudgetKind.StateStore, Label = "State store", Engine = _settings.StateStore.ToString(),
             LimitBytes = budget >= 0 ? budget : _settings.StateStoreMaxMemoryUsageInMb * 1024L * 1024L,
             UsedBytes = engine.GetMemoryUsage(),
+            UsedCount = count?.Count, CountUnitPlural = count?.UnitPlural,
             Adjustable = budget >= 0,
         };
     }

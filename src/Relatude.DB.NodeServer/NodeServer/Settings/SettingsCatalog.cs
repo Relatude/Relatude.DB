@@ -1022,6 +1022,10 @@ public static class SettingsCatalog {
                             Help = "New text is searchable the moment the transaction commits, instead of shortly after via the background queue. It moves indexing cost into the write path, so bulk imports get slower.",
                         },
                         new() {
+                            Path = "LocalSettings.CultureSensitiveTextIndex", Label = "Search index per culture",
+                            Help = "Gives the search index a copy per culture, so a search in a culture finds the words of the version its readers read, falling back as they do. Off, the search index holds one version of each node: the one a reader of no culture reads. It costs a copy of the search index per culture. The semantic index stays one. Changing it makes the search indexes again at the next open.",
+                        },
+                        new() {
                             Path = "LocalSettings.EnableSemanticIndexByDefault", Label = "Semantic index by default",
                             Help = "Embeds indexed text with the AI provider so queries can match by meaning as well as by word. It needs a working AI provider below, and every indexed value costs an embedding call.",
                         },

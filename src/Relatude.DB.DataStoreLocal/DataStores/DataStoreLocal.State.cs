@@ -40,6 +40,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         s += System.Text.Json.JsonSerializer.Serialize(_settings.EnableTextIndexByDefault);
         s += System.Text.Json.JsonSerializer.Serialize(_settings.PersistedValueIndexFolderPath);
         s += System.Text.Json.JsonSerializer.Serialize(_settings.EnableSemanticIndexByDefault);
+        s += System.Text.Json.JsonSerializer.Serialize(_settings.CultureSensitiveTextIndex);
         s += System.Text.Json.JsonSerializer.Serialize(_settings.StateStore);
         return s.GenerateHashGuid();
         //var g = s.GenerateGuid();
@@ -97,6 +98,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         var activityId = RegisterActvity(parentActivityId, DataStoreActivityCategory.Opening, "Reading state");
         try {
             readStateInner(throwOnErrors, currentModelHash, activityId);
+            syncCultureIndexes(atOpen: true);
         } finally {
             DeRegisterActivity(activityId);
         }
@@ -193,6 +195,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                 throw new StateFileReadException(errMsg, err);
             }
         }
+        rebuildIndexesFromOlderVersion();
         // an engine backed state store replays from its own position, the state file from its own:
         var stateEngine = _stateStore.Engine;
         var stateEngineTimestamp = stateEngine?.GetTimestamp() ?? 0; // after BindToWalFile, which may have reset it

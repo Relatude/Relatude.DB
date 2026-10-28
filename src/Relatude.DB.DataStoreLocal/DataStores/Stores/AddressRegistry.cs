@@ -1,3 +1,4 @@
+using Relatude.DB.Datamodels;
 using Relatude.DB.DataStores.StateStores;
 using Relatude.DB.DataStores.Transactions;
 using Relatude.DB.IO;
@@ -316,6 +317,23 @@ public class AddressRegistry {
 
     internal void RegisterActionDuringStateLoad(PrimitiveNodeAction na, bool throwOnErrors, Action<string, Exception?> logError) {
         try {
+            // a node with revisions has an address per revision, registered under the revision's culture, as a save of
+            // one registers it (UrlSystem.RegisterAddressAtCommit); the container has none of its own. Where a culture
+            // has several, the published one is registered last, so it is the one kept
+            if (na.Node is NodeDataRevisions revisions) {
+                switch (na.Operation) {
+                    case PrimitiveOperation.Add:
+                        foreach (var rev in revisions.Revisions.OrderBy(r => r.RevisionType == RevisionType.Published))
+                            Register(na.Node.__Id, NormalizeAddress(rev.Address, out _), rev.Meta?.CultureId);
+                        break;
+                    case PrimitiveOperation.Remove:
+                        foreach (var culture in revisions.Revisions.Select(r => r.Meta?.CultureId).Distinct()) Remove(na.Node.__Id, culture);
+                        break;
+                    default:
+                        break;
+                }
+                return;
+            }
             switch (na.Operation) {
                 case PrimitiveOperation.Add:
                     // the stored action already contains the final address, so it is registered verbatim

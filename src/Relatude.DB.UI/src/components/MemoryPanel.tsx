@@ -58,14 +58,6 @@ export interface CacheStats {
   aggregateCacheOverflows?: number;
 }
 
-/** What the two caches hold this second, from the live sample rather than the full picture. */
-export interface CacheCounts {
-  nodeCacheCount?: number;
-  nodeCacheSize?: number;
-  setCacheCount?: number;
-  setCacheSize?: number;
-}
-
 /** One reading of the caches' counters, taken with the dashboard's live sample at `at`. */
 export interface CacheSample {
   at: number;
@@ -103,13 +95,11 @@ interface Detail {
 export function MemoryPanel({
   storeId,
   cache,
-  counts,
   cacheSamples,
   onChanged,
 }: {
   storeId: string;
   cache?: CacheStats;
-  counts?: CacheCounts;
   cacheSamples?: CacheSample[];
   onChanged?: () => void;
 }) {
@@ -221,14 +211,10 @@ export function MemoryPanel({
   }
 
   /** The hit counts of one row, where it is a cache the store keeps count of: node and result sets. */
-  function hitCounts(b: MemoryBudget): { hits: number; misses: number; overflows: number; entries: number | null } | null {
+  function hitCounts(b: MemoryBudget): { hits: number; misses: number; overflows: number } | null {
     if (hitStats == null) return null;
-    if (b.kind === "NodeCache") {
-      return { hits: hitStats.nodeCacheHits, misses: hitStats.nodeCacheMisses, overflows: hitStats.nodeCacheOverflows, entries: counts?.nodeCacheCount ?? null };
-    }
-    if (b.kind === "SetCache") {
-      return { hits: hitStats.setCacheHits, misses: hitStats.setCacheMisses, overflows: hitStats.setCacheOverflows, entries: counts?.setCacheCount ?? null };
-    }
+    if (b.kind === "NodeCache") return { hits: hitStats.nodeCacheHits, misses: hitStats.nodeCacheMisses, overflows: hitStats.nodeCacheOverflows };
+    if (b.kind === "SetCache") return { hits: hitStats.setCacheHits, misses: hitStats.setCacheMisses, overflows: hitStats.setCacheOverflows };
     return null;
   }
 
@@ -240,6 +226,10 @@ export function MemoryPanel({
       lines.push(`Saved as ${formatBytes(b.settingBytes)}; the running database is on ${formatBytes(b.limitBytes)}.`);
     }
     if (b.floorBytes > 0 && valueOf(b) < b.floorBytes) lines.push(`It holds ${formatBytes(b.floorBytes)} it cannot give back, which is over this budget.`);
+    if (b.usedCount != null && b.countUnitPlural != null) {
+      const each = b.usedBytes != null && b.usedCount > 0 ? `, about ${formatBytes(b.usedBytes / b.usedCount)} each` : "";
+      lines.push(`Holding ${counted(b.usedCount, b.countUnitPlural)}${each}.`);
+    }
     const hit = hitCounts(b);
     if (hit != null && hit.hits + hit.misses > 0) {
       lines.push(`${formatCount(hit.hits)} hits · ${formatCount(hit.misses)} misses · ${Math.round((hit.hits / (hit.hits + hit.misses)) * 100)}% answered from memory`);
@@ -256,6 +246,12 @@ export function MemoryPanel({
     const value = valueOf(b);
     const used = b.usedBytes;
     list.push({ k: "Holding", v: used == null ? "not counted" : formatBytes(used) });
+    if (b.usedCount != null && b.countUnitPlural != null) {
+      list.push({ k: capitalized(b.countUnitPlural), v: formatCount(b.usedCount), title: `${counted(b.usedCount, b.countUnitPlural)} held this second.` });
+      if (used != null && b.usedCount > 0) {
+        list.push({ k: "Per " + unitOf(1, b.countUnitPlural), v: formatBytes(used / b.usedCount), title: "The bytes it holds over the count: what one more costs, on average." });
+      }
+    }
     if (b.settingPath == null) {
       list.push({ k: "Budget", v: "none - resident" });
     } else {
@@ -280,7 +276,6 @@ export function MemoryPanel({
     }
     const hit = hitCounts(b);
     if (hit != null) {
-      if (hit.entries != null) list.push({ k: "Entries", v: formatCount(hit.entries), title: "What it holds this second." });
       list.push({ k: "Hits", v: formatCount(hit.hits), title: "Answered from memory since the caches were last cleared." });
       list.push({ k: "Misses", v: formatCount(hit.misses), title: "Had to be read or computed since the caches were last cleared." });
       list.push({
@@ -341,13 +336,13 @@ export function MemoryPanel({
               <span className="mem-engine">Sets</span>
             </span>
             <span className="mem-track mem-resident muted">no budget</span>
-            <span className="mem-figures">{formatCount(hitStats.aggregateCacheCount)} entries</span>
+            <span className="mem-figures">{counted(hitStats.aggregateCacheCount, "entries")}</span>
             <DetailBlock help="Counts, sums and facet totals a query already worked out, so a repeated count or a facet drilled into does not walk the sets again." details={aggregateDetails(hitStats)} />
           </div>
         )}
         {report != null && !report.open && <div className="muted">The database is {report.state.toLowerCase()}, so it is holding nothing.</div>}
       </div>
-      {report?.open !== false && hitStats != null && <CacheCards samples={cacheSamples ?? []} stats={hitStats} counts={counts} />}
+      {report?.open !== false && hitStats != null && <CacheCards samples={cacheSamples ?? []} stats={hitStats} budgets={budgets} />}
       <div className="dash-cache-actions">
         {changed.length > 0 && (
           <>
@@ -380,7 +375,8 @@ interface CacheKind {
   hits: (c: LiveCacheCounters) => number;
   misses: (c: LiveCacheCounters) => number;
   trims: (c: LiveCacheCounters) => number;
-  entries: (c: LiveCacheCounters, counts?: CacheCounts) => number | null;
+  entries: (c: LiveCacheCounters, budgets: MemoryBudget[]) => number | null;
+  unitPlural: string;
 }
 
 const cacheKinds: CacheKind[] = [
@@ -391,7 +387,8 @@ const cacheKinds: CacheKind[] = [
     hits: (c) => c.nodeCacheHits,
     misses: (c) => c.nodeCacheMisses,
     trims: (c) => c.nodeCacheOverflows,
-    entries: (_, counts) => counts?.nodeCacheCount ?? null,
+    entries: (_, budgets) => countOf(budgets, "NodeCache"),
+    unitPlural: "nodes",
   },
   {
     key: "set",
@@ -400,7 +397,8 @@ const cacheKinds: CacheKind[] = [
     hits: (c) => c.setCacheHits,
     misses: (c) => c.setCacheMisses,
     trims: (c) => c.setCacheOverflows,
-    entries: (_, counts) => counts?.setCacheCount ?? null,
+    entries: (_, budgets) => countOf(budgets, "SetCache"),
+    unitPlural: "sets",
   },
   {
     key: "aggregate",
@@ -410,6 +408,7 @@ const cacheKinds: CacheKind[] = [
     misses: (c) => c.aggregateCacheMisses,
     trims: (c) => c.aggregateCacheOverflows,
     entries: (c) => c.aggregateCacheCount,
+    unitPlural: "entries",
   },
 ];
 
@@ -421,7 +420,7 @@ const rateWindow = 5;
  * taking now - measured over the last few samples, so one quiet sample does not read as idle. A
  * counter that went backwards means the caches were cleared, and the rate waits for the next pair.
  */
-function CacheCards({ samples, stats, counts }: { samples: CacheSample[]; stats: LiveCacheCounters; counts?: CacheCounts }) {
+function CacheCards({ samples, stats, budgets }: { samples: CacheSample[]; stats: LiveCacheCounters; budgets: MemoryBudget[] }) {
   const withCache = samples.filter((s): s is CacheSample & { cache: LiveCacheCounters } => s.cache != null);
   const last = withCache[withCache.length - 1];
   const first = withCache[Math.max(0, withCache.length - 1 - rateWindow)];
@@ -433,7 +432,7 @@ function CacheCards({ samples, stats, counts }: { samples: CacheSample[]; stats:
         const misses = k.misses(stats);
         const lookups = hits + misses;
         const share = lookups > 0 ? hits / lookups : null;
-        const entries = k.entries(stats, counts);
+        const entries = k.entries(stats, budgets);
         const trims = k.trims(stats);
         let now: string | null = null;
         if (seconds > 0) {
@@ -444,7 +443,7 @@ function CacheCards({ samples, stats, counts }: { samples: CacheSample[]; stats:
         const title = [
           k.help,
           lookups > 0 ? `${formatCount(hits)} hits and ${formatCount(misses)} misses since the caches were last cleared.` : "No lookups since the caches were last cleared.",
-          entries != null ? `${formatCount(entries)} entries held now.` : null,
+          entries != null ? `${counted(entries, k.unitPlural)} held now.` : null,
           `Trimmed ${formatCount(trims)} time${trims === 1 ? "" : "s"}: filled up and cut back to half.`,
         ]
           .filter((line): line is string => line != null)
@@ -461,7 +460,8 @@ function CacheCards({ samples, stats, counts }: { samples: CacheSample[]; stats:
             <div className="mem-cache-line">
               {formatCount(hits)} hits · {formatCount(misses)} misses
             </div>
-            <div className="mem-cache-line muted">{now ?? (entries != null ? `${formatCount(entries)} entries` : "")}</div>
+            <div className="mem-cache-line">{entries != null ? `${counted(entries, k.unitPlural)} held` : ""}</div>
+            <div className="mem-cache-line muted">{now ?? ""}</div>
           </div>
         );
       })}
@@ -545,4 +545,21 @@ function DetailBlock({ help, details }: { help: string; details: Detail[] }) {
       </div>
     </div>
   );
+}
+
+function countOf(budgets: MemoryBudget[], kind: MemoryBudget["kind"]): number | null {
+  return budgets.find((b) => b.kind === kind)?.usedCount ?? null;
+}
+
+function unitOf(count: number, unitPlural: string): string {
+  if (count === 1) return unitPlural.endsWith("ies") ? unitPlural.slice(0, -3) + "y" : unitPlural.replace(/s$/, "");
+  return unitPlural;
+}
+
+function counted(count: number, unitPlural: string): string {
+  return `${formatCount(count)} ${unitOf(count, unitPlural)}`;
+}
+
+function capitalized(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }

@@ -48,6 +48,15 @@ public partial class NodeTypeModel { // with default values
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Icon { get; set; }
 
+    /// <summary>
+    /// The property that is a node's name, by id: one of the type's own properties or one it inherits. An editing
+    /// interface such as a CMS shows it as a text field at the top of the node's form. Null takes the closest type
+    /// it inherits from that names one (<see cref="Datamodel.GetNameProperty"/>). Like <see cref="Icon"/> it only says
+    /// how nodes are shown, so the store's checksum leaves it out. Left out of the JSON when null.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Guid? NameProperty { get; set; }
+
     public Guid DefaultReadAccess { get; set; } = NodeConstants.UserGroupUnspecified;
     public Guid DefaultEditAccess { get; set; } = NodeConstants.UserGroupUnspecified;
     public Guid DefaultEditViewAccess { get; set; } = NodeConstants.UserGroupUnspecified;

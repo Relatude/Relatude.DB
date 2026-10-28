@@ -90,6 +90,10 @@ public static class ModelGen {
             if (nodeDef.InstantTextIndexing.HasValue) sb.Append(", " + nameof(NodeAttribute.InstantTextIndexing) + " = " + addAttributeBool(nodeDef.InstantTextIndexing.Value ? BoolValue.True : BoolValue.False));
             if (nodeDef.TextIndexBoost != 0) sb.Append(", " + nameof(NodeAttribute.TextIndexBoost) + " = " + nodeDef.TextIndexBoost.ToString(CultureInfo.InvariantCulture));
             if (!string.IsNullOrWhiteSpace(nodeDef.Icon)) sb.Append(", " + nameof(NodeAttribute.Icon) + " = " + stringLiteral(nodeDef.Icon));
+            // by the member's name, as the attribute takes it: a property of the type's own or one it inherits
+            if (nodeDef.NameProperty is { } nameId && datamodel.NodeTypes.Values.SelectMany(t => t.Properties.Values).FirstOrDefault(p => p.Id == nameId) is { } nameProperty) {
+                sb.Append(", " + nameof(NodeAttribute.NameProperty) + " = " + stringLiteral(nameProperty.CodeName));
+            }
             // instance limits are only written when set: the attribute and the model disagree on what
             // "unset" is (0 and int.MinValue), and the model builder treats an unset attribute as no limit
             if (nodeDef.MinNoInstances != int.MinValue && nodeDef.MinNoInstances != 0) sb.Append(", " + nameof(NodeAttribute.MinNoInstances) + " = " + nodeDef.MinNoInstances.ToString(CultureInfo.InvariantCulture));

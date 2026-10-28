@@ -118,6 +118,7 @@ public class VectorIndex : ISemanticIndex, IDisposable {
     /// this exceeds <see cref="MaxMemoryBytes"/> the index is over budget by design: the graph is
     /// never traded for per-hop disk reads, and a warning is logged instead.</summary>
     public long FloorMemoryBytes => _graph?.FloorBytes ?? 0;
+    public int ResidentVectorCount => _graph?.LiveCount ?? 0;
     /// <summary>Search effort as a fraction of <see cref="VectorIndexOptions.EfSearch"/>, see
     /// <see cref="VectorIndexOptions.Accuracy"/>.</summary>
     public float Accuracy {
