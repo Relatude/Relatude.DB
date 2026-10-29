@@ -19,6 +19,11 @@ public static class UrlUtil {
         return host.ToLowerInvariant();
     }
 
+    /// <summary>True for a path from the root of the site ("/about"). Not for "//host/x" or "/\host/x", which browsers read as another host.</summary>
+    public static bool IsRootRelative(string url) {
+        return url.Length > 0 && url[0] == '/' && !(url.Length > 1 && (url[1] == '/' || url[1] == '\\'));
+    }
+
     /// <summary>The path of the URL: scheme, host, query and fragment removed. Always starts with "/". A trailing slash is trimmed (except for the root path itself).</summary>
     public static string GetPath(string url) {
         var posScheme = url.IndexOf("://", StringComparison.Ordinal);

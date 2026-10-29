@@ -222,15 +222,20 @@ public sealed partial class DataStoreLocal : IDataStore {
         return UpdateFileMetaIfNotSet(propertyPath, fileId, meta, ctx);
     }
 
-    public async Task FileDeleteAsync(PropertyPath propertyPath, QueryContext? ctx = null) {
+    /// <summary>
+    /// Takes the file out of the property, in the revision the context reads. The stored file is left for the sweep of
+    /// unreferenced files (the job delete-unreferenced-files), as it is when an upload replaces a file or a node is
+    /// deleted: other values may hold it too, the node's other revisions first, as a revision is made of its source's
+    /// values.
+    /// </summary>
+    public Task FileDeleteAsync(PropertyPath propertyPath, QueryContext? ctx = null) {
         ctx ??= _defaultQueryCtx;
         if (!TryGetValue<FileValue>(propertyPath, out var fileValue, ctx)) throw new Exception("File property not found");
-        if (fileValue.IsEmpty) return;
-        var fileStore = getFileStore(fileValue.StorageId);
-        await fileStore.DeleteAsync(fileValue);
+        if (fileValue.IsEmpty) return Task.CompletedTask;
         var t = new TransactionData();
         t.ForceUpdateProperty(propertyPath, FileValue.Empty);
         Execute(t, false, true, ctx);
+        return Task.CompletedTask;
     }
     public Task<Stream> GetFileStream(FileValue value) {
         if (value.IsEmpty) throw new Exception("File value is empty");

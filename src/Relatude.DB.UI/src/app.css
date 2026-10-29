@@ -8136,8 +8136,52 @@ body.pg-resizing {
   column-gap: 10px;
   row-gap: 1px;
   align-items: center;
+  position: relative;
   padding: 6px 0;
   animation: now-rise 0.6s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+
+.now-act.child .now-act-body {
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+}
+
+.now-act.child .now-badge-core {
+  inset: 4px;
+}
+
+.now-tree {
+  --tree-line: color-mix(in srgb, var(--text-muted) 45%, transparent);
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.now-tree > i {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  display: block;
+  border-left: 1px solid var(--tree-line);
+  pointer-events: none;
+}
+
+.now-tree > .now-tree-elbow::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  border-top: 1px solid var(--tree-line);
+}
+
+.now-tree > .now-tree-elbow.last {
+  bottom: 50%;
+  border-bottom: 1px solid var(--tree-line);
+  border-bottom-left-radius: 6px;
+}
+
+.now-tree > .now-tree-elbow.last::after {
+  content: none;
 }
 
 @keyframes now-unfold {

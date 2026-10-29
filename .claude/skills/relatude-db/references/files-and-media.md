@@ -93,6 +93,8 @@ bool there = await db.FileUploadedAndAvailableAsync<IArticle>(article, a => a.Ph
 
 `FileUploadedAndAvailableAsync` matters for remote stores, where the write can complete in the background after the call returns.
 
+`FileDeleteAsync` takes the file out of the property, in the revision the context reads; the bytes stay until the unreferenced-file cleanup (the `delete-unreferenced-files` job) finds nothing pointing at them, as when an upload replaces a file or a node is deleted. A revision is made of its source's values, so a draft and the published version hold the same stored file.
+
 Copying a file to another node's file property - `FileCopyAsync` - keeps its name and meta, so nothing is read from it again. In a store with `SameHashSameFile` the copy shares the stored file (no bytes read or written; deleting either value's file leaves it for the other, and only the unreferenced-file cleanup removes it); elsewhere the bytes are streamed into the target's store. A list of pairs is written in one transaction, and the answer has null where the source held no file.
 
 ```csharp
@@ -106,7 +108,7 @@ var action = td.CopyFile(new PropertyPath(original.Id, photoId), new PropertyPat
 db.Execute(td);   // action.Result: the new node's FileValue
 ```
 
-The store reads and stores the bytes before the transaction takes its lock, and deletes them again if the transaction fails. A file value written from outside cannot name a stored file (an insert's is emptied, an update's keeps the file it had); the one the store makes for `CopyFile` goes through. Transaction plugins see it as a property action with the operation `CopyFile` and no values.
+The store reads and stores the bytes before the transaction takes its lock, and deletes them again if the transaction fails. A file value written from outside cannot name a stored file (an insert's is emptied, an update's keeps the file it had); the one the store makes for `CopyFile` goes through. What an update may do is take the file out (`FileValue.Empty`) or change the name, meta, extracted text, width and height of the file the property holds, so `b.Photo = a.Photo; db.Update(b)` copies nothing, and an object read before an upload and written back after it keeps the upload. Transaction plugins see it as a property action with the operation `CopyFile` and no values.
 
 ## Partial (multipart) uploads
 

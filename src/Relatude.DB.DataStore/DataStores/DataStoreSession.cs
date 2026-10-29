@@ -220,6 +220,9 @@ public class DataStoreSession : IDataStore {
     public bool WillAddressResultInUniqueUrl(NodeKey node, Guid cultureId, string address) => _datastore.WillAddressResultInUniqueUrl(node, cultureId, address);
     public string ExternalizeContentLinks(string content, QueryContext? ctx = null) => _datastore.ExternalizeContentLinks(content, ctx ?? QueryContext);
     public string InternalizeContentLinks(string content, QueryContext? ctx = null) => _datastore.InternalizeContentLinks(content, ctx ?? QueryContext);
+    public string GetContentLink(NodePath node) => _datastore.GetContentLink(node);
+    public string GetContentLink(PropertyPath property, FileAdjustmentBase? adjustment = null) => _datastore.GetContentLink(property, adjustment);
+    public bool TryParseContentLink(string link, [MaybeNullWhen(false)] out UrlKeys result) => _datastore.TryParseContentLink(link, out result);
 
     public bool CanConvert(FileFormat from, FileFormat to) => _datastore.CanConvert(from, to);
     public bool CanConvert(PropertyPath propertyPath, FileAdjustmentBase adj, QueryContext? ctx = null) => _datastore.CanConvert(propertyPath, adj, ctx ?? QueryContext);

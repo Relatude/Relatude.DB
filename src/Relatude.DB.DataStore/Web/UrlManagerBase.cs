@@ -67,6 +67,31 @@ public abstract class UrlManagerBase : IUrlManager {
     }
     void applyAssetBase() => (_assetBase, _assetBasePath) = CombineBaseAddresses(_primaryBase, _assetBaseGiven);
 
+    /// <summary>
+    /// Hosts this site is served at besides those its absolute base addresses name (and, for a
+    /// <see cref="DefaultUrlManager"/>, its domains): staging, localhost. A link in HTML or Markdown to
+    /// one of them is kept as an id based link, like a path from the root. Compared case-insensitively, without port.
+    /// </summary>
+    public string[] OwnHosts { get; set; } = [];
+    /// <summary>A path from the root, or an http(s) URL, also scheme relative ("//host/x"), with a host <see cref="IsOwnHost"/> accepts.</summary>
+    public virtual bool IsOwnUrl(string url) {
+        if (UrlUtil.IsRootRelative(url)) return true;
+        string? host;
+        if (url.StartsWith("//", StringComparison.Ordinal)) host = UrlUtil.GetHost("https:" + url);
+        else if (url.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || url.StartsWith("https://", StringComparison.OrdinalIgnoreCase)) host = UrlUtil.GetHost(url);
+        else return false;
+        return host != null && IsOwnHost(host);
+    }
+    /// <summary>True for a host this site is served at: one of <see cref="OwnHosts"/>, or the host of an absolute base address.</summary>
+    protected virtual bool IsOwnHost(string host) {
+        foreach (var own in OwnHosts) {
+            var given = own.Trim(); // "staging.site.com", "localhost:5000" or "https://staging.site.com"
+            if (string.Equals(UrlUtil.GetHost(given.Contains("://") ? given : "https://" + given), host, StringComparison.OrdinalIgnoreCase)) return true;
+        }
+        return string.Equals(UrlUtil.GetHost(_primaryBase), host, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(UrlUtil.GetHost(_assetBase), host, StringComparison.OrdinalIgnoreCase);
+    }
+
     public abstract void Initialize(IDataStore store);
     public abstract NodeKeyWithCulture[] GetMatches(string completeUrl);
     public abstract string? TryGetUrl(NodeMeta meta, bool absolute);

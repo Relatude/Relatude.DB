@@ -2960,7 +2960,7 @@ or <code>FileStoreSettings.CreateMultiFile(ioProviderId)</code>, also starts wit
 <tr>
 <td><code>SameHashSameFile</code></td>
 <td><code>true</code>; <code>false</code> when absent</td>
-<td><code>MultiFile</code> only: keep one copy of any content. An upload with the same hash and length as a file the store already holds is not stored again — its <code>FileValue</code> points at the existing copy (<code>FileId</code> is then derived from the hash, and <code>Name</code> stays the upload's own). Shared files are only deleted by the unreferenced file cleanup, never by <code>FileDeleteAsync</code>. Applies to new uploads; files already stored stay where they are, and stay readable if it is turned off again. Cached conversions (thumbnails, resized images, video) are shared too, per source format. On blob storage a new file is written twice, as it is copied into place.</td>
+<td><code>MultiFile</code> only: keep one copy of any content. An upload with the same hash and length as a file the store already holds is not stored again — its <code>FileValue</code> points at the existing copy (<code>FileId</code> is then derived from the hash, and <code>Name</code> stays the upload's own). Shared files, as every stored file, are only deleted by the unreferenced file cleanup, never by <code>FileDeleteAsync</code>. Applies to new uploads; files already stored stay where they are, and stay readable if it is turned off again. Cached conversions (thumbnails, resized images, video) are shared too, per source format. On blob storage a new file is written twice, as it is copied into place.</td>
 </tr>
 <tr>
 <td><code>HashAlgorithm</code></td>
@@ -4903,6 +4903,16 @@ which is durable per transaction and is always reset and rebuilt on rollback. Th
 <p>The node has to be stored before any of this: <code>FileValue.PropertyPath</code> is what addresses the
 upload, and it is <code>null</code> on an unsaved node. The upload writes the bytes <em>and</em> the <code>FileValue</code> on
 the node, so there is no <code>Update</code> to make afterwards.</p>
+<p>Only the store puts a stored file into a property: an upload, or a copy (below). A <code>FileValue</code> written
+with the rest of a node, by <code>Update</code> or a transaction, may take the file out (<code>FileValue.Empty</code>) or
+change what may change of the file the property holds - its name, meta, extracted text, width and
+height - and nothing else. A value naming another stored file is not taken, nor any file in a node
+being inserted: the property keeps what it has. So <code>b.Photo = a.Photo</code> copies nothing (use
+<code>FileCopyAsync</code>), and an object read before an upload and written back after it keeps the upload.</p>
+<p><code>FileDeleteAsync</code> takes the file out of the property, in the revision the context reads. Its bytes
+stay in the store until the unreferenced file cleanup (the job <code>delete-unreferenced-files</code>) finds
+nothing pointing at them, as when an upload replaces a file or a node is deleted: a revision is made
+of its source's values, so a draft and the published version hold the same stored file.</p>
 <h3 id="copying-files">Copying files<a class="anchor" href="#copying-files" aria-label="Link to this section">#</a></h3>
 <div class="codehilite"><pre><span></span><code><span class="c1">// one file, from one node&#39;s file property to another&#39;s</span>
 <span class="n">FileValue</span><span class="o">?</span><span class="w"> </span><span class="n">copy</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">FileCopyAsync</span><span class="p">(</span><span class="n">original</span><span class="p">.</span><span class="n">Id</span><span class="p">,</span><span class="w"> </span><span class="n">photoId</span><span class="p">,</span><span class="w"> </span><span class="n">duplicate</span><span class="p">.</span><span class="n">Id</span><span class="p">,</span><span class="w"> </span><span class="n">photoId</span><span class="p">);</span>
@@ -5190,6 +5200,10 @@ Give it a parent relation and the same manager builds <code>/{ancestor addresses
 <td>The root used when the host is unknown — localhost, staging, tests. Defaults to the first configured domain's root.</td>
 </tr>
 <tr>
+<td><code>OwnHosts</code></td>
+<td>Other hosts the site is served at, separated by commas (<code>"staging.site.com, localhost"</code>). Links in HTML and Markdown to them are stored by id, like links to the domains (18.2).</td>
+</tr>
+<tr>
 <td><code>Scheme</code></td>
 <td>Scheme for absolute URLs. Default <code>https</code>.</td>
 </tr>
@@ -5469,13 +5483,32 @@ an internal, id-based form and never as public URLs:</p>
 </code></pre></div>
 
 <p>The conversion is automatic in both directions: public URLs in a value you save are rewritten to
-<code>rdb:</code> tokens at commit time, and tokens are rewritten to current public URLs on every read. External
-links, anchors, <code>mailto:</code> and unresolvable URLs pass through untouched, the rewrite is idempotent, and
-a token whose target has been deleted comes back as <code>href="#"</code>.</p>
+<code>rdb:</code> tokens at commit time, and tokens are rewritten to current public URLs on every read. That
+holds for every write path, and for HTML inside embedded nodes too. The rewrite is idempotent, and a
+token whose target has been deleted comes back as <code>href="#"</code>, while the stored value keeps the token.</p>
+<p>What becomes a token:</p>
+<ul>
+<li><strong>Pages, files and file variants.</strong> A link to a page, an <code>src</code> of a file, and a resized or
+  converted variant of one (the adjustment is kept in the token, the URL's version is not).</li>
+<li><strong>Only this site's URLs.</strong> A path from the root (<code>/tv/sony-x90</code>) is resolved, and so is a URL whose
+  host is one of the site's: a domain's host, the host of an absolute base address, or one listed in
+  <code>OwnHosts</code> (<code>"staging.site.com, localhost"</code>). Another site's URL stays as written even when its path
+  is one of this site's, and so does a path relative to the page (<code>info</code>), as the store does not know
+  which page the value is on. Anchors, <code>mailto:</code>, <code>tel:</code> and unresolvable URLs pass through too.</li>
+<li><strong>The query and fragment are kept.</strong> <code>/tv/sony-x90?tab=specs#reviews</code> is stored as the token with
+  <code>?tab=specs#reviews</code> after it, and read as the current URL with them. A file's query is part of its
+  address and lives in the token, so only its fragment is kept (<code>#page=3</code>).</li>
+<li><strong>By guid.</strong> A token holds the node's guid: its int id can change between instances of a database.
+  A token stored with an int id still reads, and is given the guid the next time its value is saved.</li>
+</ul>
+<p>A custom URL manager says what is the site's with <code>IUrlManager.IsOwnUrl</code>; the default accepts paths
+from the root only, and <code>UrlManagerBase</code> adds <code>OwnHosts</code> and the base addresses.</p>
 <p>That is why renaming a section is genuinely one write: the stored HTML is not touched, and the next
 read of it simply emits the new paths. <code>db.ExternalizeContentLinks</code> and <code>db.InternalizeContentLinks</code>
 expose the same conversion for content you handle yourself, and a migration utility can internalise
-existing content in place.</p>
+existing content in place. An editor can work with the stored form directly: <code>db.GetContentLink(nodeId)</code>
+and <code>db.GetContentLink(propertyPath, adjustment)</code> give the token to insert, and
+<code>db.TryParseContentLink(link, out var keys)</code> says what one points at.</p>
 <h3 id="writing-your-own-manager">Writing your own manager<a class="anchor" href="#writing-your-own-manager" aria-label="Link to this section">#</a></h3>
 <p>When the built-in shapes do not fit, implement <code>IUrlManager</code> — three methods for pages, and derive
 from <code>UrlManagerBase</code> to inherit the whole asset side, signing included:</p>

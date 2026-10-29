@@ -152,6 +152,14 @@ Use `[HtmlProperty]` for rich text so markup is stripped before word indexing:
 public string Description { get; set; } = string.Empty;
 ```
 
+Links in HTML and Markdown values are stored by id. At every write, an `href` or `src` that is this site's
+(a path from the root, or a URL with a domain's host, an absolute base address's host or one in the URL
+options' `OwnHosts`) becomes an `rdb:` token holding the node's guid, with the link's query and fragment
+after it; every read turns tokens into current URLs, and a deleted target into `#`. Embedded nodes' HTML
+too. Another site's URL, or one relative to the page, stays as written. `db.GetContentLink(nodeId)` /
+`db.GetContentLink(propertyPath, adjustment)` give a token to insert, `db.TryParseContentLink` takes one
+apart, and `db.ExternalizeContentLinks` / `InternalizeContentLinks` convert content by hand.
+
 ### Numbers
 
 Numeric attributes share `MinValue` / `MaxValue` / `DefaultValue` / `Indexed` / `NotFacet`, plus range-faceting controls:

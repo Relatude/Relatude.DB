@@ -31,7 +31,7 @@ internal sealed class UrlSystem {
     readonly DataStoreLocal _db;
     readonly IUrlManager _manager;
     readonly InternalUrlProvider _tokenEncoder;
-    Dictionary<Guid, Guid[]>? _contentPropsByType; // node type id -> ids of HTML/Markdown string properties
+    Dictionary<Guid, (Guid[] Content, Guid[] Embedded)>? _contentPropsByType; // node type id -> ids of its HTML/Markdown string properties and of its embedded properties
 
     public UrlSystem(DataStoreLocal db, IUrlManager manager) {
         _db = db;
@@ -300,7 +300,7 @@ internal sealed class UrlSystem {
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
     static readonly Regex _markdownUrls = new("(?<pre>\\]\\()(?<url>[^)\\s]+)", RegexOptions.Compiled);
 
-    /// <summary>Rewrites resolvable public URLs in an HTML/Markdown value to internal rdb: tokens. Idempotent; unresolvable and external URLs pass through.</summary>
+    /// <summary>Rewrites resolvable public URLs of this site in an HTML/Markdown value to internal rdb: tokens. Idempotent; external, page relative and unresolvable URLs pass through.</summary>
     public string InternalizeContentLinks(string content, QueryContext ctx) {
         if (string.IsNullOrEmpty(content)) return content;
         var result = _attributeUrls.Replace(content, m => m.Groups["pre"].Value + internalizeUrl(m.Groups["url"].Value, ctx));
@@ -309,21 +309,74 @@ internal sealed class UrlSystem {
     }
     string internalizeUrl(string url, QueryContext ctx) {
         if (url.Length == 0) return url;
-        if (url.StartsWith(TokenScheme, StringComparison.Ordinal)) return url; // already internal
+        if (url.StartsWith(TokenScheme, StringComparison.Ordinal)) return durableLink(url); // already internal
         var c = url[0];
         if (c == '#') return url; // in-page anchor
         if (url.StartsWith("mailto:", StringComparison.OrdinalIgnoreCase)) return url;
         if (url.StartsWith("tel:", StringComparison.OrdinalIgnoreCase)) return url;
         if (url.StartsWith("javascript:", StringComparison.OrdinalIgnoreCase)) return url;
         if (url.StartsWith("data:", StringComparison.OrdinalIgnoreCase)) return url;
-        if (!TryParseUrl(url, out var keys, ctx)) return url; // external or unresolvable: leave as-is
-        return TokenScheme + keys.Target switch {
-            UrlTarget.Node => _tokenEncoder.GetUrl(keys.NodeKey, false),
-            UrlTarget.EmbeddedNode => _tokenEncoder.GetUrl(keys.NodePath!, false),
-            UrlTarget.Property => _tokenEncoder.GetUrl(keys.PropertyPath!, null, false), // content version id is startup specific, never stored
-            UrlTarget.PropertyAdjusted => _tokenEncoder.GetUrl(keys.PropertyPath!, keys.Adjustment!, null, false),
-            _ => throw new NotImplementedException(),
-        };
+        // another site's URL can have the path of a page of this one, and a URL relative to the page it is on cannot be
+        // resolved here, as nothing says which page that is: only a URL the manager calls this site's is resolved
+        if (!_manager.IsOwnUrl(url)) return url;
+        if (!TryParseUrl(url, out var keys, ctx)) return url; // unresolvable: leave as-is
+        return TokenScheme + encode(keys) + ownSuffix(url, keys.Target);
+    }
+    /// <summary>
+    /// The part of a link after its path that is the link's own, kept after the token: a page's query and fragment
+    /// ("?tab=2#team"). A file's query is part of its address (an adjustment, a signature, the asset parameter) and so
+    /// in the token already, and an embedded node's URL is an asset URL too, so of those only the fragment ("#page=3").
+    /// </summary>
+    static string ownSuffix(string url, UrlTarget target) {
+        var at = target == UrlTarget.Node ? url.IndexOfAny(['?', '#']) : url.IndexOf('#');
+        return at < 0 ? string.Empty : url[at..];
+    }
+    /// <summary>The token of a target, with the node's guid: its int id can change between instances of a database.</summary>
+    string encode(UrlKeys keys) => keys.Target switch {
+        UrlTarget.Node => _tokenEncoder.GetUrl(durable(keys.NodeKey), false),
+        UrlTarget.EmbeddedNode => _tokenEncoder.GetUrl(durable(keys.NodePath!), false),
+        UrlTarget.Property => _tokenEncoder.GetUrl(durable(keys.PropertyPath!), null, false), // content version id is startup specific, never stored
+        UrlTarget.PropertyAdjusted => _tokenEncoder.GetUrl(durable(keys.PropertyPath!), keys.Adjustment!, null, false),
+        _ => throw new NotImplementedException(),
+    };
+    NodeKey durable(NodeKey key) {
+        if (key.HasGuid) return key.HasInt ? new NodeKey(key.Guid) : key;
+        return _db._guids.TryGetId(key.Int, out Guid guid) ? new NodeKey(guid) : key;
+    }
+    NodePath durable(NodePath path) {
+        var key = durable(path.NodeKey);
+        return key == path.NodeKey ? path : NodePath.FromBytesWithGivenNodeKey(key, path.ToBytesWithoutNodeKey());
+    }
+    PropertyPath durable(PropertyPath path) {
+        var key = durable(path.NodePath.NodeKey);
+        return key == path.NodePath.NodeKey ? path : PropertyPath.FromBytesWithGivenNodeKey(key, path.ToBytesWithoutNodeKey());
+    }
+    /// <summary>A stored link as it is stored from now on: one written before tokens held guids gets the node's guid.</summary>
+    string durableLink(string link) {
+        var end = endOfToken(link, TokenScheme.Length);
+        if (!tryParseToken(link[TokenScheme.Length..end], out var keys)) return link;
+        if (keys.NodeKey.HasGuid && !keys.NodeKey.HasInt) return link;
+        return TokenScheme + encode(keys) + link[end..];
+    }
+    static int endOfToken(string content, int start) {
+        var end = start;
+        while (end < content.Length && isTokenChar(content[end])) end++;
+        return end;
+    }
+
+    /// <summary>The stored form of a link to a node, or a node inside an embedded property: an rdb: token, which reads turn into its current URL.</summary>
+    public string GetContentLink(NodePath node) {
+        return TokenScheme + (node.Path.Length == 0 ? _tokenEncoder.GetUrl(durable(node.NodeKey), false) : _tokenEncoder.GetUrl(durable(node), false));
+    }
+    /// <summary>The stored form of a link to a file, or with an adjustment to a variant of it (a resized picture).</summary>
+    public string GetContentLink(PropertyPath property, FileAdjustmentBase? adjustment) {
+        return TokenScheme + (adjustment == null ? _tokenEncoder.GetUrl(durable(property), null, false) : _tokenEncoder.GetUrl(durable(property), adjustment, null, false));
+    }
+    /// <summary>What a stored link (an rdb: token, with or without a query and fragment after it) points at. Says nothing of whether that still exists.</summary>
+    public bool TryParseContentLink(string link, [MaybeNullWhen(false)] out UrlKeys keys) {
+        keys = null;
+        if (!link.StartsWith(TokenScheme, StringComparison.Ordinal)) return false;
+        return tryParseToken(link[TokenScheme.Length..endOfToken(link, TokenScheme.Length)], out keys);
     }
 
     // Guards against unbounded recursion: resolving a token calls the url manager, and a manager that
@@ -344,11 +397,14 @@ internal sealed class UrlSystem {
             var pos = 0;
             while (idx >= 0) {
                 sb.Append(content, pos, idx - pos);
-                var end = idx + TokenScheme.Length;
-                while (end < content.Length && isTokenChar(content[end])) end++;
-                var token = content[(idx + TokenScheme.Length)..end];
-                sb.Append(externalizeToken(token, ctx));
+                var end = endOfToken(content, idx + TokenScheme.Length);
+                var url = externalizeToken(content[(idx + TokenScheme.Length)..end], ctx);
+                sb.Append(url);
                 pos = end;
+                if (pos < content.Length && (content[pos] == '?' || content[pos] == '#')) { // the link's own query and fragment
+                    if (url == "#") pos = endOfLink(content, pos); // a dead link is "#" alone
+                    else if (content[pos] == '?' && url.Contains('?')) { sb.Append('&'); pos++; } // the URL has a query of its own
+                }
                 idx = pos >= content.Length ? -1 : content.IndexOf(TokenScheme, pos, StringComparison.Ordinal);
             }
             if (pos < content.Length) sb.Append(content, pos, content.Length - pos);
@@ -359,6 +415,12 @@ internal sealed class UrlSystem {
     }
     static bool isTokenChar(char c) {
         return char.IsAsciiLetterOrDigit(c) || c == '-' || c == '_' || c == '.';
+    }
+    // where an attribute value or a Markdown link target ends
+    static int endOfLink(string content, int start) {
+        var end = start;
+        while (end < content.Length && content[end] is not ('"' or '\'' or ')' or '<' or '>') && !char.IsWhiteSpace(content[end])) end++;
+        return end;
     }
     string externalizeToken(string token, QueryContext ctx) {
         try {
@@ -379,31 +441,57 @@ internal sealed class UrlSystem {
         }
     }
 
-    /// <summary>Rewrites public URLs to internal tokens in every HTML/Markdown string property of the node. Called at commit time so the stored form is canonical regardless of the write path.</summary>
+    /// <summary>
+    /// Rewrites public URLs to internal tokens in every HTML/Markdown string property of the node, and of the nodes in
+    /// its embedded properties. Called at commit time so the stored form is canonical regardless of the write path.
+    /// </summary>
     public void InternalizeContentValues(INodeData node, QueryContext ctx) {
-        var props = getContentProps(node.NodeType);
-        if (props.Length == 0) return;
-        foreach (var pid in props) {
+        foreach (var (pid, value) in internalizedValues(node, ctx)) node.AddOrUpdate(pid, value);
+    }
+    List<(Guid, object)> internalizedValues(INodeData node, QueryContext ctx) {
+        List<(Guid, object)> changed = [];
+        var (content, embedded) = getContentProps(node.NodeType);
+        foreach (var pid in content) {
             if (node.TryGetValue(pid, out var v) && v is string s && s.Length > 0) {
                 var rewritten = InternalizeContentLinks(s, ctx);
-                if (!ReferenceEquals(rewritten, s)) node.AddOrUpdate(pid, rewritten);
+                if (!ReferenceEquals(rewritten, s)) changed.Add((pid, rewritten));
             }
         }
+        foreach (var pid in embedded) {
+            if (node.TryGetValue(pid, out var v) && v is IInnerNodeDataMap map && map.Count > 0) {
+                var rewritten = internalizeInner(map, ctx);
+                if (!ReferenceEquals(rewritten, map)) changed.Add((pid, rewritten));
+            }
+        }
+        return changed;
     }
-    Guid[] getContentProps(Guid nodeTypeId) {
+    /// <summary>The embedded nodes with their links internalized: a copy when any changed, as a stored map is shared and read-only.</summary>
+    IInnerNodeDataMap internalizeInner(IInnerNodeDataMap map, QueryContext ctx) {
+        var result = map;
+        foreach (var inner in map) {
+            var changed = internalizedValues(inner, ctx);
+            if (changed.Count == 0) continue;
+            if (ReferenceEquals(result, map)) result = map.Copy();
+            if (!result.TryGetById(inner.Id, out var copy)) continue;
+            foreach (var (pid, value) in changed) copy.AddOrUpdate(pid, value);
+        }
+        return result;
+    }
+    (Guid[] Content, Guid[] Embedded) getContentProps(Guid nodeTypeId) {
         var map = _contentPropsByType;
         if (map == null) {
-            map = new Dictionary<Guid, Guid[]>();
+            map = new Dictionary<Guid, (Guid[], Guid[])>();
             foreach (var type in _db.Datamodel.NodeTypes.Values) {
-                var ids = type.AllProperties.Values
+                var content = type.AllProperties.Values
                     .OfType<StringPropertyModel>()
                     .Where(p => p.StringType == StringValueType.HTML || p.StringType == StringValueType.Markdown)
                     .Select(p => p.Id)
                     .ToArray();
-                map[type.Id] = ids;
+                var embedded = type.AllProperties.Values.OfType<EmbeddedPropertyModel>().Select(p => p.Id).ToArray();
+                map[type.Id] = (content, embedded);
             }
             _contentPropsByType = map; // benign race: identical content if built twice
         }
-        return map.TryGetValue(nodeTypeId, out var props) ? props : [];
+        return map.TryGetValue(nodeTypeId, out var props) ? props : ([], []);
     }
 }

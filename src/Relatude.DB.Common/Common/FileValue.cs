@@ -62,8 +62,9 @@ public class FileValue {
         f.PropertyPath = old.PropertyPath;
         f.Hash = old.Hash;
 
+        f.IsEmpty = old.IsEmpty;
+
         // allow new values:
-        f.IsEmpty = f.IsEmpty;
         f.Name = newValue.Name;
         f.TextExtract = newValue.TextExtract;
         f.MetaJSON = newValue.MetaJSON;

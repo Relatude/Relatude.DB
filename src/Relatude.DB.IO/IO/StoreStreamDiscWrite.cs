@@ -33,8 +33,11 @@ public class StoreStreamDiscWrite : IAppendStream {
     long _durableLength = -1;
     public StoreStreamDiscWrite(string fileKey, string filePath, bool readOnly, Action disposeCallback)
         : this(fileKey, filePath, readOnly, disposeCallback, null) { }
-    // streamFactory: for tests, a FileStream of their own on the handle opened here, to see which flushes reach it
-    internal StoreStreamDiscWrite(string fileKey, string filePath, bool readOnly, Action disposeCallback, Func<SafeFileHandle, FileAccess, FileStream>? streamFactory) {
+    // streamFactory: for tests, a FileStream of their own on the handle opened here, to see which flushes reach it.
+    // openTimeout: how long the open waits while another process holds the file, OpenTimeout when null; zero tries
+    // once, for a caller that waits between attempts itself (IOProviderDisk, which must not wait under its lock)
+    internal StoreStreamDiscWrite(string fileKey, string filePath, bool readOnly, Action disposeCallback, Func<SafeFileHandle, FileAccess, FileStream>? streamFactory,
+        TimeSpan? openTimeout = null) {
         _disposeCallback = disposeCallback;
         _filePath = filePath;
         FileKey = fileKey;
@@ -42,7 +45,7 @@ public class StoreStreamDiscWrite : IAppendStream {
         var dirPath = Path.GetDirectoryName(_filePath);
         if (dirPath == null) throw new NullReferenceException(nameof(dirPath));
         if (!Directory.Exists(dirPath)) Directory.CreateDirectory(dirPath);
-        _stream = getStream(_filePath, streamFactory, out _handle);
+        _stream = getStream(_filePath, streamFactory, openTimeout ?? OpenTimeout, out _handle);
         _lastLength = _stream.Length;
         _length = _lastLength;
         _osLength = _lastLength;
@@ -59,8 +62,8 @@ public class StoreStreamDiscWrite : IAppendStream {
     }
     // This is the handle that makes the database single-writer: FileShare.None on the log file. It is
     // also the first thing a restart contends with, so it waits for the previous process to let go.
-    static readonly TimeSpan _openTimeout = TimeSpan.FromSeconds(90);
-    FileStream getStream(string filePath, Func<SafeFileHandle, FileAccess, FileStream>? streamFactory, out SafeFileHandle handle) {
+    internal static readonly TimeSpan OpenTimeout = TimeSpan.FromSeconds(90);
+    FileStream getStream(string filePath, Func<SafeFileHandle, FileAccess, FileStream>? streamFactory, TimeSpan openTimeout, out SafeFileHandle handle) {
         SafeFileHandle? opened = null;
         var stream = FileOpenRetry.Open(filePath, () => {
             var access = _readOnly ? FileAccess.Read : FileAccess.ReadWrite;
@@ -74,7 +77,7 @@ public class StoreStreamDiscWrite : IAppendStream {
                 h.Dispose();
                 throw;
             }
-        }, _openTimeout);
+        }, openTimeout);
         handle = opened!;
         return stream;
     }

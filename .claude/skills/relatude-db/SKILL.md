@@ -186,7 +186,7 @@ The string attribute is the richest, and its flags decide what search can see:
 string Slug { get; set; }
 ```
 
-Use `[HtmlProperty]` for rich text — it is a `[StringProperty]` pre-set to `StringType = HTML`, so markup is stripped before word indexing.
+Use `[HtmlProperty]` for rich text — it is a `[StringProperty]` pre-set to `StringType = HTML`, so markup is stripped before word indexing. Links in it (and in Markdown) to the site's own pages and files are stored by id, as `rdb:` tokens with their query and fragment kept, and read back as current URLs, so they survive renames; see `references/datamodels.md`.
 
 Two details that trip people up, both in `references/datamodels.md`:
 

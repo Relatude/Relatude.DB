@@ -737,14 +737,15 @@ public sealed class UIServer {
     }
 
     /// <summary>One log file as the dialog lists it. The header is read for the moment the file
-    /// begins at, which is what tells two copies of a database apart at a glance - except on the file
+    /// begins at, which is what tells two copies of a database apart at a glance - except on a file
     /// a running database is holding, where there is nothing to read and nothing wrong with that
-    /// (<see cref="isLiveLogFile"/>); the dialog fills that one in from the database itself. A file
-    /// that cannot be read is listed with what went wrong rather than left out: a backup that has
+    /// (<see cref="isLiveLogFile"/>); the dialog fills that one in from the database itself. That is the
+    /// current file of an open database, and any file <paramref name="written"/> (see <see cref="isWritten"/>).
+    /// A file that cannot be read is listed with what went wrong rather than left out: a backup that has
     /// gone bad is exactly what somebody looking for one wants to be told.</summary>
     object describeLogFile(IIOProvider io, Guid ioId, string ioName, string[] key, long size, DateTime? modifiedUtc,
-        bool isBackup, bool isCurrent, NodeStoreContainer c) {
-        var inUse = isCurrent && c.Store != null && c.Store.State == DataStoreState.Open;
+        bool isBackup, bool isCurrent, bool written, NodeStoreContainer c) {
+        var inUse = written || isCurrent && c.Store != null && c.Store.State == DataStoreState.Open;
         string? firstChangeUtc = null, fileId = null, error = null;
         if (!inUse) {
             try {
@@ -784,13 +785,23 @@ public sealed class UIServer {
     }
     static DateTime backupTimeOrDefault(string[] key) => backupTimeOrNull(key) ?? DateTime.MinValue;
 
-    /// <summary>Whether this is the log file a running database is holding. It keeps it to itself
-    /// (FileShare.None), so nothing can read the file until the database is closed.</summary>
+    /// <summary>Whether this is a log file a running database is holding: its current one, or one it has
+    /// open for writing (<see cref="isWritten"/>). It keeps it to itself (FileShare.None), so nothing can
+    /// read the file until the database is closed.</summary>
     bool isLiveLogFile(NodeStoreContainer c, Guid ioId, string[] key) {
         if (c.Store == null || c.Store.State != DataStoreState.Open) return false;
         if (c.Settings.IoDatabase is not Guid dbIoId || dbIoId != ioId) return false;
-        return key.IsSameKey(FileKeyUtility.WAL_GetLatestFileKey(_server.GetIO(dbIoId)));
+        var io = _server.GetIO(dbIoId);
+        return key.IsSameKey(FileKeyUtility.WAL_GetLatestFileKey(io)) || isWritten(io, key);
     }
+
+    /// <summary>Whether this process has the file open for writing, which a database does with its log
+    /// file to itself (FileShare.None). The current log file is not the only one: while a log rewrite
+    /// runs, the database writes to the file it was writing to and the rewrite to a new one, which is
+    /// then the newest, so the file the database writes to is not the current one by its key. An open
+    /// of such a file only waits until it gives up.</summary>
+    static bool isWritten(IIOProvider io, string[] key) =>
+        io.GetFiles().Any(f => f.Writers > 0 && f.KeyOf().IsSameKey(key));
 
     /// <summary>The database's current log file, with the provider it lives in. Throws when there is
     /// nothing to read - every operation below copies from it or replaces it.</summary>
@@ -1285,7 +1296,7 @@ public sealed class UIServer {
                     if (!isBackup && !FileKeyUtility.WAL_IsFileKey(key)) continue;
                     listed.Add(provider.Id + "|" + key.AsKeyString());
                     var file = describeLogFile(io, provider.Id, provider.Name, key, meta.Size, meta.LastModifiedUtc,
-                        isBackup, provider.Id == dbIoId && key.IsSameKey(currentKey), c);
+                        isBackup, provider.Id == dbIoId && key.IsSameKey(currentKey), meta.Writers > 0, c);
                     if (isBackup) backups.Add((backupTimeOrDefault(key), file));
                     else data.Add(file);
                 }
@@ -1297,7 +1308,7 @@ public sealed class UIServer {
                 var io = _server.GetIO(extraIo);
                 var name = logFileProviders(c).FirstOrDefault(provider => provider.Id == extraIo).Name ?? "";
                 files.Add(describeLogFile(io, extraIo, name, key, io.GetFileSizeOrZeroIfUnknown(key), null,
-                    FileKeyUtility.WAL_IsBackUpFileKey(key), extraIo == dbIoId && key.IsSameKey(currentKey), c));
+                    FileKeyUtility.WAL_IsBackUpFileKey(key), extraIo == dbIoId && key.IsSameKey(currentKey), isWritten(io, key), c));
             }
             return (object?)files;
         });

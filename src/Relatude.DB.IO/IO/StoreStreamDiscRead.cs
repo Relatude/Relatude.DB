@@ -7,13 +7,17 @@ public class StoreStreamDiscRead : IReadStream {
     ChecksumUtil _checkSum = new();
     Action _disposeCallback;
     public string InnerFilePath => _filePath;
-    public StoreStreamDiscRead(string filePath, long position, Action disposeCallback) {
+    public StoreStreamDiscRead(string filePath, long position, Action disposeCallback)
+        : this(filePath, position, disposeCallback, OpenTimeout) { }
+    // openTimeout: how long the open waits while another process holds the file; zero tries once, for a caller
+    // that waits between attempts itself (IOProviderDisk, which must not wait under its lock)
+    internal StoreStreamDiscRead(string filePath, long position, Action disposeCallback, TimeSpan openTimeout) {
         _disposeCallback = disposeCallback;
         _filePath = filePath;
         var dirPath = Path.GetDirectoryName(_filePath);
         if (dirPath == null) throw new NullReferenceException(nameof(dirPath));
         if (!Directory.Exists(dirPath)) Directory.CreateDirectory(dirPath);
-        _stream = getStream(_filePath);
+        _stream = getStream(_filePath, openTimeout);
         _stream.Position = position;
     }
     long _bytesRead;
@@ -27,10 +31,11 @@ public class StoreStreamDiscRead : IReadStream {
     public long GetBytesRead() => _bytesRead;
     public void ResetByteCounter() => _bytesRead = 0;
     public string FileKey => Path.GetFileName(_filePath);
-    // Generous on purpose: this is the path that reads the state file and replays the log, and it has
-    // to outlast a backup agent holding the file, not just a process handover.
-    static readonly TimeSpan _openTimeout = TimeSpan.FromMinutes(16);
-    static FileStream getStream(string filePath) {
+    // How long an open waits while another process holds the file: a host handing over (FileOpenRetry.DefaultTimeout).
+    // It was 16 minutes, to outlast a backup agent too, but a file this process holds itself (the log file a running
+    // database or a log rewrite writes to) is not let go of while a reader waits, so such a wait only ever ran out.
+    internal static readonly TimeSpan OpenTimeout = FileOpenRetry.DefaultTimeout;
+    static FileStream getStream(string filePath, TimeSpan openTimeout) {
         return FileOpenRetry.Open(filePath, () => {
                 // SequentialScan hints the OS cache manager to read ahead and evict already-read pages,
                 // which speeds up the forward-only bulk reads this stream is used for (state file, log replay,
@@ -39,7 +44,7 @@ public class StoreStreamDiscRead : IReadStream {
                 // node reads use the append stream's Get(), and the seekable AsStream() path unwraps to a plain
                 // FileStream (see ReadStreamWrapper.Wrap).
                 return new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.SequentialScan);
-        }, _openTimeout);
+        }, openTimeout);
     }
 
     public long Position { get => _stream.Position; set => _stream.Position = value; }

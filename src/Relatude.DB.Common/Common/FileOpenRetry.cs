@@ -78,11 +78,14 @@ public static class FileOpenRetry {
     /// <para><paramref name="log"/> - or <see cref="DefaultLog"/> when it is null - is called at most
     /// twice: once when the wait begins, once when it ends. A wait that is never logged is
     /// indistinguishable from a hang.</para>
+    /// <para>A <paramref name="timeout"/> of zero makes one attempt and lets its failure through as it is,
+    /// for a caller that waits between attempts itself.</para>
     /// </summary>
     /// <exception cref="FileLockedException">The file was still held when the budget ran out.</exception>
     public static T Open<T>(string path, Func<T> open, TimeSpan? timeout = null, Action<string>? log = null) {
         log ??= DefaultLog;
         var budget = timeout ?? DefaultTimeout;
+        if (budget <= TimeSpan.Zero) return open(); // one attempt, failing as it fails: the caller waits between attempts itself
         var name = Path.GetFileName(path);
         return Retry.Run(open, IsSharingViolation, budget,
             onWaitStarted: (_, err) => log?.Invoke("\"" + name + "\" is held by another process, waiting up to "

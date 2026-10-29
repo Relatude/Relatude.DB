@@ -152,7 +152,7 @@ export interface DashboardLive {
   /** Set only while the database is opening: how far it has come. */
   opening?: OpeningProgress | null;
   conversions?: { running: number; queued: number; failed: number };
-  activities?: { category: string; description: string | null; percentageProgress: number | null }[];
+  activities?: { id?: number; parentId?: number; depth?: number; category: string; description: string | null; percentageProgress: number | null }[];
   /** The server's storage providers, all of them: cumulative like the counters; unset from an older server. */
   io?: IoActivity;
   /** The caches' hits and misses on the live cadence; unset from an older server. */

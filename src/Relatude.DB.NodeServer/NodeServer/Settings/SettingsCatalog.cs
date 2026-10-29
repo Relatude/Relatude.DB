@@ -754,6 +754,10 @@ public static class SettingsCatalog {
                             Help = "The root used for requests whose host matches no configured domain - local development and staging. Empty falls back to the first domain's root.",
                         },
                         new() {
+                            Path = "LocalSettings.UrlOptions.OwnHosts", Label = "Other hosts of this site", Placeholder = "staging.site.com, localhost",
+                            Help = "Hosts this site is also served at, besides the domains and the base addresses, separated by commas. A link in HTML or Markdown to one of them is stored by id, so it survives renames. A link to any other host is another site's and is kept as written, even when its path is one of this site's.",
+                        },
+                        new() {
                             Path = "LocalSettings.UrlOptions.AssetUrlStyle", Label = "File URL style",
                             Help = "AssetRoot puts file URLs under their own root. UnderPageUrl builds them on top of the owning page's URL, which keeps a file's address next to the page it belongs to.",
                         },

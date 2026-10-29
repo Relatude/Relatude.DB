@@ -234,7 +234,7 @@ export interface LogFileInfo extends LogFileSource {
   size: number;
   modifiedUtc: string | null;
   isCurrent: boolean; // the database's current log file key
-  inUse: boolean; // ... and the database is open, so the file is held and cannot be read
+  inUse: boolean; // ... and the database is open, or the file is open for writing (a log rewrite's), so it is held and cannot be read
   backupUtc: string | null;
   keepForever: boolean;
   firstChangeUtc: string | null;

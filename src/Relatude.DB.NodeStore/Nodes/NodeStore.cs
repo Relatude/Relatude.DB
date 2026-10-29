@@ -1507,6 +1507,17 @@ public class NodeStore : IDisposable {
     public string? ExternalizeContentLinks(string? content, QueryContext? ctx = null) => content == null ? null : Datastore.ExternalizeContentLinks(content, ctx);
     /// <summary>Rewrites resolvable public URLs in an HTML or Markdown value into internal id-based rdb: link tokens that survive renames. Writes do this automatically at commit time.</summary>
     public string? InternalizeContentLinks(string? content, QueryContext? ctx = null) => content == null ? null : Datastore.InternalizeContentLinks(content, ctx);
+    /// <summary>
+    /// The link to a node as an HTML or Markdown value stores it: an id based rdb: link token, which reads turn into the
+    /// node's current URL. Write it as an href (a query or fragment after it is kept) to link to the node without its URL.
+    /// </summary>
+    public string GetContentLink(Guid nodeId) => Datastore.GetContentLink(new NodePath(nodeId));
+    /// <summary>The stored link to a node, or to a node inside an embedded property. See <see cref="GetContentLink(Guid)"/>.</summary>
+    public string GetContentLink(NodePath node) => Datastore.GetContentLink(node);
+    /// <summary>The stored link to a file, or with an adjustment to a variant of it, such as a resized picture for an img src.</summary>
+    public string GetContentLink(PropertyPath property, FileAdjustmentBase? adjustment = null) => Datastore.GetContentLink(property, adjustment);
+    /// <summary>What a stored link (an rdb: link token) points at. False when it is not one; true says nothing of whether the target still exists.</summary>
+    public bool TryParseContentLink(string link, [MaybeNullWhen(false)] out UrlKeys result) => Datastore.TryParseContentLink(link, out result);
 
     /// <summary>Takes a URL apart into what it points at: node, file property and requested variant. False if it is not one of ours.</summary>
     public bool TryParseUrl(string url, [MaybeNullWhen(false)] out UrlKeys result, QueryContext? ctx = null) => Datastore.TryParseUrl(url, out result, ctx);

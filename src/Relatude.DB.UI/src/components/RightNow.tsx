@@ -148,7 +148,8 @@ export function RunningPanel({ live, rewrite }: { live: DashboardLive | null; re
  * vanishing between two samples. Used by "Running operations" and by the panel watching a database open.
  */
 export function ActivityList({ activities, empty }: { activities: Activity[]; empty?: ReactNode }) {
-  const rows = useLeaving(activities, activityKey, leaveMs);
+  const rows = useLeaving(keyedByPath(activities), (a) => a.key, leaveMs);
+  const lines = treeLines(rows.map((r) => r.item.depth ?? 0));
   // when each row was first seen, and when it was seen to finish: the clock beside it counts from
   // the one and stops at the other. The server does not say when work began, so the page's first
   // sight of it is the best there is - a row a page opens onto starts at nought.
@@ -166,16 +167,23 @@ export function ActivityList({ activities, empty }: { activities: Activity[]; em
 
   return (
     <>
-      {rows.map(({ item: a, key, leaving }) => {
+      {rows.map(({ item: a, key, leaving }, i) => {
         const cat = categories[a.category] ?? { label: a.category, icon: IconActivity };
+        const tree = lines[i];
         const pct = a.percentageProgress == null ? null : Math.min(100, Math.max(0, a.percentageProgress));
         const s = seen.current.get(key);
         const elapsed = s ? (s.until ?? now) - s.since : 0;
         return (
-          <div key={key} className={"now-act cat-" + a.category.toLowerCase() + (leaving ? " leaving" : "")} aria-hidden={leaving || undefined}>
+          <div
+            key={key}
+            className={"now-act cat-" + a.category.toLowerCase() + (tree.depth > 0 ? " child" : "") + (leaving ? " leaving" : "")}
+            aria-hidden={leaving || undefined}
+            aria-level={tree.depth + 1}
+          >
             <div className="now-act-clip">
-              <div className="now-act-body">
-                <ActivityBadge icon={cat.icon} progress={pct} done={leaving} />
+              <div className="now-act-body" style={tree.depth > 0 ? { paddingLeft: tree.depth * treeIndent } : undefined}>
+                <TreeGuides lines={tree} />
+                <ActivityBadge icon={cat.icon} progress={pct} done={leaving} size={tree.depth > 0 ? childBadgeSize : rootBadgeSize} />
                 <div className="now-act-head">
                   <span className="now-act-cat" title={a.category}>
                     {cat.label}
@@ -212,8 +220,7 @@ export function ActivityList({ activities, empty }: { activities: Activity[]; em
  * the ring is how far the work has come, and work that does not say turns a short arc instead. Once
  * it is done the ring closes and the icon becomes a tick.
  */
-function ActivityBadge({ icon: Icon, progress, done }: { icon: typeof IconSearch; progress: number | null; done: boolean }) {
-  const size = 32;
+function ActivityBadge({ icon: Icon, progress, done, size }: { icon: typeof IconSearch; progress: number | null; done: boolean; size: number }) {
   const stroke = 2;
   const centre = size / 2;
   const radius = centre - stroke / 2 - 0.5;
@@ -222,7 +229,7 @@ function ActivityBadge({ icon: Icon, progress, done }: { icon: typeof IconSearch
   // an arc that turns keeps turning as it closes: a whole ring turning looks the same as one at
   // rest, so there is no moment where it stops and jumps back to the top
   return (
-    <span className={"now-badge" + (progress == null ? " turning" : "")}>
+    <span className={"now-badge" + (progress == null ? " turning" : "")} style={{ width: size, height: size }}>
       <svg className="now-badge-ring" width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden="true">
         <circle className="now-badge-track" cx={centre} cy={centre} r={radius} strokeWidth={stroke} />
         <circle
@@ -237,8 +244,8 @@ function ActivityBadge({ icon: Icon, progress, done }: { icon: typeof IconSearch
         />
       </svg>
       <span className="now-badge-core">
-        <Icon className="now-badge-icon" size={15} stroke={1.9} />
-        <IconCheck className="now-badge-done" size={16} stroke={2.4} />
+        <Icon className="now-badge-icon" size={size > childBadgeSize ? 15 : 12} stroke={1.9} />
+        <IconCheck className="now-badge-done" size={size > childBadgeSize ? 16 : 13} stroke={2.4} />
       </span>
     </span>
   );
@@ -376,11 +383,61 @@ function useTweened(target: number, ms: number): number {
 // What an activity is, for keeping its row between samples: the category and its description with
 // the numbers taken out, since a description that counts up ("rewriting 4,201 of 9,000") is still
 // the same piece of work. A second one just like it gets a suffix.
-function activityKey(a: Activity, _index: number, taken: Set<string>): string {
-  const base = a.category + ":" + (a.description ?? "").replace(/[\d.,%]+/g, "#");
-  let key = base;
-  for (let n = 2; taken.has(key); n++) key = base + "#" + n;
-  return key;
+const rootBadgeSize = 32;
+const childBadgeSize = 24;
+const treeIndent = 26;
+
+function keyedByPath(activities: Activity[]): (Activity & { key: string })[] {
+  const keyOfId = new Map<number, string>();
+  const taken = new Set<string>();
+  return activities.map((a) => {
+    const parentKey = a.parentId ? keyOfId.get(a.parentId) : undefined;
+    const base = (parentKey ? parentKey + "/" : "") + a.category + ":" + (a.description ?? "").replace(/[\d.,%]+/g, "#");
+    let key = base;
+    for (let n = 2; taken.has(key); n++) key = base + "#" + n;
+    taken.add(key);
+    if (a.id != null) keyOfId.set(a.id, key);
+    return { ...a, key };
+  });
+}
+
+interface TreeLine {
+  depth: number;
+  ancestorsContinue: boolean[];
+  lastChild: boolean;
+  hasChildren: boolean;
+}
+
+function treeLines(depths: number[]): TreeLine[] {
+  return depths.map((depth, i) => {
+    const continuesBelow = (level: number) => {
+      for (let j = i + 1; j < depths.length && depths[j] >= level; j++) if (depths[j] === level) return true;
+      return false;
+    };
+    return {
+      depth,
+      ancestorsContinue: Array.from({ length: Math.max(0, depth - 1) }, (_, k) => continuesBelow(k + 1)),
+      lastChild: depth > 0 && !continuesBelow(depth),
+      hasChildren: (depths[i + 1] ?? 0) > depth,
+    };
+  });
+}
+
+function guideX(level: number): number {
+  return (level - 1) * treeIndent + (level === 1 ? rootBadgeSize : childBadgeSize) / 2;
+}
+
+function TreeGuides({ lines }: { lines: TreeLine }) {
+  const { depth } = lines;
+  const ownBadge = depth > 0 ? childBadgeSize : rootBadgeSize;
+  if (depth === 0 && !lines.hasChildren) return null;
+  return (
+    <span className="now-tree" aria-hidden="true">
+      {lines.ancestorsContinue.map((on, k) => on && <i key={k} className="now-tree-through" style={{ left: guideX(k + 1) }} />)}
+      {depth > 0 && <i className={"now-tree-elbow" + (lines.lastChild ? " last" : "")} style={{ left: guideX(depth), width: depth * treeIndent - guideX(depth) }} />}
+      {lines.hasChildren && <i className="now-tree-stem" style={{ left: depth * treeIndent + ownBadge / 2, top: `calc(50% + ${ownBadge / 2}px)` }} />}
+    </span>
+  );
 }
 
 /** Renders again every `ms` while `on`: for a clock that would otherwise only move when a sample lands. */

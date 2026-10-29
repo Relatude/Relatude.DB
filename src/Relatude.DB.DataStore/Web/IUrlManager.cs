@@ -67,6 +67,14 @@ public interface IUrlManager {
     /// </summary>
     AssetTokenMatch? TryGetAssetToken(string completeUrl);
 
+    /// <summary>
+    /// True when a URL in an HTML or Markdown value is one of this site's, so the store resolves it and keeps it as an
+    /// id based link that survives renames. A path from the root ("/about") is; a path relative to the page it is on
+    /// ("about") never is, as the store does not know that page; a URL with a host only when this site is served at
+    /// that host, since another site's URL can have the path of one of this site's pages. The default knows no host.
+    /// </summary>
+    bool IsOwnUrl(string url) => UrlUtil.IsRootRelative(url);
+
 }
 
 /// <summary>

@@ -86,6 +86,13 @@ public class DefaultUrlManagerOptions {
     public UrlDomain[] Domains { get; set; } = [];
     /// <summary>Root used for requests with an unknown or missing host (local development, staging). Defaults to the first configured domain's root.</summary>
     public Guid? FallbackRootId { get; set; }
+    /// <summary>
+    /// Hosts this site is served at besides those in <see cref="Domains"/> and the absolute base addresses, separated by
+    /// commas: "staging.site.com, localhost". A link in HTML or Markdown with one of these hosts, or theirs, is kept as
+    /// an id based link that survives renames; a link with any other host is another site's and stays as written, even
+    /// when its path is one of this site's. Compared case-insensitively, without port. See <see cref="UrlManagerBase.OwnHosts"/>.
+    /// </summary>
+    public string? OwnHosts { get; set; }
     /// <summary>Scheme used for absolute URLs.</summary>
     public string Scheme { get; set; } = "https";
     /// <summary>Upper bound on the parent-chain walk, guarding against relation cycles.</summary>
@@ -158,7 +165,12 @@ public class DefaultUrlManager : UrlManagerBase, IUrlManagerBatch {
         AssetUrlSignatureKey = options.AssetUrlSignatureKey;
         PrimaryBaseAddress = options.PrimaryBaseAddress; // applies to both lanes, before the lane bases
         BaseAddressAssets = options.BaseAddressAssets;
+        OwnHosts = (options.OwnHosts ?? "").Split([',', ';', ' '], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         (_basePages, _basePagesPath) = CombineBaseAddresses(options.PrimaryBaseAddress, options.BaseAddressPages);
+    }
+    protected override bool IsOwnHost(string host) {
+        return base.IsOwnHost(host) || _rootByHost.ContainsKey(host)
+            || string.Equals(UrlUtil.GetHost(_basePages), host, StringComparison.OrdinalIgnoreCase);
     }
     public override void Initialize(IDataStore store) {
         _db = store;

@@ -36,7 +36,14 @@ internal static class Utils {
                     value = normalized;
                     changed = true;
                 }
-                if (transformValues) value = prop.TransformFromOuterToInnerValue(value, oldNode);
+                if (transformValues) {
+                    // what the property takes of a value written from outside: a file value, say, may not name a stored file
+                    var transformed = prop.TransformFromOuterToInnerValue(value, oldNode);
+                    if (!ReferenceEquals(transformed, value)) {
+                        value = transformed;
+                        changed = true;
+                    }
+                }
                 prop.ValidateValue(value, node);
                 if (changed) node.AddOrUpdate(kv.PropertyId, value);
             } else {

@@ -293,12 +293,17 @@ sealed class UIDashboard {
         }
     }
 
-    // flattened: the tree is one level deep in practice, and a nested list of one-liners reads
-    // worse than the list itself
     static object[] activities(DataStoreStatus status) {
-        return [.. status.ActivityTree
-            .SelectMany(branch => new[] { branch.Activity }.Concat(branch.Children.Select(child => child.Activity)))
-            .Select(a => (object)new { Category = a.Category.ToString(), a.Description, a.PercentageProgress })];
+        var rows = new List<object>();
+        void addDepthFirst(IEnumerable<ActivityBranch> branches, int depth) {
+            foreach (var branch in branches) {
+                var a = branch.Activity;
+                rows.Add(new { a.Id, a.ParentId, Depth = depth, Category = a.Category.ToString(), a.Description, a.PercentageProgress });
+                addDepthFirst(branch.Children, depth + 1);
+            }
+        }
+        addDepthFirst(status.ActivityTree, 0);
+        return [.. rows];
     }
 
     object? startupError(NodeStoreContainer c) {

@@ -2195,7 +2195,7 @@ or `FileStoreSettings.CreateMultiFile(ioProviderId)`, also starts with `SameHash
 | `IoProviderId` | – | Which `IOSettings` entry holds the bytes. Must exist, or the open throws. |
 | `StoreType` | `SingleFile` | `SingleFile` packs everything into one append-only container file — fewer file handles, and cheap on blob storage. `MultiFile` writes one file per upload, which is what you want when something outside the engine also reads the files. |
 | `MultiFileFolderDepth` | 2 | `MultiFile` only: how many levels of hashed subfolders to spread files over, so no directory grows unmanageably large. |
-| `SameHashSameFile` | `true`; `false` when absent | `MultiFile` only: keep one copy of any content. An upload with the same hash and length as a file the store already holds is not stored again — its `FileValue` points at the existing copy (`FileId` is then derived from the hash, and `Name` stays the upload's own). Shared files are only deleted by the unreferenced file cleanup, never by `FileDeleteAsync`. Applies to new uploads; files already stored stay where they are, and stay readable if it is turned off again. Cached conversions (thumbnails, resized images, video) are shared too, per source format. On blob storage a new file is written twice, as it is copied into place. |
+| `SameHashSameFile` | `true`; `false` when absent | `MultiFile` only: keep one copy of any content. An upload with the same hash and length as a file the store already holds is not stored again — its `FileValue` points at the existing copy (`FileId` is then derived from the hash, and `Name` stays the upload's own). Shared files, as every stored file, are only deleted by the unreferenced file cleanup, never by `FileDeleteAsync`. Applies to new uploads; files already stored stay where they are, and stay readable if it is turned off again. Cached conversions (thumbnails, resized images, video) are shared too, per source format. On blob storage a new file is written twice, as it is copied into place. |
 | `HashAlgorithm` | `SHA256`; `MD5` when absent | `MultiFile` only: the hash computed over every upload, stored in `FileValue.Hash` and, with `SameHashSameFile`, what decides that two uploads are the same file. `SHA256` is the safer choice when people who are not trusted can upload, as two different files with the same MD5 can be made on purpose; on processors with SHA instructions (Intel since Ice Lake / Alder Lake, AMD since Zen, ARM64 servers) it is also about three times faster than MD5. Changing it affects new uploads only. |
 
 **"When absent"** is what a store gets when its JSON leaves the key out: a store written before these
@@ -3526,6 +3526,18 @@ The node has to be stored before any of this: `FileValue.PropertyPath` is what a
 upload, and it is `null` on an unsaved node. The upload writes the bytes *and* the `FileValue` on
 the node, so there is no `Update` to make afterwards.
 
+Only the store puts a stored file into a property: an upload, or a copy (below). A `FileValue` written
+with the rest of a node, by `Update` or a transaction, may take the file out (`FileValue.Empty`) or
+change what may change of the file the property holds - its name, meta, extracted text, width and
+height - and nothing else. A value naming another stored file is not taken, nor any file in a node
+being inserted: the property keeps what it has. So `b.Photo = a.Photo` copies nothing (use
+`FileCopyAsync`), and an object read before an upload and written back after it keeps the upload.
+
+`FileDeleteAsync` takes the file out of the property, in the revision the context reads. Its bytes
+stay in the store until the unreferenced file cleanup (the job `delete-unreferenced-files`) finds
+nothing pointing at them, as when an upload replaces a file or a node is deleted: a revision is made
+of its source's values, so a draft and the published version hold the same stored file.
+
 ### Copying files
 
 ```csharp
@@ -3797,6 +3809,7 @@ builder.AddRelatudeDB(options => {
 | `Parents` | The relations that lead from a node to its parent, in priority order. Each is a `UrlParentRelation` with `ParentRelationId` **or** `ParentRelationName` (CodeName or full name), plus `ParentIsRelationSource` (default `true`: the parent sits on the source side). Empty means flat — every node is top level. |
 | `Domains` | `UrlDomain { Host, RootId }` pairs. Each host serves the subtree of its root node, and the root itself answers at `/`. Nothing about the domain is stored on any node, so the same content runs locally unchanged. |
 | `FallbackRootId` | The root used when the host is unknown — localhost, staging, tests. Defaults to the first configured domain's root. |
+| `OwnHosts` | Other hosts the site is served at, separated by commas (`"staging.site.com, localhost"`). Links in HTML and Markdown to them are stored by id, like links to the domains (18.2). |
 | `Scheme` | Scheme for absolute URLs. Default `https`. |
 | `MaxDepth` | Cycle guard on the parent walk. Default 32. |
 
@@ -4004,14 +4017,34 @@ an internal, id-based form and never as public URLs:
 ```
 
 The conversion is automatic in both directions: public URLs in a value you save are rewritten to
-`rdb:` tokens at commit time, and tokens are rewritten to current public URLs on every read. External
-links, anchors, `mailto:` and unresolvable URLs pass through untouched, the rewrite is idempotent, and
-a token whose target has been deleted comes back as `href="#"`.
+`rdb:` tokens at commit time, and tokens are rewritten to current public URLs on every read. That
+holds for every write path, and for HTML inside embedded nodes too. The rewrite is idempotent, and a
+token whose target has been deleted comes back as `href="#"`, while the stored value keeps the token.
+
+What becomes a token:
+
+- **Pages, files and file variants.** A link to a page, an `src` of a file, and a resized or
+  converted variant of one (the adjustment is kept in the token, the URL's version is not).
+- **Only this site's URLs.** A path from the root (`/tv/sony-x90`) is resolved, and so is a URL whose
+  host is one of the site's: a domain's host, the host of an absolute base address, or one listed in
+  `OwnHosts` (`"staging.site.com, localhost"`). Another site's URL stays as written even when its path
+  is one of this site's, and so does a path relative to the page (`info`), as the store does not know
+  which page the value is on. Anchors, `mailto:`, `tel:` and unresolvable URLs pass through too.
+- **The query and fragment are kept.** `/tv/sony-x90?tab=specs#reviews` is stored as the token with
+  `?tab=specs#reviews` after it, and read as the current URL with them. A file's query is part of its
+  address and lives in the token, so only its fragment is kept (`#page=3`).
+- **By guid.** A token holds the node's guid: its int id can change between instances of a database.
+  A token stored with an int id still reads, and is given the guid the next time its value is saved.
+
+A custom URL manager says what is the site's with `IUrlManager.IsOwnUrl`; the default accepts paths
+from the root only, and `UrlManagerBase` adds `OwnHosts` and the base addresses.
 
 That is why renaming a section is genuinely one write: the stored HTML is not touched, and the next
 read of it simply emits the new paths. `db.ExternalizeContentLinks` and `db.InternalizeContentLinks`
 expose the same conversion for content you handle yourself, and a migration utility can internalise
-existing content in place.
+existing content in place. An editor can work with the stored form directly: `db.GetContentLink(nodeId)`
+and `db.GetContentLink(propertyPath, adjustment)` give the token to insert, and
+`db.TryParseContentLink(link, out var keys)` says what one points at.
 
 ### Writing your own manager
 

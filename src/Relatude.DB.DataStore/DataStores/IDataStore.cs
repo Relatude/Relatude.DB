@@ -79,6 +79,12 @@ public interface IDataStore : IDisposable {
     string ExternalizeContentLinks(string content, QueryContext? ctx = null);
     /// <summary>Rewrites resolvable public URLs in an HTML or Markdown value to internal id-based rdb: link tokens that survive renames. External links are left untouched.</summary>
     string InternalizeContentLinks(string content, QueryContext? ctx = null);
+    /// <summary>The rdb: link token of a node, or of a node inside an embedded property: what an HTML or Markdown value stores for a link to it.</summary>
+    string GetContentLink(NodePath node);
+    /// <summary>The rdb: link token of a file, or with an adjustment of a variant of it.</summary>
+    string GetContentLink(PropertyPath property, FileAdjustmentBase? adjustment = null);
+    /// <summary>What an rdb: link token points at. False when it is not one; true says nothing of whether the target still exists.</summary>
+    bool TryParseContentLink(string link, [MaybeNullWhen(false)] out UrlKeys result);
 
     bool CanConvert(FileFormat from, FileFormat to);
     bool CanConvert(PropertyPath propertyPath, FileAdjustmentBase adj, QueryContext? ctx = null);

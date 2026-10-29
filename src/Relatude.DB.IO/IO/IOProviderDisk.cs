@@ -1,4 +1,5 @@
-﻿using System.Diagnostics.CodeAnalysis;
+﻿using Relatude.DB.Common;
+using System.Diagnostics.CodeAnalysis;
 
 namespace Relatude.DB.IO;
 
@@ -83,10 +84,17 @@ public class IOProviderDisk : IIOProvider {
             }
         }
     }
+    // Each attempt at opening a file runs under the lock, so a stream is registered as it opens and a file OpenAppend
+    // makes is in its folder before DeleteFolderIfEmpty looks; the waits between attempts, while another process
+    // holds the file, run outside it. With the waits under the lock every other call of the provider waited too, and
+    // the database reads file sizes under its store lock: a request reading the header of the log file a log rewrite
+    // was writing to stopped every request of the site until its open gave up.
+    T open<T>(string filePath, TimeSpan timeout, Func<T> attempt) =>
+        FileOpenRetry.Open(filePath, () => { lock (_lock) return attempt(); }, timeout);
     public IReadStream OpenRead(string[] path, long position) {
         var filePath = filePathOf(path);
         var fileKey = path.AsKeyString();
-        lock (_lock) {
+        return open(filePath, StoreStreamDiscRead.OpenTimeout, () => {
             IReadStream? stream = null;
             stream = new StoreStreamDiscRead(filePath, position, () => {
                 lock (_lock) {
@@ -94,12 +102,12 @@ public class IOProviderDisk : IIOProvider {
                     _closedStreams += stream!.Counters;
                     _openStreams.Remove(stream!);
                 }
-            });
+            }, TimeSpan.Zero);
             stream = new StoreStreamBufferedRead(stream, 1024 * 1024); // turned out that buffering helps a lot in any case
             registerReader(fileKey);
             _openStreams.Add(stream);
             return stream;
-        }
+        });
     }
     public bool Exists(string[] path) {
         return File.Exists(filePathOf(path));
@@ -107,7 +115,7 @@ public class IOProviderDisk : IIOProvider {
     public IAppendStream OpenAppend(string[] path) {
         var filePath = filePathOf(path);
         var fileKey = path.AsKeyString();
-        lock (_lock) {
+        return open(filePath, StoreStreamDiscWrite.OpenTimeout, () => {
             StoreStreamDiscWrite? stream = null;
             stream = new StoreStreamDiscWrite(fileKey, filePath, _readOnly, () => {
                 lock (_lock) {
@@ -115,11 +123,11 @@ public class IOProviderDisk : IIOProvider {
                     _closedStreams += stream!.Counters;
                     _openStreams.Remove(stream!);
                 }
-            });
+            }, null, TimeSpan.Zero);
             registerWriter(fileKey);
             _openStreams.Add(stream);
-            return stream;
-        }
+            return (IAppendStream)stream;
+        });
     }
     public void DeleteFileIfItExists(string[] path) {
         lock (_lock) {

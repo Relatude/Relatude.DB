@@ -244,5 +244,8 @@ public sealed partial class DataStoreLocal : IDataStore {
     public string InternalizeContentLinks(string content, QueryContext? ctx = null) {
         return _urls.InternalizeContentLinks(content, ctx ?? _defaultQueryCtx);
     }
+    public string GetContentLink(NodePath node) => _urls.GetContentLink(node);
+    public string GetContentLink(PropertyPath property, FileAdjustmentBase? adjustment = null) => _urls.GetContentLink(property, adjustment);
+    public bool TryParseContentLink(string link, [MaybeNullWhen(false)] out UrlKeys result) => _urls.TryParseContentLink(link, out result);
 
 }
