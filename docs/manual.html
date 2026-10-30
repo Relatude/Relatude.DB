@@ -6551,17 +6551,32 @@ and a culture, and values of its own: <code>CreateRevision</code> copies one int
 (<code>Preliminary</code>) of the published version, or a version in another culture, by code - and a write in
 a context that selects a revision changes that one alone. Values are never copied between
 revisions: saving or publishing the <code>nb-NO</code> version leaves the <code>en-US</code> one as it is.</p>
-<div class="codehilite"><pre><span></span><code><span class="n">db</span><span class="p">.</span><span class="n">EnableRevisions</span><span class="p">(</span><span class="n">id</span><span class="p">,</span><span class="w"> </span><span class="k">out</span><span class="w"> </span><span class="kt">var</span><span class="w"> </span><span class="n">neutral</span><span class="p">);</span><span class="w">                                              </span><span class="c1">// its version, published</span>
-<span class="n">db</span><span class="p">.</span><span class="n">CreateRevision</span><span class="p">(</span><span class="n">id</span><span class="p">,</span><span class="w"> </span><span class="n">neutral</span><span class="p">,</span><span class="w"> </span><span class="n">RevisionType</span><span class="p">.</span><span class="n">Published</span><span class="p">,</span><span class="w"> </span><span class="k">out</span><span class="w"> </span><span class="kt">var</span><span class="w"> </span><span class="n">norwegian</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;nb-NO&quot;</span><span class="p">);</span><span class="w">   </span><span class="c1">// a version in nb-NO</span>
+<div class="codehilite"><pre><span></span><code><span class="n">db</span><span class="p">.</span><span class="n">EnableRevisions</span><span class="p">(</span><span class="n">id</span><span class="p">,</span><span class="w"> </span><span class="k">out</span><span class="w"> </span><span class="kt">var</span><span class="w"> </span><span class="n">english</span><span class="p">);</span><span class="w">                                              </span><span class="c1">// its version, published</span>
+<span class="n">db</span><span class="p">.</span><span class="n">ChangeRevisionCulture</span><span class="p">(</span><span class="n">id</span><span class="p">,</span><span class="w"> </span><span class="n">english</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;en-US&quot;</span><span class="p">);</span><span class="w">                                       </span><span class="c1">// in en-US</span>
+<span class="n">db</span><span class="p">.</span><span class="n">CreateRevision</span><span class="p">(</span><span class="n">id</span><span class="p">,</span><span class="w"> </span><span class="n">english</span><span class="p">,</span><span class="w"> </span><span class="n">RevisionType</span><span class="p">.</span><span class="n">Published</span><span class="p">,</span><span class="w"> </span><span class="k">out</span><span class="w"> </span><span class="kt">var</span><span class="w"> </span><span class="n">norwegian</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;nb-NO&quot;</span><span class="p">);</span><span class="w">   </span><span class="c1">// a version in nb-NO</span>
 <span class="n">db</span><span class="p">.</span><span class="n">CreateRevision</span><span class="p">(</span><span class="n">id</span><span class="p">,</span><span class="w"> </span><span class="n">norwegian</span><span class="p">,</span><span class="w"> </span><span class="n">RevisionType</span><span class="p">.</span><span class="n">Preliminary</span><span class="p">,</span><span class="w"> </span><span class="k">out</span><span class="w"> </span><span class="kt">var</span><span class="w"> </span><span class="n">draft</span><span class="p">);</span><span class="w">            </span><span class="c1">// a draft of that one</span>
 <span class="n">db</span><span class="p">.</span><span class="n">Execute</span><span class="p">(</span><span class="n">db</span><span class="p">.</span><span class="n">CreateTransaction</span><span class="p">()</span><span class="w">                                                     </span><span class="c1">// published over it: one per culture</span>
 <span class="w">    </span><span class="p">.</span><span class="n">ChangeRevisionType</span><span class="p">(</span><span class="n">id</span><span class="p">,</span><span class="w"> </span><span class="n">norwegian</span><span class="p">,</span><span class="w"> </span><span class="n">RevisionType</span><span class="p">.</span><span class="n">Archived</span><span class="p">)</span>
 <span class="w">    </span><span class="p">.</span><span class="n">ChangeRevisionType</span><span class="p">(</span><span class="n">id</span><span class="p">,</span><span class="w"> </span><span class="n">draft</span><span class="p">,</span><span class="w"> </span><span class="n">RevisionType</span><span class="p">.</span><span class="n">Published</span><span class="p">));</span>
 </code></pre></div>
 
+<p>A node's versions are all neutral or all in cultures, never both: a neutral version is what every
+culture without one of its own reads, so beside versions in cultures it would answer for some
+cultures and not others. A neutral node given a version in a culture goes into that culture, every
+version of it: <code>CreateRevision</code> in <code>nb-NO</code> from a neutral node, or <code>ChangeRevisionCulture</code> of one of
+its revisions to <code>nb-NO</code>, moves its other revisions to <code>nb-NO</code> too. So a new <em>published</em> version in a
+neutral node's first culture is refused when the node has a published version, which becomes that
+culture's: make a draft and publish it over that one. A version cannot be made neutral while the node
+has others in cultures; <code>ChangeCulture(id, code)</code> moves the whole node, every version of it, to a
+culture or to none (<code>""</code>), revisions or not, and <code>Insert(node, cultureCode)</code> inserts it in one.
+Nodes stored with both before the rule are read as they are, and an action on one only refuses to
+add a neutral version to it.</p>
+<div class="codehilite"><pre><span></span><code><span class="n">db</span><span class="p">.</span><span class="n">ChangeCulture</span><span class="p">(</span><span class="n">id</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">);</span><span class="w">        </span><span class="c1">// the whole node neutral again: refused while it is published in two cultures</span>
+</code></pre></div>
+
 <p>A culture has one published revision at most: publishing another archives it first, in the same
 transaction. A reader gets published revisions only - its culture's, else with <code>CultureFallbacks</code>
-the neutral one first and then the other cultures in the order they were made, else the neutral one -
+a neutral node's or the node's other cultures in the order they were made -
 and a node with nothing it can read is left out of its queries. In edit view (<code>Unpublished</code>) the
 culture's own revision comes first whatever its type, then the others, so a node with only a draft
 or an archived version is still the editor's to find. <code>QueryContext.SelectedRevisions</code> names a
@@ -6571,7 +6586,7 @@ keys tell its type: 0 to 9 999 999 are published, one per culture, and each othe
 ten million.</p>
 <p>Indexes hold what readers read, of published revisions (release dates are not looked at). A property
 that is not culture-sensitive has one index, holding for each node the version a reader of no
-culture gets: the neutral one, else the culture first in fallback order. A culture-sensitive property
+culture gets: a neutral node's, else the culture first in fallback order. A culture-sensitive property
 (<code>CultureSensitive</code>, set by a datamodel override) has that index too, which a query with no culture
 uses, and one per culture, holding the culture's own published version of each node and the
 fallback for the rest. So a <code>Where</code>, a sort or facets in a culture see the values its readers see,

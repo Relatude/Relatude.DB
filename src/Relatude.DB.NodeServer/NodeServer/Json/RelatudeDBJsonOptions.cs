@@ -4,27 +4,17 @@ using System.Text.Json.Serialization;
 
 namespace Relatude.DB.NodeServer.Json;
 public static class RelatudeDBJsonOptions {
-    static JsonSerializerOptions? _defaultJsonSEEOptions;
-    public static JsonSerializerOptions SSE {
-        get {
-            if (_defaultJsonSEEOptions == null) {
-                _defaultJsonSEEOptions = new JsonSerializerOptions();
-                ConfigureDefault(_defaultJsonSEEOptions);
-                _defaultJsonSEEOptions.Converters.Add(new JsonStringEnumConverter());
-
-            }
-            return _defaultJsonSEEOptions;
-        }
-    }
-    static JsonSerializerOptions? _defaultJsonHttpOptions;
-    public static JsonSerializerOptions Default {
-        get {
-            if (_defaultJsonHttpOptions == null) {
-                _defaultJsonHttpOptions = new JsonSerializerOptions();
-                ConfigureDefault(_defaultJsonHttpOptions);
-            }
-            return _defaultJsonHttpOptions;
-        }
+    // Made once, when the class is first used, and read-only before anyone gets them: requests come in
+    // together, and options handed out half made could be used (which makes them read-only) by one request
+    // while another was still configuring them.
+    public static JsonSerializerOptions SSE { get; } = create(enumsAsNames: true);
+    public static JsonSerializerOptions Default { get; } = create(enumsAsNames: false);
+    static JsonSerializerOptions create(bool enumsAsNames) {
+        var options = new JsonSerializerOptions();
+        ConfigureDefault(options);
+        if (enumsAsNames) options.Converters.Add(new JsonStringEnumConverter());
+        options.MakeReadOnly();
+        return options;
     }
     public static void ConfigureDefault(JsonSerializerOptions options) {
         options.Converters.Add(new RelationJsonConverter());

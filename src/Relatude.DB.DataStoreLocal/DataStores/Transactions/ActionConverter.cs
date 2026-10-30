@@ -533,6 +533,35 @@ internal class ActionConverter {
         if (cultureId != Guid.Empty && !db._nativeModelStore.IsCulture(cultureId)) throw new Exception("There is no culture with the id " + cultureId + ". ");
         return cultureId;
     }
+    // A node's versions are all neutral or all in cultures, never both: a neutral version is what every culture without
+    // one of its own reads, so beside versions in cultures it would answer for some cultures and not for others. A version
+    // put in a culture takes the node's neutral ones with it when the node had no culture (the node is given its first),
+    // and a version made neutral is refused while the node has others in cultures: the whole node moves to no culture
+    // (ChangeRevisionCulture without a revision id). Nodes stored with both before the rule are read as they are.
+    static NodeDataRevision[] withVersionIn(DataStoreLocal db, Guid nodeId, NodeDataRevision[] others, Guid cultureId, List<KeyValuePair<TaskData, string?>> newTasks) {
+        if (cultureId == Guid.Empty) {
+            if (others.Any(r => r.CultureId != Guid.Empty)) throw new Exception("Node " + nodeId + " has versions in cultures, so none of its versions can be neutral: a node's versions are all neutral or all in cultures. Move the whole node to no culture instead. ");
+            return others;
+        }
+        if (others.Any(r => r.CultureId != Guid.Empty)) return others;
+        return [.. others.Select(r => inCulture(db, r, cultureId, newTasks))];
+    }
+    static NodeDataRevision inCulture(DataStoreLocal db, NodeDataRevision rev, Guid cultureId, List<KeyValuePair<TaskData, string?>> newTasks) {
+        if (rev.CultureId == cultureId) return rev;
+        var moved = rev.CopyAndChangeMeta(IInnerNodeMeta.ChangeCulture(rev.Meta, cultureId));
+        // the text of related nodes is taken in the revision's culture (UtilsText)
+        if (moved.RevisionType == RevisionType.Published) Utils.EnsureOrQueueIndex(db, moved, null, newTasks);
+        return moved;
+    }
+    static Guid cultureOf(DataStoreLocal db, NodeRevisionAction a, string verb) {
+        if (a.CultureId != null) return existingCulture(db, a.CultureId.Value);
+        if (a.CultureCode == string.Empty) return Guid.Empty;
+        if (a.CultureCode != null) {
+            if (!db._nativeModelStore.TryGetCultureId(a.CultureCode, out var cultureId)) throw new Exception("Culture with code " + a.CultureCode + " does not exist, cannot " + verb + ". ");
+            return cultureId;
+        }
+        throw new Exception("Culture must be given to " + verb + ". ");
+    }
     // A revision published by one of these actions has its text made again: the text index task makes it for published
     // revisions alone, so one that was not published carries the text its source had when it was made, whatever was
     // saved in it since (unless indexing is instant)
@@ -609,15 +638,18 @@ internal class ActionConverter {
                     if (a.RevisionType == null) throw new Exception("RevisionType must be given to create a new revision. ");
                     var cultureGiven = a.CultureId != null || a.CultureCode != null;
                     if (!cultureGiven) cultureId = sourceRevision.CultureId; // none given: the source's culture
-                    int revisionKey = RevisionUtil.CreateNewRevisionKey(a.RevisionType.Value, cultureId, revs.Revisions);
+                    // the node's first culture: its neutral versions go into it too, its published one with them
+                    var existing = withVersionIn(db, revs.Id, revs.Revisions, cultureId, newTasks);
+                    if (a.RevisionType == RevisionType.Published && existing != revs.Revisions && existing.Any(r => r.RevisionType == RevisionType.Published)) {
+                        throw new Exception("Node " + revs.Id + " has a published neutral version, which goes into the culture with its other versions, as a node's versions are all neutral or all in cultures: make the new version a draft and publish it over that one. ");
+                    }
+                    int revisionKey = RevisionUtil.CreateNewRevisionKey(a.RevisionType.Value, cultureId, existing);
                     var newMeta = IInnerNodeMeta.ChangeRevision(sourceRevision.Meta, revisionKey);
                     if (cultureGiven && (newMeta?.CultureId ?? Guid.Empty) != cultureId) newMeta = IInnerNodeMeta.ChangeCulture(newMeta, cultureId);
                     NodeDataRevision newRev = sourceRevision.CopyAndChangeMetaAndRevisionId(newMeta, a.RevisionId.Value);
                     newRev.SetChangedUtc(DateTime.UtcNow); // made now, of the source's values
                     if (a.RevisionType == RevisionType.Published) Utils.EnsureOrQueueIndex(db, newRev, null, newTasks); // published now
-                    var newRevs = new NodeDataRevision[revs.Revisions.Length + 1];
-                    Array.Copy(revs.Revisions, newRevs, revs.Revisions.Length);
-                    newRevs[^1] = newRev;
+                    NodeDataRevision[] newRevs = [.. existing, newRev];
                     var newNode = new NodeDataRevisions(revs.Id, revs.__Id, revs.NodeType, newRevs);
                     yield return new PrimitiveNodeAction(PrimitiveOperation.Add, newNode);
                 }
@@ -658,35 +690,38 @@ internal class ActionConverter {
                 }
                 break;
             case NodeRevisionOperation.ChangeRevisionCulture: {
+                    var cultureId = cultureOf(db, a, "change revision culture");
+                    if (a.RevisionId == null) { // the whole node, all its versions: how a node goes to no culture, or is put in its first
+                        INodeDataInternal newNode;
+                        if (existingNode is NodeDataRevisions all) {
+                            if (all.Revisions.All(r => r.CultureId == cultureId)) yield break;
+                            if (all.Revisions.Count(r => r.RevisionType == RevisionType.Published) > 1) {
+                                throw new Exception("Node " + all.Id + " is published in more than one culture, and a culture has one published version: unpublish all but one before moving the node. ");
+                            }
+                            newNode = new NodeDataRevisions(all.Id, all.__Id, all.NodeType, [.. all.Revisions.Select(r => inCulture(db, r, cultureId, newTasks))]);
+                        } else if (existingNode is NodeData plain) {
+                            if ((plain.Meta?.CultureId ?? Guid.Empty) == cultureId) yield break;
+                            newNode = plain.CopyAndChangeMeta(IInnerNodeMeta.ChangeCulture(plain.Meta, cultureId));
+                            Utils.EnsureOrQueueIndex(db, newNode, null, newTasks);
+                        } else {
+                            throw new Exception("Unexpected node data type for node with id " + a.NodeIdKey + " when changing its culture. ");
+                        }
+                        yield return new PrimitiveNodeAction(PrimitiveOperation.Remove, existingNode);
+                        yield return new PrimitiveNodeAction(PrimitiveOperation.Add, newNode);
+                        break;
+                    }
                     if (existingNode is not NodeDataRevisions revs) throw new Exception("Cannot change revision culture for node with id " + a.NodeIdKey + " because revisions are not enabled for this node. Enable revisions first if you want to change revision culture. ");
-                    if (a.RevisionId == null) throw new Exception("RevisionId must be given to change revision culture. ");
                     var posOfRevToChange = revs.Revisions.ToList().FindIndex(r => r.RevisionId == a.RevisionId);
                     if (posOfRevToChange == -1) throw new Exception("Revision with id " + a.RevisionId + " does not exist, cannot change revision culture. ");
                     var revToChange = revs.Revisions[posOfRevToChange];
-
-                    Guid cultureId = Guid.Empty;
-                    if (a.CultureId == null && a.CultureCode == null) {
-                        throw new Exception("Culture must be given to change revision culture. ");
-                    } else if (a.CultureId != null) {
-                        cultureId = existingCulture(db, a.CultureId.Value);
-                    } else if (a.CultureCode == string.Empty) {
-                        cultureId = Guid.Empty;
-                    } else if (a.CultureCode != null) {
-                        if (!db._nativeModelStore.TryGetCultureId(a.CultureCode, out cultureId)) {
-                            throw new Exception("Culture with code " + a.CultureCode + " does not exist, cannot change revision culture. ");
-                        }
-                    }
-
                     if (revToChange.CultureId == cultureId) yield break; // nothing to do if culture is the same
-                    var newMeta = IInnerNodeMeta.ChangeCulture(revToChange.Meta, cultureId);
-                    var newRev = revToChange.CopyAndChangeMeta(newMeta);
-                    // the text of related nodes is taken in the revision's culture (UtilsText)
-                    if (newRev.RevisionType == RevisionType.Published) Utils.EnsureOrQueueIndex(db, newRev, null, newTasks);
-                    var newRevs = revs.Revisions.ToArray();
-                    newRevs[posOfRevToChange] = newRev;
-                    var newNode = new NodeDataRevisions(revs.Id, revs.__Id, revs.NodeType, newRevs);
+                    var newRev = inCulture(db, revToChange, cultureId, newTasks);
+                    // the node's first culture: its other versions go into it too
+                    var others = withVersionIn(db, revs.Id, [.. revs.Revisions.Where((_, i) => i != posOfRevToChange)], cultureId, newTasks);
+                    NodeDataRevision[] newRevs = [.. others[..posOfRevToChange], newRev, .. others[posOfRevToChange..]];
+                    var newRevsNode = new NodeDataRevisions(revs.Id, revs.__Id, revs.NodeType, newRevs);
                     yield return new PrimitiveNodeAction(PrimitiveOperation.Remove, existingNode);
-                    yield return new PrimitiveNodeAction(PrimitiveOperation.Add, newNode);
+                    yield return new PrimitiveNodeAction(PrimitiveOperation.Add, newRevsNode);
                 }
                 break;
             case NodeRevisionOperation.UpdateMeta: {  // changes all in meta except, culture, revision type/key. Also copy culture insensitive values to other props where relevant

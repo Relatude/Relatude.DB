@@ -755,7 +755,7 @@ public class NodeStore : IDisposable {
         => Execute(new Transaction(this).CreateRevision(id, sourceRevisionId, revisionType, out newRevisionId, cultureId), flushToDisk);
     /// <summary>Creates a new revision in the same culture as its source and reports the id it was given.</summary>
     public TransactionResult CreateRevision(Guid id, Guid sourceRevisionId, RevisionType revisionType, out Guid newRevisionId)
-        => Execute(new Transaction(this).CreateRevision(id, sourceRevisionId, revisionType, out newRevisionId, Guid.Empty), default);
+        => Execute(new Transaction(this).CreateRevision(id, sourceRevisionId, revisionType, out newRevisionId), default);
     /// <summary>Creates a new revision of the node with this internal id and reports the id it was given.</summary>
     public TransactionResult CreateRevision(int id, Guid sourceRevisionId, RevisionType revisionType, out Guid newRevisionId, Guid? cultureId = null, bool flushToDisk = false)
         => Execute(new Transaction(this).CreateRevision(id, sourceRevisionId, revisionType, out newRevisionId, cultureId), flushToDisk);
@@ -793,6 +793,10 @@ public class NodeStore : IDisposable {
     public TransactionResult ChangeRevisionType(Guid id, Guid revisionId, RevisionType newRevisionType, bool flushToDisk = false) => Execute(new Transaction(this).ChangeRevisionType(id, revisionId, newRevisionType), flushToDisk);
     /// <summary>Moves a revision of the node with this internal id to another state.</summary>
     public TransactionResult ChangeRevisionType(int id, Guid revisionId, RevisionType newRevisionType, bool flushToDisk = false) => Execute(new Transaction(this).ChangeRevisionType(id, revisionId, newRevisionType), flushToDisk);
+    // A node's versions are all neutral or all in cultures, never both. A revision put in a culture takes the node's
+    // neutral ones with it when the node had no culture, and one made neutral is refused while the node has others in
+    // cultures: ChangeCulture moves the whole node.
+
     /// <summary>Reassigns a revision to another culture, given by culture node id.</summary>
     public TransactionResult ChangeRevisionCulture(Guid id, Guid revisionId, Guid newCultureId, bool flushToDisk = false) => Execute(new Transaction(this).ChangeRevisionCulture(id, revisionId, newCultureId), flushToDisk);
     /// <summary>Reassigns a revision of the node with this internal id to another culture.</summary>
@@ -801,6 +805,14 @@ public class NodeStore : IDisposable {
     public TransactionResult ChangeRevisionCulture(Guid id, Guid revisionId, string newCultureCode, bool flushToDisk = false) => Execute(new Transaction(this).ChangeRevisionCulture(id, revisionId, newCultureCode), flushToDisk);
     /// <summary>Reassigns a revision of the node with this internal id to another culture code.</summary>
     public TransactionResult ChangeRevisionCulture(int id, Guid revisionId, string newCultureCode, bool flushToDisk = false) => Execute(new Transaction(this).ChangeRevisionCulture(id, revisionId, newCultureCode), flushToDisk);
+    /// <summary>Moves the whole node, every version of it, to a culture given by culture node id, or to none with Guid.Empty. A node with or without revisions.</summary>
+    public TransactionResult ChangeCulture(Guid id, Guid cultureId, bool flushToDisk = false) => Execute(new Transaction(this).ChangeCulture(id, cultureId), flushToDisk);
+    /// <summary>Moves the whole node with this internal id to a culture, or to none with Guid.Empty.</summary>
+    public TransactionResult ChangeCulture(int id, Guid cultureId, bool flushToDisk = false) => Execute(new Transaction(this).ChangeCulture(id, cultureId), flushToDisk);
+    /// <summary>Moves the whole node, every version of it, to a culture given by code such as "nb-NO", or to none with "".</summary>
+    public TransactionResult ChangeCulture(Guid id, string cultureCode, bool flushToDisk = false) => Execute(new Transaction(this).ChangeCulture(id, cultureCode), flushToDisk);
+    /// <summary>Moves the whole node with this internal id to a culture given by code, or to none with "".</summary>
+    public TransactionResult ChangeCulture(int id, string cultureCode, bool flushToDisk = false) => Execute(new Transaction(this).ChangeCulture(id, cultureCode), flushToDisk);
 
     /// <summary>
     /// Changes the node type of an existing node while keeping its id and its relations. Properties that the new

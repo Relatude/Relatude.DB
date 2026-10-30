@@ -999,6 +999,29 @@ public partial class Transaction {
         _transactionData.ChangeRevisionCulture(nodeId, revisionId, newCultureCode);
         return this;
     }
+    // A node's versions are all neutral or all in cultures, never both: a revision put in a culture takes the node's
+    // neutral ones with it when the node had no culture, and one made neutral is refused while the node has others in
+    // cultures. These move the whole node.
+    /// <summary>Moves the whole node, every version of it, to a culture given by culture node id, or to none with Guid.Empty.</summary>
+    public Transaction ChangeCulture(Guid nodeId, Guid cultureId) {
+        _transactionData.ChangeRevisionCulture(nodeId, cultureId);
+        return this;
+    }
+    /// <summary>Moves the whole node with this internal id to a culture, or to none with Guid.Empty.</summary>
+    public Transaction ChangeCulture(int nodeId, Guid cultureId) {
+        _transactionData.ChangeRevisionCulture(nodeId, cultureId);
+        return this;
+    }
+    /// <summary>Moves the whole node, every version of it, to a culture given by code such as "nb-NO", or to none with "".</summary>
+    public Transaction ChangeCulture(Guid nodeId, string cultureCode) {
+        _transactionData.ChangeRevisionCulture(nodeId, cultureCode);
+        return this;
+    }
+    /// <summary>Moves the whole node with this internal id to a culture given by code, or to none with "".</summary>
+    public Transaction ChangeCulture(int nodeId, string cultureCode) {
+        _transactionData.ChangeRevisionCulture(nodeId, cultureCode);
+        return this;
+    }
 
     // helpers, to aid directionality of relations:
     int source(int from, RelationPropertyModel p, int to) => p.FromTargetToSource ? to : from;

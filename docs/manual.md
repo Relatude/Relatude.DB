@@ -5126,17 +5126,34 @@ a context that selects a revision changes that one alone. Values are never copie
 revisions: saving or publishing the `nb-NO` version leaves the `en-US` one as it is.
 
 ```csharp
-db.EnableRevisions(id, out var neutral);                                              // its version, published
-db.CreateRevision(id, neutral, RevisionType.Published, out var norwegian, "nb-NO");   // a version in nb-NO
+db.EnableRevisions(id, out var english);                                              // its version, published
+db.ChangeRevisionCulture(id, english, "en-US");                                       // in en-US
+db.CreateRevision(id, english, RevisionType.Published, out var norwegian, "nb-NO");   // a version in nb-NO
 db.CreateRevision(id, norwegian, RevisionType.Preliminary, out var draft);            // a draft of that one
 db.Execute(db.CreateTransaction()                                                     // published over it: one per culture
     .ChangeRevisionType(id, norwegian, RevisionType.Archived)
     .ChangeRevisionType(id, draft, RevisionType.Published));
 ```
 
+A node's versions are all neutral or all in cultures, never both: a neutral version is what every
+culture without one of its own reads, so beside versions in cultures it would answer for some
+cultures and not others. A neutral node given a version in a culture goes into that culture, every
+version of it: `CreateRevision` in `nb-NO` from a neutral node, or `ChangeRevisionCulture` of one of
+its revisions to `nb-NO`, moves its other revisions to `nb-NO` too. So a new *published* version in a
+neutral node's first culture is refused when the node has a published version, which becomes that
+culture's: make a draft and publish it over that one. A version cannot be made neutral while the node
+has others in cultures; `ChangeCulture(id, code)` moves the whole node, every version of it, to a
+culture or to none (`""`), revisions or not, and `Insert(node, cultureCode)` inserts it in one.
+Nodes stored with both before the rule are read as they are, and an action on one only refuses to
+add a neutral version to it.
+
+```csharp
+db.ChangeCulture(id, "");        // the whole node neutral again: refused while it is published in two cultures
+```
+
 A culture has one published revision at most: publishing another archives it first, in the same
 transaction. A reader gets published revisions only - its culture's, else with `CultureFallbacks`
-the neutral one first and then the other cultures in the order they were made, else the neutral one -
+a neutral node's or the node's other cultures in the order they were made -
 and a node with nothing it can read is left out of its queries. In edit view (`Unpublished`) the
 culture's own revision comes first whatever its type, then the others, so a node with only a draft
 or an archived version is still the editor's to find. `QueryContext.SelectedRevisions` names a
@@ -5147,7 +5164,7 @@ ten million.
 
 Indexes hold what readers read, of published revisions (release dates are not looked at). A property
 that is not culture-sensitive has one index, holding for each node the version a reader of no
-culture gets: the neutral one, else the culture first in fallback order. A culture-sensitive property
+culture gets: a neutral node's, else the culture first in fallback order. A culture-sensitive property
 (`CultureSensitive`, set by a datamodel override) has that index too, which a query with no culture
 uses, and one per culture, holding the culture's own published version of each node and the
 fallback for the rest. So a `Where`, a sort or facets in a culture see the values its readers see,
