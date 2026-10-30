@@ -31,8 +31,18 @@ public static class AIProviderFactory {
             AIProviderCacheType.Native => new NativeKvEmbeddingCache(filePath),
             _ => throw new NotImplementedException(),
         };
-        var provider = LateBindings.CreateAiProvider(settings, licenseApiKey);
-        return new AIEngine(provider, settings, cache);
+        IAIProvider? provider = null;
+        try {
+            provider = LateBindings.CreateAiProvider(settings, licenseApiKey);
+            return new AIEngine(provider, settings, cache);
+        } catch {
+            // the engine never took ownership, so nothing else closes the cache file: left open, the
+            // next open in this process finds it held, waits FileOpenRetry's 30 s and reports its own
+            // handle as another process's
+            try { provider?.Dispose(); } catch { }
+            try { cache?.Dispose(); } catch { }
+            throw;
+        }
     }
     /// <summary>
     /// Before the folder layout the cache file lived in the root of its local disk folder; it is
