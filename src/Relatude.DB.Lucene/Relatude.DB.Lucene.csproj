@@ -5,7 +5,7 @@
 		<ImplicitUsings>enable</ImplicitUsings>
 		<Nullable>enable</Nullable>
 		<RootNamespace>Relatude.DB</RootNamespace>
-		<Version>1.1.1.8</Version>
+		<Version>1.1.1.9</Version>
 	</PropertyGroup>
 	<ItemGroup>
 		<PackageReference Include="Lucene.Net" Version="4.8.0-beta00017" />
