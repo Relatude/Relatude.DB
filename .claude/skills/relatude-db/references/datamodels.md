@@ -91,6 +91,7 @@ Declaring a property with no attribute at all works — the engine infers a prop
 | `Guid[]` | `[GuidArrayProperty]` |
 | `TEnum[]` | `[EnumArrayProperty]` |
 | `FileValue` | `[FileProperty]` |
+| `PasswordValue` | `[PasswordProperty]` |
 
 All of them inherit shared options from `PropertyAttribute`:
 
@@ -366,6 +367,22 @@ public FileValue Brochure { get; set; } = FileValue.Empty;
 ```
 
 Uploading, serving and converting bytes: see `api-quickref.md`.
+
+## Passwords
+
+`PasswordValue` (in `Relatude.DB.Common`) holds a password, kept as an Argon2id hash unless the property allows it encrypted (`AllowEncrypted`, with the database's key) or as plain text (`AllowPlainText`) and the code asks for that. The store hashes or encrypts it when the node is written and checks the property's rules (`MinLength`, `MaxLength`, `RequireUppercase`, `RequireLowercase`, `RequireDigit`, `RequireSymbol`, `RegularExpression`); the password never reaches the log, JSON or any API.
+
+```csharp
+[PasswordProperty(MinLength = 10, RequireDigit = true)]
+public PasswordValue Password { get; set; } = PasswordValue.Empty;
+
+member.Password.SetPassword("correct horse battery 7");          // PasswordStorage.Hashed by default
+db.Update(member);
+db.Get<Member>(id).Password.Verify(typed);                       // true or false
+db.Query<Member>().Where(m => m.Password.IsSet).Count();         // the one question a query may ask
+```
+
+A value holding no change (one read earlier, or `PasswordValue.Empty`) leaves the stored password as it is on an update. `GetPassword()` reads back an encrypted or plain text one; `NeedsRehash` says it was kept with older settings. The keys are `LocalSettings.Passwords` in `relatude.db.json` (`EncryptionKey`, `OldEncryptionKeys`, `Pepper`, hash cost); keep them in configuration or user secrets.
 
 ## Embedded data
 

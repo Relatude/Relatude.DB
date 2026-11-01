@@ -19,6 +19,7 @@ import {
   peekAssemblyScan,
   peekNamespaceScan,
   probeTypes,
+  propertyFields,
   relationsOf,
   scanAssemblies,
   scanNamespaces,
@@ -1155,8 +1156,7 @@ export function TypeEditor({ type, ctx, onDelete, focusField, onFocused, tab: wa
     ctx.update((m) => {
       const t = m.NodeTypes[type.Id];
       const defaults: Record<string, unknown> = {};
-      for (const f of ctx.schema.propertyCommon) if (f.default !== null && f.default !== undefined) defaults[f.path] = f.default;
-      for (const f of ctx.schema.propertyByType[propertyType] ?? []) if (f.default !== null && f.default !== undefined) defaults[f.path] = f.default;
+      for (const f of propertyFields(ctx.schema, propertyType)) if (f.default !== null && f.default !== undefined) defaults[f.path] = f.default;
       let name = "NewProperty";
       let n = 2;
       while (Object.values(t.Properties).some((p) => p.CodeName.toLowerCase() === name.toLowerCase())) name = "NewProperty" + n++;
@@ -1323,7 +1323,7 @@ export function PropertyEditor({ type, property, ctx, onDelete, focusField, onFo
   const writable = !via && ctx.writableSource(type.DatamodelSourceId) && !property.Internal;
   const [tab, setTab] = useState<"property" | "code">("property");
   const typeDef = ctx.schema.propertyTypes.find((p) => p.value === property.PropertyType);
-  const fields = [...ctx.schema.propertyCommon, ...(ctx.schema.propertyByType[property.PropertyType] ?? [])];
+  const fields = propertyFields(ctx.schema, property.PropertyType);
   // a relation property is one end of a relation that has a form of its own: the rules for both ends
   // live there, and there is no way to reach it from here but the type it came from
   const relation = property.RelationId ? ctx.model.Relations[property.RelationId] : undefined;

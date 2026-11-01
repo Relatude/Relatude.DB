@@ -231,6 +231,12 @@ function textOf(p: PropertyView): string {
       return typeof v === "string" ? dateText(v, false) : "";
     case "file":
       return (v as FileValueView | null)?.name ?? "";
+    case "password": {
+      // whether there is a password, as UIQuery.display says it: the form never holds more
+      const password = v as { isSet?: boolean; storage?: string | null } | null;
+      if (!password?.isSet) return "";
+      return "(password set, " + (password.storage === "PlainText" ? "plain text" : (password.storage ?? "").toLowerCase()) + ")";
+    }
     case "geo": {
       const geo = v as GeoValue | null;
       return geo ? numberText(geo.latitude, 9) + ", " + numberText(geo.longitude, 9) : "";

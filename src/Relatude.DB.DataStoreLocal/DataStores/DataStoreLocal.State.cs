@@ -17,11 +17,12 @@ public sealed partial class DataStoreLocal : IDataStore {
         // this happens when nodes are added or updated, and the new data is written to the log file
         _nodes.UpdateNodeDataPositionsInLogFile(segments);
     }
-    // 1001 added the number of actions in the log, 1002 the embedded and marked deleted node counts. An older file
-    // cannot say them: it is deleted at open, keeping the indexes, and the state rebuilt from the log (see
-    // deleteIncompleteAndLegacyStateFiles)
-    int _stateFileVersion = 1002;
-    static readonly int[] _stateFileVersionsBeforeCounts = [1000, 1001];
+    // 1001 added the number of actions in the log, 1002 the embedded and marked deleted node counts, 1003 the users'
+    // types to the native model (a user read back from an older file was anonymous, and a user, group, collection or
+    // culture updated had lost its relations there). An older file cannot be read as this one: it is deleted at open,
+    // keeping the indexes, and the state rebuilt from the log (see deleteIncompleteAndLegacyStateFiles)
+    int _stateFileVersion = 1003;
+    static readonly int[] _stateFileVersionsRebuiltFromLog = [1000, 1001, 1002];
     Guid getCheckSumForStateFileAndIndexes() {
         // anything that can affect indexes or state file:
         // (polymorphic serialization with provenance stripped, so index-affecting property settings
@@ -123,14 +124,15 @@ public sealed partial class DataStoreLocal : IDataStore {
             IOIndex.DeleteFileIfItExists(fileKey);
             LogInfo("Deleted state file " + fileKey.AsKeyString() + " in the old naming format; the state is rebuilt from the log. ");
         }
-        // A state file from before the counts were kept cannot say how many actions the log holds, or how many
-        // embedded and marked deleted nodes there are. It goes, and the replay from the beginning rebuilds the state
-        // and counts; the indexes keep their files and replay from their own positions. Read as a version mismatch,
-        // it would reset and rebuild them all.
+        // A state file of an older version cannot be read as this one: from before the counts were kept it cannot say
+        // how many actions the log holds, or how many embedded and marked deleted nodes there are; before 1003 its
+        // native model lacks the users' types. It goes, and the replay from the beginning rebuilds the state and counts;
+        // the indexes keep their files and replay from their own positions. Read as a version mismatch, it would reset
+        // and rebuild them all.
         foreach (var fileKey in FileKeyUtility.State_GetNumberedFileKeys(IOIndex)) {
-            if (stateFileVersionOf(fileKey) is not int version || !_stateFileVersionsBeforeCounts.Contains(version)) continue;
+            if (stateFileVersionOf(fileKey) is not int version || !_stateFileVersionsRebuiltFromLog.Contains(version)) continue;
             IOIndex.DeleteFileIfItExists(fileKey);
-            LogInfo("Deleted state file " + fileKey.AsKeyString() + " from before the counts were kept; the state is rebuilt from the log, the indexes are kept. ");
+            LogInfo("Deleted state file " + fileKey.AsKeyString() + " of an older version; the state is rebuilt from the log, the indexes are kept. ");
         }
     }
     int? stateFileVersionOf(string[] stateFileKey) {

@@ -1,4 +1,5 @@
-﻿using Relatude.DB.Datamodels.Properties;
+﻿using Relatude.DB.Common;
+using Relatude.DB.Datamodels.Properties;
 namespace Relatude.DB.Nodes;
 
 internal interface IAttrWithUniqueContraints {
@@ -324,6 +325,24 @@ public class FilePropertyAttribute : PropertyAttribute {
     // Guid is not a legal attribute parameter type, value is given as string:
     public string? FileStorageProviderId { get; set; }
 
+}
+/// <summary>
+/// A <see cref="PasswordValue"/> property: which ways of keeping a password it allows, and what a new password must
+/// be like. Never indexed, nor in the text index: a query may only ask whether it is set.
+/// </summary>
+[AttributeUsage(AttributeTargets.Property)]
+public class PasswordPropertyAttribute : PropertyAttribute {
+    public bool AllowHashed { get; set; } = true;
+    public bool AllowEncrypted { get; set; }
+    public bool AllowPlainText { get; set; }
+    public int MinLength { get; set; } = PasswordPropertyModel.DefaultMinLength;
+    public int MaxLength { get; set; } = PasswordPropertyModel.DefaultMaxLength;
+    public bool RequireUppercase { get; set; }
+    public bool RequireLowercase { get; set; }
+    public bool RequireDigit { get; set; }
+    public bool RequireSymbol { get; set; }
+    public string? RegularExpression { get; set; }
+    public string? RegularExpressionMessage { get; set; }
 }
 [AttributeUsage(AttributeTargets.Property)]
 public class EmbeddedPropertyAttribute : PropertyAttribute {

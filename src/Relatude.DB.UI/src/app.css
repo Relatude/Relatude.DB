@@ -10258,6 +10258,31 @@ body.pg-resizing {
   gap: 8px;
 }
 
+/* a password property: what there is, and a new one typed twice */
+.node-password {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.node-password-new,
+.node-password-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.node-password-new .text-input {
+  width: 180px;
+}
+
+.node-password-hint {
+  flex-basis: 100%;
+}
+
 .node-file {
   display: flex;
   align-items: center;

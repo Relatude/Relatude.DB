@@ -242,6 +242,26 @@ public sealed class DatamodelValidator {
                 if (!string.IsNullOrWhiteSpace(sp.RegularExpressionMessage) && string.IsNullOrEmpty(sp.RegularExpression))
                     issues.Add(DatamodelIssue.Info("message-without-pattern", where + " has a pattern message but no pattern, so the message is never shown.", nodeType: t.Id, property: p.Id));
                 break;
+            case PasswordPropertyModel pw:
+                if (!pw.AllowHashed && !pw.AllowEncrypted && !pw.AllowPlainText)
+                    issues.Add(DatamodelIssue.Error("password-no-storage", where + " allows no way of keeping a password: allow it hashed, encrypted or as plain text.", nodeType: t.Id, property: p.Id));
+                if (pw.MinLength < 1 || pw.MaxLength < pw.MinLength)
+                    issues.Add(DatamodelIssue.Error("bad-range", where + ": the length range is not valid (minimum " + pw.MinLength + ", maximum " + pw.MaxLength + "). A password has at least one character.", nodeType: t.Id, property: p.Id));
+                if (RegularExpressionErrors.Validate(pw.RegularExpression) is string passwordPatternError)
+                    issues.Add(DatamodelIssue.Error("bad-pattern", where + ": " + passwordPatternError, nodeType: t.Id, property: p.Id));
+                if (!string.IsNullOrWhiteSpace(pw.RegularExpressionMessage) && string.IsNullOrEmpty(pw.RegularExpression))
+                    issues.Add(DatamodelIssue.Info("message-without-pattern", where + " has a pattern message but no pattern, so the message is never shown.", nodeType: t.Id, property: p.Id));
+                if (pw.Indexed || pw.UniqueValues)
+                    issues.Add(DatamodelIssue.Error("password-indexed", where + " is a password, which is never indexed nor unique: a query can only ask whether it is set.", nodeType: t.Id, property: p.Id));
+                if (pw.DisplayName)
+                    issues.Add(DatamodelIssue.Error("password-display-name", where + " is a password, which cannot be part of the display name.", nodeType: t.Id, property: p.Id));
+                if (pw.CultureSensitive || pw.CultureSpecific)
+                    issues.Add(DatamodelIssue.Error("password-culture", where + " is a password, which is one for every culture.", nodeType: t.Id, property: p.Id));
+                if (t.IsInnerNode || dm.Properties.Values.OfType<EmbeddedPropertyModel>().Any(e => e.InnerNodeTypes.Contains(t.Id)))
+                    issues.Add(DatamodelIssue.Error("password-inner-node", where + " is a password on a type kept inside another node's embedded property, where a password cannot be set.", nodeType: t.Id, property: p.Id));
+                if (pw.AllowPlainText)
+                    issues.Add(DatamodelIssue.Warning("password-plain-text", where + " allows passwords kept as plain text: whoever can read the database files, its backups or its log can read them.", nodeType: t.Id, property: p.Id));
+                break;
             case IntegerPropertyModel ip:
                 if (ip.MinValue > ip.MaxValue) issues.Add(DatamodelIssue.Error("bad-range", where + ": the minimum is above the maximum.", nodeType: t.Id, property: p.Id));
                 if (ip.IsEnum && string.IsNullOrEmpty(ip.FullEnumTypeName) && (ip.LegalValues == null || ip.LegalValues.Length == 0)) issues.Add(DatamodelIssue.Warning("enum-without-values", where + " is an enum without an enum type or a list of legal values.", nodeType: t.Id, property: p.Id));

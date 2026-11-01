@@ -52,6 +52,7 @@ public sealed class PropertyModelJsonConverter : JsonConverter<PropertyModel> {
         PropertyType.GuidArray => typeof(GuidArrayPropertyModel),
         PropertyType.EnumArray => typeof(EnumArrayPropertyModel),
         PropertyType.GeoCoordinate => typeof(GeoCoordinatePropertyModel),
+        PropertyType.Password => typeof(PasswordPropertyModel),
         PropertyType.Embedded => typeof(EmbeddedPropertyModel),
         PropertyType.Reference => typeof(ReferencePropertyModel),
         PropertyType.References => typeof(ReferencesPropertyModel), // derives from GuidArrayPropertyModel, kept apart by the discriminator

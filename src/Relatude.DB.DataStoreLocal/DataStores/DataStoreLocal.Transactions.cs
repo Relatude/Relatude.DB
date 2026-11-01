@@ -21,6 +21,16 @@ public sealed partial class DataStoreLocal : IDataStore {
         return Execute(transaction, true, flushToDisk, ctx);
     }
     public TransactionResult Execute(TransactionData transaction, bool transformValues, bool? flushToDisk = null, QueryContext? ctx = null) {
+        // the passwords it sets, hashed or encrypted before the lock is taken, as a hash takes tens of milliseconds
+        var passwords = transformValues ? makePasswords(transaction) : null;
+        if (passwords == null) return executeWithFileCopies(transaction, transformValues, flushToDisk, ctx);
+        try {
+            return executeWithFileCopies(transaction, transformValues, flushToDisk, ctx);
+        } finally {
+            foreach (var change in passwords) _madePasswords.Remove(change);
+        }
+    }
+    TransactionResult executeWithFileCopies(TransactionData transaction, bool transformValues, bool? flushToDisk, QueryContext? ctx) {
         // the files it copies, read and stored before the lock is taken (NodeFileCopyAction)
         var copies = resolveFileCopiesAsync(transaction, ctx ?? _defaultQueryCtx).GetAwaiter().GetResult();
         if (copies == null) return executeWithRetries(transaction, transformValues, flushToDisk, ctx);

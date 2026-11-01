@@ -140,7 +140,7 @@ public static class ModelSource {
     static bool isRelatudeAttributed(IEnumerable<Attribute> attributes)
         => attributes.Any(a => a.GetType().Namespace?.StartsWith("Relatude.DB", StringComparison.Ordinal) == true);
     static bool isModelValueType(Type type) {
-        if (type == typeof(FileValue) || type == typeof(NodeMeta) || type == typeof(GeoCoordinate)) return true;
+        if (type == typeof(FileValue) || type == typeof(PasswordValue) || type == typeof(NodeMeta) || type == typeof(GeoCoordinate)) return true;
         if (type.IsGenericType) {
             var open = type.GetGenericTypeDefinition();
             if (open.Namespace?.StartsWith("Relatude.DB", StringComparison.Ordinal) == true) return true;

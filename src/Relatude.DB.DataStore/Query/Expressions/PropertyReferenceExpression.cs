@@ -15,6 +15,8 @@ public class PropertyReferenceExpression : IExpression {
             return storeObject;
         } else if (input is IStoreNodeData nodeObject) {
             var value = nodeObject.GetValue(PropertyName);
+            // a password is never compared, sorted, grouped or selected: the one question is whether it is set
+            if (value is Relatude.DB.Common.PasswordValue) throw new NotSupportedException(ToString() + " is a password, which a query can only ask whether it is set: " + ToString() + "." + PropertyIsSetExpression.MemberName + ". ");
             //if (value == null) throw new NullReferenceException($"Property {PropertyName} is null");
             return value!;
         } else {

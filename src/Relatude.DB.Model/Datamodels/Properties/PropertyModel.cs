@@ -219,6 +219,7 @@ public abstract class PropertyModel {
             case PropertyType.EnumArray: return (T)(object)EnumArrayPropertyModel.ForceValueType(value, out changed);
             case PropertyType.DateTimeOffset: return (T)(object)DateTimeOffsetPropertyModel.ForceValueType(value, out changed);
             case PropertyType.GeoCoordinate: return (T)(object)GeoCoordinatePropertyModel.ForceValueType(value, out changed);
+            case PropertyType.Password: return (T)(object)PasswordPropertyModel.ForceValueType(value, out changed);
             case PropertyType.Reference:return (T)(object)ReferencePropertyModel.ForceValueType(value, out changed);
             case PropertyType.Any:
             default:

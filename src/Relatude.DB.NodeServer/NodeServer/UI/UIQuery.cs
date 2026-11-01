@@ -1173,6 +1173,7 @@ sealed class UIQuery {
         FileValue f => f.IsEmpty ? "" : "file:" + f.FileId + ":" + f.Hash + ":" + f.Name,
         IInnerNodeDataMap m => "inner:" + string.Join('', m.Select(inner => inner.Id + "=" + string.Join('', inner.Values.Select(e => e.PropertyId + ":" + token(e.Value))))),
         GeoCoordinate g => g.IsEmpty ? "" : "geo:" + g.Latitude.ToString("R", CultureInfo.InvariantCulture) + "," + g.Longitude.ToString("R", CultureInfo.InvariantCulture),
+        PasswordValue p => passwordKey(p),
         _ => wire(v) ?? "",
     };
 
@@ -1258,6 +1259,17 @@ sealed class UIQuery {
                     view.ReadOnly = true;
                     var vector = value as float[];
                     view.Info = vector == null || vector.Length == 0 ? "empty" : vector.Length.To1000N() + " dimensions";
+                    break;
+                }
+            case PasswordPropertyModel passwordProperty: {
+                    // whether there is a password and how it is kept, never the password nor its stored form; a new
+                    // one is posted as { set, storage }, and { clear: true } takes it away
+                    view.Editor = "password";
+                    var password = value as PasswordValue;
+                    view.Value = new { IsSet = password?.IsSet == true, Storage = password?.Storage?.ToString() };
+                    view.Options = [.. Enum.GetValues<PasswordStorage>().Where(passwordProperty.Allows).Select(p => (object)new { Value = p.ToString(), Label = passwordStorageLabel(p) })];
+                    view.Min = passwordProperty.MinLength;
+                    view.MaxLength = passwordProperty.MaxLength;
                     break;
                 }
             case GeoCoordinatePropertyModel: {
@@ -1396,6 +1408,17 @@ sealed class UIQuery {
         public string? Info { get; set; }
     }
 
+    static string passwordStorageLabel(PasswordStorage storage) => storage switch {
+        PasswordStorage.Hashed => "Hashed",
+        PasswordStorage.Encrypted => "Encrypted",
+        _ => "Plain text",
+    };
+    // a key that changes when the password does and tells nothing of it: a few bytes of the SHA-256 of its salted form
+    static string passwordKey(PasswordValue password) {
+        if (!password.IsSet || password.HasChange) return password.IsSet ? "pw:new" : "";
+        var digest = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(PasswordValue.GetStored(password)));
+        return "pw:" + Convert.ToHexString(digest, 0, 8);
+    }
     static object[]? choices(int[]? values, string[]? names) {
         if (values == null || values.Length == 0) return null;
         return [.. values.Select((v, i) => (object)new { Value = v, Label = names != null && i < names.Length ? names[i] : v.ToString(CultureInfo.InvariantCulture) })];
@@ -1851,6 +1874,16 @@ sealed class UIQuery {
                     if (!TimeSpan.TryParse(s, CultureInfo.InvariantCulture, out var ts)) throw bad(property, e);
                     return ts;
                 }
+            case PasswordPropertyModel: {
+                    // { set, storage } sets a password, { clear: true } takes it away, anything else leaves it as it is.
+                    // The message never quotes what was posted, which may be the password.
+                    if (e.ValueKind != JsonValueKind.Object) return PasswordValue.Empty;
+                    try {
+                        return JsonSerializer.Deserialize<PasswordValue>(e.GetRawText()) ?? PasswordValue.Empty;
+                    } catch (JsonException ex) {
+                        throw new Exception(property.CodeName + " takes { set, storage } to set a password or { clear: true } to remove it. " + ex.Message);
+                    }
+                }
             case GeoCoordinatePropertyModel: {
                     if (e.ValueKind == JsonValueKind.Object) {
                         if (e.TryGetProperty("latitude", out var lat) && e.TryGetProperty("longitude", out var lon)
@@ -1981,6 +2014,7 @@ sealed class UIQuery {
             case Guid g: return g == Guid.Empty ? "" : g.ToString();
             case INodeData n: return string.IsNullOrEmpty(n.DisplayName) ? n.Id.ToString() : n.DisplayName!;
             case FileValue file: return file.IsEmpty ? "" : file.Name;
+            case PasswordValue password: return password.IsSet ? password.ToString() : ""; // never the password nor its stored form
             case GeoCoordinate geo: return geo.IsEmpty ? "" : geo.ToString();
             case IInnerNodeDataMap map: return map.Count == 0 ? "" : map.Count + " items";
             case byte[] bytes: return bytes.Length.To1000N() + " bytes";
@@ -2711,6 +2745,7 @@ sealed class UIQuery {
             string[] strings => string.Join("\u0001", strings),
             IInnerNodeDataMap map => string.Join(",", map.Select(inner => inner.Id)),
             FileValue file => file.IsEmpty ? string.Empty : file.FileId.ToString(),
+            PasswordValue password => passwordKey(password),
             DateTime time => time.Ticks.ToString(CultureInfo.InvariantCulture),
             DateTimeOffset offset => offset.UtcTicks.ToString(CultureInfo.InvariantCulture) + "|" + offset.Offset.Ticks,
             GeoCoordinate geo => geo.IsEmpty ? string.Empty : geo.Latitude.ToString(CultureInfo.InvariantCulture) + "," + geo.Longitude.ToString(CultureInfo.InvariantCulture),

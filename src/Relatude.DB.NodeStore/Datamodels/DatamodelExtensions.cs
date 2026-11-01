@@ -76,6 +76,7 @@ public static class DatamodelExtensions {
         typeof(string),typeof(string[]), typeof(DateTime), typeof(DateTimeOffset), typeof(Guid), typeof(Guid[]), typeof(TimeSpan), typeof(object), typeof(byte[]), typeof(decimal)
         , typeof(GeoCoordinate)
         , typeof(FileValue)
+        , typeof(PasswordValue)
         , typeof(IEmbedded)
         , typeof(IEmbeddedMap)
     ];

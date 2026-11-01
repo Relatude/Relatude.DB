@@ -30,6 +30,8 @@ import {
   type CommonSurvey,
   type EditorKind,
   type GeoValue,
+  type PasswordChange,
+  type PasswordView,
   type FileValueView,
   type InnerNodeView,
   type NodeRef,
@@ -1091,6 +1093,8 @@ function Editor({
       }
       return <FileField storeId={storeId} nodeId={nodeId} intId={intId} property={property} file={file} />;
     }
+    case "password":
+      return <PasswordField property={property} value={value} multi={multi} onChange={onChange} />;
     case "embedded": {
       const inner = Array.isArray(value) ? (value as InnerNodeView[]) : [];
       if (property.readOnly || multi) {
@@ -1138,6 +1142,114 @@ function Editor({
  * A picture that changes here is also a picture the visual pivot may be holding in a texture, so the
  * change is announced (see nodeMedia.ts) rather than left for it to find out about.
  */
+/**
+ * A password property: whether there is one and how it is kept, with a new one typed twice, and its
+ * removal. The server never sends the password nor its stored form, and hashes or encrypts a new one
+ * as it saves, with the property's rules; what goes into the form's values is the change alone.
+ */
+function PasswordField({
+  property,
+  value,
+  multi,
+  onChange,
+}: {
+  property: PropertyView;
+  value: unknown;
+  multi: boolean;
+  onChange: (value: unknown) => void;
+}) {
+  const current = (property.value ?? null) as PasswordView | null;
+  const storages = (property.options ?? []) as unknown as { value: string; label: string }[];
+  const change = value !== null && typeof value === "object" && ("set" in value || "clear" in value) ? (value as PasswordChange) : null;
+  const [editing, setEditing] = useState(false);
+  const [first, setFirst] = useState("");
+  const [second, setSecond] = useState("");
+  const [storage, setStorage] = useState(storages[0]?.value ?? "Hashed");
+  const label = (s: string | null | undefined) => storages.find((o) => o.value === s)?.label ?? (s === "PlainText" ? "Plain text" : (s ?? ""));
+  // the form keeps a change only while the two fields agree; null, which leaves the password as it is, otherwise
+  function update(a: string, b: string, keptAs: string) {
+    setFirst(a);
+    setSecond(b);
+    setStorage(keptAs);
+    onChange(a.length > 0 && a === b ? { set: a, storage: keptAs } : null);
+  }
+  function cancel() {
+    setEditing(false);
+    setFirst("");
+    setSecond("");
+    onChange(null);
+  }
+  const status = change
+    ? "clear" in change
+      ? "Removed when saved."
+      : "A new password, kept " + label(change.storage).toLowerCase() + ", when saved."
+    : current?.isSet
+      ? "Set, kept " + label(current.storage).toLowerCase() + "."
+      : "No password.";
+  if (multi) {
+    return (
+      <div className="node-password">
+        <span className="muted">Passwords are set one node at a time: open a node on its own to set one.</span>
+      </div>
+    );
+  }
+  return (
+    <div className="node-password">
+      <span className={change ? "" : "muted"}>{status}</span>
+      {editing ? (
+        <div className="node-password-new">
+          <input
+            className="text-input"
+            type="password"
+            autoComplete="new-password"
+            placeholder="New password"
+            value={first}
+            onChange={(e) => update(e.target.value, second, storage)}
+          />
+          <input
+            className="text-input"
+            type="password"
+            autoComplete="new-password"
+            placeholder="Repeat it"
+            value={second}
+            onChange={(e) => update(first, e.target.value, storage)}
+          />
+          {storages.length > 1 && (
+            <select className="select" value={storage} onChange={(e) => update(first, second, e.target.value)} title="How the password is kept">
+              {storages.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          )}
+          <button className="icon-button" title="Keep the password as it is" onClick={cancel}>
+            <IconX size={14} stroke={1.8} />
+          </button>
+          <span className="muted node-password-hint">
+            {second.length > 0 && first !== second
+              ? "The two differ."
+              : property.min !== null && property.min > 0
+                ? "At least " + property.min + " characters" + (property.maxLength !== null ? ", at most " + property.maxLength + "." : ".")
+                : ""}
+          </span>
+        </div>
+      ) : (
+        <div className="node-password-actions">
+          <button className="action-button" onClick={() => setEditing(true)}>
+            {current?.isSet ? "Change password" : "Set password"}
+          </button>
+          {current?.isSet && !(change && "clear" in change) && (
+            <button className="action-button danger" onClick={() => onChange({ clear: true })}>
+              Remove
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function FileField({
   storeId,
   nodeId,

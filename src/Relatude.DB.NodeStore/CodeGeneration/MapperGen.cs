@@ -113,6 +113,9 @@ internal static class MapperGen {
                 sb.AppendLine("values.Add(" + CodeUtils.GuidName(p.Id) + ", node." + p.CodeName + ");");
 
                 sb.AppendLine("}");
+            } else if (p is PasswordPropertyModel) {
+                // null is no change: the stored password stays
+                sb.AppendLine("values.Add(" + CodeUtils.GuidName(p.Id) + ", node." + p.CodeName + " ?? " + typeof(PasswordValue).FullName + "." + nameof(PasswordValue.Empty) + ");");
             } else {
                 sb.AppendLine("values.Add(" + CodeUtils.GuidName(p.Id) + ", node." + p.CodeName + ");");
             }
@@ -353,6 +356,17 @@ internal static class MapperGen {
                     sb.AppendLine("obj." + p.CodeName + " = " + typeof(FileValue).Namespace + "." + nameof(FileValue) + "." + nameof(FileValue.CopyAndEnsurePropertyPath) + "(fv, filePropertyPath);");
                     sb.AppendLine("} else {");
                     sb.AppendLine("obj." + p.CodeName + " = " + typeof(FileValue).Namespace + "." + nameof(FileValue) + "." + nameof(FileValue.CreateEmptyWithPropertyPath) + "(filePropertyPath);");
+                    sb.AppendLine("}");
+                    sb.AppendLine("}");
+                } else if (p.PropertyType == PropertyType.Password) {
+                    // the object's own copy, which can verify and read the password with the store's keys and be
+                    // changed without changing what the store holds
+                    var passwordValueName = typeof(PasswordValue).FullName;
+                    sb.AppendLine("{");
+                    sb.AppendLine("if (nodeData." + nameof(INodeDataExternal.TryGetValue) + "(" + CodeUtils.GuidName(p.Id) + ", out var v) && v is " + passwordValueName + " pv) {");
+                    sb.AppendLine("obj." + p.CodeName + " = " + passwordValueName + "." + nameof(PasswordValue.CopyForReader) + "(pv, store." + nameof(NodeStore.Datastore) + "." + nameof(DataStores.IDataStore.Passwords) + ");");
+                    sb.AppendLine("} else {");
+                    sb.AppendLine("obj." + p.CodeName + " = " + passwordValueName + "." + nameof(PasswordValue.Empty) + ";");
                     sb.AppendLine("}");
                     sb.AppendLine("}");
                 } else if (p is EnumArrayPropertyModel enumArrayP) {

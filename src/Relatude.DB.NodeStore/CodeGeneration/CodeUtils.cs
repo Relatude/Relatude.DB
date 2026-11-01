@@ -58,6 +58,7 @@ internal static class CodeUtils {
             PropertyType.FloatArray => "float[]",
             PropertyType.Decimal => "decimal",
             PropertyType.File => "Relatude.DB.Common.FileValue",
+            PropertyType.Password => "Relatude.DB.Common.PasswordValue",
             PropertyType.Embedded => getTypeNameEmbedded(p, datamodel),
             PropertyType.Reference => getTypeNameReference(p, datamodel),
             PropertyType.References => getTypeNameReferences(p, datamodel),

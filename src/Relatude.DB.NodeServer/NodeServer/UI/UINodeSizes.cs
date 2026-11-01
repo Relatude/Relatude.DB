@@ -352,6 +352,7 @@ sealed class UINodeSizes {
         return value switch {
             string s => $"{s.Length:N0} characters: {clip(s)}",
             FileValue f when f.IsEmpty => "no file",
+            PasswordValue p => p.IsSet ? "a password, " + p.Storage switch { PasswordStorage.Hashed => "hashed", PasswordStorage.Encrypted => "encrypted", _ => "as plain text" } : "no password",
             FileValue f => $"{f.Name}, {f.Size:N0} bytes in the file store" + (f.TextExtract.Length > 0 ? $", {f.TextExtract.Length:N0} characters of extracted text" : ""),
             string[] a => $"{a.Length:N0} strings",
             Guid[] a => $"{a.Length:N0} ids",

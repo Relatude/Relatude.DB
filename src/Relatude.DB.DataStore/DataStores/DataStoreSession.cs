@@ -21,6 +21,7 @@ public class DataStoreSession : IDataStore {
     public QueryContext QueryContext { get; }
 
     public void SetDefaultQueryContext(QueryContext ctx) => _datastore.SetDefaultQueryContext(ctx);
+    public IPasswordProtector? Passwords => _datastore.Passwords;
     public void Dispose() => _datastore.Dispose();
     public void LogInfo(string text, string? details = null, bool replace = false) => _datastore.LogInfo(text, details, replace);
     public void LogWarning(string text, string? details = null) => _datastore.LogWarning(text, details);

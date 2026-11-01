@@ -183,6 +183,28 @@ public static class DatamodelCatalog {
         ["Display"] = new() { Label = "Display", Help = "How an editing interface, such as a CMS, shows the nodes the property holds: List (the default), Table (rows with columns and paging), Inline (each node as a form that opens in place), Cards, Thumbnail (the type's icon and the node's first picture), Pills (a tag with each node's name) or Dropdown (a drop-down to choose the nodes from; not for embedded nodes). It is the default: an editor may let its users choose another. It says nothing to the store: changing it rebuilds nothing.", Order = 8 },
         // files
         ["FileStorageProviderId"] = new() { Label = "File store", Help = "The file store (from the storage settings) the files of this property go into, by id. Empty uses the first one.", Group = "Advanced" },
+        // passwords (MinLength, MaxLength and the pattern have entries of their own for passwords, in propertyByType)
+        ["AllowHashed"] = new() { Label = "Allow hashed", Help = "A password may be kept as an Argon2id hash: it can be verified, never read back. The safe choice, and the default way a password is set.", Group = "Constraints", Order = 1 },
+        ["AllowEncrypted"] = new() { Label = "Allow encrypted", Help = "A password may be kept encrypted with the database's key (Passwords.EncryptionKey in its settings), so the application can read it back. Losing the key loses every encrypted password.", Group = "Constraints", Order = 2 },
+        ["AllowPlainText"] = new() { Label = "Allow plain text", Help = "A password may be kept as written. Whoever can read the database files, its backups or its log can read it: only for passwords that protect nothing of value.", Group = "Constraints", Order = 3 },
+        ["RequireUppercase"] = new() { Label = "Require upper case", Help = "A new password must have an upper case letter.", Group = "Constraints", Order = 6 },
+        ["RequireLowercase"] = new() { Label = "Require lower case", Help = "A new password must have a lower case letter.", Group = "Constraints", Order = 7 },
+        ["RequireDigit"] = new() { Label = "Require a digit", Help = "A new password must have a digit.", Group = "Constraints", Order = 8 },
+        ["RequireSymbol"] = new() { Label = "Require a symbol", Help = "A new password must have a character that is neither a letter nor a digit.", Group = "Constraints", Order = 9 },
+    };
+    // entries that differ for one property type from the shared ones above
+    static readonly Dictionary<string, Dictionary<string, Entry>> propertyByType = new(StringComparer.Ordinal) {
+        ["Password"] = new(StringComparer.Ordinal) {
+            ["MinLength"] = new() { Label = "Minimum length", Help = "The fewest characters a new password may have. Length is what makes a password hard to guess: 8 is the least worth having, 15 is better.", Group = "Constraints", Order = 4 },
+            ["MaxLength"] = new() { Label = "Maximum length", Help = "The most characters a new password may have. Keep it generous, 64 or more, so long pass phrases fit.", Group = "Constraints", Order = 5 },
+            ["RegularExpression"] = new() { Label = "Pattern", Help = "A regular expression a new password has to match, for a rule the switches above do not cover.", Editor = "regex", Group = "Constraints", Order = 10 },
+            ["RegularExpressionMessage"] = new() { Label = "Pattern message", Help = "What a person is told when a new password does not match the pattern. It never shows the password.", Group = "Constraints", Order = 11 },
+        },
+    };
+    // common fields that mean nothing for one property type, which the editor leaves out of its form
+    static readonly Dictionary<string, string[]> propertyCommonHidden = new(StringComparer.Ordinal) {
+        // a password is never indexed, unique, a facet, in the text index, in the display name or per culture
+        ["Password"] = ["Indexed", "NotFacet", "IndexType", "UniqueValues", "DisplayName", "ExcludeFromTextIndex", "IndexBoost", "CultureSensitive", "CultureSpecific"],
     };
     static readonly Dictionary<string, Entry> source = new(StringComparer.Ordinal) {
         ["Name"] = new() { Label = "Name", Help = "What this source is called. A label only - the model refers to it by id.", Order = 1 },
@@ -216,6 +238,7 @@ public static class DatamodelCatalog {
         new() { Value = "EnumArray", Label = "Enum list", Help = "A list of enum members.", Group = "Collections" },
         new() { Value = "ByteArray", Label = "Bytes", Help = "Raw bytes stored on the node.", Group = "Special" },
         new() { Value = "File", Label = "File", Help = "A file kept in a file store, with previews and conversions.", Group = "Special" },
+        new() { Value = "Password", Label = "Password", Help = "A password, hashed by default, else encrypted or as plain text, with rules for new passwords. Never indexed: a query can only ask whether it is set.", Group = "Special" },
         new() { Value = "Embedded", Label = "Embedded nodes", Help = "Inner nodes stored inside this node: one, a list or a map.", Group = "Links" },
         new() { Value = "Reference", Label = "Reference", Help = "A link to one node, stored on this node.", Group = "Links" },
         new() { Value = "References", Label = "References", Help = "Links to several nodes, stored on this node.", Group = "Links" },
@@ -232,13 +255,19 @@ public static class DatamodelCatalog {
         var byType = new Dictionary<string, FieldDefinition[]>();
         foreach (var pt in propertyTypes) {
             var type = PropertyModelJsonConverter.GetModelType(Enum.Parse<PropertyType>(pt.Value));
-            byType[pt.Value] = fields(type, property, hiddenPropertyFields, commonPaths, DatamodelOverrides.Scopes(typeof(PropertyOverride)));
+            var entries = property;
+            if (propertyByType.TryGetValue(pt.Value, out var own)) {
+                entries = new(property, StringComparer.Ordinal);
+                foreach (var (path, entry) in own) entries[path] = entry;
+            }
+            byType[pt.Value] = fields(type, entries, hiddenPropertyFields, commonPaths, DatamodelOverrides.Scopes(typeof(PropertyOverride)));
         }
         return new {
             NodeType = fields(typeof(NodeTypeModel), nodeType, hiddenNodeTypeFields, null, DatamodelOverrides.Scopes(typeof(NodeTypeOverride))),
             Relation = fields(typeof(RelationModel), relation, hiddenRelationFields, null),
             PropertyCommon = common,
             PropertyByType = byType,
+            PropertyCommonHidden = propertyCommonHidden,
             PropertyTypes = propertyTypes,
             Source = fields(typeof(DatamodelSource), source, hiddenSourceFields, null),
             Groups = new[] { "General", "Indexing", "Text search", "Constraints", "System members", "Access", "Code", "Advanced" },

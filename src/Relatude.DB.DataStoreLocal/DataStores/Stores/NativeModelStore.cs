@@ -34,34 +34,51 @@ public class NativeModelStore(DataStoreLocal store) {
         _relationTypeCache[relationTypeId] = nativeType;
         return nativeType;
     }
+    // The entry the last primitive action removed. An update reaches this store as the old node removed and the new
+    // one added straight after, so what the relations gave the entry - a user's groups, a group's members, a
+    // collection's cultures - is carried over to the new entry; the node gives the rest. A delete removes the node's
+    // relations first, so what a deleted entry carries is empty, and any other action in between drops it.
+    (NativeNodeType Type, int Id, object Entry)? _removed;
     // Under db write lock, so no locking needed for updates
     public void UpdateNodeActionIfRelevant(PrimitiveNodeAction action) {
+        var removed = _removed;
+        _removed = null;
         var nativeType = getNativeNodeType(action.Node.NodeType);
         if (nativeType == NativeNodeType.NotRelevant) return;
+        var id = action.Node.__Id;
         switch (action.Operation) {
             case PrimitiveOperation.Add:
+                var replaced = removed is { } r && r.Type == nativeType && r.Id == id ? r.Entry : null;
                 switch (nativeType) {
-                    case NativeNodeType.SystemUser: addUser(action.Node); break;
-                    case NativeNodeType.SystemUserGroup: addUserGroup(action.Node.__Id); break;
-                    case NativeNodeType.Collection: addCollection(action.Node.__Id); break;
-                    case NativeNodeType.SystemCulture: addCulture(action.Node); break;
+                    case NativeNodeType.SystemUser: addUser(action.Node, replaced as NativeSystemUser); break;
+                    case NativeNodeType.SystemUserGroup: addUserGroup(id, replaced as NativeSystemUserGroup); break;
+                    case NativeNodeType.Collection: addCollection(id, replaced as NativeSystemCollection); break;
+                    case NativeNodeType.SystemCulture: addCulture(action.Node, replaced as NativeSystemCulture); break;
                     default: throw new InvalidOperationException("Node is not of a native type.");
                 }
                 break;
             case PrimitiveOperation.Remove:
+                object? entry = nativeType switch {
+                    NativeNodeType.SystemUser => _users.GetValueOrDefault(id),
+                    NativeNodeType.SystemUserGroup => _userGroups.GetValueOrDefault(id),
+                    NativeNodeType.Collection => _collections.GetValueOrDefault(id),
+                    NativeNodeType.SystemCulture => _cultures.GetValueOrDefault(id),
+                    _ => throw new InvalidOperationException("Node is not of a native type."),
+                };
                 switch (nativeType) {
-                    case NativeNodeType.SystemUser: deleteUser(action.Node.__Id); break;
-                    case NativeNodeType.SystemUserGroup: deleteUserGroup(action.Node.__Id); break;
-                    case NativeNodeType.Collection: deleteCollection(action.Node.__Id); break;
-                    case NativeNodeType.SystemCulture: deleteCulture(action.Node.__Id); break;
-                    default: throw new InvalidOperationException("Node is not of a native type.");
+                    case NativeNodeType.SystemUser: deleteUser(id); break;
+                    case NativeNodeType.SystemUserGroup: deleteUserGroup(id); break;
+                    case NativeNodeType.Collection: deleteCollection(id); break;
+                    case NativeNodeType.SystemCulture: deleteCulture(id); break;
                 }
+                if (entry != null) _removed = (nativeType, id, entry);
                 break;
             default:
                 break;
         }
     }
     public void UpdateRelationActionIfRelevant(PrimitiveRelationAction action) {
+        _removed = null;
         var nativeType = getNativeRelationType(action.RelationId);
         if (nativeType == NativeRelationType.NotRelevant) return;
         switch (nativeType) {
@@ -129,6 +146,7 @@ public class NativeModelStore(DataStoreLocal store) {
         stream.WriteVerifiedInt(_users.Count);
         foreach (var user in _users.Values) {
             stream.WriteInt(user.Id);
+            stream.WriteInt((int)user.UserType); // from state file version 1003; before it a user read back from the file was anonymous
             stream.WriteIntArray(user.Memberships);
         }
         stream.WriteVerifiedInt(_userGroups.Count);
@@ -155,9 +173,11 @@ public class NativeModelStore(DataStoreLocal store) {
         var noUsers = stream.ReadVerifiedInt();
         for (var i = 0; i < noUsers; i++) {
             var userId = stream.ReadInt();
+            var userType = (SystemUserType)stream.ReadInt();
             var memberships = stream.ReadIntArray();
             var user = new NativeSystemUser {
                 Id = userId,
+                UserType = userType,
                 Memberships = memberships,
             };
             _users.Add(user.Id, user);
@@ -252,7 +272,8 @@ public class NativeModelStore(DataStoreLocal store) {
     void deleteUser(int nodeId) {
         _users.Remove(nodeId);
     }
-    public void addUser(INodeData node) {
+    // replaced: the entry of the node this one updates, whose groups it keeps (the node gives the user type)
+    void addUser(INodeData node, NativeSystemUser? replaced) {
         Native.SystemUserType userType = Native.SystemUserType.Anonymous;
         if (node.TryGetValue(NodeConstants.NativeUserPropertyUserType, out var objUserType)) {
             // enum properties are stored as int, and a boxed int cannot be unboxed straight to the enum:
@@ -261,35 +282,34 @@ public class NativeModelStore(DataStoreLocal store) {
         var user = new NativeSystemUser {
             Id = node.__Id,
             UserType = userType,
+            Memberships = replaced?.Memberships ?? [],
         };
         _users.Add(user.Id, user);
     }
+    // The user's groups and every group they are in through groups of groups, by guid in order. Each group is visited
+    // once, so a cycle of groups (which the relation refuses, but a model from before that may hold) ends by itself,
+    // and a hierarchy of any size is followed to its end; a group id the registry no longer knows is passed over.
     Guid[] calculateEffectiveMemberships(NativeSystemUser user) {
-        var iterations = 0;
-        var effectiveMemberships = user.Memberships.Select(store._guids.GetGuid).ToHashSet();
-        var toProcess = new Queue<int>(user.Memberships);
+        var visited = new HashSet<int>();
+        var effectiveMemberships = new HashSet<Guid>();
+        var toProcess = new Queue<int>();
+        foreach (var groupId in user.Memberships) {
+            if (visited.Add(groupId)) toProcess.Enqueue(groupId);
+        }
         while (toProcess.Count > 0) {
             var currentGroupId = toProcess.Dequeue();
-            if (++iterations > 1000) { // simple measure to ensure we don't get stuck in cycles:
-                try {
-                    throw new InvalidOperationException();
-                } catch (Exception ex) {
-                    store.LogError("Cyclic user group memberships detected. ", ex);
-                }
-                return [.. effectiveMemberships];
-            }
+            if (store._guids.TryGetId(currentGroupId, out Guid groupGuid)) effectiveMemberships.Add(groupGuid);
             if (_userGroups.TryGetValue(currentGroupId, out var group)) {
                 foreach (var parentGroupId in group.GroupMemberships) {
-                    if (effectiveMemberships.Add(store._guids.GetGuid(parentGroupId))) {
-                        toProcess.Enqueue(parentGroupId);
-                    }
+                    if (visited.Add(parentGroupId)) toProcess.Enqueue(parentGroupId);
                 }
             }
         }
         return [.. effectiveMemberships.Order()];
     }
     void resetEffectiveMembershipsCache() {
-        _effectiveMembershipsCache.Clear();
+        // readers fill the cache under its lock, and some read without the store's
+        lock (_effectiveMembershipsCache) _effectiveMembershipsCache.Clear();
     }
     public Guid[] GetEffectiveMembershipsOfUser(int userId) {
         lock (_effectiveMembershipsCache) {
@@ -306,18 +326,22 @@ public class NativeModelStore(DataStoreLocal store) {
     void deleteUserGroup(int nodeId) {
         _userGroups.Remove(nodeId);
     }
-    void addUserGroup(int nodeId) {
+    void addUserGroup(int nodeId, NativeSystemUserGroup? replaced) {
         var group = new NativeSystemUserGroup {
             Id = nodeId,
+            UserMembers = replaced?.UserMembers ?? [],
+            GroupMembers = replaced?.GroupMembers ?? [],
+            GroupMemberships = replaced?.GroupMemberships ?? [],
         };
         _userGroups.Add(nodeId, group);
     }
     void deleteCollection(int nodeId) {
         _collections.Remove(nodeId);
     }
-    void addCollection(int nodeId) {
+    void addCollection(int nodeId, NativeSystemCollection? replaced) {
         var collection = new NativeSystemCollection {
             Id = nodeId,
+            Cultures = replaced?.Cultures ?? [],
         };
         _collections.Add(nodeId, collection);
     }
@@ -325,14 +349,58 @@ public class NativeModelStore(DataStoreLocal store) {
         _cultures.Remove(nodeId);
         refreshCultureOrder();
     }
-    void addCulture(INodeData node) {
+    void addCulture(INodeData node, NativeSystemCulture? replaced) {
         var culture = new NativeSystemCulture {
             Id = node.__Id,
             Guid = node.Id,
             CultureCode = node.TryGetValue(NodeConstants.NativeCulturePropertyCultureCode, out var objCultureCode) ? (string)objCultureCode : string.Empty,
+            Collections = replaced?.Collections ?? [],
         };
         _cultures.Add(node.__Id, culture);
         refreshCultureOrder();
+    }
+
+    /// <summary>
+    /// Where this store disagrees with the nodes and relations it is made from, everything here being derived from
+    /// them: a user's type and groups, a group's members and the groups it is in, a collection's cultures, a culture's
+    /// code and collections, each entry having its node and each node its entry. Empty when they agree. For tests and
+    /// diagnostics: it reads every native node, so it is not for a request.
+    /// </summary>
+    internal List<string> FindInconsistencies() {
+        var problems = new List<string>();
+        var def = store._definition;
+        int[] related(Guid relationId, int id, bool fromTargetToSource) =>
+            def.Relations.TryGetValue(relationId, out var relation) ? [.. relation.GetRelated(id, fromTargetToSource).Enumerate().Order()] : [];
+        static bool same(IEnumerable<int> held, int[] stored) => held.Order().SequenceEqual(stored);
+        void entries<T>(Guid typeId, string kind, Dictionary<int, T> held, Action<int, T, INodeData> check) {
+            var ids = def.GetAllIdsForTypeNoAccessControl(typeId, true).Enumerate().ToHashSet();
+            foreach (var id in ids) {
+                if (!held.TryGetValue(id, out var entry)) { problems.Add(kind + " " + id + " has no entry. "); continue; }
+                if (!store._nodes.TryGet(id, out var node, out _)) { problems.Add(kind + " " + id + " cannot be read. "); continue; }
+                check(id, entry, node);
+            }
+            foreach (var id in held.Keys) if (!ids.Contains(id)) problems.Add(kind + " " + id + " has an entry but no node. ");
+        }
+        entries(NodeConstants.BaseUserId, "User", _users, (id, user, node) => {
+            var userType = node.TryGetValue(NodeConstants.NativeUserPropertyUserType, out var t) ? (SystemUserType)(int)t : SystemUserType.Anonymous;
+            if (user.UserType != userType) problems.Add("User " + id + " is held as " + user.UserType + " but is " + userType + ". ");
+            if (!same(user.Memberships, related(NodeConstants.RelationUsersToGroups, id, false))) problems.Add("User " + id + " is held in other groups than its relations say. ");
+        });
+        entries(NodeConstants.BaseUserGroupId, "Group", _userGroups, (id, group, node) => {
+            if (!same(group.UserMembers, related(NodeConstants.RelationUsersToGroups, id, true))) problems.Add("Group " + id + " is held with other users than its relations say. ");
+            if (!same(group.GroupMembers, related(NodeConstants.RelationGroupsToGroups, id, false))) problems.Add("Group " + id + " is held with other member groups than its relations say. ");
+            if (!same(group.GroupMemberships, related(NodeConstants.RelationGroupsToGroups, id, true))) problems.Add("Group " + id + " is held in other groups than its relations say. ");
+        });
+        entries(NodeConstants.BaseCollectionId, "Collection", _collections, (id, collection, node) => {
+            if (!same(collection.Cultures, related(NodeConstants.RelationCollectionsToCultures, id, false))) problems.Add("Collection " + id + " is held with other cultures than its relations say. ");
+        });
+        entries(NodeConstants.BaseCultureId, "Culture", _cultures, (id, culture, node) => {
+            var code = node.TryGetValue(NodeConstants.NativeCulturePropertyCultureCode, out var c) ? (string)c : string.Empty;
+            if (culture.CultureCode != code) problems.Add("Culture " + id + " is held as " + culture.CultureCode + " but is " + code + ". ");
+            if (culture.Guid != node.Id) problems.Add("Culture " + id + " is held with another guid. ");
+            if (!same(culture.Collections, related(NodeConstants.RelationCollectionsToCultures, id, true))) problems.Add("Culture " + id + " is held in other collections than its relations say. ");
+        });
+        return problems;
     }
 
     // culture id -> its place when a reader falls back to another culture. Read without the store lock (a node is
@@ -385,7 +453,8 @@ public class NativeModelStore(DataStoreLocal store) {
             if (culture == null) throw new InvalidOperationException($"Culture with id '{ctx.CultureId}' does not exist.");
             cultureId = culture.Guid;
         } else if (!string.IsNullOrWhiteSpace(ctx.CultureCode)) {
-            var culture = _cultures.Values.FirstOrDefault(c => c.CultureCode == ctx.CultureCode);
+            // culture codes are compared as .NET compares culture names, and as TryGetCultureId does
+            var culture = _cultures.Values.FirstOrDefault(c => string.Equals(c.CultureCode, ctx.CultureCode, StringComparison.OrdinalIgnoreCase));
             if (culture == null) throw new InvalidOperationException($"Culture with code '{ctx.CultureCode}' does not exist.");
             cultureId = culture.Guid;
         } else {

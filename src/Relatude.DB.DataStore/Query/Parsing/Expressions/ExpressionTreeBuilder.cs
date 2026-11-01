@@ -54,6 +54,9 @@ public class ExpressionTreeBuilder {
             var first = e.Name[..posDot];
             var rest = e.Name[(posDot + 1)..].Trim();
             var varRef = new VariableReferenceExpression(first);
+            // x.Password.IsSet: the one member of a property's value a query can read
+            var member = rest.LastIndexOf('.');
+            if (member > 0 && rest[(member + 1)..].Trim() == PropertyIsSetExpression.MemberName) return new PropertyIsSetExpression(varRef, rest[..member].Trim());
             return new PropertyReferenceExpression(varRef, rest);
         } else {
             return new VariableReferenceExpression(e.Name);

@@ -168,6 +168,12 @@ public class SettingsLocal {
 
     public DefaultUrlManagerOptions? UrlOptions { get; set; } = new();
 
+    /// <summary>
+    /// The keys and hash settings of the database's password properties (<see cref="PasswordSettings"/>). Null
+    /// hashes with the default settings and has no key, so no password can be kept encrypted.
+    /// </summary>
+    public PasswordSettings? Passwords { get; set; }
+
     public ImageDefaultFormat ImageDefaultFormat { get; set; } = ImageDefaultFormat.Jpeg;
     public int ImageDefaultQuality { get; set; } = 85;
 

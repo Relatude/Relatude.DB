@@ -514,6 +514,23 @@ public static class ModelGen {
                     sb.AppendLine(")]");
                 }
                 break;
+            case PropertyType.Password: {
+                    addBaseAttributes<PasswordPropertyAttribute>(p, dm, sb);
+                    var w = (PasswordPropertyModel)p;
+                    if (!w.AllowHashed) sb.Append(", " + nameof(PasswordPropertyAttribute.AllowHashed) + " = false");
+                    if (w.AllowEncrypted) sb.Append(", " + nameof(PasswordPropertyAttribute.AllowEncrypted) + " = true");
+                    if (w.AllowPlainText) sb.Append(", " + nameof(PasswordPropertyAttribute.AllowPlainText) + " = true");
+                    if (w.MinLength != PasswordPropertyModel.DefaultMinLength) sb.Append(", " + nameof(PasswordPropertyAttribute.MinLength) + " = " + w.MinLength.ToString(CultureInfo.InvariantCulture));
+                    if (w.MaxLength != PasswordPropertyModel.DefaultMaxLength) sb.Append(", " + nameof(PasswordPropertyAttribute.MaxLength) + " = " + w.MaxLength.ToString(CultureInfo.InvariantCulture));
+                    if (w.RequireUppercase) sb.Append(", " + nameof(PasswordPropertyAttribute.RequireUppercase) + " = true");
+                    if (w.RequireLowercase) sb.Append(", " + nameof(PasswordPropertyAttribute.RequireLowercase) + " = true");
+                    if (w.RequireDigit) sb.Append(", " + nameof(PasswordPropertyAttribute.RequireDigit) + " = true");
+                    if (w.RequireSymbol) sb.Append(", " + nameof(PasswordPropertyAttribute.RequireSymbol) + " = true");
+                    if (!string.IsNullOrEmpty(w.RegularExpression)) sb.Append(", " + nameof(PasswordPropertyAttribute.RegularExpression) + " = " + stringLiteral(w.RegularExpression));
+                    if (!string.IsNullOrEmpty(w.RegularExpressionMessage)) sb.Append(", " + nameof(PasswordPropertyAttribute.RegularExpressionMessage) + " = " + stringLiteral(w.RegularExpressionMessage));
+                    sb.AppendLine(")]");
+                }
+                break;
             case PropertyType.Embedded: {
                     var e = (EmbeddedPropertyModel)p;
                     var isMap = e.EmbeddedValueType == EmbeddedValueType.InnerNodeMap;

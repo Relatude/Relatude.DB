@@ -230,6 +230,7 @@ public static class SchemaView {
             PropertyType.FloatArray => "float[]",
             PropertyType.GeoCoordinate => "GeoCoordinate",
             PropertyType.File => "FileValue",
+            PropertyType.Password => "PasswordValue",
             _ => p.PropertyType.ToString(),
         };
     }

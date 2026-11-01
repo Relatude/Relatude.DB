@@ -515,7 +515,7 @@ namespace Relatude.DB.DataStores.Definitions {
             CodeName = pm.CodeName;
             ReadAccess = pm.ReadAccess;
             WriteAccess = pm.WriteAccess;
-            Indexed = pm.Indexed || pm.UniqueValues;
+            Indexed = pm is not PasswordPropertyModel && (pm.Indexed || pm.UniqueValues); // a password is never indexed, whatever the model says
             if (pm is IPropertyModelUniqueContraints pmuv) UniqueValues = pmuv.UniqueValues;
             AllIndexes = [];
             Definition = def;
@@ -569,6 +569,7 @@ namespace Relatude.DB.DataStores.Definitions {
             if (pm is EnumArrayPropertyModel ea) return new EnumArrayProperty(ea, def);
             if (pm is RelationPropertyModel ra) return new RelationProperty(ra, def);
             if (pm is FilePropertyModel fa) return new FileProperty(fa, def);
+            if (pm is PasswordPropertyModel pw) return new PasswordProperty(pw, def);
             if (pm is FloatArrayPropertyModel far) return new FloatArrayProperty(far, def);
             if(pm is EmbeddedPropertyModel inn) return new EmbeddedProperty(inn, def);
             if(pm is ReferencePropertyModel rf) return new ReferenceProperty(rf, def);

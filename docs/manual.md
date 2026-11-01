@@ -85,7 +85,7 @@ Everything in Relatude.DB is a **node**. A node has:
 |---|---|
 | `Guid Id` | The public identity. The engine also keeps an internal `int __Id` for fast indexing. |
 | `NodeMeta Meta` | System-managed metadata: timestamps, culture, revision, ACL, display name, address. |
-| **Scalar properties** | `string`, `int`, `decimal`, `DateTime`, `bool`, `Guid`, `GeoCoordinate`, `FileValue`, arrays… |
+| **Scalar properties** | `string`, `int`, `decimal`, `DateTime`, `bool`, `Guid`, `GeoCoordinate`, `FileValue`, `PasswordValue`, arrays… |
 | **Embedded data** | Owned sub-objects stored inline in the parent — `Embedded<T>`, `EmbeddedMap<TKey,TValue>`. |
 | **References** | A stored `Guid` (or `Guid[]`) pointing at other nodes — one-directional, no reverse index. |
 | **Relations** | Real graph edges declared as their own classes — bidirectional, indexed, traversable. |
@@ -447,6 +447,7 @@ faceted efficiently.** Without it, the engine falls back to scanning.
 | `Guid[]` | `[GuidArrayProperty]` |
 | `TEnum[]` | `[EnumArrayProperty]` |
 | `FileValue` | `[FileProperty]` |
+| `PasswordValue` | `[PasswordProperty]` |
 
 All of them inherit shared options from `PropertyAttribute`:
 
@@ -920,6 +921,84 @@ Two things worth knowing before changing a value at runtime:
 - **Rules apply to new writes.** A tighter `MaxLength` or `MinValue` does not check the values
   already stored. Turning `Indexed` or `IndexedByWords` on builds the index from the log at the next
   open.
+
+### Passwords
+
+`PasswordValue` (in `Relatude.DB.Common`) holds a password. By default it is kept as an Argon2id
+hash, which can be verified and never read back; a property may also allow it encrypted with the
+database's key, or as plain text, and the code says which when it sets one.
+
+```csharp
+[Node]
+public class Member {
+    public Guid Id { get; set; }
+    public string Email { get; set; } = "";
+    [PasswordProperty(MinLength = 10, RequireDigit = true)]
+    public PasswordValue Password { get; set; } = PasswordValue.Empty;
+    [PasswordProperty(AllowEncrypted = true, AllowHashed = false)]
+    public PasswordValue SmtpPassword { get; set; } = PasswordValue.Empty;
+}
+
+member.Password.SetPassword("correct horse battery 7");           // hashed, the default
+member.SmtpPassword.SetPassword(secret, PasswordStorage.Encrypted);
+db.Update(member);                                                  // hashed and encrypted here
+
+var m = db.Get<Member>(id);
+m.Password.IsSet;                   // true
+m.Password.Storage;                 // PasswordStorage.Hashed
+m.Password.Verify(typed);           // true or false, in constant time
+m.Password.IsPasswordRetrievable;   // false: a hash cannot be read back
+m.SmtpPassword.GetPassword();       // the password, decrypted with the database's key
+m.Password.Clear();                 // removed at the next write
+```
+
+What to know:
+
+- **`SetPassword` and `Clear` only record the change.** The store makes the hash or the encryption when
+  the node is written, with the database's keys, and checks the property's rules then: a password too
+  short, missing a character the property asks for, or in a way of keeping it the property does not
+  allow fails the write with a `ValueConstraintException` that never quotes the password. The hash is
+  made before the transaction takes its lock, so a sign-in does not hold up other writers.
+- **The password never reaches the log.** What is written is the stored form: `H$argon2id$…` (the PHC
+  string, with its parameters), `E$…` (AES-256-GCM, with the fingerprint of the key) or `P` and the
+  text. A value holding a change cannot be written as bytes at all.
+- **A value that holds no change changes nothing.** An object read before a password was changed and
+  saved after it keeps the new password, as does a version of the node written back. An insert takes a
+  password as read, so `copy.Password = original.Password` gives a new node the same password.
+- **A query can only ask whether one is set**: `Where(m => m.Password.IsSet)`, answered by reading the
+  nodes, as a password is never indexed. Comparing, sorting, grouping or selecting a password property
+  throws. It is never in the text index, the display name, GraphQL or a facet.
+- **It never leaves the server.** JSON gives `{"isSet": true, "storage": "Hashed"}` and `ToString()`
+  gives `(password set, hashed)`. Sent back, that shape changes nothing; `{"set": "...", "storage":
+  "Hashed"}` sets a password and `{"clear": true}` removes it.
+- **`NeedsRehash`** says a password was hashed with weaker settings or another pepper than the store
+  has now, or encrypted with an older key: set it again after verifying it at a sign-in.
+
+The keys are in the database's settings, `LocalSettings.Passwords` in `relatude.db.json` (the
+**Passwords** group on the Content settings page):
+
+```json
+"Passwords": {
+  "EncryptionKey": "<32 random bytes in base64>",
+  "OldEncryptionKeys": [ "<a key passwords were encrypted with before>" ],
+  "Pepper": null,
+  "HashMemoryKiB": 19456, "HashIterations": 2, "HashParallelism": 1
+}
+```
+
+Keep the keys in configuration or user secrets, which the server never writes to its files. Without
+`EncryptionKey` no password can be kept encrypted; losing it loses every encrypted password, so keep a
+copy, and when changing it put the old one in `OldEncryptionKeys`. The pepper is optional, a secret
+every hash is made with besides its salt: set it once, before the first password, as a hash made with
+a pepper the settings no longer have cannot be verified. The hash settings default to OWASP's least
+for Argon2id; a hash keeps the parameters it was made with, so raising them only affects new hashes.
+
+The property's options, in the attribute and in the datamodel editor: `AllowHashed` (on),
+`AllowEncrypted` and `AllowPlainText` (off), `MinLength` (8), `MaxLength` (128), `RequireUppercase`,
+`RequireLowercase`, `RequireDigit`, `RequireSymbol`, and a `RegularExpression` with its
+`RegularExpressionMessage`. A password cannot be indexed, unique, part of the display name, per
+culture, or on a type kept inside another node's embedded property. A password cannot be set through
+a remote store yet: only the store that keeps the node has the keys.
 
 ---
 

@@ -1,6 +1,7 @@
 ﻿using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.Datamodels.Properties;
+using Relatude.DB.DataStores;
 using Relatude.DB.Query;
 using System.Text;
 using Relatude.DB.Nodes;
@@ -292,6 +293,37 @@ internal static class InterfaceGen {
                 sb.AppendLine("return _" + p.CodeName + ";");
                 sb.AppendLine("} ");
                 sb.AppendLine("set { _" + p.CodeName + " = null; " + shellName + "." + nameof(NodeDataShell.SetValue) + "(" + pIdName + ",value); } ");
+                sb.AppendLine(" }");
+            } else if (p.PropertyType == PropertyType.Password) {
+                // The object gets its own copy of the stored value, which can verify and read the password with the
+                // store's keys. The copy is put in the node data too, so a password set on it is the one written back.
+                // Example:
+                //   Relatude.DB.Common.PasswordValue _Password = null;
+                //   public Relatude.DB.Common.PasswordValue Password {
+                //       get {
+                //           if (_Password == null) {
+                //               _Password = Relatude.DB.Common.PasswordValue.CopyForReader(
+                //                   __NodeDataShell.GetValue<Relatude.DB.Common.PasswordValue>(g...) ?? Relatude.DB.Common.PasswordValue.Empty,
+                //                   __NodeDataShell.Store.Datastore.Passwords);
+                //               __NodeDataShell.SetValue(g..., _Password);
+                //           }
+                //           return _Password;
+                //       }
+                //       set { _Password = null; __NodeDataShell.SetValue(g..., value ?? Relatude.DB.Common.PasswordValue.Empty); }
+                //   }
+                var passwordValueName = typeof(PasswordValue).Namespace + "." + nameof(PasswordValue);
+                sb.AppendLine(typeName + "? _" + p.CodeName + " = null;");
+                sb.AppendLine("public " + typeName + " " + p.CodeName + "{ ");
+                sb.AppendLine("get {");
+                sb.AppendLine("if(_" + p.CodeName + " == null) {");
+                sb.AppendLine("_" + p.CodeName + " = " + passwordValueName + "." + nameof(PasswordValue.CopyForReader) + "("
+                    + shellName + "." + nameof(NodeDataShell.GetValue) + "<" + typeName + ">(" + pIdName + ") ?? " + passwordValueName + "." + nameof(PasswordValue.Empty) + ", "
+                    + shellName + "." + nameof(NodeDataShell.Store) + "." + nameof(NodeStore.Datastore) + "." + nameof(IDataStore.Passwords) + ");");
+                sb.AppendLine(shellName + "." + nameof(NodeDataShell.SetValue) + "(" + pIdName + ", _" + p.CodeName + ");");
+                sb.AppendLine("}");
+                sb.AppendLine("return _" + p.CodeName + ";");
+                sb.AppendLine("} ");
+                sb.AppendLine("set { _" + p.CodeName + " = null; " + shellName + "." + nameof(NodeDataShell.SetValue) + "(" + pIdName + ", value ?? " + passwordValueName + "." + nameof(PasswordValue.Empty) + "); } ");
                 sb.AppendLine(" }");
             } else {
                 sb.AppendLine("public " + typeName + " " + p.CodeName + "{ ");

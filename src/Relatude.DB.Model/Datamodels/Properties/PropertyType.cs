@@ -21,6 +21,7 @@ public enum PropertyType : int {
     GuidArray = 16,
     EnumArray = 17,
     GeoCoordinate = 18,
+    Password = 19,
     Embedded = 50,
     Reference= 75,
     References = 76,

@@ -306,9 +306,17 @@ export interface Schema {
   relation: FieldDef[];
   propertyCommon: FieldDef[];
   propertyByType: Record<string, FieldDef[]>;
+  /** Common fields that mean nothing for a property type (a password's index, say), left out of its form. */
+  propertyCommonHidden?: Record<string, string[]>;
   propertyTypes: PropertyTypeDef[];
   source: FieldDef[];
   groups: string[];
+}
+
+/** The fields of a property of the given type: the common ones it has, then its own. */
+export function propertyFields(schema: Schema, propertyType: string): FieldDef[] {
+  const hidden = schema.propertyCommonHidden?.[propertyType] ?? [];
+  return [...schema.propertyCommon.filter((f) => !hidden.includes(f.path)), ...(schema.propertyByType[propertyType] ?? [])];
 }
 
 // ---- validation and activation ----

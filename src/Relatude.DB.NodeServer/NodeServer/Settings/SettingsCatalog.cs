@@ -125,6 +125,8 @@ public sealed class SettingLink {
 public static class SettingGenerators {
     /// <summary>A new random guid, written in its usual dashed form.</summary>
     public const string Guid = "guid";
+    /// <summary>32 random bytes in base64: a key for AES-256, a pepper.</summary>
+    public const string Key = "key";
 }
 
 /// <summary>
@@ -716,6 +718,35 @@ public static class SettingsCatalog {
                         new() {
                             Path = "LocalSettings.DefaultFileStore", Label = "Default FileValue provider", Picker = "fileStores",
                             Help = "The FileValue provider new uploads land in when the code does not name one. Empty uses an implicit MultiFile one on this database's own IO provider, one file per upload.",
+                        },
+                    ],
+                },
+                new() {
+                    Id = "passwords",
+                    Title = "Passwords",
+                    Help = "How the database keeps the values of its password properties. A password is hashed with Argon2id unless its property allows it encrypted or as plain text and the code asks for that. "
+                        + "The keys are secrets: keep them in configuration or user secrets, which the server never writes to its settings files, and keep a copy somewhere safe, as a lost key cannot be made again.",
+                    Settings = [
+                        new() {
+                            Path = "LocalSettings.Passwords.EncryptionKey", Label = "Encryption key", Secret = true, Generate = SettingGenerators.Key, Applies = SettingApplies.Reopen,
+                            Help = "The key passwords kept encrypted are encrypted with (AES-256-GCM): 32 random bytes in base64, which the button makes. Without one no password can be kept encrypted. Losing it loses every encrypted password. "
+                                + "To change it, move the old key to Passwords.OldEncryptionKeys in the settings file first, so the passwords encrypted with it can still be read.",
+                        },
+                        new() {
+                            Path = "LocalSettings.Passwords.Pepper", Label = "Pepper", Secret = true, Generate = SettingGenerators.Key, Applies = SettingApplies.Reopen,
+                            Help = "A secret every hash is made with besides its salt, so the hashes are of no use to whoever has the database without it. Optional, and set once, before the first password: losing or changing it makes every password hashed with it fail to verify.",
+                        },
+                        new() {
+                            Path = "LocalSettings.Passwords.HashMemoryKiB", Label = "Hash memory", Unit = "KiB", Applies = SettingApplies.Reopen,
+                            Help = "The memory one hash takes (Argon2's m). More makes guessing dearer for an attacker and each sign-in slower for the server. The default, 19456 (19 MiB), is OWASP's least for Argon2id. Passwords hashed before a change keep their own settings and still verify.",
+                        },
+                        new() {
+                            Path = "LocalSettings.Passwords.HashIterations", Label = "Hash passes", Applies = SettingApplies.Reopen,
+                            Help = "The passes over that memory (Argon2's t). 2 with 19 MiB is OWASP's least; with less memory, use more passes.",
+                        },
+                        new() {
+                            Path = "LocalSettings.Passwords.HashParallelism", Label = "Hash lanes", Applies = SettingApplies.Reopen,
+                            Help = "The lanes, and so the threads, one hash uses (Argon2's p). 1 leaves the other cores to other sign-ins.",
                         },
                     ],
                 },

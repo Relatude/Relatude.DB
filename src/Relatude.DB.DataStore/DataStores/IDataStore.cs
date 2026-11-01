@@ -21,6 +21,9 @@ public interface IDataStore : IDisposable {
     TransactionResult Execute(TransactionData transaction, bool? flushToDisk = null, QueryContext? ctx = null);
     QueryContext QueryContext { get; }
     void SetDefaultQueryContext(QueryContext ctx);
+    /// <summary>What verifies and reads the passwords of the store's password properties with the database's keys;
+    /// null on a store that does not have them, such as a remote one.</summary>
+    IPasswordProtector? Passwords => null;
     NodeDataRevision[] GetRevisions(Guid nodeId, QueryContext? ctx = null);
     object? Query(string query, IEnumerable<Parameter> parameters, QueryContext? ctx = null);
     Task<object?> QueryAsync(string query, IEnumerable<Parameter> parameters, QueryContext? ctx = null);

@@ -6,12 +6,17 @@
 		<Nullable>enable</Nullable>
 		<RootNamespace>Relatude.DB</RootNamespace>
 		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-		<Version>1.1.1.10</Version>
+		<Version>1.1.1.11</Version>
 	</PropertyGroup>
 
 	<ItemGroup>
 		<ProjectReference Include="..\Relatude.DB.DataStore\Relatude.DB.DataStore.csproj" />
 		<ProjectReference Include="..\Relatude.DB.KvStore\Relatude.DB.KvStore.csproj" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<!-- Argon2id for password properties (PasswordProtector): .NET has no Argon2 of its own -->
+		<PackageReference Include="Konscious.Security.Cryptography.Argon2" Version="1.3.1" />
 	</ItemGroup>
 
   <ItemGroup>

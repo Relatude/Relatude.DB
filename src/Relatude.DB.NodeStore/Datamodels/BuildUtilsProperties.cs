@@ -63,6 +63,8 @@ internal static class BuildUtilsProperties {
             p = getEnumArrayPropertyModel(cast<EnumArrayPropertyAttribute>(a, m));
         } else if (valueType == typeof(FileValue)) {
             p = getFilePropertyModel(cast<FilePropertyAttribute>(a, m));
+        } else if (valueType == typeof(PasswordValue)) {
+            p = getPasswordPropertyModel(cast<PasswordPropertyAttribute>(a, m));
         } else if (valueType.InheritsFromOrImplements<IEmbedded>()) {
             p = getEmbeddedPropertyModel(m, cast<EmbeddedPropertyAttribute>(a, m), valueType);
         } else if (valueType.InheritsFromOrImplements<IEmbeddedMap>()) {
@@ -86,6 +88,12 @@ internal static class BuildUtilsProperties {
         }
         if (p is StringPropertyModel sp && RegularExpressionErrors.Validate(sp.RegularExpression) is string regexError) {
             throw new Exception("The RegularExpression of the member \"" + m.DeclaringType?.FullName + "." + m.Name + "\" is not valid. " + regexError);
+        }
+        if (p is PasswordPropertyModel pwp && RegularExpressionErrors.Validate(pwp.RegularExpression) is string passwordRegexError) {
+            throw new Exception("The RegularExpression of the member \"" + m.DeclaringType?.FullName + "." + m.Name + "\" is not valid. " + passwordRegexError);
+        }
+        if (p is PasswordPropertyModel && a.DisplayName) {
+            throw new Exception("The password member \"" + m.DeclaringType?.FullName + "." + m.Name + "\" cannot be part of the display name. ");
         }
         p.Id = string.IsNullOrEmpty(a.Id) ? Guid.Empty : Guid.Parse(a.Id);
         p.CodeName = m.Name;
@@ -139,6 +147,7 @@ internal static class BuildUtilsProperties {
             else if (valueType == typeof(Guid)) attr = new GuidPropertyAttribute();
             else if (valueType == typeof(byte[])) attr = new ByteArrayPropertyAttribute();
             else if (valueType == typeof(FileValue)) attr = new FilePropertyAttribute();
+            else if (valueType == typeof(PasswordValue)) attr = new PasswordPropertyAttribute();
             else if (valueType.InheritsFromOrImplements<IReference>()) {
                 attr = new ReferencePropertyAttribute();
             } else if (valueType.InheritsFromOrImplements<IReferences>()) {
@@ -350,6 +359,19 @@ internal static class BuildUtilsProperties {
         p.MinValue = a.MinValue;
         return p;
     }
+    static PasswordPropertyModel getPasswordPropertyModel(PasswordPropertyAttribute a) => new() {
+        AllowHashed = a.AllowHashed,
+        AllowEncrypted = a.AllowEncrypted,
+        AllowPlainText = a.AllowPlainText,
+        MinLength = a.MinLength,
+        MaxLength = a.MaxLength,
+        RequireUppercase = a.RequireUppercase,
+        RequireLowercase = a.RequireLowercase,
+        RequireDigit = a.RequireDigit,
+        RequireSymbol = a.RequireSymbol,
+        RegularExpression = string.IsNullOrEmpty(a.RegularExpression) ? null : a.RegularExpression,
+        RegularExpressionMessage = string.IsNullOrEmpty(a.RegularExpressionMessage) ? null : a.RegularExpressionMessage,
+    };
     static FilePropertyModel getFilePropertyModel(FilePropertyAttribute a) {
         var p = new FilePropertyModel();
         if (!string.IsNullOrEmpty(a.FileStorageProviderId)) p.FileStorageProviderId = Guid.Parse(a.FileStorageProviderId);

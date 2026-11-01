@@ -225,6 +225,7 @@ public static partial class FromBytes {
             PropertyType.Float => BitConverter.ToSingle(bytes),
             PropertyType.TimeSpan => new TimeSpan(BitConverter.ToInt64(bytes)),
             PropertyType.File => FilePropertyModel.GetValue(bytes, parent.CreatePropertyPath(propDef.Id)),
+            PropertyType.Password => PasswordPropertyModel.GetValue(bytes),
             PropertyType.ByteArray => bytes,
             PropertyType.FloatArray => FloatArrayPropertyModel.GetValue(bytes),
             PropertyType.Embedded => innerNodesPropertyModelGetValue(bytes, datamodel, (EmbeddedPropertyModel)propDef, parent),
@@ -278,6 +279,8 @@ public static partial class FromBytes {
             PropertyType.ByteArray => ByteArrayPropertyModel.ForceValueType(value, out _),
             PropertyType.FloatArray => FloatArrayPropertyModel.ForceValueType(value, out _),
             PropertyType.File => FilePropertyModel.ForceValueType(value, out _),
+            // a value stored when the property was of another type is dropped: no text becomes a password by itself
+            PropertyType.Password => value as PasswordValue ?? PasswordValue.FromStored(string.Empty),
             PropertyType.Embedded => EmbeddedPropertyModel.ForceValueType(value, out _),
             PropertyType.Reference => ReferencePropertyModel.ForceValueType(value, out _),
            _=> null

@@ -253,6 +253,7 @@ export type EditorKind =
   | "timespan"
   | "geo"
   | "file"
+  | "password"
   | "reference"
   | "references"
   | "relation"
@@ -296,6 +297,15 @@ export interface GeoValue {
   latitude: number;
   longitude: number;
 }
+
+/** What a password property shows: whether there is a password and how it is kept, never the password. */
+export interface PasswordView {
+  isSet: boolean;
+  storage: string | null;
+}
+
+/** What the form posts for a password property: a new password and how to keep it, or its removal. */
+export type PasswordChange = { set: string; storage: string } | { clear: true };
 
 export interface InnerNodeView {
   id: string;

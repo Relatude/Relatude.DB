@@ -148,6 +148,7 @@ public static class WriteCommands {
                 PropertyType.Reference or PropertyType.References => "a reference",
                 PropertyType.Embedded => "an embedded value",
                 PropertyType.File => "a file",
+                PropertyType.Password => "a password",
                 _ => null,
             };
             if (unsupported != null) {

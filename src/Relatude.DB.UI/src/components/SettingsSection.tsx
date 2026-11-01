@@ -977,6 +977,11 @@ function SettingRow({
             <IconWand size={15} stroke={1.8} />
           </button>
         )}
+        {!locked && setting.generate === "key" && (
+          <button className="icon-button" title="Generate a new random key: 32 bytes in base64. Keep a copy somewhere safe." onClick={() => onChange(newKey())}>
+            <IconWand size={15} stroke={1.8} />
+          </button>
+        )}
         {canRestoreFile && (
           <button
             className="icon-button"
@@ -1188,6 +1193,11 @@ function newGuid(): string {
   b[8] = (b[8] & 0x3f) | 0x80;
   const hex = Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+// a key for AES-256 or a pepper: 32 random bytes in base64, as the server reads a key (PasswordProtector.KeyBytes)
+function newKey(): string {
+  return btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))));
 }
 
 function asText(value: unknown): string {

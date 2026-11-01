@@ -87,6 +87,7 @@ public static partial class ToBytes {
             PropertyType.EnumArray => EnumArrayPropertyModel.GetBytes((int[])value),
             PropertyType.GeoCoordinate => GeoCoordinatePropertyModel.GetBytes((GeoCoordinate)value),
             PropertyType.File => FilePropertyModel.GetBytes((FileValue)value),
+            PropertyType.Password => PasswordPropertyModel.GetBytes((PasswordValue)value),
             PropertyType.Embedded => innerNodesPropertyModelGetBytes((IInnerNodeDataMap)value, datamodel),
             PropertyType.Reference => ((Guid)value).ToByteArray(),
             _ => throw new NotSupportedException("Writing property type " + propType + " is not supported. "),
