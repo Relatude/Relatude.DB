@@ -57,6 +57,23 @@ public partial class NodeTypeModel { // with default values
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public Guid? NameProperty { get; set; }
 
+    /// <summary>
+    /// What people call the type, where an interface built on the model names it, such as a CMS asking which kind of
+    /// content to create: "Article page" for IArticlePage. Null leaves the interface to make one from the code name.
+    /// The type's own, not inherited. Like <see cref="Icon"/> it only says how the type is shown, so the store's
+    /// checksum leaves it out. Left out of the JSON when null.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Title { get; set; }
+
+    /// <summary>
+    /// A sentence or two on what the type is for, shown beside its <see cref="Title"/>, as when a CMS asks which kind of
+    /// content to create. The type's own, not inherited. Only says how the type is shown, so the store's checksum
+    /// leaves it out. Left out of the JSON when null.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Description { get; set; }
+
     public Guid DefaultReadAccess { get; set; } = NodeConstants.UserGroupUnspecified;
     public Guid DefaultEditAccess { get; set; } = NodeConstants.UserGroupUnspecified;
     public Guid DefaultEditViewAccess { get; set; } = NodeConstants.UserGroupUnspecified;

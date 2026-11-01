@@ -30,9 +30,9 @@ public static class DatamodelJson {
     /// <summary>
     /// Options for the store's checksum (<see cref="SerializeForChecksum"/>): <see cref="ChecksumOptions"/>
     /// with what only says how a type or a property is shown left out as well (<see cref="NodeTypeModel.Icon"/>,
-    /// <see cref="NodeTypeModel.NameProperty"/>, the <see cref="RelationPropertyModel.Display"/> of the properties
-    /// holding other nodes, and their overrides), so choosing an icon, a name property or a display mode does not
-    /// rebuild the state and every index.
+    /// <see cref="NodeTypeModel.NameProperty"/>, <see cref="NodeTypeModel.Title"/>, <see cref="NodeTypeModel.Description"/>,
+    /// the <see cref="RelationPropertyModel.Display"/> of the properties holding other nodes, and their overrides), so
+    /// choosing an icon, a name property, a title or a display mode does not rebuild the state and every index.
     /// The editor's checksum (<see cref="Checksum"/>) keeps them: to the editor they are changes of the model.
     /// </summary>
     public static readonly JsonSerializerOptions StateOptions = create(stripProvenance: true, stripPresentation: true);
@@ -60,6 +60,8 @@ public static class DatamodelJson {
         if (typeInfo.Type == typeof(NodeTypeModel)) {
             removeProperty(typeInfo, nameof(NodeTypeModel.Icon));
             removeProperty(typeInfo, nameof(NodeTypeModel.NameProperty));
+            removeProperty(typeInfo, nameof(NodeTypeModel.Title));
+            removeProperty(typeInfo, nameof(NodeTypeModel.Description));
         } else if (typeInfo.Type == typeof(RelationPropertyModel) || typeInfo.Type == typeof(ReferencePropertyModel)
             || typeInfo.Type == typeof(ReferencesPropertyModel) || typeInfo.Type == typeof(EmbeddedPropertyModel)) {
             removeProperty(typeInfo, nameof(RelationPropertyModel.Display));
@@ -72,15 +74,17 @@ public static class DatamodelJson {
             }
         }
     }
-    // the overrides as if no icon, name property and display mode were overridden: the types and properties with
-    // nothing else overridden are left out
+    // the overrides as if no icon, name property, title, description and display mode were overridden: the types and
+    // properties with nothing else overridden are left out
     static DatamodelOverrides? withoutPresentation(DatamodelOverrides? overrides) {
-        if (overrides == null || !overrides.NodeTypes.Values.Any(t => t.Icon != null || t.NameProperty != null || t.Properties?.Values.Any(p => p.Display != null) == true)) return overrides;
+        if (overrides == null || !overrides.NodeTypes.Values.Any(t => t.Icon != null || t.NameProperty != null || t.Title != null || t.Description != null || t.Properties?.Values.Any(p => p.Display != null) == true)) return overrides;
         var copy = new DatamodelOverrides();
         foreach (var (id, t) in overrides.NodeTypes) {
             var c = JsonSerializer.Deserialize<NodeTypeOverride>(JsonSerializer.Serialize(t, Options), Options)!;
             c.Icon = null;
             c.NameProperty = null;
+            c.Title = null;
+            c.Description = null;
             if (c.Properties != null) foreach (var p in c.Properties.Values) p.Display = null;
             copy.NodeTypes[id] = c;
         }

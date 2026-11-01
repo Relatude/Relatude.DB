@@ -52,6 +52,16 @@ public class NodeAttribute : Attribute {
     /// takes the closest type it inherits from that names one.
     /// </summary>
     public string? NameProperty { get; set; }
+    /// <summary>
+    /// What people call the type, where an interface built on the model names it, such as a CMS asking which kind of
+    /// content to create: <c>Title = "Article page"</c>. Unset leaves the interface to make one from the type's name.
+    /// </summary>
+    public string? Title { get; set; }
+    /// <summary>
+    /// A sentence or two on what the type is for, shown beside its title, as when a CMS asks which kind of content to
+    /// create: <c>Description = "A story with a picture, for the news pages"</c>.
+    /// </summary>
+    public string? Description { get; set; }
 }
 /// <summary>
 /// Overrides attributes of a property this type inherits, for this type and the types inheriting from

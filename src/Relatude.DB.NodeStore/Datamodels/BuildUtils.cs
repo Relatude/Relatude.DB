@@ -122,6 +122,8 @@ internal static class BuildUtils {
         if (nodeAttr.TextIndex != BoolValue.Default) c.TextIndex = nodeAttr.TextIndex == BoolValue.True;
         c.TextIndexBoost = nodeAttr.TextIndexBoost;
         if (!string.IsNullOrWhiteSpace(nodeAttr.Icon)) c.Icon = nodeAttr.Icon.Trim();
+        if (!string.IsNullOrWhiteSpace(nodeAttr.Title)) c.Title = nodeAttr.Title.Trim();
+        if (!string.IsNullOrWhiteSpace(nodeAttr.Description)) c.Description = nodeAttr.Description.Trim();
         if (nodeAttr.InstantTextIndexing != BoolValue.Default) c.InstantTextIndexing = nodeAttr.InstantTextIndexing == BoolValue.True;
         if (nodeAttr.SemanticIndex != BoolValue.Default) c.SemanticIndex = nodeAttr.SemanticIndex == BoolValue.True;
         // no limit stays at the model's int.MinValue/int.MaxValue (a count is never negative, so a minimum

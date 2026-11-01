@@ -145,6 +145,12 @@ public sealed class NodeTypeOverride {
     /// <summary>The property that is a node's name (<see cref="NodeTypeModel.NameProperty"/>), which the types inheriting from it without one of their own take too.</summary>
     [OverrideScope(OverrideScope.Inherited), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public Guid? NameProperty { get; set; }
+    /// <summary>What people call the type (<see cref="NodeTypeModel.Title"/>): this type's alone.</summary>
+    [OverrideScope(OverrideScope.ThisType), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Title { get; set; }
+    /// <summary>What the type is for (<see cref="NodeTypeModel.Description"/>): this type's alone.</summary>
+    [OverrideScope(OverrideScope.ThisType), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Description { get; set; }
     [OverrideScope(OverrideScope.ThisType), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public Guid? DefaultReadAccess { get; set; }
     [OverrideScope(OverrideScope.ThisType), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

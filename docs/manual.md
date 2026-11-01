@@ -396,6 +396,23 @@ an application that shows types; SVG with scripts, event attributes, `javascript
 `foreignObject` is refused, so what it hands out can be shown as it is. An icon only says how a type
 is shown: changing it rebuilds no state and no index.
 
+### Optional: a title and a description
+
+`[Node(Title = …, Description = …)]` says what people call the type and what it is for, where an
+application built on the model names it: the Relatude CMS shows them when an editor chooses which kind
+of content to create, and names the type by its title everywhere else (its lists, its editor).
+
+```csharp
+[Node(Title = "Article", Description = "A story with a picture, an intro and a body.")]
+public interface IArticle : IPage { /* ... */ }
+```
+
+Both are the type's own (`NodeTypeModel.Title`, `NodeTypeModel.Description`): a type inheriting it
+does not take them, as a title names one type. Without a title an application makes one from the
+name ("IArticlePage" reads "Article page"). The datamodel editor has a **Title** and a
+**Description** field, and on a type from compiled code they are saved as overrides of the database.
+Like an icon they only say how a type is shown: changing them rebuilds no state and no index.
+
 ---
 
 ## 3. Scalar properties and their attributes
