@@ -1,7 +1,6 @@
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
-using Konscious.Security.Cryptography;
 using Relatude.DB.Common;
 
 namespace Relatude.DB.DataStores;
@@ -23,7 +22,7 @@ internal sealed class PasswordProtector : IPasswordProtector {
     const int nonceSize = 12;
     const int tagSize = 16;
     const string algorithm = "argon2id";
-    const int argon2Version = 19; // 0x13, the version Konscious implements
+    const int argon2Version = 19; // 0x13, RFC 9106's
     readonly int _memory;
     readonly int _iterations;
     readonly int _parallelism;
@@ -164,14 +163,7 @@ internal sealed class PasswordProtector : IPasswordProtector {
     static byte[] argon2(string password, byte[] salt, int memory, int iterations, int parallelism, byte[]? pepper, int length = hashSize) {
         var bytes = Encoding.UTF8.GetBytes(password);
         try {
-            using var a = new Argon2id(bytes) {
-                Salt = salt,
-                MemorySize = memory,
-                Iterations = iterations,
-                DegreeOfParallelism = parallelism,
-            };
-            if (pepper != null) a.KnownSecret = pepper;
-            return a.GetBytes(length);
+            return Argon2.Hash(Argon2.Kind.Id, bytes, salt, memory, iterations, parallelism, length, secret: pepper);
         } finally {
             CryptographicOperations.ZeroMemory(bytes);
         }
