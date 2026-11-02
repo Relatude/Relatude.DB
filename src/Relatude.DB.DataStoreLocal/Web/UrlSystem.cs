@@ -126,7 +126,7 @@ internal sealed class UrlSystem {
         // page lane: the manager proposes candidates, the store filters them through the context
         NodeKeyWithCulture[] matches;
         try {
-            matches = _manager.GetMatches(url);
+            matches = _manager.GetMatches(url, ctx.NowUtc);
         } catch {
             return false;
         }

@@ -234,6 +234,18 @@ public class DefaultUrlManager : UrlManagerBase, IUrlManagerBatch {
 
     // pages, inbound ////////////////////////////////////////////////////////////////////////////
 
+    /// <summary>The time the URL is matched at on this thread, when another than now: the nodes are read as at then.</summary>
+    [ThreadStatic] static DateTime? matchingAt;
+    public override NodeKeyWithCulture[] GetMatches(string completeUrl, DateTime? nowUtc) {
+        if (nowUtc == null) return GetMatches(completeUrl);
+        var was = matchingAt;
+        matchingAt = nowUtc;
+        try {
+            return GetMatches(completeUrl);
+        } finally {
+            matchingAt = was;
+        }
+    }
     public override NodeKeyWithCulture[] GetMatches(string completeUrl) {
         var path = TryStripBasePath(UrlUtil.GetPath(completeUrl), _basePagesPath);
         if (path == null) return []; // outside the base address
@@ -676,6 +688,11 @@ public class DefaultUrlManager : UrlManagerBase, IUrlManagerBatch {
         return _hostByRoot.ContainsKey(nodeId) || nodeId == _fallbackRootId;
     }
     bool tryGetMeta(NodeKey key, Guid cultureId, out NodeMeta meta) {
+        var at = matchingAt;
+        if (at != null) {
+            var then = (cultureId == Guid.Empty ? QueryContext.MasterAdmin : QueryContext.MasterAdmin.Culture(cultureId)).Now(at.Value);
+            return _db.TryGetNodeMeta(key, out meta!, then);
+        }
         var b = batch;
         if (b != null) {
             var id = key.HasGuid ? key.Guid : b.Guids.GetValueOrDefault(key.Int);

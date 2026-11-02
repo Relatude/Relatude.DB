@@ -94,6 +94,7 @@ public abstract class UrlManagerBase : IUrlManager {
 
     public abstract void Initialize(IDataStore store);
     public abstract NodeKeyWithCulture[] GetMatches(string completeUrl);
+    public virtual NodeKeyWithCulture[] GetMatches(string completeUrl, DateTime? nowUtc) => GetMatches(completeUrl);
     public abstract string? TryGetUrl(NodeMeta meta, bool absolute);
     public abstract bool WillAddressResultInUniqueUrl(NodeKey node, Guid cultureId, string address);
 

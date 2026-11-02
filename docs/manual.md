@@ -2438,7 +2438,11 @@ throughput; nothing here risks *corruption*, only the last fraction of a second 
 | `ThrowOnBadStateFile` | `false` | The same for a corrupt state snapshot, which is otherwise discarded and rebuilt from the log. |
 
 **State snapshots.** How fast the next start is. A snapshot lets the engine skip replaying the log
-from the beginning; without one, opening is a full replay.
+from the beginning; without one, opening is a full replay. A snapshot written with another datamodel
+is still used, but the users, groups, collections and cultures in it are made again from their nodes
+and relations at the open, as which types those are is the datamodel's to say: a group type renamed
+before its id was pinned, or given another base type, would otherwise leave its groups out until the
+log was replayed in full.
 
 | Key | Default | What it does |
 |---|---|---|
@@ -4167,6 +4171,11 @@ A manager may also implement `IUrlManagerBatch`, which lets `SetAddresses` compa
 siblings alone and keep what its checks read for the call; without it, every node of the call gets
 `WillAddressResultInUniqueUrl`. `DefaultUrlManager` implements it.
 
+The store calls `GetMatches(completeUrl, nowUtc)` with the context's `NowUtc`, which by default calls
+the one above. A manager that reads nodes to match a URL can override it: `DefaultUrlManager` reads them
+as at that time, so in a context set to a later time (`QueryContext.Now`) a page released by then is found
+at its URL.
+
 Two things the store keeps for itself, so a manager stays small. **Security is not the manager's
 job**: `GetMatches` returns candidates regardless of publication or access, and the store filters them
 through the `QueryContext` afterwards — which is what makes one URL serve a draft to an editor and
@@ -5256,7 +5265,11 @@ or an archived version is still the editor's to find. `QueryContext.SelectedRevi
 revision to read and write by node, by its key (`NodeDataRevision.RevisionKey`), which changes with
 its type: look it up in `Datastore.GetRevisions(id)` by its `RevisionId`, which does not. A revision's
 keys tell its type: 0 to 9 999 999 are published, one per culture, and each other type has the next
-ten million.
+ten million. A selected revision is read whatever its publication and release dates, outside edit
+view too: by id, and in queries, counts and relation ends, where a node with only a draft is found
+when its draft is selected - a preview of a draft. Every other rule applies to it as to any
+revision: read access, culture, collection, deletion, hidden types. The indexes still hold published
+values alone, so a where, sort or search on a property does not see a selected draft's values.
 
 Indexes hold what readers read, of published revisions (release dates are not looked at). A property
 that is not culture-sensitive has one index, holding for each node the version a reader of no

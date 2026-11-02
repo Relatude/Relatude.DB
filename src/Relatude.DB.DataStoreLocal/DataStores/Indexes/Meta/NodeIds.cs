@@ -51,6 +51,16 @@ class idSet {
         // so this set is only valid until then:
         if (!ValidTo.HasValue || releaseUtc < ValidTo.Value) ValidTo = releaseUtc;
     }
+    public void RegisterExcludedPastExpiry(DateTime expireUtc) {
+        // a node excluded because it has expired was visible before expireUtc, so this set is only valid from then:
+        if (!ValidFrom.HasValue || expireUtc > ValidFrom.Value) ValidFrom = expireUtc;
+    }
+    public void RegisterExcluded(DateTime? pendingReleaseUtc, DateTime? expiredUtc) {
+        if (pendingReleaseUtc.HasValue) RegisterExcludedFutureRelease(pendingReleaseUtc.Value);
+        if (expiredUtc.HasValue) RegisterExcludedPastExpiry(expiredUtc.Value);
+    }
+    /// <summary>When a reader last took the set, to keep the sets in use (Environment.TickCount64).</summary>
+    public long LastUsed;
     public int Count => _ids.Count;
     public IdSet AsUnmutableIdSet() {
         if (_lastSet != null) return _lastSet;
@@ -62,6 +72,33 @@ class idSet {
         // either no time constraints, or nowUtc is within the time constraints:
         return true;
 
+    }
+}
+/// <summary>
+/// The sets of one context and type, each valid for a time of its own, so readers at different times (a preview of a
+/// later date beside the live site) keep a set each rather than replacing one another's.
+/// </summary>
+class idSets {
+    const int max = 3;
+    idSet[] _sets = [];
+    /// <summary>Every set held, for writes, which run under the store's write lock.</summary>
+    public idSet[] All => _sets;
+    public idSet? For(DateTime nowUtc) {
+        foreach (var set in _sets) {
+            if (!set.IsWithinTimeConstraints(nowUtc)) continue;
+            set.LastUsed = Environment.TickCount64;
+            return set;
+        }
+        return null;
+    }
+    public void Add(idSet set) {
+        set.LastUsed = Environment.TickCount64;
+        lock (this) {
+            // sets that only a reader of the past could use go first, then the least recently used:
+            var now = DateTime.UtcNow;
+            var kept = _sets.Where(s => !(s.ValidTo <= now)).OrderByDescending(s => s.LastUsed).Take(max - 1);
+            _sets = [set, .. kept];
+        }
     }
 }
 public class metaAndType(IInnerNodeMeta meta, Guid typeId) : IEquatable<metaAndType> {
@@ -198,7 +235,7 @@ internal class NodeTypesByIds {
     readonly Dictionary<metaAndType, uint> _idByMeta = new();
     readonly nodeMetasByNodeId _metaIdsByNodeId = new();
     readonly Dictionary<Guid, int> _countByType = new();
-    readonly Cache<ctxAndType, idSet> _cachedNodeIdsByCtx;
+    readonly Cache<ctxAndType, idSets> _cachedNodeIdsByCtx;
     readonly NativeModelStore _nativeModelStore;
     readonly SettingsLocal _settings;
     readonly Dictionary<Guid, Guid[]> _embeddedPropertiesByType; // only the types that have any
@@ -221,10 +258,10 @@ internal class NodeTypesByIds {
     idSet evaluateRelevantIds(Guid ctxTypeId, QueryContextKey ctxKey, DateTime nowUtc) {
         var ids = new idSet(nowUtc);
         var relevantMetaIds = new HashSet<uint>();
-        Dictionary<uint, DateTime>? pendingReleaseByMetaId = null; // metas excluded only until their release date passes
+        Dictionary<uint, (DateTime? Release, DateTime? Expired)>? timedOutByMetaId = null; // metas excluded only by their release or expiry
         foreach (var kv in _idByMeta) {
-            if (isMetaRelevantForContext(kv.Key, ctxTypeId, ctxKey, nowUtc, out var pendingReleaseUtc)) relevantMetaIds.Add(kv.Value);
-            else if (pendingReleaseUtc.HasValue) (pendingReleaseByMetaId ??= []).TryAdd(kv.Value, pendingReleaseUtc.Value);
+            if (isMetaRelevantForContext(kv.Key, ctxTypeId, ctxKey, nowUtc, out var pendingReleaseUtc, out var expiredUtc)) relevantMetaIds.Add(kv.Value);
+            else if (pendingReleaseUtc.HasValue || expiredUtc.HasValue) (timedOutByMetaId ??= []).TryAdd(kv.Value, (pendingReleaseUtc, expiredUtc));
         }
         _metaIdsByNodeId.ForEach((nodeId, shortMetaId) => {
             if (relevantMetaIds.Contains(shortMetaId)) {
@@ -232,19 +269,20 @@ internal class NodeTypesByIds {
                 ids.Add(nodeId, meta.ReleaseUtc, meta.ExpireUtc);
                 return true; // break inner loop as we found a relevant meta for this node
             }
-            // a node excluded due to a future release date must invalidate the cached set when that date passes:
-            if (pendingReleaseByMetaId != null && pendingReleaseByMetaId.TryGetValue(shortMetaId, out var releaseUtc)) ids.RegisterExcludedFutureRelease(releaseUtc);
+            // a node excluded by its release or expiry bounds the time the set is valid for:
+            if (timedOutByMetaId != null && timedOutByMetaId.TryGetValue(shortMetaId, out var timed)) ids.RegisterExcluded(timed.Release, timed.Expired);
             return false;
         });
         return ids;
     }
 
     bool isMetaRelevantForContext(metaAndType mt, Guid ctxTypeId, QueryContextKey ctx, DateTime nowUtc)
-        => isMetaRelevantForContext(mt, ctxTypeId, ctx, nowUtc, out _);
-    // pendingReleaseUtc is set when the meta was excluded because its release date has not yet passed,
-    // so the caller can invalidate cached sets when it does:
-    bool isMetaRelevantForContext(metaAndType mt, Guid ctxTypeId, QueryContextKey ctx, DateTime nowUtc, out DateTime? pendingReleaseUtc) {
+        => isMetaRelevantForContext(mt, ctxTypeId, ctx, nowUtc, out _, out _);
+    // pendingReleaseUtc is set when the meta was excluded because its release date has not yet passed, and
+    // expiredUtc when it was excluded because it has expired, so the caller can bound the time a cached set is valid for:
+    bool isMetaRelevantForContext(metaAndType mt, Guid ctxTypeId, QueryContextKey ctx, DateTime nowUtc, out DateTime? pendingReleaseUtc, out DateTime? expiredUtc) {
         pendingReleaseUtc = null;
+        expiredUtc = null;
         var meta = mt.Meta;
 
         // Filter based on node type
@@ -272,6 +310,7 @@ internal class NodeTypesByIds {
         if (!ctx.IncludeUnpublished) {
             if (!isReleased(nowUtc, meta)) {
                 if (meta.ReleaseUtc.HasValue && nowUtc < meta.ReleaseUtc.Value) pendingReleaseUtc = meta.ReleaseUtc.Value;
+                else if (meta.ExpireUtc.HasValue) expiredUtc = meta.ExpireUtc.Value;
                 return false;
             }
         }
@@ -346,16 +385,48 @@ internal class NodeTypesByIds {
         return false; // the users memberships does not include the required group
 
     }
-    public IdSet GetAllNodeIdsForTypeFilteredByContext(Guid typeId, QueryContext ctx) => getIds(typeId, ctx).AsUnmutableIdSet();
-    idSet getIds(Guid typeId, QueryContext ctx) {
+    public IdSet GetAllNodeIdsForTypeFilteredByContext(Guid typeId, QueryContext ctx) {
+        var key = _nativeModelStore.GetQueryContextKey(ctx, out var nowUtc);
+        var ids = getIds(typeId, key, nowUtc).AsUnmutableIdSet();
+        return key.SelectedRevisions is { Length: > 0 } && !key.IncludeUnpublished ? withSelectedRevisions(ids, typeId, key, nowUtc) : ids;
+    }
+    idSet getIds(Guid typeId, QueryContext ctx) => getIds(typeId, _nativeModelStore.GetQueryContextKey(ctx, out var nowUtc), nowUtc);
+    idSet getIds(Guid typeId, QueryContextKey key, DateTime nowUtc) {
         // the same ids whichever revisions the context selects: one cached set for them all
-        var ctxKey = _nativeModelStore.GetQueryContextKey(ctx, out var nowUtc).WithoutSelectedRevisions();
+        var ctxKey = key.WithoutSelectedRevisions();
         var ctxAndTypeKey = new ctxAndType(typeId, ctxKey);
-        if (_cachedNodeIdsByCtx.TryGet(ctxAndTypeKey, out var ids)) {
-            if (ids.IsWithinTimeConstraints(nowUtc)) return ids;
+        if (!_cachedNodeIdsByCtx.TryGet(ctxAndTypeKey, out var sets)) {
+            sets = new();
+            if (!_cachedNodeIdsByCtx.TryAdd(ctxAndTypeKey, sets, 1) && _cachedNodeIdsByCtx.TryGet(ctxAndTypeKey, out var added)) sets = added;
         }
+        if (sets.For(nowUtc) is { } ids) return ids;
         ids = evaluateRelevantIds(typeId, ctxKey, nowUtc); // takes time! // could consider lock here to avoid double eval
-        _cachedNodeIdsByCtx.Set(ctxAndTypeKey, ids, 1);
+        sets.Add(ids);
+        return ids;
+    }
+    /// <summary>
+    /// The ids with the nodes added whose revision the context selects (QueryContext.SelectedRevisions) when the
+    /// context would read that revision were it published and released: a selected revision is read whatever its
+    /// publication, as a read by id reads it (TryPickBestOuter), so a preview of a draft finds a node with no published
+    /// version in queries and relation ends too. Every other check stands: type, deletion, culture, collection, read
+    /// access, hidden types. Most sets lack none of them, and are answered as they are.
+    /// </summary>
+    IdSet withSelectedRevisions(IdSet ids, Guid typeId, QueryContextKey key, DateTime nowUtc) {
+        var store = _definition.Store;
+        QueryContextKey? anyPublication = null;
+        foreach (var selected in key.SelectedRevisions!) {
+            if (!store._guids.TryGetId(selected.NodeId, out var id) || ids.Has(id)) continue;
+            // the type first, as relation ends ask for the set of each related node's type: no read for most
+            if (!TryGetType(id, out var nodeTypeId)) continue;
+            if (key.ExcludeDescendants ? nodeTypeId != typeId : !_definition.NodeTypes[typeId].Model.ThisAndDescendingTypes.ContainsKey(nodeTypeId)) continue;
+            if (store._nodes.Get(id, out _) is not NodeDataRevisions node) continue; // a node without revisions has none to select
+            var revision = node.Revisions.FirstOrDefault(r => r.RevisionKey == selected.RevisionId);
+            if (revision == null) continue;
+            anyPublication ??= new(key.CultureId, key.CollectionIds, key.MembershipIds, key.IncludeDeleted, key.IncludeCultureFallback, key.OnlyWithCulture,
+                includeUnpublished: true, key.EditView, key.IncludeHidden, key.ExcludeDescendants, key.UserType, null);
+            if (!isMetaRelevantForContext(new(revision.Meta ?? IInnerNodeMeta.Empty, revision.NodeType), typeId, anyPublication, nowUtc)) continue;
+            ids = _definition.Sets.Union(ids, _definition.Sets.SingleValueIdSet(id));
+        }
         return ids;
     }
     /// <summary>
@@ -484,12 +555,13 @@ internal class NodeTypesByIds {
         _metaIdsByNodeId.Add(nodeId, shortId);
         foreach (var kv in _cachedNodeIdsByCtx.AllNotThreadSafe()) {
             var ctx = kv.Key;
-            var ids = kv.Value;
-            if (isMetaRelevantForContext(mt, ctx.TypeId, ctx.CxtKey, ids.CreatedWithNowUtc, out var pendingReleaseUtc)) { // no time constraint
-                if (addedTo == null || addedTo.Add(ids)) kv.Value.Add(nodeId, mt.Meta.ReleaseUtc, mt.Meta.ExpireUtc);
-            } else if (pendingReleaseUtc.HasValue) {
-                // excluded only until its release date passes, so the cached set must expire then:
-                kv.Value.RegisterExcludedFutureRelease(pendingReleaseUtc.Value);
+            foreach (var ids in kv.Value.All) {
+                if (isMetaRelevantForContext(mt, ctx.TypeId, ctx.CxtKey, ids.CreatedWithNowUtc, out var pendingReleaseUtc, out var expiredUtc)) { // no time constraint
+                    if (addedTo == null || addedTo.Add(ids)) ids.Add(nodeId, mt.Meta.ReleaseUtc, mt.Meta.ExpireUtc);
+                } else {
+                    // excluded only by its release or expiry, so the cached set is valid only while that holds:
+                    ids.RegisterExcluded(pendingReleaseUtc, expiredUtc);
+                }
             }
         }
         if (_countByType.TryGetValue(nodeTypeId, out var count)) {
@@ -514,9 +586,10 @@ internal class NodeTypesByIds {
         _metaIdsByNodeId.Remove(nodeId, shortId);
         foreach (var kv in _cachedNodeIdsByCtx.AllNotThreadSafe()) {
             var ctx = kv.Key;
-            var ids = kv.Value;
-            if (isMetaRelevantForContext(_metaById[shortId], ctx.TypeId, ctx.CxtKey, ids.CreatedWithNowUtc)) {
-                kv.Value.Remove(nodeId);
+            foreach (var ids in kv.Value.All) {
+                if (isMetaRelevantForContext(_metaById[shortId], ctx.TypeId, ctx.CxtKey, ids.CreatedWithNowUtc)) {
+                    ids.Remove(nodeId);
+                }
             }
         }
         if (_countByType.TryGetValue(nodeTypeId, out var count)) {

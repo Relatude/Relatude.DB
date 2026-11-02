@@ -36,6 +36,12 @@ public interface IUrlManager {
     NodeKeyWithCulture[] GetMatches(string completeUrl);
 
     /// <summary>
+    /// <see cref="GetMatches(string)"/> as at a time (QueryContext.NowUtc; null for now), for a manager that reads nodes
+    /// to match a URL: a node released by then is a candidate. The store calls this one.
+    /// </summary>
+    NodeKeyWithCulture[] GetMatches(string completeUrl, DateTime? nowUtc) => GetMatches(completeUrl);
+
+    /// <summary>
     /// Outbound page generation. The public URL of a node, or null when the node has no public URL.
     /// The meta carries Id, InternalId, Address, CultureId and NodeTypeId; anything else
     /// (parents, domain roots) is read from the store given at <see cref="Initialize"/>.

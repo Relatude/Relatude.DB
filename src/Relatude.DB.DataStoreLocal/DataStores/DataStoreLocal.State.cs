@@ -149,6 +149,7 @@ public sealed partial class DataStoreLocal : IDataStore {
 
         long stateFileTimestamp;
         long stateFilePositionOfLastTransactionSaved = 0;
+        var modelChanged = false; // since the state file was written: what it holds of the native models is the old datamodel's
         WalChainState? persistedChainState = null;
         _noPrimitiveActionsSinceLastStateSnapshot = 0;
         _noTransactionsSinceLastStateSnapshot = 0;
@@ -228,6 +229,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                 var storedModelHash = stream.ReadGuid();
                 if (storedModelHash != currentModelHash) {
                     LogInfo("   Datamodel and settings have changed.");
+                    modelChanged = true;
                     //throw new Exception("Datamodel have changed, checksum does not match.");
                 }
                 var logFileSize = stream.ReadVerifiedLong();
@@ -449,6 +451,16 @@ public sealed partial class DataStoreLocal : IDataStore {
         _wal.OpenForAppending(); // read for appending again
         validateStateInfoIfDebug();
         foreach (var e in idValidator.GetErrors()) logError(e);
+        if (modelChanged) {
+            // the users, groups, collections and cultures as the datamodel has them now: which types they are may have
+            // changed, and the state file holds them as the datamodel it was written with had them
+            try {
+                _nativeModelStore.Rebuild();
+            } catch (Exception err) {
+                throw new StateFileReadException("Failed making the users, groups, collections and cultures again from their nodes. " + err.Message, err);
+            }
+            LogInfo("   Users, groups, collections and cultures read again from their nodes, as the datamodel changed. ");
+        }
         if (actionCount > 0) LogInfo("   Read " + actionCount.To1000N() + " actions from log file in " + sw.ElapsedMilliseconds.To1000N() + "ms. ", null, false);
         else LogInfo("   No actions read from log file.", null, true);
         if (skippedTransactions > 0) LogInfo("   Passed over " + skippedTransactions.To1000N() + " transactions the state and every index already held. ");

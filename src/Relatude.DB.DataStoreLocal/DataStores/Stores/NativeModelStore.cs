@@ -361,6 +361,46 @@ public class NativeModelStore(DataStoreLocal store) {
     }
 
     /// <summary>
+    /// Every entry made again from the nodes and relations it is derived from. Which nodes are users, groups, collections
+    /// and cultures is the datamodel's to say, and the state file holds the entries as the datamodel it was written with
+    /// had them, so an open with another datamodel makes them again: a group type renamed before its id was pinned left
+    /// its groups with a type the datamodel lacked, and the state file kept them out after the type had its id back. The
+    /// native nodes and their relations, read once.
+    /// </summary>
+    internal void Rebuild() {
+        _users.Clear();
+        _userGroups.Clear();
+        _collections.Clear();
+        _cultures.Clear();
+        _nodeTypeCache.Clear();
+        _relationTypeCache.Clear();
+        _removed = null;
+        var def = store._definition;
+        foreach (var typeId in (Guid[])[NodeConstants.BaseUserId, NodeConstants.BaseUserGroupId, NodeConstants.BaseCollectionId, NodeConstants.BaseCultureId]) {
+            if (!def.NodeTypes.ContainsKey(typeId)) continue;
+            foreach (var id in def.GetAllIdsForTypeNoAccessControl(typeId, true).Enumerate()) {
+                if (store._nodes.TryGet(id, out var node, out _)) UpdateNodeActionIfRelevant(new PrimitiveNodeAction(PrimitiveOperation.Add, node));
+            }
+        }
+        // each relation once, from the node it starts at: a user to its groups, a group to its member groups, a
+        // collection to its cultures
+        var now = DateTime.UtcNow;
+        void relate(Guid relationId, int[] sources) {
+            if (!def.Relations.TryGetValue(relationId, out var relation)) return;
+            foreach (var source in sources) {
+                foreach (var target in relation.GetRelated(source, false).Enumerate()) {
+                    UpdateRelationActionIfRelevant(new PrimitiveRelationAction(PrimitiveOperation.Add, relationId, source, target, now));
+                }
+            }
+        }
+        relate(NodeConstants.RelationUsersToGroups, [.. _users.Keys]);
+        relate(NodeConstants.RelationGroupsToGroups, [.. _userGroups.Keys]);
+        relate(NodeConstants.RelationCollectionsToCultures, [.. _collections.Keys]);
+        refreshCultureOrder();
+        resetEffectiveMembershipsCache();
+    }
+
+    /// <summary>
     /// Where this store disagrees with the nodes and relations it is made from, everything here being derived from
     /// them: a user's type and groups, a group's members and the groups it is in, a collection's cultures, a culture's
     /// code and collections, each entry having its node and each node its entry. Empty when they agree. For tests and
