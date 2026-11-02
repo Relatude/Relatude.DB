@@ -416,32 +416,31 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <main id="main">
 <h1 id="getting-started-with-relatudedb">Getting started with Relatude.DB<a class="anchor" href="#getting-started-with-relatudedb" aria-label="Link to this section">#</a></h1>
 <p><strong>A short introduction</strong></p>
-<p>Relatude.DB is an open-source, object-oriented graph database for .NET. Your C# classes <em>are</em> the
-schema — there is no SQL, no migrations and no ORM mapping layer. You save an object and you get an
-object back, and the links between objects are real, navigable relations instead of foreign keys you
-have to join on.</p>
-<p>It runs in-process inside your ASP.NET Core app, so a query is a method call — typically
-sub-millisecond. (A remote server setup is supported too, and you can move to it later on — the model
-and the queries stay the same.) Full-text (BM25) search, semantic/vector search, faceted search, file and image handling and
-an admin UI are part of the engine, not extra services you have to run.</p>
+<p>Relatude.DB is an open-source, object-oriented graph database for .NET. Your C# types <em>are</em> the
+schema: there is no SQL, no migrations and no ORM mapping layer. You save an object and get an object
+back, and the links between objects are real relations you can navigate, not foreign keys you join on.</p>
+<p>It runs inside your ASP.NET Core app, so a query is a method call, typically well under a
+millisecond. Full-text (BM25) search, semantic search, facets, file and image handling and an admin
+UI are part of the engine, not extra services to run. A remote server setup is also supported, with
+the same model and queries.</p>
 <blockquote>
-<p><strong>Pre-1.0.</strong> The public API still moves in small ways. Source and examples:
+<p><strong>Pre-1.0.</strong> The API may still change in small ways. Source and examples:
 <a href="https://github.com/Relatude/Relatude.DB">github.com/Relatude/Relatude.DB</a></p>
 </blockquote>
 <hr />
 <h2 id="1-install">1. Install<a class="anchor" href="#1-install" aria-label="Link to this section">#</a></h2>
-<p>Add the server package to a normal ASP.NET Core project:</p>
+<p>Add the server package to an ASP.NET Core project:</p>
 <div class="codehilite"><pre><span></span><code>dotnet<span class="w"> </span>add<span class="w"> </span>package<span class="w"> </span>Relatude.DB.Server
 </code></pre></div>
 
-<p>That is the whole installation. There is no database server to set up, no connection string and no
-schema to create up front — the database is a folder next to your app.</p>
+<p>That is all. There is no database server to install, no connection string and no schema to create:
+the database is a folder next to your app.</p>
 <hr />
-<h2 id="2-modelling-just-write-classes">2. Modelling — just write classes<a class="anchor" href="#2-modelling-just-write-classes" aria-label="Link to this section">#</a></h2>
-<p>A node type is any class, record, struct <strong>or interface</strong> in a namespace you point the engine at.
-No attribute is needed to opt in — <code>[Node]</code> only <em>tunes</em> a type, and <code>[Exclude]</code> opts one out. Plain
-properties map automatically by their CLR type; property attributes likewise only tune things.</p>
-<div class="codehilite"><pre><span></span><code><span class="na">[Node(TextIndex = BoolValue.True)]</span><span class="w">          </span><span class="c1">// whole node is free-text searchable</span>
+<h2 id="2-modelling-just-write-classes">2. Modelling: just write classes<a class="anchor" href="#2-modelling-just-write-classes" aria-label="Link to this section">#</a></h2>
+<p>A node type is any class, record, struct <strong>or interface</strong> in a namespace you register. No attribute
+is needed. <code>[Node]</code> only tunes a type, and <code>[Exclude]</code> leaves one out. Properties map by their C# type;
+property attributes only tune them.</p>
+<div class="codehilite"><pre><span></span><code><span class="na">[Node(TextIndex = BoolValue.True)]</span><span class="w">          </span><span class="c1">// the whole node is searchable as text</span>
 <span class="k">public</span><span class="w"> </span><span class="k">class</span><span class="w"> </span><span class="nc">Product</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="na">[PublicIdProperty]</span><span class="w"> </span><span class="k">public</span><span class="w"> </span><span class="n">Guid</span><span class="w"> </span><span class="n">Id</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
 
@@ -456,9 +455,9 @@ properties map automatically by their CLR type; property attributes likewise onl
 <span class="p">}</span>
 </code></pre></div>
 
-<p><code>Indexed = true</code> is what makes a property filterable and facetable — the only performance knob you
-need on day one. <code>IndexedByWords = true</code> is the one other knob worth knowing: it adds a word index to
-that single property, which is what <code>MatchesSearch</code> (see below) searches.</p>
+<p><code>Indexed = true</code> makes a property fast to filter, sort and facet on. It is the only performance
+setting you need on day one. <code>IndexedByWords = true</code> adds a word index to one property, which is what
+<code>MatchesSearch</code> (below) searches.</p>
 <h3 id="property-types">Property types<a class="anchor" href="#property-types" aria-label="Link to this section">#</a></h3>
 <table>
 <thead>
@@ -470,7 +469,7 @@ that single property, which is what <code>MatchesSearch</code> (see below) searc
 <tbody>
 <tr>
 <td>Scalars</td>
-<td><code>bool</code>, <code>int</code> (incl. enums), <code>long</code>, <code>decimal</code>, <code>double</code>, <code>float</code>, <code>Guid</code>, <code>DateTime</code>, <code>DateTimeOffset</code>, <code>TimeSpan</code></td>
+<td><code>bool</code>, <code>int</code> (and enums), <code>long</code>, <code>decimal</code>, <code>double</code>, <code>float</code>, <code>Guid</code>, <code>DateTime</code>, <code>DateTimeOffset</code>, <code>TimeSpan</code></td>
 </tr>
 <tr>
 <td>Text</td>
@@ -482,15 +481,15 @@ that single property, which is what <code>MatchesSearch</code> (see below) searc
 </tr>
 <tr>
 <td>Geo</td>
-<td><code>GeoCoordinate</code> — latitude/longitude with radius and distance queries</td>
+<td><code>GeoCoordinate</code>: latitude and longitude, with radius and distance queries</td>
 </tr>
 <tr>
 <td>Files</td>
-<td><code>FileValue</code> — a slot in the file store, with automatic image/video conversion</td>
+<td><code>FileValue</code>: a file in the file store, with image and video conversion</td>
 </tr>
 <tr>
 <td>Owned children</td>
-<td><code>Embedded&lt;T&gt;</code>, <code>EmbeddedMap&lt;TKey,T&gt;</code> — sub-objects that live and die with the parent</td>
+<td><code>Embedded&lt;T&gt;</code>, <code>EmbeddedMap&lt;TKey,T&gt;</code>: sub-objects that live and die with the parent</td>
 </tr>
 <tr>
 <td>Links</td>
@@ -498,19 +497,19 @@ that single property, which is what <code>MatchesSearch</code> (see below) searc
 </tr>
 </tbody>
 </table>
-<p>A few marker attributes are worth naming: <code>[PublicIdProperty]</code> (the Guid id), <code>[InternalIdProperty]</code>
-(the fast int id), <code>[DisplayNameProperty]</code>, <code>[AddressProperty]</code> (URL slug), <code>[CreatedUtcProperty]</code>,
-<code>[ChangedUtcProperty]</code> and <code>[Exclude]</code>.</p>
-<h3 id="relations-two-levels">Relations — two levels<a class="anchor" href="#relations-two-levels" aria-label="Link to this section">#</a></h3>
-<p>A reference property is enough for most things. It saves together with the node:</p>
+<p>A few marker attributes are worth knowing: <code>[PublicIdProperty]</code> (the Guid id), <code>[InternalIdProperty]</code>
+(the fast int id), <code>[DisplayNameProperty]</code>, <code>[AddressProperty]</code> (the URL slug), <code>[CreatedUtcProperty]</code>
+and <code>[ChangedUtcProperty]</code>.</p>
+<h3 id="relations-two-levels">Relations: two levels<a class="anchor" href="#relations-two-levels" aria-label="Link to this section">#</a></h3>
+<p>A reference property is enough for most links. It is saved with the node:</p>
 <div class="codehilite"><pre><span></span><code><span class="n">product</span><span class="p">.</span><span class="n">Brand</span><span class="p">.</span><span class="n">Set</span><span class="p">(</span><span class="n">brand</span><span class="p">.</span><span class="n">Id</span><span class="p">);</span>
 <span class="n">db</span><span class="p">.</span><span class="n">Update</span><span class="p">(</span><span class="n">product</span><span class="p">);</span>
 
 <span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">product</span><span class="p">.</span><span class="n">Brand</span><span class="p">.</span><span class="n">TryGet</span><span class="p">(</span><span class="k">out</span><span class="w"> </span><span class="kt">var</span><span class="w"> </span><span class="n">b</span><span class="p">))</span><span class="w"> </span><span class="n">Console</span><span class="p">.</span><span class="n">WriteLine</span><span class="p">(</span><span class="n">b</span><span class="p">.</span><span class="n">Name</span><span class="p">);</span>
 </code></pre></div>
 
-<p>When the link has to be navigable from <strong>both</strong> sides, declare it as a class. There are exactly five
-shapes, so there is very little to get wrong:</p>
+<p>When you need to navigate a link from <strong>both</strong> sides, declare a relation class. There are five
+shapes:</p>
 <table>
 <thead>
 <tr>
@@ -541,7 +540,7 @@ shapes, so there is very little to get wrong:</p>
 </tr>
 </tbody>
 </table>
-<div class="codehilite"><pre><span></span><code><span class="k">public</span><span class="w"> </span><span class="k">class</span><span class="w"> </span><span class="nc">Tree</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">OneToMany</span><span class="o">&lt;</span><span class="n">Page</span><span class="p">,</span><span class="w"> </span><span class="n">Page</span><span class="o">&gt;</span><span class="w"> </span><span class="p">{</span><span class="w">   </span><span class="c1">// a page tree, in 3 lines</span>
+<div class="codehilite"><pre><span></span><code><span class="k">public</span><span class="w"> </span><span class="k">class</span><span class="w"> </span><span class="nc">Tree</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">OneToMany</span><span class="o">&lt;</span><span class="n">Page</span><span class="p">,</span><span class="w"> </span><span class="n">Page</span><span class="o">&gt;</span><span class="w"> </span><span class="p">{</span><span class="w">   </span><span class="c1">// a page tree in three lines</span>
 <span class="w">    </span><span class="k">public</span><span class="w"> </span><span class="k">class</span><span class="w"> </span><span class="nc">Parent</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">One</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="p">}</span>
 <span class="w">    </span><span class="k">public</span><span class="w"> </span><span class="k">class</span><span class="w"> </span><span class="nc">Children</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">Many</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="p">}</span>
 <span class="p">}</span>
@@ -551,10 +550,10 @@ shapes, so there is very little to get wrong:</p>
 <span class="k">public</span><span class="w"> </span><span class="n">Tree</span><span class="p">.</span><span class="n">Children</span><span class="w"> </span><span class="n">Children</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="p">();</span>
 </code></pre></div>
 
-<p><code>page.Children</code> enumerates lazily, <code>page.Parent.Get()</code> walks up, and both sides stay consistent
-automatically — you never store a <code>ParentId</code>.</p>
+<p><code>page.Children</code> loads lazily and <code>page.Parent.Get()</code> walks up. Both sides always agree, and you never
+store a <code>ParentId</code>.</p>
 <h3 id="interfaces-and-classes">Interfaces and classes<a class="anchor" href="#interfaces-and-classes" aria-label="Link to this section">#</a></h3>
-<p>An interface can be a node type too, and the classes implementing it become <strong>subtypes</strong>:</p>
+<p>An interface can be a node type too. The classes that implement it become its <strong>subtypes</strong>:</p>
 <div class="codehilite"><pre><span></span><code><span class="k">public</span><span class="w"> </span><span class="k">interface</span><span class="w"> </span><span class="n">IContent</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="n">Guid</span><span class="w"> </span><span class="n">Id</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
 <span class="w">    </span><span class="na">[StringProperty(Indexed = true)]</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="n">Title</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
@@ -566,73 +565,70 @@ automatically — you never store a <code>ParentId</code>.</p>
 <span class="n">db</span><span class="p">.</span><span class="n">Query</span><span class="o">&lt;</span><span class="n">IContent</span><span class="o">&gt;</span><span class="p">().</span><span class="n">Where</span><span class="p">(</span><span class="n">c</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">c</span><span class="p">.</span><span class="n">Title</span><span class="p">.</span><span class="n">StartsWith</span><span class="p">(</span><span class="s">&quot;Hello&quot;</span><span class="p">)).</span><span class="n">Execute</span><span class="p">();</span><span class="w">  </span><span class="c1">// returns both</span>
 </code></pre></div>
 
-<p>Query a base type and every descendant comes back, correctly typed. You can even skip the class
-entirely — <code>db.Create&lt;IArticle&gt;()</code> generates the implementation for you.</p>
+<p>A query on a base type returns every subtype, correctly typed. You can even skip the class:
+<code>db.Create&lt;IArticle&gt;()</code> generates the implementation for you.</p>
 <hr />
-<h2 id="3-setup-one-call-plus-one-file">3. Setup — one call plus one file<a class="anchor" href="#3-setup-one-call-plus-one-file" aria-label="Link to this section">#</a></h2>
-<p>The fastest start is the command line tool, which writes a runnable project in one of two types,
-each with a README that says how to run it and where models, pages and endpoints go:</p>
+<h2 id="3-setup-one-call-and-one-file">3. Setup: one call and one file<a class="anchor" href="#3-setup-one-call-and-one-file" aria-label="Link to this section">#</a></h2>
+<p>The quickest start is the command line tool. It writes a project you can run, with a README that says
+where models, pages and endpoints go:</p>
 <div class="codehilite"><pre><span></span><code>dotnet<span class="w"> </span>tool<span class="w"> </span>install<span class="w"> </span>-g<span class="w"> </span>Relatude.DB.Tool
-relatude<span class="w"> </span>new<span class="w"> </span>MyApp<span class="w">                                 </span><span class="c1"># csharp_web_react_ts: API in Backend/ + React client in Client/, for interactive apps</span>
-relatude<span class="w"> </span>new<span class="w"> </span>MySite<span class="w"> </span>--projecttype<span class="w"> </span>csharp_web_mvc<span class="w">   </span><span class="c1"># one MVC project with server-rendered pages, for content sites and SEO</span>
+relatude<span class="w"> </span>new<span class="w"> </span>MyApp<span class="w">                                 </span><span class="c1"># an API and a React client, for interactive apps</span>
+relatude<span class="w"> </span>new<span class="w"> </span>MySite<span class="w"> </span>--projecttype<span class="w"> </span>csharp_web_mvc<span class="w">   </span><span class="c1"># an MVC site with server-rendered pages, for content and SEO</span>
 </code></pre></div>
 
-<p><code>relatude new --list-types</code> describes the types. What either generates amounts to one call and
-one file:</p>
+<p><code>relatude new --list-types</code> describes the project types, and <code>relatude init</code> adds Relatude.DB to a
+project you already have. Either way, the result is one call and one file:</p>
 <div class="codehilite"><pre><span></span><code><span class="kt">var</span><span class="w"> </span><span class="n">builder</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">WebApplication</span><span class="p">.</span><span class="n">CreateBuilder</span><span class="p">(</span><span class="n">args</span><span class="p">);</span>
 <span class="n">builder</span><span class="p">.</span><span class="n">AddRelatudeDB</span><span class="p">();</span><span class="w">          </span><span class="c1">// no using needed</span>
 <span class="kt">var</span><span class="w"> </span><span class="n">app</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">builder</span><span class="p">.</span><span class="n">Build</span><span class="p">();</span>
 
+<span class="n">app</span><span class="p">.</span><span class="n">UseRelatudeDB</span><span class="p">();</span><span class="w">              </span><span class="c1">// opens the database and serves the admin UI at /relatude.db</span>
 <span class="n">app</span><span class="p">.</span><span class="n">MapGet</span><span class="p">(</span><span class="s">&quot;/&quot;</span><span class="p">,</span><span class="w"> </span><span class="p">(</span><span class="n">RelatudeDBContext</span><span class="w"> </span><span class="n">ctx</span><span class="p">)</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="s">$&quot;{ctx.Database.Count()} objects&quot;</span><span class="p">);</span>
-
-<span class="n">app</span><span class="p">.</span><span class="n">StartRelatudeDB</span><span class="p">();</span>
-<span class="n">app</span><span class="p">.</span><span class="n">MapRelatudeDBAdmin</span><span class="p">();</span><span class="w">         </span><span class="c1">// admin UI at /relatude.db</span>
 <span class="n">app</span><span class="p">.</span><span class="n">Run</span><span class="p">();</span>
 </code></pre></div>
 
-<p>A <code>relatude.db.json</code> file in the app's <code>relatude.settings/</code> folder says where the data lives and
-which namespaces hold the model:</p>
+<p>The file is <code>relatude.settings/relatude.db.json</code>. It says where the data lives and which namespaces
+hold the model:</p>
 <div class="codehilite"><pre><span></span><code><span class="p">{</span>
-<span class="w">  </span><span class="nt">&quot;MasterUserName&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;m&quot;</span><span class="p">,</span>
-<span class="w">  </span><span class="nt">&quot;MasterPassword&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;m&quot;</span><span class="p">,</span>
 <span class="w">  </span><span class="nt">&quot;ContainerSettings&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span>
 <span class="w">    </span><span class="nt">&quot;Name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;MyDatabase&quot;</span><span class="p">,</span>
 <span class="w">    </span><span class="nt">&quot;AutoOpen&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
-<span class="w">    </span><span class="nt">&quot;IOSettings&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span><span class="w"> </span><span class="nt">&quot;Id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;b195...&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;Name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Local disk&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;Path&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;relatude.data&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;IOType&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;LocalDisk&quot;</span><span class="w"> </span><span class="p">}],</span>
-<span class="w">    </span><span class="nt">&quot;IoDatabase&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;b195...&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;IOSettings&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span><span class="w"> </span><span class="nt">&quot;Id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;b195…&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;Name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Local disk&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;Path&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;relatude.data&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;IOType&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;LocalDisk&quot;</span><span class="w"> </span><span class="p">}],</span>
+<span class="w">    </span><span class="nt">&quot;IoDatabase&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;b195…&quot;</span><span class="p">,</span>
 <span class="w">    </span><span class="nt">&quot;DatamodelSources&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
-<span class="w">      </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;Name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Shop&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;Namespace&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Website.Simple.Models&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;Type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;CompiledTypes&quot;</span><span class="w"> </span><span class="p">}</span>
+<span class="w">      </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;Id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;8a3f…&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;Name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Shop&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;Namespace&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;MyApp.Models&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;Type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;CompiledTypes&quot;</span><span class="w"> </span><span class="p">}</span>
 <span class="w">    </span><span class="p">],</span>
 <span class="w">    </span><span class="nt">&quot;LocalSettings&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;EnableTextIndexByDefault&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="w"> </span><span class="p">}</span>
 <span class="w">  </span><span class="p">}]</span>
 <span class="p">}</span>
 </code></pre></div>
 
-<p>That is the whole idea: <strong>this folder is the database, that namespace is the schema.</strong> Everything
-else has a sensible default, and the file is normally written for you by the admin UI at
-<code>/relatude.db</code> — datamodel sources, file storage, backups, indexing, Azure blob, Lucene and AI
-provider settings all live there.</p>
-<p>Any of it can be overridden per environment from standard ASP.NET configuration: a <code>RelatudeDB</code>
-section with the same shape as the file — in <code>appsettings.json</code>, <code>appsettings.Development.json</code>,
-environment variables or user secrets — wins over <code>relatude.db.json</code>, and what it supplies is never
-written back to the file. Credentials belong there, not in the file. What you change in the admin UI
-is kept apart as well, in <code>overrides/relatude.db.overrides.json</code> beside the default database's own files, so
-<code>relatude.db.json</code> stays as you deployed it until you move those changes into it from the settings page.</p>
-<p><strong>Source control and deployment.</strong> <code>relatude.settings/</code> is part of the application: commit it, and it
-is deployed with the code. <code>relatude.data/</code> (and its scratch folder <code>relatude.data.temp/</code>) is the
-database of the machine it runs on: never commit it, and exclude it in the project file as well, so
-that a publish does not carry your development data to a server. The project types of <code>relatude new</code>
-do both; in a project of your own, add this to the <code>.csproj</code>:</p>
+<p>That is the whole idea: <strong>this folder is the database, and that namespace is the schema.</strong> Everything
+else has a sensible default. You rarely edit the file by hand: the admin UI at <code>/relatude.db</code> manages
+data model sources, file storage, backups, indexing, Azure Blob storage and AI providers.</p>
+<p>Settings can differ per environment:</p>
+<ul>
+<li>A <code>RelatudeDB</code> section in standard ASP.NET configuration (<code>appsettings.json</code>, environment
+  variables, user secrets) has the same shape as the file and wins over it. Put credentials there.</li>
+<li>Changes made in the admin UI are kept in a separate file, <code>relatude.db.overrides.json</code>, until you
+  move them into <code>relatude.db.json</code> from the settings page.</li>
+</ul>
+<p><strong>Source control and deployment.</strong> <code>relatude.settings/</code> is part of the application: commit it and
+deploy it with the code. <code>relatude.data/</code> (and its scratch folder <code>relatude.data.temp/</code>) is the
+database of the machine it runs on: never commit it, and exclude it from the project so a publish does
+not copy your development data to a server. Projects made by <code>relatude new</code> do both. In a project of
+your own, add this to the <code>.csproj</code>:</p>
 <div class="codehilite"><pre><span></span><code><span class="nt">&lt;PropertyGroup&gt;</span>
 <span class="w">  </span><span class="nt">&lt;DefaultItemExcludes&gt;</span>$(DefaultItemExcludes);relatude.data\**;relatude.data.temp\**<span class="nt">&lt;/DefaultItemExcludes&gt;</span>
 <span class="nt">&lt;/PropertyGroup&gt;</span>
 </code></pre></div>
 
-<p>Here is a <a href="https://github.com/Relatude/Relatude.DB/blob/main/docs/.gitignore">typical <code>.gitignore</code></a> for a project on Relatude.DB, and the manual sets out
+<p>Here is a <a href="https://github.com/Relatude/Relatude.DB/blob/main/docs/.gitignore">typical <code>.gitignore</code></a>, and
+the manual explains
 <a href="manual.html#122-what-goes-where-source-control-deployment-and-appsettings">what goes where</a>.</p>
 <hr />
 <h2 id="4-querying">4. Querying<a class="anchor" href="#4-querying" aria-label="Link to this section">#</a></h2>
-<p>One fluent builder, LINQ-style expressions, <code>Execute()</code> at the end.</p>
+<p>One fluent builder, LINQ-style expressions, and <code>Execute()</code> at the end:</p>
 <div class="codehilite"><pre><span></span><code><span class="kt">var</span><span class="w"> </span><span class="n">db</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ctx</span><span class="p">.</span><span class="n">Database</span><span class="p">;</span>
 
 <span class="kt">var</span><span class="w"> </span><span class="n">p</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">Get</span><span class="o">&lt;</span><span class="n">Product</span><span class="o">&gt;</span><span class="p">(</span><span class="n">id</span><span class="p">);</span>
@@ -644,21 +640,21 @@ do both; in a project of your own, add this to the <code>.csproj</code>:</p>
 <span class="w">             </span><span class="p">.</span><span class="n">Execute</span><span class="p">();</span>
 </code></pre></div>
 
-<p>Async twins exist throughout: <code>ExecuteAsync()</code>, <code>CountAsync()</code>, <code>FirstOrDefaultAsync()</code>.</p>
+<p>There are async versions throughout: <code>ExecuteAsync()</code>, <code>CountAsync()</code>, <code>FirstOrDefaultAsync()</code>.</p>
 <h3 id="search">Search<a class="anchor" href="#search" aria-label="Link to this section">#</a></h3>
-<p>Free-text and semantic search are part of the same index — there is no second search engine to run
-and keep in sync:</p>
+<p>Free-text and semantic search use the same index, so there is no second search engine to keep in
+sync:</p>
 <div class="codehilite"><pre><span></span><code><span class="c1">// BM25 free text, optionally blended with vector similarity</span>
 <span class="kt">var</span><span class="w"> </span><span class="n">hits</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">Query</span><span class="o">&lt;</span><span class="n">Product</span><span class="o">&gt;</span><span class="p">().</span><span class="n">WhereSearch</span><span class="p">(</span><span class="s">&quot;wool jacket&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">semanticRatio</span><span class="p">:</span><span class="w"> </span><span class="mf">0.5</span><span class="p">).</span><span class="n">Execute</span><span class="p">();</span>
 </code></pre></div>
 
 <h3 id="following-relations">Following relations<a class="anchor" href="#following-relations" aria-label="Link to this section">#</a></h3>
-<div class="codehilite"><pre><span></span><code><span class="c1">// follow relations eagerly, in one query</span>
+<div class="codehilite"><pre><span></span><code><span class="c1">// load related nodes in the same query</span>
 <span class="kt">var</span><span class="w"> </span><span class="n">pages</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">Query</span><span class="o">&lt;</span><span class="n">Page</span><span class="o">&gt;</span><span class="p">().</span><span class="n">Include</span><span class="p">(</span><span class="n">p</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">p</span><span class="p">.</span><span class="n">Children</span><span class="p">).</span><span class="n">Execute</span><span class="p">();</span>
 </code></pre></div>
 
 <h3 id="facets">Facets<a class="anchor" href="#facets" aria-label="Link to this section">#</a></h3>
-<p>Facet counts adapt to the current result set, so you get drill-sideways behaviour for free:</p>
+<p>Facet counts follow the current result, so filters on one facet still show counts for the others:</p>
 <div class="codehilite"><pre><span></span><code><span class="kt">var</span><span class="w"> </span><span class="n">res</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">Query</span><span class="o">&lt;</span><span class="n">Product</span><span class="o">&gt;</span><span class="p">()</span>
 <span class="w">            </span><span class="p">.</span><span class="n">WhereSearch</span><span class="p">(</span><span class="s">&quot;jacket&quot;</span><span class="p">)</span>
 <span class="w">            </span><span class="p">.</span><span class="n">Facets</span><span class="p">()</span>
@@ -672,8 +668,8 @@ and keep in sync:</p>
 </code></pre></div>
 
 <h3 id="filtering-text-and-arrays">Filtering text and arrays<a class="anchor" href="#filtering-text-and-arrays" aria-label="Link to this section">#</a></h3>
-<p>Inside a <code>Where</code> lambda the familiar C# methods work. They are answered from the index when the
-property has one, and row by row when it does not:</p>
+<p>The usual C# methods work inside a <code>Where</code>. They use the index when the property has one, and check
+node by node when it does not:</p>
 <table>
 <thead>
 <tr>
@@ -690,43 +686,41 @@ property has one, and row by row when it does not:</p>
 </tr>
 <tr>
 <td><code>p.Name.Contains("jacket")</code></td>
-<td>ordinal substring</td>
+<td>substring (case-sensitive)</td>
 <td>–</td>
 </tr>
 <tr>
 <td><code>p.Name.StartsWith("Wool")</code></td>
-<td>ordinal prefix</td>
+<td>prefix (case-sensitive)</td>
 <td>–</td>
 </tr>
 <tr>
 <td><code>p.Description.MatchesSearch("wool jacket")</code></td>
-<td>word + semantic search in that <strong>one</strong> property</td>
+<td>word and semantic search in this <strong>one</strong> property</td>
 <td><code>IndexedByWords = true</code></td>
 </tr>
 </tbody>
 </table>
 <div class="codehilite"><pre><span></span><code><span class="n">db</span><span class="p">.</span><span class="n">Query</span><span class="o">&lt;</span><span class="n">Product</span><span class="o">&gt;</span><span class="p">().</span><span class="n">Where</span><span class="p">(</span><span class="n">p</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">p</span><span class="p">.</span><span class="n">Tags</span><span class="p">.</span><span class="n">Contains</span><span class="p">(</span><span class="s">&quot;eco&quot;</span><span class="p">)</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="n">p</span><span class="p">.</span><span class="n">Name</span><span class="p">.</span><span class="n">StartsWith</span><span class="p">(</span><span class="s">&quot;Wo&quot;</span><span class="p">)).</span><span class="n">Execute</span><span class="p">();</span>
 
-<span class="c1">// scoped search: the words must be in Description, not merely somewhere in the node</span>
+<span class="c1">// the words must be in Description or Name, not just anywhere in the node</span>
 <span class="n">db</span><span class="p">.</span><span class="n">Query</span><span class="o">&lt;</span><span class="n">Product</span><span class="o">&gt;</span><span class="p">().</span><span class="n">Where</span><span class="p">(</span><span class="n">p</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">p</span><span class="p">.</span><span class="n">Description</span><span class="p">.</span><span class="n">MatchesSearch</span><span class="p">(</span><span class="s">&quot;waterproof&quot;</span><span class="p">)</span>
 <span class="w">                            </span><span class="o">||</span><span class="w"> </span><span class="n">p</span><span class="p">.</span><span class="n">Name</span><span class="p">.</span><span class="n">MatchesSearch</span><span class="p">(</span><span class="s">&quot;waterproof&quot;</span><span class="p">)).</span><span class="n">Execute</span><span class="p">();</span>
 </code></pre></div>
 
-<p>Three things worth saying once:</p>
+<p>Good to know:</p>
 <ul>
-<li>Text matching is <strong>ordinal</strong> — case matters, just like <code>==</code> on strings. Passing an explicit
-  <code>StringComparison</code> is rejected rather than quietly ignored.</li>
-<li><code>Contains</code> means what it means in C#: an element on <code>string[]</code>/<code>Guid[]</code>/<code>int[]</code>/enum
-  arrays/<code>float[]</code>/<code>byte[]</code>, a substring on a <code>string</code>.</li>
-<li><code>MatchesSearch</code> is <code>WhereSearch</code> narrowed to one property, and being a predicate it composes with
-  <code>||</code> and <code>!</code> where a chained <code>WhereSearch</code> cannot. It is the one filter with no unindexed fallback
-  — a search cannot be evaluated row by row — so it requires <code>IndexedByWords</code> (or
-  <code>IndexedBySemantic</code>) and tells you when the property lacks it.</li>
+<li>Text matching is <strong>ordinal</strong>: case matters, as with <code>==</code> on strings. An explicit <code>StringComparison</code>
+  argument is rejected rather than ignored.</li>
+<li><code>Contains</code> means what it means in C#: an element of an array, a substring of a <code>string</code>.</li>
+<li><code>MatchesSearch</code> is <code>WhereSearch</code> for one property. Because it is a predicate, it combines with <code>||</code>
+  and <code>!</code>. It needs <code>IndexedByWords</code> (or <code>IndexedBySemantic</code>) on the property, and tells you when it is
+  missing.</li>
 </ul>
 <hr />
 <h2 id="5-writing-data">5. Writing data<a class="anchor" href="#5-writing-data" aria-label="Link to this section">#</a></h2>
-<p>There is no change tracking to reason about and no <code>SaveChanges()</code> at the end of a request. Each
-call is its own ACID transaction, durably logged.</p>
+<p>There is no change tracking and no <code>SaveChanges()</code>. Each call is its own ACID transaction, written to
+a durable log.</p>
 <div class="codehilite"><pre><span></span><code><span class="kt">var</span><span class="w"> </span><span class="n">p</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">Product</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">Name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;Wool jacket&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">Price</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">249</span><span class="w"> </span><span class="p">};</span>
 <span class="n">db</span><span class="p">.</span><span class="n">Insert</span><span class="p">(</span><span class="n">p</span><span class="p">);</span>
 
@@ -736,53 +730,53 @@ call is its own ACID transaction, durably logged.</p>
 <span class="n">db</span><span class="p">.</span><span class="n">Upsert</span><span class="p">(</span><span class="n">p</span><span class="p">);</span>
 <span class="n">db</span><span class="p">.</span><span class="n">Delete</span><span class="p">(</span><span class="n">p</span><span class="p">);</span>
 
-<span class="c1">// create + insert in one go (works for interfaces too)</span>
+<span class="c1">// create and insert in one step (works for interfaces too)</span>
 <span class="kt">var</span><span class="w"> </span><span class="n">art</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">CreateAndInsert</span><span class="o">&lt;</span><span class="n">IArticle</span><span class="o">&gt;</span><span class="p">(</span><span class="n">a</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">a</span><span class="p">.</span><span class="n">Title</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;Hello&quot;</span><span class="p">);</span>
 
 <span class="c1">// relations</span>
-<span class="n">db</span><span class="p">.</span><span class="n">AddRelation</span><span class="o">&lt;</span><span class="n">Page</span><span class="o">&gt;</span><span class="p">(</span><span class="n">parent</span><span class="p">,</span><span class="w"> </span><span class="n">x</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">x</span><span class="p">.</span><span class="n">Children</span><span class="p">,</span><span class="w"> </span><span class="n">child</span><span class="p">);</span><span class="w">   </span><span class="c1">// append; throws if already related</span>
-<span class="n">db</span><span class="p">.</span><span class="n">SetRelation</span><span class="o">&lt;</span><span class="n">Page</span><span class="o">&gt;</span><span class="p">(</span><span class="n">parent</span><span class="p">,</span><span class="w"> </span><span class="n">x</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">x</span><span class="p">.</span><span class="n">Children</span><span class="p">,</span><span class="w"> </span><span class="n">child</span><span class="p">);</span><span class="w">   </span><span class="c1">// idempotent; replaces on a &quot;one&quot; side</span>
+<span class="n">db</span><span class="p">.</span><span class="n">AddRelation</span><span class="o">&lt;</span><span class="n">Page</span><span class="o">&gt;</span><span class="p">(</span><span class="n">parent</span><span class="p">,</span><span class="w"> </span><span class="n">x</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">x</span><span class="p">.</span><span class="n">Children</span><span class="p">,</span><span class="w"> </span><span class="n">child</span><span class="p">);</span><span class="w">   </span><span class="c1">// adds; throws if already related</span>
+<span class="n">db</span><span class="p">.</span><span class="n">SetRelation</span><span class="o">&lt;</span><span class="n">Page</span><span class="o">&gt;</span><span class="p">(</span><span class="n">parent</span><span class="p">,</span><span class="w"> </span><span class="n">x</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">x</span><span class="p">.</span><span class="n">Children</span><span class="p">,</span><span class="w"> </span><span class="n">child</span><span class="p">);</span><span class="w">   </span><span class="c1">// idempotent; replaces the partner on a &quot;one&quot; side</span>
 <span class="n">db</span><span class="p">.</span><span class="n">RemoveRelation</span><span class="o">&lt;</span><span class="n">Page</span><span class="o">&gt;</span><span class="p">(</span><span class="n">parent</span><span class="p">,</span><span class="w"> </span><span class="n">x</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">x</span><span class="p">.</span><span class="n">Children</span><span class="p">,</span><span class="w"> </span><span class="n">child</span><span class="p">);</span>
 
-<span class="c1">// batch several changes into one atomic transaction</span>
+<span class="c1">// several changes in one atomic transaction</span>
 <span class="kt">var</span><span class="w"> </span><span class="n">t</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">CreateTransaction</span><span class="p">();</span>
 <span class="n">t</span><span class="p">.</span><span class="n">Insert</span><span class="p">(</span><span class="n">p</span><span class="p">);</span>
 <span class="n">t</span><span class="p">.</span><span class="n">Update</span><span class="p">(</span><span class="n">other</span><span class="p">);</span>
 <span class="n">t</span><span class="p">.</span><span class="n">Execute</span><span class="p">();</span>
 
-<span class="c1">// files: upload into a FileValue slot, get a resized/converted URL back</span>
+<span class="c1">// files: upload into a FileValue, then get a resized URL</span>
 <span class="k">await</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">FileUploadAsync</span><span class="o">&lt;</span><span class="n">IArticle</span><span class="o">&gt;</span><span class="p">(</span><span class="n">art</span><span class="p">,</span><span class="w"> </span><span class="n">a</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">a</span><span class="p">.</span><span class="n">File</span><span class="p">,</span><span class="w"> </span><span class="n">stream</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;hero.jpg&quot;</span><span class="p">);</span>
 <span class="kt">var</span><span class="w"> </span><span class="n">url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">GetUrl</span><span class="p">(</span><span class="n">art</span><span class="p">.</span><span class="n">File</span><span class="p">,</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">FileAdjustmentImage</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">Width</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">400</span><span class="p">,</span><span class="w"> </span><span class="n">Height</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">300</span><span class="w"> </span><span class="p">});</span>
 </code></pre></div>
 
-<p>One naming trap to avoid: the relation verbs are <code>AddRelation</code> / <code>SetRelation</code> / <code>RemoveRelation</code> /
-<code>ClearRelation</code> / <code>ClearRelations</code>. There is no <code>db.Relate(...)</code> or <code>db.UnRelate(...)</code>.
-<code>AddRelation</code> appends and throws if the pair is already related; <code>SetRelation</code> is the idempotent
-one — it also drops whatever it has to on a "one" side to make room, which is why it reads as an
-assignment.</p>
+<p>The relation methods are <code>AddRelation</code>, <code>SetRelation</code>, <code>RemoveRelation</code>, <code>ClearRelation</code> and
+<code>ClearRelations</code>. There is no <code>db.Relate(...)</code>. Use <code>SetRelation</code> when you mean "make it so": it is
+safe to repeat, and on a "one" side it replaces the current partner.</p>
 <hr />
 <h2 id="6-what-you-get-without-writing-it">6. What you get without writing it<a class="anchor" href="#6-what-you-get-without-writing-it" aria-label="Link to this section">#</a></h2>
 <ul>
-<li><strong>Admin UI</strong> at <code>/relatude.db</code> — browse and edit data, inspect the datamodel, take backups, check
-  index status, run queries in a console.</li>
-<li><strong>Search</strong> — BM25 free text, prefix/infix, fuzzy, plus semantic vector search on the same index.</li>
-<li><strong>Facets</strong> — value and range facets with drill-sideways counts off any indexed property or relation.</li>
-<li><strong>Files</strong> — local disk or Azure blob, on-demand image and video conversion, CDN-friendly URLs.
-  Conversion needs a converter registered at startup — <code>Relatude.DB.Plugins.Skia</code> for images,
-  <code>Relatude.DB.Plugins.FFMpeg</code> for video.</li>
-<li><strong>Geo</strong> — coordinate properties with radius filters and sort-by-distance.</li>
-<li><strong>Extras</strong> — cultures and fallbacks, revisions, per-property read/write access, transaction plugins,
-  and GraphQL endpoints generated from your model: defined on the admin UI's <strong>API</strong> page, or mapped
-  in code with <code>app.MapRelatudeDBGraphQL("/graphql")</code>. They are read-only unless you allow mutations.</li>
+<li><strong>Admin UI</strong> at <code>/relatude.db</code>: browse and edit data, inspect the data model, take backups, check
+  index status, and run queries in a console.</li>
+<li><strong>Search</strong>: BM25 free text, prefix and infix, fuzzy matching, and semantic search on the same index.</li>
+<li><strong>Facets</strong>: value and range facets, with counts that follow the current filters, on any indexed
+  property or relation.</li>
+<li><strong>Files</strong>: local disk or Azure Blob storage, CDN-friendly URLs, and image and video conversion on
+  demand. Conversion is built in: JPEG, PNG, WebP, GIF and BMP images, and frames of videos through
+  FFmpeg, which is downloaded the first time it is needed.</li>
+<li><strong>Geo</strong>: coordinate properties with radius filters and sorting by distance.</li>
+<li><strong>And more</strong>: cultures with fallback, revisions, read and write access per node and per property,
+  transaction plugins, and GraphQL endpoints generated from your model. Define an endpoint on the admin UI's
+  <strong>API</strong> page, or map one in code with <code>app.MapRelatudeDBGraphQL("/graphql")</code>. Endpoints are
+  read-only unless you allow mutations.</li>
 </ul>
 <hr />
 <h2 id="where-next">Where next<a class="anchor" href="#where-next" aria-label="Link to this section">#</a></h2>
-<p>Add the NuGet, write the classes, point <code>relatude.db.json</code> at their namespace and run — the admin UI
-is already there and your data is already searchable.</p>
+<p>Add the package, write your classes, point <code>relatude.db.json</code> at their namespace and run. The admin
+UI is already there, and your data is already searchable.</p>
 <ul>
-<li><a href="manual.html">The manual</a> — data modelling and querying in depth.</li>
-<li><a href="relatude-db.skill">relatude-db.skill</a> — the same knowledge packaged for AI coding agents.</li>
-<li><a href="https://github.com/Relatude/Relatude.DB">github.com/Relatude/Relatude.DB</a> — source, examples and issues.</li>
+<li><a href="manual.html">The manual</a>: data modelling and querying in depth.</li>
+<li><a href="relatude-db.skill">relatude-db.skill</a>: the same knowledge packaged for AI coding agents.</li>
+<li><a href="https://github.com/Relatude/Relatude.DB">github.com/Relatude/Relatude.DB</a>: source, examples and issues.</li>
 </ul>
 </main>
 
@@ -792,7 +786,7 @@ is already there and your data is already searchable.</p>
 (function () {
   "use strict";
 
-  var NAV = [{"level": 1, "text": "Getting started with Relatude.DB", "id": "getting-started-with-relatudedb", "children": [{"level": 2, "text": "1. Install", "id": "1-install", "children": []}, {"level": 2, "text": "2. Modelling — just write classes", "id": "2-modelling-just-write-classes", "children": [{"level": 3, "text": "Property types", "id": "property-types", "children": []}, {"level": 3, "text": "Relations — two levels", "id": "relations-two-levels", "children": []}, {"level": 3, "text": "Interfaces and classes", "id": "interfaces-and-classes", "children": []}]}, {"level": 2, "text": "3. Setup — one call plus one file", "id": "3-setup-one-call-plus-one-file", "children": []}, {"level": 2, "text": "4. Querying", "id": "4-querying", "children": [{"level": 3, "text": "Search", "id": "search", "children": []}, {"level": 3, "text": "Following relations", "id": "following-relations", "children": []}, {"level": 3, "text": "Facets", "id": "facets", "children": []}, {"level": 3, "text": "Filtering text and arrays", "id": "filtering-text-and-arrays", "children": []}]}, {"level": 2, "text": "5. Writing data", "id": "5-writing-data", "children": []}, {"level": 2, "text": "6. What you get without writing it", "id": "6-what-you-get-without-writing-it", "children": []}, {"level": 2, "text": "Where next", "id": "where-next", "children": []}]}];
+  var NAV = [{"level": 1, "text": "Getting started with Relatude.DB", "id": "getting-started-with-relatudedb", "children": [{"level": 2, "text": "1. Install", "id": "1-install", "children": []}, {"level": 2, "text": "2. Modelling: just write classes", "id": "2-modelling-just-write-classes", "children": [{"level": 3, "text": "Property types", "id": "property-types", "children": []}, {"level": 3, "text": "Relations: two levels", "id": "relations-two-levels", "children": []}, {"level": 3, "text": "Interfaces and classes", "id": "interfaces-and-classes", "children": []}]}, {"level": 2, "text": "3. Setup: one call and one file", "id": "3-setup-one-call-and-one-file", "children": []}, {"level": 2, "text": "4. Querying", "id": "4-querying", "children": [{"level": 3, "text": "Search", "id": "search", "children": []}, {"level": 3, "text": "Following relations", "id": "following-relations", "children": []}, {"level": 3, "text": "Facets", "id": "facets", "children": []}, {"level": 3, "text": "Filtering text and arrays", "id": "filtering-text-and-arrays", "children": []}]}, {"level": 2, "text": "5. Writing data", "id": "5-writing-data", "children": []}, {"level": 2, "text": "6. What you get without writing it", "id": "6-what-you-get-without-writing-it", "children": []}, {"level": 2, "text": "Where next", "id": "where-next", "children": []}]}];
   // v2: the default collapse state changed, and the key is versioned so readers
   // carrying a v1 payload get the new default rather than their old tree.
   var KEY = "relatude-intro-state-v1";

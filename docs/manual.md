@@ -6,13 +6,12 @@ Relatude.DB is an open-source, C#-native object-oriented graph database with int
 (BM25) search, vector/semantic search, file storage, faceting and a built-in admin UI. It runs
 in-process or server-hosted, and targets .NET 10+.
 
-This manual covers the part of the engine you touch every day: how to shape your data, and how to
-get it back out. It uses **one running example domain** — a venue-and-events platform — so every
-concept builds on the last.
+This manual shows how to shape your data, write it and get it back out, and covers the tools and
+services around the engine. It uses **one running example domain**, a venue-and-events platform, so
+each concept builds on the last.
 
-> **Version note.** Relatude.DB is pre-1.0 and the public API still moves. Everything in this manual
-> is taken from the source at `github.com/Relatude/Relatude.DB` under `src/Relatude.DB.NodeStore/`
-> and `src/Relatude.DB.Common/`. When something here disagrees with your build, the source wins.
+> Relatude.DB is pre-1.0, so the API may still change. The source is at
+> [github.com/Relatude/Relatude.DB](https://github.com/Relatude/Relatude.DB).
 
 ---
 
@@ -83,41 +82,36 @@ Everything in Relatude.DB is a **node**. A node has:
 
 | Ingredient | What it is |
 |---|---|
-| `Guid Id` | The public identity. The engine also keeps an internal `int __Id` for fast indexing. |
-| `NodeMeta Meta` | System-managed metadata: timestamps, culture, revision, ACL, display name, address. |
+| `Guid Id` | The public identity. The engine also keeps an internal `int` id (`__Id`) for its indexes. |
+| `NodeMeta Meta` | Metadata the system manages: timestamps, culture, revision, access, display name, address. |
 | **Scalar properties** | `string`, `int`, `decimal`, `DateTime`, `bool`, `Guid`, `GeoCoordinate`, `FileValue`, `PasswordValue`, arrays… |
-| **Embedded data** | Owned sub-objects stored inline in the parent — `Embedded<T>`, `EmbeddedMap<TKey,TValue>`. |
-| **References** | A stored `Guid` (or `Guid[]`) pointing at other nodes — one-directional, no reverse index. |
-| **Relations** | Real graph edges declared as their own classes — bidirectional, indexed, traversable. |
+| **Embedded data** | Sub-objects stored inside the node: `Embedded<T>`, `EmbeddedMap<TKey,TValue>`. |
+| **References** | A stored `Guid` (or `Guid[]`) pointing at other nodes. One-directional, with no reverse index. |
+| **Relations** | Graph edges, declared as classes of their own. Bidirectional, indexed and traversable. |
 
-There is no separate "schema language". Your C# types *are* the schema. Point the engine at a
+There is no separate schema language: your C# types *are* the schema. Point the engine at a
 namespace and it builds the datamodel from your interfaces and classes.
 
 ### Interfaces are the model
 
-A node type can be an **interface, a class, a record or a struct** — the engine supports all four.
-No attribute is needed to opt in: every type in a namespace you point the engine at becomes a node
-type unless it is marked `[Exclude]`. `[Node]` only *tunes* one (see
-[stable type ids](#optional-stable-type-ids) below), which is why almost no type in this manual
-carries it. Interfaces are the recommended default, and the rest of this manual models almost
-everything with interfaces alone.
+A node type can be an interface, a class, a record or a struct. No attribute is needed: every type
+in a namespace you register becomes a node type unless it is marked `[Exclude]`. `[Node]` only tunes
+a type (see [stable type ids](#optional-stable-type-ids) below), so most types in this manual do
+without it.
 
-The headline: **you do not need a class at all.** An interface on its own is a complete node type.
-`store.Create<IVenue>()` hands you a generated proxy that implements it, tracks your changes and
-lazily loads relations. No concrete class is ever written, and none is needed.
+Interfaces are the recommended default, and this manual uses them almost everywhere. An interface on
+its own is a complete node type. `db.Create<IVenue>()` returns a generated proxy that implements it,
+tracks your changes and loads relations lazily. You never write a class.
 
-The reason to prefer interfaces goes beyond saving a file: **C# allows a type to implement many
-interfaces but inherit only one class.** Because Relatude.DB treats every interface a node type
-implements as a *parent node type*, interface-based modelling gives you real multiple inheritance
-in the datamodel — shared, queryable facets that cut across your hierarchy. Classes cannot do this.
-
-[§2](#2-your-first-node-type) works through it.
+Interfaces also give you multiple inheritance: every interface a node type implements becomes a
+*parent node type*, and a C# type can implement many interfaces but inherit only one class.
+[§2](#2-your-first-node-type) shows how to use this.
 
 ---
 
 ## 2. Your first node type
 
-The three namespaces you will import in every model file:
+The three namespaces a model file usually imports:
 
 ```csharp
 using Relatude.DB.Common;       // FileValue, GeoCoordinate, NodeKey
@@ -125,8 +119,8 @@ using Relatude.DB.Datamodels;   // NodeMeta, RevisionType
 using Relatude.DB.Nodes;        // attributes, relation bases, Reference, References, EmbeddedMap
 ```
 
-Here is `IOrganizer` — a company that runs events. **This interface is the entire node type. There
-is no class, and none is needed:**
+Here is `IOrganizer`, a company that runs events. **The interface is the whole node type.** There is
+no class, and none is needed:
 
 ```csharp
 namespace VenueApp.Models;
@@ -134,28 +128,28 @@ namespace VenueApp.Models;
 public interface IOrganizer {
     Guid Id { get; set; }
 
-    [DisplayNameProperty]
-    [StringProperty(Indexed = true, MaxLength = 200, IndexedByWords = true)]
+    [StringProperty(Indexed = true, IndexedByWords = true, MaxLength = 200, DisplayName = true)]
     string Name { get; set; }
 
-    [StringProperty(StringType = StringValueType.Email, UniqueValues = true)]
+    [StringProperty(UniqueValues = true, MaxLength = 254)]
     string ContactEmail { get; set; }
 
     [StringProperty(Indexed = true, UniqueValues = true, RegularExpression = @"^[a-z0-9-]+$")]
     string Slug { get; set; }
 
     [CreatedUtcProperty]
-    DateTime CreatedUtc { get; set; }
+    DateTime CreatedUtc { get; }    // filled in by the store
 
     NodeMeta Meta { get; }          // read-only on the interface
 }
 ```
 
-That is it. You now have a full node type:
+Create, store and query it:
 
 ```csharp
-var org = db.Create<IOrganizer>();      // a generated proxy implementing IOrganizer
+var org = db.Create<IOrganizer>();      // a generated proxy that implements IOrganizer
 org.Name = "Nordic Live AS";
+org.Slug = "nordic-live";               // required: the pattern does not match an empty value
 org.ContactEmail = "hello@nordiclive.no";
 db.Insert(org);
 
@@ -165,40 +159,33 @@ var all   = db.Query<IOrganizer>().Where(o => o.Name.StartsWith("Nordic")).Execu
 
 Three rules for interface node types:
 
-1. **`Meta` is getter-only.** So are relation, reference and embedded properties. The proxy owns
-   their initialisation — you never assign them. Scalar properties are `{ get; set; }`.
-2. **Leave `Id` as `Guid.Empty` on insert** and the store assigns one, or set it yourself first.
-3. **Put your attributes on the interface.** Property *definitions* live on the type that first
-   declares them, so an attribute on a class that merely implements an interface member is ignored.
-   The interface is the single source of truth for the property model. The one exception is
-   `[PropertyOverride]`, which gives that class its own default, text index or display name setting
-   for the property, or asks for its value index or a facet ([§3.1](#31-overriding-attributes)).
+1. **`Meta` is get-only**, and so are relation, reference and embedded properties and the marker
+   members (`[CreatedUtcProperty]`, `[AddressProperty]` and the like, [§4](#4-marker-properties)).
+   The store provides them, and you never assign them. Scalar properties are `{ get; set; }`.
+2. **Leave `Id` as `Guid.Empty`** and the store assigns one on insert, or set it yourself first.
+3. **Put attributes on the interface.** A property is defined by the type that first declares it, so
+   attributes on a class member that implements it are ignored. The one exception is
+   `[PropertyOverride]` ([§3.1](#31-overriding-attributes)).
 
-Add `[Exclude]` to any type or property the datamodel should skip.
+`[Exclude]` leaves a type or a property out of the datamodel.
 
 ### Why interfaces are the better default
 
 | | Interface | Class |
 |---|---|---|
-| Multiple inheritance | **yes** — many interfaces per type | no — one base class |
+| Multiple inheritance | **yes**, many interfaces per type | no, one base class |
 | Instantiation | `db.Create<T>()` returns a proxy | `new T()` or `db.Create<T>()` |
-| Change tracking | proxy tracks property writes | you manage state yourself |
-| Lazy relation loading | handled by the proxy | handled by the property types |
-| Default values | not needed — the proxy handles it | you must initialise every reference type |
-| Parameterless ctor | n/a | **mandatory**, or the model builder throws |
-| Query surface | identical | identical |
+| Change tracking | the proxy tracks property writes | you manage state yourself |
+| Default values | handled by the proxy | you initialise every reference type |
+| Parameterless constructor | not needed | **required**, or the model builder throws |
+| Querying | the same | the same |
 
-The practical effect: an interface model is shorter, has no initialisation boilerplate to forget,
-and — the big one — composes.
+An interface model is shorter, has no initialisation to forget and, most important, composes.
 
 ### Multiple inheritance with interfaces
 
-When the engine builds a node type it records **every interface the type implements as a parent
-node type**. So interfaces are not just a declaration style; they are the inheritance mechanism.
-And because a C# type may implement any number of interfaces, you get modelling shapes that a
-single-base-class hierarchy simply cannot express.
-
-Define small, focused facet interfaces:
+The engine records every interface a type implements as a parent node type. So you can define small,
+focused facet interfaces:
 
 ```csharp
 // A thing that sits somewhere on the map.
@@ -215,16 +202,14 @@ public interface INamedNode {
     Guid Id { get; set; }
     NodeMeta Meta { get; }
 
-    [DisplayNameProperty]
-    [StringProperty(Indexed = true, IndexedByWords = true, PrefixSearch = true)]
+    [StringProperty(Indexed = true, IndexedByWords = true, PrefixSearch = true, DisplayName = true)]
     string Title { get; set; }
 
     [AddressProperty]
-    [StringProperty(Indexed = true, UniqueValues = true)]
-    string Slug { get; set; }
+    string Slug { get; }          // the node's address, set with db.UpdateAddress
 }
 
-// A thing with a rich-text body that should be searchable.
+// A thing with a searchable rich-text body.
 public interface IDescribed {
     [HtmlProperty(IndexedByWords = true, IndexedBySemantic = true)]
     string Description { get; set; }
@@ -237,7 +222,7 @@ public interface ITagged {
 }
 ```
 
-…then compose them freely, mixing and matching per type:
+Then compose them per type:
 
 ```csharp
 public interface IVenue    : INamedNode, IDescribed, ILocatable, ITagged { /* venue-only    */ }
@@ -245,22 +230,20 @@ public interface IEvent    : INamedNode, IDescribed,              ITagged { /* e
 public interface IAttendee : INamedNode,              ILocatable          { /* attendee-only */ }
 ```
 
-Each facet's properties are declared exactly once, with their indexing and validation attached, and
-every implementing type inherits them. Change `ILocatable.Location` to `Indexed = false` and both
-venues and attendees follow. Add a fifth node type that should appear on the map and it is one
-interface in the declaration — no property copying, no query to update.
-
-A class-based model cannot express this. `Venue` can inherit one base class, so the moment you want
-"locatable" *and* "described" *and* "tagged" you are copying properties between types and keeping
-their attributes in sync by hand.
+Each facet's properties are declared once, with their indexing and validation, and every type that
+implements the facet gets them. A new type that belongs on the map needs one more interface and
+nothing else. With classes, `Venue` could inherit only one base class, so you would copy properties
+between types and keep their attributes in sync by hand.
 
 ### Querying across the hierarchy
 
-This is where multiple inheritance pays off at runtime. **`Query<T>()` matches `T` and every type
-descending from it**, so you can query a facet interface directly and get heterogeneous results:
+**`Query<T>()` matches `T` and every type that inherits from it.** So you can query a facet interface
+directly and get mixed results:
 
 ```csharp
-// Every locatable node of any type within 5 km — venues and attendees together
+var oslo = new GeoCoordinate(59.9139, 10.7522);
+
+// Every locatable node within 5 km: venues and attendees together
 var nearby = db.Query<ILocatable>()
                .Where(x => x.Location.IsWithin(oslo, 5_000))
                .Execute();
@@ -281,148 +264,137 @@ var hits = db.Query<INamedNode>()
 // One tag cloud over everything taggable
 var tagCloud = db.Query<ITagged>().Facets().AddValueFacet(x => x.Tags).Execute();
 
-// …narrowed back down to specific types when you want that
+// Narrowed back to specific types when you want that
 var venuesOnly = db.Query<ILocatable>()
                    .WhereTypes(new[] { typeof(IVenue) }, includeDescendants: true)
                    .Where(x => x.CountryCode == "NO")
                    .Execute();
 ```
 
-A cross-cutting search page, a global "recently changed" feed, a map view that plots anything with
-coordinates — each is one indexed query against a facet interface, rather than one query per
-concrete type merged and re-sorted in memory.
+A site-wide search, a "recently changed" feed or a map of everything with coordinates is then one
+indexed query, not one query per type merged in memory.
 
-> The full example model in [§11](#11-the-complete-example-model) declares every property directly
-> on each type, so that each one reads as a self-contained unit. [§11.1](#111-the-same-model-with-facet-interfaces)
-> shows the same model refactored onto facet interfaces — that is the shape to reach for in a real
-> project.
+> The example model in [§11](#11-the-complete-example-model) declares every property directly on each
+> type, so that each type reads on its own. [§11.1](#111-the-same-model-with-facet-interfaces) shows
+> the same model built from facet interfaces. That is the shape to use in a real project.
 
 ### Two constraints to design around
 
-The model builder is strict about ambiguity, and both rules bite exactly where you would expect:
+The model builder refuses anything ambiguous. It checks these two rules when it builds the model, so
+you find out at startup:
 
 1. **Two parent interfaces may not declare the same property name.** If `ILocatable` and `ITagged`
-   both declared `CountryCode`, any type implementing both fails to build. Keep facets disjoint, or
-   hoist the shared member into a base interface that both extend.
-2. **Property overriding is not supported.** A property is defined once, on the type that first
-   declares it. You cannot redeclare it further down to change its attributes.
-
-Both are checked at model-build time, not at runtime, so you find out immediately.
+   both declared `CountryCode`, any type implementing both would fail to build. Keep facets disjoint,
+   or move the shared member into a base interface that both extend.
+2. **A property cannot be declared again further down.** It is defined once, on the type that first
+   declares it. To change some of its attributes for a derived type, use `[PropertyOverride]`
+   ([§3.1](#31-overriding-attributes)).
 
 ### When you do want a class
 
-Classes are fully supported and there are legitimate reasons to reach for one:
-
-- You want to `new` nodes up yourself — in seed data, tests, or an import job — without a store.
-- You want behaviour on the type: computed members, helper methods, `ToString()`.
-- You are deserialising directly into the model type from an external feed.
-
-You can also pair an interface with a class that implements it, which gives you the interface as
-the queryable contract and the class as a concrete instantiable form. When you write a class, four
-extra obligations apply:
+Classes are fully supported. Reach for one when you want to create nodes with `new` without a store
+(seed data, tests, an import job), want behaviour on the type, or deserialise straight into it from
+an external feed. A class can also implement an interface: the interface is the queryable contract,
+and the class a form you can create. A class has four extra obligations:
 
 ```csharp
 public class Organizer : IOrganizer {
     public Guid Id { get; set; }
 
-    // Attributes live on IOrganizer — repeating them here has no effect.
+    // The attributes are on IOrganizer: repeating them here has no effect.
     public string Name { get; set; } = string.Empty;
     public string ContactEmail { get; set; } = string.Empty;
     public string Slug { get; set; } = string.Empty;
     public DateTime CreatedUtc { get; set; }
 
-    public NodeMeta Meta { get; set; } = NodeMeta.Empty;   // read-write on the class
+    public NodeMeta Meta { get; set; } = NodeMeta.Empty;   // get and set on a class
 }
 ```
 
-1. **A parameterless constructor is mandatory.** The model builder throws without one.
-2. **Initialise every reference-typed member.** `string.Empty`, `FileValue.Empty`,
-   `NodeMeta.Empty`, `[]` for embedded maps, `new()` for relation and reference properties.
-   Interfaces need none of this.
-3. **`Meta` becomes get/set.** Still never build one — use `NodeMeta.Empty`.
-4. **Attributes belong on the interface** when the class implements one.
+1. **A parameterless constructor is required.** The model builder throws without one.
+2. **Initialise every reference-typed member**: `string.Empty`, `FileValue.Empty`, `NodeMeta.Empty`,
+   `[]` for embedded maps, `new()` for relation and reference properties. Interfaces need none of
+   this.
+3. **`Meta` has a setter.** Still never build one: start with `NodeMeta.Empty`.
+4. **Attributes go on the interface** when the class implements one.
 
-Records and structs work too — a record needs the `record Foo() { … }` form to satisfy the
-parameterless-constructor rule, and structs are supported but rarely worth it.
+Records and structs work too. A record needs the `record Foo() { … }` form to have a parameterless
+constructor. Structs are supported but rarely worth it.
 
 ### Optional: stable type ids
 
-When you do not supply an id, the engine derives one by hashing the type's **full name**. That is
-convenient, but it means renaming a type or moving it to another namespace gives it a *new
-identity* — and the engine sees a brand-new type with no data. Rename-proof your model by pinning
-`[Node(Id = …)]` once, at the start of the project. The same applies to `[Relation(Id = …)]`.
+Without an id, the engine derives one from the type's **full name**. Renaming the type or moving it
+to another namespace then gives it a new identity, and the engine sees a new type with no data. Pin
+`[Node(Id = …)]` once, at the start of the project, and the type can be renamed and moved safely. The
+same goes for `[Relation(Id = …)]`.
 
 ```csharp
 [Node(
     Id = "6a1d9f2e-0b41-4c8a-9d7b-3f2c5e8a1b40",
     TextIndex = BoolValue.True,        // include in the BM25 index
-    SemanticIndex = BoolValue.False,   // skip the vector index
-    TextIndexBoost = 1.5
+    SemanticIndex = BoolValue.False    // skip the vector index
 )]
 public interface IOrganizer { /* ... */ }
 ```
 
-`BoolValue` is tri-state: `Default` (take it from the base types, else the database default), `True`,
-`False`. `TextIndex`, `SemanticIndex` and `InstantTextIndexing` are inherited: see
-[§3.1](#31-overriding-attributes). `[Node]` also accepts `MinNoInstances` / `MaxNoInstances` to
-constrain how many nodes of the type, its descendants included, may exist - see
-[Validation happens on write](#validation-happens-on-write).
+A property's id is derived from its declaring type's id and its own name, so a pinned type id keeps
+the property ids too. To rename a property, pin its id with the `Id` of its attribute.
+
+`BoolValue` has three values: `Default` (take it from the base types, else the database default),
+`True` and `False`. `TextIndex`, `SemanticIndex` and `InstantTextIndexing` are inherited by derived
+types ([§3.1](#31-overriding-attributes)). `MinNoInstances` and `MaxNoInstances` limit how many nodes
+of the type may exist (see [Validation happens on write](#validation-happens-on-write)).
 
 ### Optional: an icon for the type
 
-`[Node(Icon = …)]` gives the type the icon it is shown with: across the admin UI - the datamodel's
-lists, diagram and graph, the query page's type picker, hits, node form and relation chips, the
-dashboard's picture of the content, the global search - and in applications built on the model, such
-as a CMS. A type with no icon in its line is shown by the shape of its kind, as before. It is either a name from the icon library the
-server carries, written `set:name`, or the source of an SVG image of your own:
+`[Node(Icon = …)]` sets the icon a type is shown with, in the admin UI and in applications built on
+the model, such as a CMS. Use a name from the icon library the server carries, written `set:name`, or
+the source of an SVG image:
 
 ```csharp
-[Node(Icon = "lucide:calendar")]            // a monochrome icon: drawn in the colour of the text around it
+[Node(Icon = "lucide:calendar")]            // monochrome: drawn in the colour of the text around it
 public interface IEvent { /* ... */ }
 
-[Node(Icon = "fluent-color:building-24")]   // a coloured one
+[Node(Icon = "fluent-color:building-24")]   // in colour
 public interface IVenue { /* ... */ }
 ```
 
-A type without an icon shows the one of the closest type it inherits from that has one
-(`Datamodel.GetIcon(type)`). The library holds about 22,000 icons from seven open sets: monochrome
-Lucide (`lucide`), Tabler Icons (`tabler`) and Material Design Icons (`mdi`), and in colour Fluent UI
-System Color Icons (`fluent-color`), Flat Color Icons (`flat-color-icons`), IconPark (`icon-park`) and
-Fluent Emoji Flat (`fluent-emoji-flat`), with the names Iconify gives them. The datamodel editor's
-**Icon** field opens a picker over them: search by name, one set or all, browse a set's categories,
-or paste SVG on its second tab. On a type from compiled code the icon is saved as an override of the
-database. `IconLibrary.ToSvg(icon)` (`Relatude.DB.NodeServer.Icons`) gives the SVG of either kind, for
-an application that shows types; SVG with scripts, event attributes, `javascript:` links or
-`foreignObject` is refused, so what it hands out can be shown as it is. An icon only says how a type
-is shown: changing it rebuilds no state and no index.
+A type without an icon shows the icon of the closest type it inherits from that has one. The library
+holds about 22,000 icons from seven open sets, named as Iconify names them: `lucide`, `tabler` and
+`mdi` in monochrome, and `fluent-color`, `flat-color-icons`, `icon-park` and `fluent-emoji-flat` in
+colour. The datamodel editor's **Icon** field has a picker over them and also takes pasted SVG. For a
+type from compiled code, the editor saves the icon as an override ([§3.1](#31-overriding-attributes)).
+
+An application that shows types gets the SVG of either kind from `IconLibrary.ToSvg(icon)` (namespace
+`Relatude.DB.NodeServer.Icons`). It refuses SVG that could run script, so what it returns is safe to
+show. An icon only changes how a type is shown: changing it rebuilds no state and no index.
 
 ### Optional: a title and a description
 
-`[Node(Title = …, Description = …)]` says what people call the type and what it is for, where an
-application built on the model names it: the Relatude CMS shows them when an editor chooses which kind
-of content to create, and names the type by its title everywhere else (its lists, its editor).
+`[Node(Title = …, Description = …)]` says what people call the type and what it is for. Applications
+built on the model show them: the Relatude CMS, for example, when an editor chooses what kind of
+content to create.
 
 ```csharp
 [Node(Title = "Article", Description = "A story with a picture, an intro and a body.")]
-public interface IArticle : IPage { /* ... */ }
+public interface IArticle : INamedNode, IDescribed { /* ... */ }
 ```
 
-Both are the type's own (`NodeTypeModel.Title`, `NodeTypeModel.Description`): a type inheriting it
-does not take them, as a title names one type. Without a title an application makes one from the
-name ("IArticlePage" reads "Article page"). The datamodel editor has a **Title** and a
-**Description** field, and on a type from compiled code they are saved as overrides of the database.
-Like an icon they only say how a type is shown: changing them rebuilds no state and no index.
+Both belong to the type alone and are not inherited. Without a title, an application makes one from
+the type name (`IArticlePage` reads "Article page"). `NameProperty = nameof(Title)` names the property
+that holds a node's name, which an editor such as the CMS shows at the top of a node's form; a type
+without one takes its base type's. Like an icon, these only change how a type is shown, and the
+datamodel editor saves them as overrides on a type from compiled code.
 
 ---
 
 ## 3. Scalar properties and their attributes
 
-You can declare a plain property with no attribute at all and the engine infers a sensible
-property model from the CLR type. You add an attribute when you want **indexing**, **validation**,
-**faceting** or **search** behaviour.
+A property needs no attribute: the engine infers a sensible property model from its CLR type. Add an
+attribute when you want **indexing**, **validation**, **faceting** or **search**.
 
-The single most important flag is `Indexed`. **A property must be indexed to be filtered, sorted or
-faceted efficiently.** Without it, the engine falls back to scanning.
+The most important flag is `Indexed`. **A property must be indexed to be filtered and sorted
+efficiently, and to be a facet.** Without an index, the engine scans.
 
 ### The attribute catalogue
 
@@ -449,54 +421,52 @@ faceted efficiently.** Without it, the engine falls back to scanning.
 | `FileValue` | `[FileProperty]` |
 | `PasswordValue` | `[PasswordProperty]` |
 
-All of them inherit shared options from `PropertyAttribute`:
+All of them inherit these options from `PropertyAttribute`:
 
 ```csharp
 public abstract class PropertyAttribute : Attribute {
-    public string? Id { get; set; }              // stable property id, rename-proof
-    public string? ReadAccess { get; set; }      // ACL slot
-    public string? WriteAccess { get; set; }
+    public string? Id { get; set; }              // a pinned property id, so it can be renamed
+    public string? ReadAccess { get; set; }      // the user group that may read the value
+    public string? WriteAccess { get; set; }     // the user group that may write it
     public bool ExcludeFromTextIndex { get; set; }
-    public int TextIndexBoost { get; set; }
-    public bool DisplayName { get; set; }
+    public int TextIndexBoost { get; set; }      // extra times the value goes into the text index
+    public bool DisplayName { get; set; }        // part of the node's display name
 }
 ```
 
 ### Strings
 
-`[StringProperty]` is the richest of the set:
+`[StringProperty]` has the most options. Here they all are on one property:
 
 ```csharp
 [StringProperty(
-    MinLength = 0,
-    MaxLength = 4000,
-    StringType = StringValueType.AnyString,  // AnyString | HTML | Url | Email | ...
-    Indexed = true,                          // value index: equality, range, sort
-    IndexedByWords = true,                   // BM25 full-text index
-    IndexedBySemantic = true,                // vector / semantic index
-    PrefixSearch = true,                     // "starts with" index
-    InfixSearch = false,                     // "contains" index (expensive — opt in deliberately)
-    PreloadWordIndex = false,
-    MinWordLength = 3,
-    MaxWordLength = 30,
-    LegalValues = new[] { "draft", "published", "cancelled" },
-    LegalCharacters = "abcdefghijklmnopqrstuvwxyz0123456789-", // every character must be one of these
+    Indexed = true,                       // value index: equality, ranges, sorting, facets
+    IndexedByWords = true,                // full-text (BM25) index
+    IndexedBySemantic = true,             // vector index for semantic search
+    PrefixSearch = true,                  // "starts with" search in the word index
+    InfixSearch = false,                  // "contains" search in the word index; costs space
+    MinWordLength = 3, MaxWordLength = 30,  // words outside these lengths are not indexed
+    MinLength = 0, MaxLength = 4000,
+    Trim = true,                          // strip white space at both ends, before the rules
+    CaseTransform = CaseTransform.ToLowerCase, // or NoTransform, ToUpperCase; after Trim
+    LegalCharacters = "abcdefghijklmnopqrstuvwxyz0123456789-",
     RegularExpression = @"^[a-z0-9-]+$",
-    RegularExpressionMessage = "Use lower case letters, digits and dashes", // shown when the pattern refuses a value
+    RegularExpressionMessage = "Use lower case letters, digits and dashes",
     UniqueValues = true,
-    CaseSensitive = false,                   // default: "Ole" and "ole" are the same value to UniqueValues
-    IgnoreDuplicateEmptyValues = true,       // allow many empty values under UniqueValues
-    Trim = true,                             // remove white space at both ends before the rules are checked
-    CaseTransform = CaseTransform.ToLowerCase, // NoTransform | ToLowerCase | ToUpperCase, applied after Trim
-    NotFacet = false,                        // exclude from faceting even when indexed
+    CaseSensitive = false,                // the default: "Ole" and "ole" clash under UniqueValues
+    IgnoreDuplicateEmptyValues = true,    // many nodes may be empty under UniqueValues
+    NotFacet = false,                     // true keeps an indexed property out of facets
     DefaultValue = ""
 )]
 public string Slug { get; set; } = string.Empty;
 ```
 
-`CaseTransform` lives in `Relatude.DB.Datamodels.Properties`, next to `StringValueType`.
+`LegalValues = new[] { "draft", "published" }` limits the value to a list. `StringType` says what the
+text is: `AnyString` (the default), `HTML`, `Markdown`, `JSON`, `JavaScript`, `TypeScript`, `CSharp`
+or `CSS`. `StringValueType` and `CaseTransform` are in `Relatude.DB.Datamodels.Properties`.
 
-Use `[HtmlProperty]` for rich text so the HTML is stripped before word indexing:
+Use `[HtmlProperty]` for rich text. It sets `StringType = HTML`, so links to nodes and files inside
+the value keep working when their targets move ([§18.2](#182-links-inside-html-and-markdown)):
 
 ```csharp
 [HtmlProperty(IndexedByWords = true, IndexedBySemantic = true)]
@@ -505,8 +475,9 @@ public string Description { get; set; } = string.Empty;
 
 ### Numbers
 
-Numeric attributes share `MinValue` / `MaxValue` / `DefaultValue` / `Indexed` / `NotFacet`, plus
-range-faceting controls:
+Numeric attributes share `MinValue`, `MaxValue`, `DefaultValue`, `Indexed` and `NotFacet`.
+`FacetRangePowerBase` and `FacetRangeCount` control how the engine splits the values into buckets
+when you ask for a range facet:
 
 ```csharp
 [IntegerProperty(MinValue = 0, MaxValue = 100000, Indexed = true)]
@@ -516,35 +487,32 @@ public int Capacity { get; set; }
 public double AverageRating { get; set; }
 ```
 
-`FacetRangePowerBase` and `FacetRangeCount` control how the engine auto-buckets a numeric property
-when you ask for a range facet.
-
-**`decimal`, `DateTime`, `DateTimeOffset`, `TimeSpan` and `Guid` are not legal C# attribute
-parameter types**, so their bounds and defaults are passed as strings in a fixed format:
+**`decimal`, `DateTime`, `DateTimeOffset`, `TimeSpan` and `Guid` cannot be C# attribute arguments**,
+so their bounds and defaults are strings in a fixed format:
 
 ```csharp
-// decimal — invariant culture
+// decimal: invariant culture
 [DecimalProperty(MinValue = "0", MaxValue = "100000", DefaultValue = "0", Indexed = true)]
 public decimal Price { get; set; }
 
-// DateTime / DateTimeOffset — round-trip ("O") format
+// DateTime / DateTimeOffset: round-trip ("O") format
 [DateTimeProperty(MinValue = "2000-01-01T00:00:00.0000000Z", Indexed = true)]
 public DateTime StartsUtc { get; set; }
 
-// TimeSpan — constant ("c") format
+// TimeSpan: constant ("c") format
 [TimeSpanProperty(MaxValue = "1.00:00:00", Indexed = true)]
 public TimeSpan Duration { get; set; }
 
-// Guid — plain string form
+// Guid: plain string form
 [GuidProperty(Indexed = true, UniqueValues = true)]
 public Guid ExternalRef { get; set; }
 ```
 
 ### Enums
 
-Declare the property as your enum type. The engine stores it as an integer and auto-populates the
-enum metadata (`FullEnumTypeName`, `LegalValues`, `LegalValueNames`) so the admin UI and facets
-show names rather than numbers:
+Declare the property as your enum type. The engine stores it as an integer and fills in the enum's
+names (`FullEnumTypeName`, `LegalValues`, `LegalValueNames`), so the admin UI and facets show names
+rather than numbers:
 
 ```csharp
 public enum EventStatus { Draft = 0, Published = 1, SoldOut = 2, Cancelled = 3 }
@@ -553,111 +521,97 @@ public enum EventStatus { Draft = 0, Published = 1, SoldOut = 2, Cancelled = 3 }
 public EventStatus Status { get; set; }
 ```
 
-Arrays of enums use `[EnumArrayProperty]`, which carries the same auto-populated metadata:
+Arrays of enums use `[EnumArrayProperty]`, which gets the same names:
 
 ```csharp
+public enum AccessibilityFeature { StepFree, HearingLoop, AccessibleToilet }
+
 [EnumArrayProperty(Indexed = true)]
 public AccessibilityFeature[] Accessibility { get; set; } = [];
 ```
 
 ### Validation happens on write
 
-`LegalValues`, `LegalCharacters`, `RegularExpression`, `MinValue`/`MaxValue`, `MinLength`/`MaxLength`,
-`UniqueValues` and `MinNoInstances`/`MaxNoInstances` are all enforced by the engine at write time. A
-violating transaction fails as a whole and is rolled back, rather than silently storing bad data. The
-values already stored are never checked again: tightening a rule does not stop the database from
-opening, but a node whose value breaks the new rule cannot be saved until the value is changed.
+The engine checks `LegalValues`, `LegalCharacters`, `RegularExpression`, `MinValue`/`MaxValue`,
+`MinLength`/`MaxLength`, `UniqueValues` and `MinNoInstances`/`MaxNoInstances` every time a node is
+written. A write that breaks a rule fails, and its whole transaction is rolled back. Stored values are
+not checked again. If you tighten a rule, the database still opens, but a node that breaks the new
+rule cannot be saved until its value is fixed.
 
-A refused value throws a `ValueConstraintException` (its `PropertyId` names the property) with a
-message meant for the person who typed the value, for example
-`PostCode "12" is not valid: Enter four digits.`, `Title is too long: it has 312 characters, and at most 255 are allowed.`
-or `Another node already has Email "ole@example.com", and Email must be unique (upper and lower case do not count as a difference).`
+A refused value throws a `ValueConstraintException`. Its `PropertyId` names the property, and its
+message is written for the person who typed the value, for example
+`PostCode "12" is not valid: Enter four digits.`
 
-- **`Trim`** and **`CaseTransform`** change the value before anything else happens: white space is
-  removed from both ends, then the value is made lower or upper case (invariant culture). The rules
-  below check the changed value, and the changed value is what is stored, so with
-  `CaseTransform = ToLowerCase` a unique email is unique however it is typed. They apply to values
-  written from then on; values already stored stay as they are until their node is saved again.
-  Queries are not changed: a query for `"Ole@Example.com"` on a lower-cased property finds nothing.
-- **`RegularExpression`** must match every value written, the empty value too - a pattern such as
-  `^[a-z0-9-]+$` therefore makes the value required. Allow the empty value in the pattern when it is
-  optional (`^([a-z0-9-]+)?$`). It is a match anywhere in the value unless anchored with `^` and `$`.
-  Set **`RegularExpressionMessage`** to say what a valid value looks like; without it the message shows
-  the pattern itself. The admin UI's data model editor has a pattern dialog with ready-made patterns
-  (email, phone numbers and post codes for many countries, URLs, product codes, dates and more), a
-  plain-language explanation of the pattern, a test box that runs the server's own regex engine, and a
-  check of the values already stored.
-- **`LegalCharacters`** lists the characters a value may contain, written one after another. A value
-  with any other character is refused, and the message names the characters that are not allowed.
-  The empty value is always allowed.
-- **`UniqueValues`** on a string ignores case unless **`CaseSensitive = true`**: with the default, a
-  second node cannot have `"OLE"` when one has `"Ole"`. Only the constraint ignores case - the value is
-  stored, sorted and queried as written. A node keeps a unique value it already holds even when another
-  node holds a case variant of it (written while the property was case-sensitive), so making a property
-  case-insensitive never blocks unrelated updates; only giving a node a value that is taken is refused.
-- **`LegalValues`** on a string is compared ordinally. The empty value is always allowed - it is what a
-  node holds before the value is set - so add `MinLength = 1` to require one. The admin UI edits such a
-  property with a list of the values.
-- **`LegalValues`** on an integer holds a plain `int` to the listed values. An enum is not held to its
-  members, which the engine fills in for display: a `[Flags]` combination, or a member added in a newer
-  version of the application, is still a value of it.
+- **`Trim` and `CaseTransform`** change the value first: white space is removed from both ends, then
+  the case is changed (invariant culture). The rules check the changed value, and the changed value
+  is stored. So with `CaseTransform = ToLowerCase`, a unique email is unique however it is typed.
+  Queries are not transformed: a query for `"Ole@Example.com"` on a lower-cased property finds
+  nothing.
+- **`RegularExpression`** must match every value written, the empty value too. A pattern like
+  `^[a-z0-9-]+$` therefore makes the value required. For an optional value, allow empty in the
+  pattern: `^([a-z0-9-]+)?$`. Without `^` and `$`, the pattern may match anywhere in the value. Set
+  **`RegularExpressionMessage`** to say what a valid value looks like; without it, the message shows
+  the pattern.
+- **`LegalCharacters`** lists the characters a value may contain. The empty value is always allowed.
+- **`UniqueValues`** on a string ignores case unless you set **`CaseSensitive = true`**. By default,
+  no node can have `"OLE"` when another has `"Ole"`. Only the check ignores case: the value is stored,
+  sorted and queried as written.
+- **`LegalValues`** on a string is compared ordinally. The empty value is always allowed, so add
+  `MinLength = 1` to require a value.
+- **`LegalValues`** on an integer limits a plain `int` to the listed values. An enum property is not
+  limited to its members: a `[Flags]` combination, or a member a newer version of your code adds, is
+  accepted.
 - **`MinNoInstances` / `MaxNoInstances`** on `[Node]` count the nodes of the type and of every type
-  inheriting from it, whatever their meta says (unpublished, hidden or marked deleted). The counts are
-  checked on what the whole transaction leaves, so one that deletes a node and inserts its replacement
-  passes at the limit, and only in the direction the transaction moves them: a type may start below its
-  minimum (with `MinNoInstances = 1` the last node cannot be deleted, while the first can always be
-  inserted), and a type with more nodes than a maximum set later keeps them and can still be updated
-  and deleted from - it only refuses inserts.
+  that inherits from it, including nodes that are unpublished, hidden or marked as deleted. The check
+  is on what the whole transaction leaves, so deleting a node and inserting its replacement passes at
+  the limit. A transaction that adds nodes is refused above the maximum, and one that removes nodes
+  below the minimum, with a `NodeTypeConstraintException`. So with `MinNoInstances = 1` you can
+  always insert the first node, but never delete the last.
 
 ### 3.1 Overriding attributes
 
-Sometimes the attribute you want to change is not yours to edit: the type comes from an assembly you
-do not build, the property is declared on a base interface other types share, or a default value has
-to change in production without a rebuild. Three layers decide what a type ends up with, and on one
-type a later layer wins over an earlier one:
+An override changes an attribute without editing its declaration. Use one when the type comes from an
+assembly you do not build, when the property is declared on a base type that other types share, or
+when one installation needs another value without a rebuild. Three layers decide what a type ends up
+with, and a later layer wins:
 
-1. **Declared** - the attributes on the member or type that declares it (or its JSON model file):
-   everything above.
-2. **Overridden in code, on a derived type** - a type sets its own value for a switch it inherits, or
-   for one of the attributes of a property it inherits.
-3. **Overridden at runtime** - the database's overrides, written by the data model editor and applied
-   when the database opens, exactly as if the source said so.
+1. **Declared**: the attributes on the type or the property, as described above.
+2. **Overridden in code**: a derived type sets its own value for a switch or a property attribute it
+   inherits.
+3. **Overridden in the database**: values set in the admin UI's datamodel editor, or by hand in JSON.
+   They are applied when the database opens, as if the source said so.
 
-**The text search switches are inherited.** `TextIndex`, `SemanticIndex` and `InstantTextIndexing`
-on `[Node]` go to the types inheriting from the type they are set on: a type that does not set one
-takes it from the most specific base type that does, and only then the database default
-(`EnableTextIndexByDefault` and friends, [§12.1](#121-every-setting-in-relatudedbjson)). Before October
-2026 they applied to the one type they were set on.
+**Text index switches are inherited.** `TextIndex`, `SemanticIndex` and `InstantTextIndexing` on
+`[Node]` apply to the type they are set on and to the types that inherit from it. A type that does
+not set one takes it from its closest base type that does, and then from the database default
+(`EnableTextIndexByDefault` and friends, [§12.1](#121-every-setting-in-relatudedbjson)).
 
 ```csharp
 [Node(TextIndex = BoolValue.True)]
-public interface IContent { /* ... */ }        // every type implementing IContent is text indexed ...
+public interface IContent { /* ... */ }            // every IContent type is text indexed...
 
 [Node(TextIndex = BoolValue.False)]
-public class InternalNote : IContent { /* ... */ } // ... except this one
+public class InternalNote : IContent { /* ... */ } // ...except this one
 ```
 
-Two base types that are not related and disagree cancel out: the type gets the database default, and
-the database logs a warning naming both. Set the switch on the type to choose. Semantic indexing needs
-the text index, so a type that is semantically indexed - by itself, a base type or the database
-default - stays text indexed whatever its `TextIndex` says.
+If two unrelated base types disagree, the type gets the database default, and the database logs a
+warning naming both. Set the switch on the type itself to choose. Semantic indexing needs the text
+index, so a type that is semantically indexed stays text indexed whatever its `TextIndex` says.
 
-**An inherited property: `[PropertyOverride]`.** A property has one declaration, but four of its
-attributes may differ between the types that have it, and a type can ask for its value index and for
-it to be a facet. A derived type sets these with `[PropertyOverride]`, which offers those six and
-nothing else:
+**Inherited properties: `[PropertyOverride]`.** A derived type can set six things for a property it
+inherits:
 
-| On `[PropertyOverride]` | What it sets for the type |
+| On `[PropertyOverride]` | What it does for the type |
 |---|---|
-| `DefaultValue` | The value a node of the type starts with, and what a stored node reads while it has no value for the property |
-| `ExcludeFromTextIndex` | `BoolValue.True` leaves the property out of the type's text index; `BoolValue.False` puts back one the declaration leaves out |
-| `TextIndexBoost` | How many extra times the value goes into the type's text index; `0` cancels a boost the type inherits |
-| `DisplayName` | `BoolValue.True` makes the property part of the type's display name; `BoolValue.False` takes it out |
-| `Indexed` | `BoolValue.True` asks for the property's value index, so the type can filter, sort and facet on it. The index is shared by every type that has the property ([below](#asking-for-the-value-index)) |
-| `NotFacet` | `BoolValue.False` asks for the property to be a facet where the declaration says `NotFacet`. The facet is shared by every type that has the property, like the index |
+| `DefaultValue` | The value a new node starts with, and what a stored node reads while it has no value |
+| `ExcludeFromTextIndex` | `BoolValue.True` leaves the property out of the type's text index; `False` puts it back |
+| `TextIndexBoost` | Extra times the value goes into the type's text index; `0` cancels an inherited boost |
+| `DisplayName` | `BoolValue.True` makes the property part of the type's display name; `False` takes it out |
+| `Indexed` | `BoolValue.True` asks for the property's value index, to filter, sort and facet on it |
+| `NotFacet` | `BoolValue.False` asks for a facet where the declaration says `NotFacet` |
 
-Anything left out - a switch left at `BoolValue.Default`, no `DefaultValue`, no `TextIndexBoost` -
-is what the base types say. The examples below share this base interface:
+Anything you leave out comes from the base types. In this example, news articles get their own
+defaults and an index on `Status`, and support tickets keep their body out of search:
 
 ```csharp
 public enum ContentStatus { Draft = 0, Published = 1, Archived = 2 }
@@ -666,209 +620,92 @@ public enum ContentStatus { Draft = 0, Published = 1, Archived = 2 }
 public interface IContent {
     Guid Id { get; set; }
     [StringProperty(DefaultValue = "Untitled", DisplayName = true)] string Title { get; set; }
-    [StringProperty] string Subtitle { get; set; }
     [HtmlProperty] string Body { get; set; }
-    [IntegerProperty(Indexed = true)] ContentStatus Status { get; set; }
+    [IntegerProperty] ContentStatus Status { get; set; }
 }
-```
 
-*On the type, naming the property.* Name the inherited property with `nameof`, one attribute per
-property, each with as many of the four as you need:
-
-```csharp
-[Node]
 [PropertyOverride(nameof(IContent.Title), DefaultValue = "Untitled news", TextIndexBoost = 2)]
-[PropertyOverride(nameof(IContent.Status), DefaultValue = ContentStatus.Published)]
-public class NewsArticle : IContent {
-    public Guid Id { get; set; }
-    public string Title { get; set; } = "";
-    public string Subtitle { get; set; } = "";
-    public string Body { get; set; } = "";
-    public ContentStatus Status { get; set; }
-}
-```
+[PropertyOverride(nameof(IContent.Status), DefaultValue = ContentStatus.Published, Indexed = BoolValue.True)]
+public class NewsArticle : IContent { /* ... */ }
 
-```csharp
-var news = db.Create<NewsArticle>();   // Title "Untitled news", Status Published
-```
-
-Every other type implementing `IContent` keeps `"Untitled"` and `Draft`. A news title also weighs
-more in search: it goes into the text index two extra times, while other types' titles go in once.
-An enum default is given as the enum value. A default is what `db.Create<T>()` starts a node with,
-and what a stored node reads for a property it has no value for. `new NewsArticle()` is plain C#,
-so it starts with the property initializers instead.
-
-*On the implementing member.* A class that implements an interface property can put the attribute
-on its member and leave out the name. This is the one property attribute such a member can carry:
-other attributes there are ignored, since the interface defines the property
-([§2](#2-your-first-node-type)).
-
-```csharp
-[Node]
-public class Book : IContent {
-    public Guid Id { get; set; }
-    public string Title { get; set; } = "";
-    [PropertyOverride(DisplayName = BoolValue.True)]   // a book shows as "Title Subtitle"
-    public string Subtitle { get; set; } = "";
-    public string Body { get; set; } = "";
-    public ContentStatus Status { get; set; }
-}
-```
-
-The display name joins the values of the display-name properties with spaces, so `Book` shows both
-values while other types show the title alone.
-
-*Turning one off.* `BoolValue.False` and `BoolValue.True` work in both directions, so a type can
-also take back what its base types turn on:
-
-```csharp
-// tickets are found by their title, but the body - customer details - stays out of search
-[Node]
+// The body holds customer details, so it stays out of search.
 [PropertyOverride(nameof(IContent.Body), ExcludeFromTextIndex = BoolValue.True)]
 public class SupportTicket : IContent { /* ... */ }
 ```
 
-*Down a class chain, and on interfaces.* An override reaches every type that inherits from the type
-it is set on, and a more specific type can override it again. Decimals, dates, durations and guids
-are given as strings, in the formats the property attributes use
-([Numbers](#numbers)):
+`db.Create<NewsArticle>()` starts with the title "Untitled news" and the status `Published`. Other
+`IContent` types keep "Untitled" and `Draft`. A news title goes into the text index two extra times,
+so it weighs more in search. `new NewsArticle()` is plain C#, so it starts with the property
+initialisers instead.
 
-```csharp
-[Node]
-public class Product {
-    public Guid Id { get; set; }
-    [StringProperty(DisplayName = true)] public string Name { get; set; } = "";
-    [DecimalProperty(DefaultValue = "0", Indexed = true)] public decimal Price { get; set; }
-}
+A few more rules:
 
-[Node]
-[PropertyOverride(nameof(Product.Price), DefaultValue = "25")]
-public class GiftCard : Product { }
+- **On a member.** A class member that implements an interface property can carry the attribute
+  without the name: `[PropertyOverride(TextIndexBoost = 2)] public string Title { get; set; }`. It is
+  the only property attribute such a member can carry.
+- **Down a class chain.** An override reaches every type that inherits from the type it is set on,
+  and a more specific type can override it again. Interfaces can carry overrides too.
+- **Decimals, dates, durations and guids** are strings, in the formats of the property attributes
+  ([Numbers](#numbers)), for example `DefaultValue = "25"`. An enum default is the enum value.
+- **Unrelated base types that disagree** cancel out: the type gets what the declaration says, and the
+  database logs a warning.
 
-[Node]
-public class DigitalGiftCard : GiftCard { }       // 25, from GiftCard
+**The index and the facet are shared.** A property has one value index and one set of facet counts,
+whichever types have it. `Indexed = BoolValue.True` on `NewsArticle` gives the property its index,
+and that index holds the status of every `IContent` node, not only of news articles. A property is
+indexed when its declaration says so or any type asks. `BoolValue.False` only takes back a type's own
+request: to drop an index that the declaration has, override `Indexed` on the declaring type. Facets
+work the same way. A facet counts the values in the value index, so it needs an index: ask for both
+when the base type has neither. Everything else about a property, such as its other index settings
+and its rules, is one setting wherever the property is used.
 
-[Node]
-[PropertyOverride(nameof(Product.Price), DefaultValue = "50")]
-public class PremiumGiftCard : GiftCard { }       // 50: the more specific type wins
+**Mistakes stop the build.** A `[PropertyOverride]` that cannot apply fails the model build at
+startup, with a message naming the type and the property. It fails when the attribute:
 
-// an interface carries overrides too: every type implementing it starts published
-[Node]
-[PropertyOverride(nameof(IContent.Status), DefaultValue = ContentStatus.Published)]
-public interface IPublishedOnCreate : IContent { }
-```
+- names a property the type declares itself (set that property's own attribute instead);
+- names no member of the type (use `nameof` to avoid typos), or a member marked `[Exclude]`;
+- names a system member: the id, `NodeMeta`, the created or changed date, or the display-name or
+  address marker;
+- gives a `DefaultValue` that does not convert to the property's type, or gives a default to a
+  property that has none (arrays, files, references and the like);
+- sits on a type without naming a property, or sits on a member and names another property;
+- names a property that another `[PropertyOverride]` on the same type also names. Combine them.
 
-Two base types that are not related and disagree cancel out, as with the switches above. The type
-gets what the declaration says, and the database logs a warning naming both. To choose, set the value
-on the type itself. Everything else about a property is one setting wherever the property is used:
-it has one value index, one word index and one set of rules. A type can ask for the value index and
-for a facet, but the rest stays with the declaration, and only an override on the declaring type
-changes it (the table below).
+**What can be overridden.** In code, `[PropertyOverride]` takes the six attributes above. In the
+database you can override these:
 
-<a id="asking-for-the-value-index"></a>*Asking for the value index, or a facet.* A type that
-filters, sorts or facets on a property its base type does not index asks for the index with
-`Indexed`. A property its base type keeps out of the facets (`NotFacet`) it asks to make a facet with
-`NotFacet = BoolValue.False` - `NotFacet` is an opt-out, so false is the value that asks:
-
-```csharp
-// declared in a package: the part number is not indexed there, and the maker is no facet
-[Node]
-public class Part {
-    public Guid Id { get; set; }
-    [StringProperty] public string PartNumber { get; set; } = "";
-    [StringProperty(Indexed = true, NotFacet = true)] public string Maker { get; set; } = "";
-}
-
-// the workshop looks spare parts up by number and narrows them down by maker
-[Node]
-[PropertyOverride(nameof(Part.PartNumber), Indexed = BoolValue.True)]
-[PropertyOverride(nameof(Part.Maker), NotFacet = BoolValue.False)]
-public class SparePart : Part { }
-```
-
-```csharp
-var part = db.Query<SparePart>().Where(p => p.PartNumber == "A-1001").Execute(); // uses the index
-var makers = db.Query<SparePart>().Facets().AddValueFacet(nameof(Part.Maker)).Execute();
-```
-
-A facet counts the values in the value index, so it needs one: asking for a facet on a property
-without an index does nothing, and the database logs a warning. Ask for both when the base type has
-neither.
-
-A property has one value index, so the type gets the property's index, not one of its own. That index
-holds the part number of every node that has the property, `Part` and the other types inheriting it
-included. A property is indexed when its declaration says so or any type that has it asks. A type
-that sets `BoolValue.False` only takes back its own request: it cannot take away an index the
-declaration or another type wants, and the database logs a warning when a type says no to an index
-that stays. To drop an index, override `Indexed` on the declaring type (the table below). Asking for
-an index, or no longer asking, changes the model, so the database rebuilds its state and indexes
-from the log at the next open.
-
-A facet works the same way, with the values turned around. The property has one set of facet counts,
-so `Maker` becomes a facet for `Part` and every other type that has it, not only for `SparePart`. A
-type that sets `NotFacet = BoolValue.True` only takes back its own request, and a facet the
-declaration has stays a facet.
-
-*Mistakes stop the build.* A `[PropertyOverride]` that cannot apply fails the model build at
-startup. The message names the type and the property. The build fails when the attribute:
-
-- names a property the type declares itself. Set that property's attributes on its own property
-  attribute instead.
-- names no member of the type (a typo: use `nameof`), or names a member marked `[Exclude]`.
-- names a system member: the id, `NodeMeta`, the created/changed dates, or the display-name or address
-  marker. None of these has attributes to override.
-- gives a `DefaultValue` that does not convert to the property's type (`"a lot"` for a decimal), or
-  gives a default to a property that has none to set (arrays, files, references and the like).
-- sits on a type without naming the property, or sits on a member and names a different property.
-- is one of two `[PropertyOverride]`s for the same property on one type. Combine them into one.
-
-```csharp
-[Node]
-[PropertyOverride(nameof(Product.Id), DefaultValue = "x")]        // fails: Id is a system member
-[PropertyOverride(nameof(Product.Price), DefaultValue = "a lot")] // fails: not a decimal
-public class BrokenGiftCard : Product { }
-```
-
-Overrides in the database are more forgiving (below): one that cannot apply is skipped with a
-warning, so it never stops the database from opening.
-
-| What | Overridable attributes |
+| What | Attributes |
 |---|---|
-| Node type, inherited | `TextIndex`, `SemanticIndex`, `InstantTextIndexing` |
-| Node type, that type only | `Hidden`, `DefaultReadAccess`, `DefaultEditViewAccess` |
-| Property, per type (inherited) | `DefaultValue`, `ExcludeFromTextIndex`, `IndexBoost` (`TextIndexBoost` on the attributes), `DisplayName` |
-| Property, any type that has it | `Indexed`, `NotFacet`: on the declaring type it is what the declaration says; on a type inheriting the property `Indexed = true` asks for the shared index and `NotFacet = false` for the shared facet, which the property keeps while any type asks |
-| Property, on the declaring type | `IndexType`, `IndexedByWords`, `TextIndexType`, `CultureSensitive` (an index per culture), `MinLength`, `MaxLength`, `RegularExpression`, `MinValue`, `MaxValue`, `FacetRangePowerBase`, `FacetRangeCount`; on relation properties `Facet`, `TextIndexRelatedContent`, `TextIndexRelatedDisplayName`; on relation, reference, references and embedded properties `Display` ([§10](#how-an-editor-shows-them-display)) |
-| Never | ids and names, the property type, `UniqueValues`, `CultureSpecific`, enum metadata, what a relation, reference or embedded property points at |
+| Node type, inherited by derived types | `TextIndex`, `SemanticIndex`, `InstantTextIndexing`, `Icon`, `NameProperty` |
+| Node type, that type only | `Hidden`, `Title`, `Description`, `DefaultReadAccess`, `DefaultEditViewAccess` |
+| Property, per type | `DefaultValue`, `ExcludeFromTextIndex`, `IndexBoost` (`TextIndexBoost` on the attributes), `DisplayName` |
+| Property, asked for by any type | `Indexed`, `NotFacet` |
+| Property, on the declaring type only | `IndexType`, `IndexedByWords`, `TextIndexType`, `CultureSensitive`, `MinLength`, `MaxLength`, `RegularExpression`, `RegularExpressionMessage`, `LegalCharacters`, `Trim`, `CaseTransform`, `MinValue`, `MaxValue`, `FacetRangePowerBase`, `FacetRangeCount`, `Facet`, `TextIndexRelatedContent`, `TextIndexRelatedDisplayName`, `Display` ([§10](#how-an-editor-shows-them-display)) |
 
-`TextIndexBoost` on `[Node]` is not in the list: the engine does not use it yet.
+Nothing else can be overridden: not ids or names, the property type, `UniqueValues`, `LegalValues`,
+`CultureSpecific`, enum metadata, or what a relation, reference or embedded property points at.
+`[Node]` also has a `TextIndexBoost`, which the engine does not use yet.
 
-**At runtime: the data model editor.** The editor (admin UI, **Models**) writes a change into the
-source that defines it. Where that source cannot be written - classes compiled into an assembly
-without a source code folder, types registered in `OnDatamodelInit` - the fields that can be
-overridden stay open, and what is set in them is saved as an override. Each field says where its
-value comes from (*overridden*, *own*, *from IContent*), and the arrow beside an override takes it
-away. An inherited property opens as the derived type sees it, with its four per-type attributes open
-for that type, and *Indexed* and *No facet* to ask for the property's value index and facet (*asked
-by* names the other types that do). The **Sources** view lists every override beside what the source says. Activating saves
-them for this installation and reopens the database; the nodes of a type whose indexed text changed are queued for text
-indexing, and a type whose text indexing is turned off has its text taken out of the index first.
+**In the database: the datamodel editor.** The admin UI's **Models** page writes a change into the
+source that defines the type when it can. Where it cannot, as for compiled classes or types added in
+`OnDatamodelInit`, it saves what you set as an override. Each field shows where its value comes from,
+and you can remove an override there. Activating saves the overrides and reopens the database.
 
-**SHARED and THIS SERVER.** A database keeps its overrides in two files, the way the settings are kept
-in `relatude.db.json` and `relatude.db.overrides.json` ([§12](#12-registering-the-model--the-admin-ui)):
+A database keeps its overrides in two files, the same way it keeps its settings in `relatude.db.json`
+and `relatude.db.overrides.json` ([§12](#12-registering-the-model--the-admin-ui)):
 
-| | File | What it is | Written by |
-|---|---|---|---|
-| SHARED | `relatude.settings/datamodel.json`, or `relatude.settings/<ShortName>/datamodel.json` for a database with a short name | part of the application: commit it and deploy it with the code, and every installation has the same overrides | you, or moving overrides into it from the admin UI |
-| THIS SERVER | `overrides/datamodel.overrides.json` on the database's storage provider - `relatude.data/overrides/` with the defaults | what the data model editor changed on this installation, beside the other changes made in the admin UI; it survives a redeploy and is not in source control | activating a model |
+| | File | What it is |
+|---|---|---|
+| SHARED | `relatude.settings/datamodel.json`, or `relatude.settings/<ShortName>/datamodel.json` | Part of the application: commit it and deploy it with the code |
+| THIS SERVER | `overrides/datamodel.overrides.json` in the database's storage (`relatude.data/overrides/` by default) | What the editor changed on this installation: survives a redeploy, not in source control |
 
-When the database opens, THIS SERVER is merged over SHARED. A value on THIS SERVER replaces the SHARED value.
-`null` takes the SHARED value away, so the attribute follows the source again on this installation.
-Activating writes only the THIS SERVER file, and only what differs from SHARED: an override set back to the
-SHARED value leaves the file.
+When the database opens, THIS SERVER is merged over SHARED. A value in THIS SERVER replaces the SHARED
+value, and `null` removes it, so the attribute follows the source again on this installation.
+Activating writes only the THIS SERVER file, and only what differs from SHARED. Both files are keyed
+by ids, with names beside them for people to read:
 
 ```jsonc
-// relatude.data/overrides/datamodel.overrides.json: THIS SERVER, this installation's
+// relatude.data/overrides/datamodel.overrides.json (THIS SERVER)
 {
   "NodeTypes": {
     "3ad77060-788d-21b2-31c1-4305dcae3437": {
@@ -882,59 +719,44 @@ SHARED value leaves the file.
 }
 ```
 
-The SHARED file has the same shape, without the `null`s. Both are keyed by ids, with names beside
-them for reading. In the editor every overridden field is tagged with where its value is: *shared*,
-*this server*, or *this server · removed* for a SHARED value taken away here; the tooltip names the file, and the
-arrow beside the field takes one file away at a time.
+The SHARED file has the same shape, without the `null`s. **Move to shared**, at the top right of the
+editor, moves the overrides you select from THIS SERVER into SHARED, as on the settings pages. Do it
+in the Development environment, where `relatude.settings` is the folder in your project, and commit
+the file. On a deployed server the next deployment would replace it. The SHARED file is found by the
+database's short name, so set the short name in `relatude.db.json`.
 
-*Moving overrides into SHARED.* Choose **Move to shared** at the top right of the model editor. The
-dialog lists the THIS SERVER file entry by entry, beside what SHARED says. Select overrides and choose
-**Move into shared**: they are written into the SHARED file and removed from THIS SERVER. Nothing in force
-changes, so the database is not reopened. Then commit the SHARED file. A moved `null` removes the
-value from SHARED. **Discard** puts the SHARED value back in the draft (or the source's, where
-SHARED has none), to be activated like any other change. Unactivated changes in the draft are not on
-THIS SERVER, so activate them before moving them.
+An override in the database that cannot apply is skipped with a warning in the log and the editor:
+its type or property is gone, its value does not parse, or the attribute cannot be overridden. It
+never stops the database from opening. From code, set `Datamodel.Overrides` before the store is
+created.
 
-Move where the application runs from its project folder, in the Development environment: there
-`relatude.settings` is the folder in source control. On a deployed server it is the deployed copy, and
-the next deployment replaces it, with whatever was moved into it. The dialog warns about this outside
-Development. **Download shared file** gives the file with the selected overrides moved in, without
-changing anything, so you can commit it by hand.
+Before you change a value on a running installation:
 
-The SHARED file is found by the database's short name, so give the short name in `relatude.db.json`.
-A short name saved on one installation from the settings page lands in `relatude.db.overrides.json`,
-and that installation then reads other SHARED files than the rest. The settings page and the start-up
-log say so.
-
-An override whose type or property is gone, a value that does not parse, an attribute that cannot be
-overridden: each is skipped with a warning in the log and in the editor, never a reason for the
-database not to open. From code, set `Datamodel.Overrides` before the store is created - the store
-applies them as it opens.
-
-Two things worth knowing before changing a value at runtime:
-
-- **A default is late bound.** A node with no value stored for a property reads the current default,
-  so a new default reaches nodes that never had a value - stored before the property existed, or
-  created without setting it. Stored values are never touched. The editor warns when the type has
-  nodes; if the property is indexed, queries on it may not see the new default for those nodes until
-  the indexes are rebuilt.
-- **Rules apply to new writes.** A tighter `MaxLength` or `MinValue` does not check the values
-  already stored. Turning `Indexed` or `IndexedByWords` on builds the index from the log at the next
-  open.
+- **A default is late bound.** A node with no stored value reads the current default, so a new default
+  reaches nodes that never had a value. Stored values are never touched. If the property is indexed,
+  queries may not see the new default for those nodes until the indexes are rebuilt.
+- **Rules apply to new writes.** A tighter `MaxLength` or `MinValue` does not check stored values.
+- **Index changes rebuild.** Turning on `Indexed` or `IndexedByWords`, or asking for an index from a
+  derived type, changes the model. The database then rebuilds its state and indexes from the log at
+  the next open. When text indexing changes for a type, its nodes are queued for text indexing.
+  Settings that only change how a type is shown (`Icon`, `Title`, `Description`, `NameProperty`,
+  `Display`) rebuild nothing.
 
 ### Passwords
 
-`PasswordValue` (in `Relatude.DB.Common`) holds a password. By default it is kept as an Argon2id
-hash, which can be verified and never read back; a property may also allow it encrypted with the
-database's key, or as plain text, and the code says which when it sets one.
+A `PasswordValue` property holds a password. By default the store keeps it as an Argon2id hash,
+which can be verified but never read back. A property can also allow a password encrypted with the
+database's key (AES-256-GCM), which can be read back, or kept as plain text. The code chooses how to
+keep a password when it sets one:
 
 ```csharp
-[Node]
 public class Member {
     public Guid Id { get; set; }
     public string Email { get; set; } = "";
+
     [PasswordProperty(MinLength = 10, RequireDigit = true)]
     public PasswordValue Password { get; set; } = PasswordValue.Empty;
+
     [PasswordProperty(AllowEncrypted = true, AllowHashed = false)]
     public PasswordValue SmtpPassword { get; set; } = PasswordValue.Empty;
 }
@@ -946,121 +768,138 @@ db.Update(member);                                                  // hashed an
 var m = db.Get<Member>(id);
 m.Password.IsSet;                   // true
 m.Password.Storage;                 // PasswordStorage.Hashed
-m.Password.Verify(typed);           // true or false, in constant time
+m.Password.Verify(typed);           // true or false
 m.Password.IsPasswordRetrievable;   // false: a hash cannot be read back
 m.SmtpPassword.GetPassword();       // the password, decrypted with the database's key
-m.Password.Clear();                 // removed at the next write
+m.Password.Clear();                 // removed when the node is next written
 ```
 
-What to know:
+`PasswordValue` and `PasswordStorage` are in `Relatude.DB.Common`. What to know:
 
-- **`SetPassword` and `Clear` only record the change.** The store makes the hash or the encryption when
-  the node is written, with the database's keys, and checks the property's rules then: a password too
-  short, missing a character the property asks for, or in a way of keeping it the property does not
-  allow fails the write with a `ValueConstraintException` that never quotes the password. The hash is
-  made before the transaction takes its lock, so a sign-in does not hold up other writers.
-- **The password never reaches the log.** What is written is the stored form: `H$argon2id$…` (the PHC
-  string, with its parameters), `E$…` (AES-256-GCM, with the fingerprint of the key) or `P` and the
-  text. A value holding a change cannot be written as bytes at all.
-- **A value that holds no change changes nothing.** An object read before a password was changed and
-  saved after it keeps the new password, as does a version of the node written back. An insert takes a
-  password as read, so `copy.Password = original.Password` gives a new node the same password.
-- **A query can only ask whether one is set**: `Where(m => m.Password.IsSet)`, answered by reading the
-  nodes, as a password is never indexed. Comparing, sorting, grouping or selecting a password property
-  throws. It is never in the text index, the display name, GraphQL or a facet.
-- **It never leaves the server.** JSON gives `{"isSet": true, "storage": "Hashed"}` and `ToString()`
-  gives `(password set, hashed)`. Sent back, that shape changes nothing; `{"set": "...", "storage":
-  "Hashed"}` sets a password and `{"clear": true}` removes it.
-- **`NeedsRehash`** says a password was hashed with weaker settings or another pepper than the store
-  has now, or encrypted with an older key: set it again after verifying it at a sign-in.
+- **The store does the work on write.** `SetPassword` and `Clear` only record the change. When the
+  node is written, the store checks the property's rules and makes the hash or the encryption. A
+  refused password fails the write with a `ValueConstraintException` that never quotes the password.
+- **The password never leaves the store.** Only the stored form reaches the log. JSON gives
+  `{"isSet": true, "storage": "Hashed"}`; send `{"set": "...", "storage": "Hashed"}` or
+  `{"clear": true}` to change it. A value that holds no change, like a stale object saved again,
+  leaves the stored password as it is.
+- **A query can only ask `IsSet`**: `Where(m => m.Password.IsSet)`. Comparing, sorting, grouping or
+  selecting a password throws. A password is never in an index, the text index, the display name,
+  GraphQL or a facet.
+- **`NeedsRehash`** is true when a password was kept with other hash settings, pepper or key than the
+  store's current ones. Set the password again after a successful `Verify` at sign-in.
 
-The keys are in the database's settings, `LocalSettings.Passwords` in `relatude.db.json` (the
-**Passwords** group on the Content settings page):
+The keys are database settings, under `LocalSettings.Passwords` in `relatude.db.json` (the
+**Passwords** group on the admin UI's Content settings page):
 
 ```json
 "Passwords": {
   "EncryptionKey": "<32 random bytes in base64>",
-  "OldEncryptionKeys": [ "<a key passwords were encrypted with before>" ],
+  "OldEncryptionKeys": [ "<a previous key, still used to decrypt>" ],
   "Pepper": null,
   "HashMemoryKiB": 19456, "HashIterations": 2, "HashParallelism": 1
 }
 ```
 
-Keep the keys in configuration or user secrets, which the server never writes to its files. Without
-`EncryptionKey` no password can be kept encrypted; losing it loses every encrypted password, so keep a
-copy, and when changing it put the old one in `OldEncryptionKeys`. The pepper is optional, a secret
-every hash is made with besides its salt: set it once, before the first password, as a hash made with
-a pepper the settings no longer have cannot be verified. The hash settings default to OWASP's least
-for Argon2id; a hash keeps the parameters it was made with, so raising them only affects new hashes.
+Keep the keys in configuration or user secrets, which the server never writes to its settings files.
+Without `EncryptionKey`, no password can be kept encrypted. Losing it loses every encrypted password,
+so keep a copy, and when you change it, move the old key into `OldEncryptionKeys`. The `Pepper` is an
+optional secret mixed into every hash. Set it once, before the first password: a hash made with
+another pepper cannot be verified. The hash settings default to OWASP's minimum for Argon2id, and
+each hash keeps the settings it was made with.
 
-The property's options, in the attribute and in the datamodel editor: `AllowHashed` (on),
+The property's options, in the attribute and the datamodel editor: `AllowHashed` (on),
 `AllowEncrypted` and `AllowPlainText` (off), `MinLength` (8), `MaxLength` (128), `RequireUppercase`,
-`RequireLowercase`, `RequireDigit`, `RequireSymbol`, and a `RegularExpression` with its
-`RegularExpressionMessage`. A password cannot be indexed, unique, part of the display name, per
-culture, or on a type kept inside another node's embedded property. A password cannot be set through
-a remote store yet: only the store that keeps the node has the keys.
+`RequireLowercase`, `RequireDigit`, `RequireSymbol`, and `RegularExpression` with
+`RegularExpressionMessage`. A password property cannot be indexed, unique, part of the display name
+or per culture, or sit on a type kept inside another node's embedded property. A remote store cannot
+set a password: only the store that keeps the node has the keys.
 
 ---
 
 ## 4. Marker properties
 
-Six attributes tag a property as playing a special structural role. **At most one property per type
-per role.**
+A marker attribute maps a member to a value the store keeps for every node. The member is not a
+property of its own: the store fills it in when it reads the node, and other attributes on it are
+ignored. Use each marker at most once per type.
 
-| Attribute | Meaning |
-|---|---|
-| `[DisplayNameProperty]` | The human-readable name. Surfaces in the admin UI, search highlighting and `Meta.DisplayName`. |
-| `[AddressProperty]` | The URL slug — one segment of the address, not the whole path. Surfaces as `Meta.Address` and feeds the URL manager ([§18](#18-urls-and-the-url-manager)). |
-| `[PublicIdProperty]` | The external id used in URLs and APIs. Defaults to `Id` (Guid). |
-| `[InternalIdProperty]` | The internal int id. Defaults to `__Id`. |
-| `[CreatedUtcProperty]` | Stamped with the creation time. Filter and sort by it like any indexed property. |
-| `[ChangedUtcProperty]` | Stamped with the last-change time. Filter and sort by it like any indexed property. |
+| Attribute | Member type | Maps to |
+|---|---|---|
+| `[PublicIdProperty]` | `Guid` or `string` | The node's id. A `Guid` member named `Id` needs no attribute. |
+| `[InternalIdProperty]` | `int`, `long` or `string` | The node's internal id. |
+| `[CreatedUtcProperty]` | `DateTime` | When the node was created. |
+| `[ChangedUtcProperty]` | `DateTime` | When the node's values last changed. |
+| `[DisplayNameProperty]` | `string` | The display name you set with `UpdateDisplayName`. |
+| `[AddressProperty]` | `string` | The node's address: one URL segment, not the whole path ([§18](#18-urls-and-the-url-manager)). |
 
 ```csharp
-[DisplayNameProperty]
-[StringProperty(Indexed = true, IndexedByWords = true)]
-public string Title { get; set; } = string.Empty;
+public interface IArticle {
+    Guid Id { get; set; }
 
-[AddressProperty]
-[StringProperty(Indexed = true, UniqueValues = true)]   // UniqueValues only when URLs are flat, see §18
-public string Address { get; set; } = string.Empty;
+    [StringProperty(Indexed = true, IndexedByWords = true, DisplayName = true)]
+    string Title { get; set; }                       // an ordinary property that names the node
 
-[CreatedUtcProperty] public DateTime CreatedUtc { get; set; }
-[ChangedUtcProperty] public DateTime ChangedUtc { get; set; }
+    [AddressProperty]    string Address { get; }
+    [CreatedUtcProperty] DateTime CreatedUtc { get; }
+    [ChangedUtcProperty] DateTime ChangedUtc { get; }
+}
+```
+
+- **On an interface, declare marker members getter-only.** The store writes these values, not your
+  code, and a `{ get; set; }` marker member stops the store from starting.
+- **Set the address with `UpdateAddress`**, in the same transaction as the insert if you like. On a
+  class, you can also set an `[AddressProperty]` member before you save.
+- **Name nodes with `DisplayName = true` on a property**, like `Title` above. The admin UI, GraphQL
+  and facets show nodes by these properties ([§3.1](#31-overriding-attributes)). The
+  `[DisplayNameProperty]` member and `Meta.DisplayName` hold a separate name, which stays empty until
+  you call `UpdateDisplayName`.
+
+Inserting a node together with its address:
+
+```csharp
+var article = db.Create<IArticle>();
+article.Title = "Winter Session";
+
+db.CreateTransaction()
+  .Insert(article)
+  .UpdateAddress(article, "winter-session")
+  .Execute();
 ```
 
 ### What lives in `NodeMeta`
 
-Every node carries system metadata. Never construct a `NodeMeta` or assign one: the store keeps it, and
-you change it through the store — `UpdateMeta` for the fields below that can be written
-([Writing meta](#writing-meta-updatemeta)), `UpdateAddress` and `UpdateDisplayName` for the address and
-display name.
+Every node carries system data, which a `NodeMeta Meta { get; }` member reads. Never create or
+assign a `NodeMeta` yourself. Change the writable fields with `UpdateMeta`
+([Writing meta](#writing-meta-updatemeta)), and the address and display name with `UpdateAddress` and
+`UpdateDisplayName`.
 
 | Field | Meaning |
 |---|---|
-| `Id`, `InternalId` | Public Guid and internal int id. |
-| `NodeTypeId` | The type id from `[Node(Id = …)]`. |
-| `CreatedUtc`, `ChangedUtc` | Timestamps. The database stamps `ChangedUtc` with every write that changes the node's values - as an object, a property, or one revision of several, which alone moves on - and leaves it for a write that changes nothing, a meta write, a change of revision type, the indexing tasks' writes of the text and semantic index, and files moving to another store. An insert keeps a change time it is given. |
-| `DisplayName`, `Address` | Sourced from the marker properties above. |
-| `CultureId` | Culture of this revision. |
-| `RevisionId`, `RevisionType` | Revision tracking — `Draft`, `Published`, `Archived`, … |
-| `CollectionId` | Logical grouping. |
-| `ReadAccess`, `EditAccess`, `EditViewAccess`, `PublishAccess` | Guid-based ACL slots. |
-| `CreatedBy`, `ChangedBy` | User Guids. |
+| `Id`, `InternalId` | The public `Guid` id and the internal `int` id. |
+| `NodeTypeId` | The id of the node's type. |
+| `CreatedUtc`, `ChangedUtc` | When the node was created, and when its values last changed. |
+| `DisplayName`, `Address` | The display name set with `UpdateDisplayName`, and the address. |
+| `CultureId` | The culture of this revision. |
+| `RevisionId`, `RevisionType` | The revision read, and its type: `Published`, `Preliminary` (a draft), `Archived`, … |
+| `CollectionId` | The collection the node is in. |
+| `ReadAccess`, `EditAccess`, `EditViewAccess`, `PublishAccess` | The user group given each kind of access. |
+| `CreatedBy`, `ChangedBy` | User ids, when the application writes them. |
 | `ReleaseUtc`, `ExpireUtc` | Scheduled publishing. |
-| `Deleted` | Soft-delete flag. |
+| `Deleted` | The soft-delete flag. |
+
+`ChangedUtc` moves with every write that changes the node's values. A meta write, or a write that
+changes nothing, leaves it alone. An insert keeps a change time it is given, as an import needs.
 
 ### Writing meta: `UpdateMeta`
 
-`UpdateMeta` writes meta values by name: one name and value, or several as key-value pairs in one
-write. The names are the property names of `IInnerNodeMeta`, matched exactly, so write them with
-`nameof`. A value must have the field's own type — a `Guid`, a `bool`, a `DateTime?` — as it is
-cast, not converted.
+`UpdateMeta` writes meta fields by name: one name and value, or several pairs in one write. The
+names are the property names of `IInnerNodeMeta`, so write them with `nameof`. Each value must have
+the field's own type (`Guid`, `bool`, `DateTime?`): it is cast, not converted.
 
 ```csharp
 using Relatude.DB.Datamodels;   // IInnerNodeMeta, NodeConstants
 
-// one value: only the members' group reads the article
+// one value: only the members' group can read the article
 db.UpdateMeta(article.Id, nameof(IInnerNodeMeta.ReadAccess), membersGroup.Id);
 
 // several at once
@@ -1070,7 +909,7 @@ db.UpdateMeta(article.Id, [
     new(nameof(IInnerNodeMeta.ExpireUtc), null!),   // no expiry
 ]);
 
-// with other writes, in one transaction
+// together with other writes, in one transaction
 db.CreateTransaction()
   .Update(article)
   .UpdateMeta(article.Id, nameof(IInnerNodeMeta.ReadAccess), NodeConstants.UserGroupEveryone)
@@ -1079,52 +918,48 @@ db.CreateTransaction()
 
 | Name | Value | Notes |
 |---|---|---|
-| `ReadAccess`, `EditViewAccess`, `EditAccess`, `PublishAccess` | `Guid`: a user group's id, or `NodeConstants.UserGroupEveryone`, `UserGroupMember`, `UserGroupAdmins` | `Guid.Empty` (`NodeConstants.UserGroupUnspecified`) is none: the type's default applies, else for read and edit view the database's `DefaultReadAccess`. |
+| `ReadAccess`, `EditViewAccess`, `EditAccess`, `PublishAccess` | `Guid`: a user group's id, or `NodeConstants.UserGroupEveryone`, `UserGroupMember`, `UserGroupAdmins` | `Guid.Empty` means unset: the type's default applies, else (for read and edit view) the database's `DefaultReadAccess`. |
 | `CollectionId` | `Guid` | `Guid.Empty` for none. A query whose context names collections reads only nodes in them. |
-| `ReleaseUtc`, `ExpireUtc` | `DateTime?`, in UTC | `null` for none. Queries leave the node out before its release and from its expiry on, unless their context reads unpublished nodes (`Unpublished`, [§29](#29-cultures-visibility-and-scoped-stores)). |
-| `Deleted` | `bool` | Soft delete: queries leave the node out, unless their context includes deleted nodes; its data stays. |
-| `CreatedBy`, `ChangedBy` | `Guid`, a user's id | The store does not fill them in; the application writes them if it wants them. |
+| `ReleaseUtc`, `ExpireUtc` | `DateTime?`, in UTC | `null` for none. Queries skip the node outside this window, unless their context reads unpublished nodes ([§29](#29-cultures-visibility-and-scoped-stores)). |
+| `Deleted` | `bool` | Soft delete: queries skip the node unless their context includes deleted nodes. |
+| `CreatedBy`, `ChangedBy` | `Guid`, a user's id | The store does not fill these in. |
 
-`CultureId` and `RevisionKey` cannot be written this way (the call throws), and neither can the revision
-type, which the revision methods change ([§29](#revisions-in-several-cultures)). An unknown name throws too.
+`CultureId` and the revision type cannot be written this way, and neither can an unknown name: the
+call throws. The revision methods change culture and type ([§29](#revisions-in-several-cultures)).
 
-On a node with revisions, the overloads that take a `revisionId` write that revision's meta, and the
-access groups, collection and deleted flag are copied to its other revisions; without a `revisionId`
-every revision is written. Each overload also takes the node's internal `int` id instead of its `Guid`,
-and `Transaction` has the same methods.
+On a node with revisions, a `revisionId` argument writes that revision's meta. The access groups,
+the collection and the deleted flag are copied to the other revisions. Without a `revisionId`, every
+revision is written. All overloads also take the internal `int` id, and `Transaction` has the same
+methods.
 
 ### Querying by the node's own dates
 
-`CreatedUtc` and `ChangedUtc` are indexed for **every node of every type** — a class does not have to
-map them to members of its own. Refer to them through `NodeMeta`:
+`CreatedUtc` and `ChangedUtc` are indexed for every node of every type. Query them through `NodeMeta`,
+whether or not the type maps them to members:
 
 ```csharp
-// recently changed, on any type - the base type included
+// recently changed articles
 db.Query<IArticle>().OrderByMetaDescending(m => m.ChangedUtc).Page(0, 50).Execute();
 db.Query<IArticle>().WhereMeta(m => m.CreatedUtc >= since).Count();
 ```
 
-A class that maps them answers the same queries through its own members — `x.ChangedUtc` on a
-`[ChangedUtcProperty]` member, or `x.Meta.ChangedUtc` on its `NodeMeta` — and they use the same index.
-In a query string the two are the system properties `_createdUtc` and `_changedUtc` of every type:
-`Where("n => n._changedUtc > " + since.Ticks)`. The indexes live in the engine `DefaultValueIndex`
-names, like any other value index ([§12.1](#121-every-setting-in-relatudedbjson)). The rest of `NodeMeta` is not indexed
-and cannot be queried; for a node with revisions the published revisions decide (the first creation,
-the last change).
+A `[CreatedUtcProperty]` or `[ChangedUtcProperty]` member answers the same queries from the same
+index: `OrderByDescending(x => x.ChangedUtc)`. In a query string the two are `n._createdUtc` and
+`n._changedUtc`. No other `NodeMeta` field can be queried.
 
 ---
 
 ## 5. Geo coordinates
 
-`GeoCoordinate` (in `Relatude.DB.Common`) is a first-class, indexable value type for WGS84
-latitude/longitude. It is a `readonly struct`, so it costs nothing to pass around.
+`GeoCoordinate` (in `Relatude.DB.Common`) is a WGS84 latitude and longitude. It is a small
+`readonly struct`, and an indexed `GeoCoordinate` property answers radius queries from a spatial index.
 
 ```csharp
 using Relatude.DB.Common;
 
 public interface IVenue {
     // ...
-    [GeoCoordinateProperty(Indexed = true)]     // Indexed = true enables spatial query acceleration
+    [GeoCoordinateProperty(Indexed = true)]     // index it for radius queries
     GeoCoordinate Location { get; set; }
 }
 ```
@@ -1132,113 +967,109 @@ public interface IVenue {
 ### Constructing and reading
 
 ```csharp
-var oslo    = new GeoCoordinate(59.9139, 10.7522);
-var bergen  = new GeoCoordinate(60.3913, 5.3221);
+var oslo   = new GeoCoordinate(59.9139, 10.7522);
+var bergen = new GeoCoordinate(60.3913, 5.3221);
 
-double lat  = oslo.Latitude;     // 59.9139…  (NaN when empty)
-double lon  = oslo.Longitude;    // 10.7522…  (NaN when empty)
+double lat = oslo.Latitude;      // 59.9139…  (NaN when empty)
+double lon = oslo.Longitude;     // 10.7522…  (NaN when empty)
 
 Console.WriteLine(oslo);         // "59.9139, 10.7522"
-
-GeoCoordinate.TryParse("59.9139, 10.7522", out var parsed);   // round-trips
+GeoCoordinate.TryParse("59.9139, 10.7522", out var parsed);
 ```
 
 ### The empty value
 
-`GeoCoordinate.Empty` is `default(GeoCoordinate)` and means **"no location"**:
+`GeoCoordinate.Empty`, the default value, means "no location":
 
 ```csharp
 var unknown = GeoCoordinate.Empty;
 unknown.IsEmpty;                      // true
 unknown.Latitude;                     // double.NaN
 unknown.DistanceTo(oslo);             // double.PositiveInfinity
-unknown.IsWithin(oslo, 100_000);      // false — never matches
+unknown.IsWithin(oslo, 100_000);      // false: never matches
 ```
 
-Empty coordinates are excluded from spatial indexes entirely. This is exactly what you want: a
-venue whose location has not been entered yet should never show up in a "within 5 km" search.
+Empty coordinates are left out of the spatial index. A venue without a location never shows up in a
+"within 5 km" search.
 
 ### Distance and radius tests
 
 ```csharp
-double meters = oslo.DistanceTo(bergen);        // great-circle distance (haversine), in metres
-bool   near   = oslo.IsWithin(bergen, 500_000); // true — within 500 km
+double meters = oslo.DistanceTo(bergen);        // great-circle distance, in metres
+bool   near   = oslo.IsWithin(bergen, 500_000); // true: within 500 km
 ```
 
-`IsWithin(center, meters)` is the important one: **the query compiler recognises it inside a query
-lambda and accelerates it with the spatial index.** See [§22 Geo queries](#22-geo-queries).
+Inside a query, `IsWithin(center, meters)` uses the spatial index ([§22](#22-geo-queries)).
 
-### How it is stored (and what that implies)
+### Precision and sort order
 
-Coordinates snap to a ~1 cm grid (31 bits per axis) on construction and are stored as a 62-bit
-Morton / Z-order code. Three consequences worth knowing:
-
-- **Equality, hashing and ordering coincide exactly**, and every value round-trips losslessly
-  through `StorageValue` / `FromStorageValue`.
-- **Sort order follows the Z-order curve**, which keeps ranges spatially coherent for index scans
-  but is *meaningless as a user-facing sort*. To sort by proximity, order by `DistanceTo` after
-  materialising the page — do not `OrderBy(v => v.Location)`.
-- **Radius searches over-scan slightly.** The index cover is built from square Z-order cells; a
-  circle is not square. The engine refines candidates with the exact haversine distance, so results
-  are correct — but a very large radius touches more of the index than a small one.
+A coordinate snaps to a grid of about 1 cm when you construct it, so a stored value reads back equal
+to what you wrote. Values sort along a Z-order curve. That keeps index scans fast but means nothing
+to a reader, so never `OrderBy(v => v.Location)`. To sort by distance, see [§22](#22-geo-queries).
 
 ### JSON shape
 
-`GeoCoordinate` serialises as `{"latitude": 59.91, "longitude": 10.75}`, and `Empty` serialises as
-`null` so it survives a round trip. On read it also accepts `lat` / `lon` / `lng` aliases and a
-`"latitude, longitude"` string.
+`GeoCoordinate` serialises as `{"latitude": 59.91, "longitude": 10.75}`, and `Empty` as `null`. When
+reading, it also accepts `lat`, `lon` and `lng`, and a `"latitude, longitude"` string.
 
 ### Seeing them
 
-The admin UI's query page has a **Map** view: pick a `GeoCoordinate` property and the result set —
-the same one the search box and the facets are already narrowing — is drawn on a world map or on a
-globe. A pin or a dot per node (coloured by a second property, as the visual pivot colours its
-cards), a heat field, one bubble per patch of the map with a count in it, or every country shaded by
-how many nodes it holds. Nodes whose coordinate is `Empty` are simply not on it, and the view says
-how many those were.
-
-An indexed property is read straight from the index there, so a map of a million nodes reads no
-nodes at all; an unindexed one has to be read node by node, which is one more reason to index a
-property you intend to look at.
+The admin UI's query page has a **Map** view. It draws a `GeoCoordinate` property of the current
+result on a map or a globe, as pins, a heat map, clusters or shaded countries. Nodes without a
+location are left out. An indexed property is read from the index, so even large results draw fast.
 
 ---
 
 ## 6. Files
 
-`FileValue` (in `Relatude.DB.Common`) is a slot into the file storage subsystem — local disk, Azure
-blob, and so on, configured separately in the admin UI. The property holds the reference; the bytes
-live in storage.
+`FileValue` (in `Relatude.DB.Common`) refers to a file in the store's file storage: local disk, Azure
+blob storage and others, configured separately. The node holds the reference, and the bytes live in
+the storage.
 
 ```csharp
 [FileProperty]
-public FileValue Photo { get; set; } = FileValue.Empty;
+FileValue Photo { get; set; }
 
-// pin a property to a specific storage provider:
+// keep this property's files in one particular file store:
 [FileProperty(FileStorageProviderId = "b1c2d3e4-...")]
-public FileValue Brochure { get; set; } = FileValue.Empty;
+FileValue Brochure { get; set; }
 ```
 
-Uploading and serving bytes is covered in [§17](#17-uploading-files), and the URLs they are served on in [§18](#18-urls-and-the-url-manager).
+`FileStorageProviderId` is the id of a file store from the settings
+([§12.1](#121-every-setting-in-relatudedbjson)). Uploading and serving files is covered in
+[§17](#17-uploading-files), and the URLs they are served on in [§18](#18-urls-and-the-url-manager).
 
 ---
 
 ## 7. Embedded data
 
-Embedded objects are **owned sub-trees**. They are stored inline in the parent node, they have no
-independent identity in the graph, and they live and die with the parent. Reach for them when a
-value only makes sense in the context of its parent: opening hours on a venue, line items on an
-order, translations on a label.
+Embedded objects are owned values. They are stored inside the parent node, have no identity in the
+graph, and are deleted with it. Use them for data that only makes sense with its parent: opening
+hours on a venue, line items on an order, price tiers on an event.
 
-Two flavours:
+An embedded class is part of the model, so register it with your node types
+([§12](#12-registering-the-model--the-admin-ui)): `AddNamespace` picks it up, `Add<T>` on the parent
+does not. On an interface, declare embedded properties getter-only; the store creates the collection.
+There are two kinds.
 
 ### `Embedded<T>` — a collection keyed by the embedded object's own `Guid Id`
 
 ```csharp
-[EmbeddedProperty(IncludeTypes = IncludeTypeOptions.ThisTypeAndDescending)]
-public Embedded<PriceTier> PriceTiers { get; set; } = [];
+public class PriceTier {
+    public Guid Id { get; set; }
+    public string Name { get; set; } = string.Empty;   // "early bird", "standard", …
+    public decimal Amount { get; set; }
+}
+
+public interface IEvent {
+    // ...
+    [EmbeddedProperty]
+    Embedded<PriceTier> PriceTiers { get; }
+}
 ```
 
-`IncludeTypeOptions` controls which subtypes are allowed in the slot.
+`IncludeTypes` says which types the collection takes. The default, `ThisTypeAndDescending`, takes
+`PriceTier` and its subclasses; `ThisTypeOnly` and `DescendingTypesOnly` narrow that.
 
 ### `EmbeddedMap<TKey, TValue>` — a collection keyed by a property of the value
 
@@ -1252,67 +1083,55 @@ public class OpeningHours {
 
 public interface IVenue {
     // ...
-    [EmbeddedMapProperty(
-        KeyProperty = nameof(OpeningHours.DayCode),
-        KeyType = KeyPropertyType.NodeProperty)]      // or NodeGuidId / NodeIntegerId
+    [EmbeddedMapProperty(KeyProperty = nameof(OpeningHours.DayCode))]
     EmbeddedMap<string, OpeningHours> Hours { get; }
 }
 ```
 
-Naming a `KeyProperty` is enough — it takes precedence over `KeyType`, so the second line above is
-documentation rather than necessity. `KeyType` is what you set when there is *no* key property:
-`NodeGuidId` keys by the embedded value's `Guid Id` (which is exactly what `Embedded<T>` is
-shorthand for) and `NodeIntegerId` by its int id. With no attribute at all the key type is inferred
-from `TKey`: `Guid` → `NodeGuidId`, `int` → `NodeIntegerId`, anything else is an error telling you
-to name a `KeyProperty`.
-
-The key property has to live on the closest common base of the allowed inner types, and its CLR
-type must equal `TKey` — both are checked at model-build time.
+`KeyProperty` names the property that holds the key. It must be declared on the closest common base
+of the allowed value types, and its type must be `TKey`; the model builder checks both. To key by the
+value's id instead, set `KeyType` to `KeyPropertyType.NodeGuidId` or `NodeIntegerId`. Without an
+attribute, a `Guid` or `int` key means the value's id, and any other key type is an error.
 
 ### Working with an embedded map
 
 ```csharp
 var venue = db.Create<IVenue>();
-
-var monday = new OpeningHours { DayCode = "mon", Opens = new(9, 0, 0), Closes = new(23, 0, 0) };
-venue.Hours.Add(monday);
-
+venue.Hours.Add(new OpeningHours { DayCode = "mon", Opens = new(9, 0, 0), Closes = new(23, 0, 0) });
 db.Insert(venue);
 
-// only *after* the parent is persisted can you read by key:
+// keys work once the parent is stored
 var stored = db.Get<IVenue>(venue.Id);
 var mon    = stored.Hours["mon"];
 int days   = stored.Hours.Count;                  // a property, not a method
 bool open  = stored.Hours.Contains("mon");        // by key, not by value
 
-foreach (var h in stored.Hours) {                 // EmbeddedMap<TKey,TValue> is IEnumerable<TValue>
+foreach (var h in stored.Hours)                   // enumerates the values
     Console.WriteLine($"{h.DayCode}: {h.Opens}–{h.Closes}");
-}
 
-foreach (var (day, h) in stored.Hours.KeysAndValues()) { … }   // when you want the keys too
+foreach (var (day, h) in stored.Hours.KeysAndValues()) { … }   // with the keys
 ```
 
-> **Gotcha.** Before the parent is inserted, only `Add`, `Clear`, `Count` and enumeration are safe.
-> Anything keyed — the indexer, `Contains`, `KeysAndValues()` — throws
-> `InvalidOperationException` until the parent has been persisted, because the keys are evaluated by
-> the store.
+> **Keys need a stored parent.** Before the parent is inserted, only `Add`, `Clear`, `Count` and
+> enumeration work. Everything that uses a key (the indexer, `Contains`, `TryGetValue`, `Remove`,
+> `KeysAndValues()`) throws `InvalidOperationException`, because the store evaluates the keys.
 
 ---
 
 ## 8. References — lightweight pointers
 
-A **reference** is a `Guid` (or an ordered `Guid[]`) stored directly on the node. It is a one-way
-pointer: cheap to store, cheap to set, and it does not create a reverse index.
+A reference stores the id of another node on this node. It points one way: it is cheap to store and
+to set, and the target does not know about it.
 
 | Type | Stores | Use for |
 |---|---|---|
 | `Reference<T>` | one `Guid` | "the cover image of this event" |
-| `References<T>` | ordered `Guid[]`, duplicates preserved | "the sponsors of this event, in billing order" |
+| `References<T>` | an ordered `Guid[]`, duplicates kept | "the sponsors of this event, in billing order" |
 
 ```csharp
 public interface IEvent {
     // ...
-    [ReferenceProperty(Indexed = true)]     // Indexed = true is required to filter / facet on it
+    [ReferenceProperty(Indexed = true)]     // Indexed = true is needed to filter or facet on it
     Reference<IMediaAsset> Cover { get; }
 
     [ReferencesProperty(Indexed = true)]
@@ -1320,31 +1139,25 @@ public interface IEvent {
 }
 ```
 
-On a concrete class, initialise them:
-
-```csharp
-public Reference<IMediaAsset>  Cover    { get; set; } = new();
-public References<IOrganizer>  Sponsors { get; set; } = new();
-```
+On a class, initialise them: `public Reference<IMediaAsset> Cover { get; set; } = new();`.
 
 ### Reading and writing a `Reference<T>`
 
 ```csharp
 var ev = db.Get<IEvent>(eventId);
 
-ev.Cover.IsSet();                       // is a target set at all?
-ev.Cover.Id;                            // the raw Guid (Guid.Empty when unset)
+ev.Cover.IsSet();                       // is a target set?
+ev.Cover.Id;                            // the Guid, Guid.Empty when unset
 
-if (ev.Cover.TryGet(out var asset)) {   // lazily loads the target
+if (ev.Cover.TryGet(out var asset))     // loads the target
     Console.WriteLine(asset.FileName);
-}
 
 var img = ev.Cover.Get();               // throws when unset
 
 ev.Cover.Set(someAssetId);              // by id
-ev.Cover.Set(someAsset, db);            // by instance
+ev.Cover.Set(someAsset, db);            // by node
 ev.Cover.Clear();
-db.Update(ev);                          // references are node data — persist with a normal Update
+db.Update(ev);                          // a reference is node data: save it with Update
 ```
 
 ### Reading and writing a `References<T>`
@@ -1355,71 +1168,66 @@ ev.Sponsors.Count();
 ev.Sponsors.Contains(organizerId);
 
 ev.Sponsors.Add(organizerId);
-ev.Sponsors.Add(organizerNode, db);
+ev.Sponsors.Add(organizer, db);
 ev.Sponsors.Remove(organizerId);        // removes every occurrence
 ev.Sponsors.Clear();
-ev.Sponsors.Ids = new[] { a, b, c };    // replace wholesale, order preserved
+ev.Sponsors.Ids = [a, b, c];            // replace them all, in this order
 db.Update(ev);
 
-foreach (var sponsor in ev.Sponsors.Get()) {  // lazily loads every live target, in order
+foreach (var sponsor in ev.Sponsors.Get())   // loads every target, in order
     Console.WriteLine(sponsor.Name);
-}
 ```
 
-> **The enumeration trap.** Both `Reference<T>` and `References<T>` implement `IEnumerable<T>`, but
-> **`foreach` only yields *preloaded* data.** If you did not `.Preload(...)` in the query, the
-> `foreach` silently yields nothing. Use `.Get()` / `.TryGet(out …)` for lazy loading, and
-> `foreach` only after a `Preload`. This is a deliberate design: it makes the N+1 query cost
-> impossible to incur by accident.
+`Get()` skips stale targets, such as deleted nodes or nodes of the wrong type, instead of throwing.
 
-Stale targets — deleted nodes, or nodes of the wrong type — are **skipped** by `References<T>.Get()`
-rather than throwing. With many references per value, stale entries are routine and the engine
-treats them as such.
+> **`foreach` yields only preloaded targets.** `Reference<T>` and `References<T>` are
+> `IEnumerable<T>`, but a `foreach` over one yields nothing unless the query loaded the targets with
+> `.Preload(...)` ([§24](#24-eager-loading-include-and-preload)). Otherwise use `Get()` or
+> `TryGet(out …)`. This is on purpose: it makes an accidental N+1 load impossible.
 
 ---
 
 ## 9. Relations — the graph edges
 
-A **relation** is a real, bidirectional, indexed edge. Relating A to B automatically relates B back
-to A. Relations are what make this a graph database: they are traversable, filterable and
-countable without loading either side.
+A relation is an indexed edge between two nodes, readable from both ends: relating A to B also
+relates B to A. Relations can be traversed, filtered and counted without loading the nodes.
 
-**Relations are not foreign keys.** You never store `VenueId` on an event. You declare a relation
-class, and expose one nested property class per side.
+Relations are not foreign keys: you never store a `VenueId` on an event. You declare a relation
+class with a nested class for each end, and use the nested classes as property types.
 
 ### The five shapes
 
 ```csharp
-// 1. Symmetric 1:1 — "spouse". Both sides are the same property.
+// 1. Symmetric one-to-one: twin venues. Both ends are the same property.
 public class PairedWith : OneOne<IVenue> {
     public class Pair : One { }
 }
 
-// 2. Directional 1:1 — "husband ↔ wife".
+// 2. Directional one-to-one: an organizer's primary contact.
 public class PrimaryContact : OneToOne<IOrganizer, IAttendee> {
-    public class Organizer : OneFrom { }
-    public class Contact   : OneTo { }
+    public class Organizer : OneFrom { }   // on IAttendee
+    public class Contact   : OneTo { }     // on IOrganizer
 }
 
-// 3. Directional 1:N — "parent ↔ children". The workhorse.
+// 3. Directional one-to-many: the workhorse.
 public class EventsAtVenue : OneToMany<IVenue, IEvent> {
-    public class Venue  : One { }     // goes on IEvent   — the "one" side
-    public class Events : Many { }    // goes on IVenue   — the "many" side
+    public class Venue  : One { }     // on IEvent: its one venue
+    public class Events : Many { }    // on IVenue: its many events
 }
 
-// 4. Symmetric N:N — "friends".
+// 4. Symmetric many-to-many: friends.
 public class Friends : ManyMany<IAttendee> {
     public class Peers : Many { }
 }
 
-// 5. Directional N:N — "teachers ↔ students".
+// 5. Directional many-to-many: events and their attendees.
 public class Attendance : ManyToMany<IEvent, IAttendee> {
-    public class Events    : ManyFrom { }   // goes on IAttendee
-    public class Attendees : ManyTo { }     // goes on IEvent
+    public class Events    : ManyFrom { }   // on IAttendee
+    public class Attendees : ManyTo { }     // on IEvent
 }
 ```
 
-| Base class | Symmetry | Cardinality | Nested classes available |
+| Base class | Symmetry | Cardinality | Nested classes |
 |---|---|---|---|
 | `OneOne<T>` | symmetric | 1↔1, same type | `One` |
 | `OneToOne<TFrom, TTo>` | directional | 1↔1 | `OneFrom`, `OneTo` |
@@ -1427,25 +1235,24 @@ public class Attendance : ManyToMany<IEvent, IAttendee> {
 | `ManyMany<T>` | symmetric | N↔N, same type | `Many` |
 | `ManyToMany<TFrom, TTo>` | directional | N↔N | `ManyFrom`, `ManyTo` |
 
-There is no "zero-or-one" and no asymmetric many-to-one. Model the asymmetric case as
-`OneToMany` in the appropriate direction. If your relationship genuinely does not fit — for
-instance because the edge itself carries data like a ticket price or a role — **promote the edge to
-a node type** with two relations hanging off it.
+There is no zero-or-one and no separate many-to-one: use `OneToMany` from the other end. When the
+edge itself carries data, such as a ticket price or a role, make the edge a node type with a
+relation to each side.
 
 ### Using them on node types
 
-Each nested class becomes a property type. Give the property whatever name reads best:
+Each nested class is a property type. Name the property whatever reads best:
 
 ```csharp
 public interface IVenue {
     // ...
-    EventsAtVenue.Events Events { get; }          // many events at this venue
+    EventsAtVenue.Events Events { get; }          // the venue's events
 }
 
 public interface IEvent {
     // ...
-    EventsAtVenue.Venue      Venue     { get; }   // the one venue of this event
-    Attendance.Attendees     Attendees { get; }   // many attendees
+    EventsAtVenue.Venue  Venue     { get; }       // the event's venue
+    Attendance.Attendees Attendees { get; }
 }
 
 public interface IAttendee {
@@ -1455,42 +1262,41 @@ public interface IAttendee {
 }
 ```
 
-On concrete classes, initialise with `new()`:
-
-```csharp
-public EventsAtVenue.Events Events { get; set; } = new();
-```
-
-You may omit a side you do not need. Only declare both when you want navigation in both directions.
+Declare only the ends you navigate. You never assign an end: relate nodes with `AddRelation`,
+`SetRelation` and the other verbs in [§14](#14-relating-nodes). On a class, initialise each end with
+`new()`.
 
 ### The "one" side API
 
-A `One` / `OneFrom` / `OneTo` property is an `OneProperty<T>`:
+A `One`, `OneFrom` or `OneTo` end is a `OneProperty<T>`:
 
 ```csharp
 var ev = db.Get<IEvent>(id);
 
-ev.Venue.IsSet();                        // is there a related node?
+ev.Venue.IsSet();                        // is a node related?
 ev.Venue.Count();                        // 0 or 1
 var venue = ev.Venue.Get();              // throws when unset
-if (ev.Venue.TryGet(out var v)) { … }    // safe probe
+if (ev.Venue.TryGet(out var v)) { … }
 ev.Venue.Contains(someVenueId);
 ```
 
+A `foreach` over a one end yields only what the query included
+([§24](#24-eager-loading-include-and-preload)). Use `Get` or `TryGet` to load it.
+
 ### The "many" side API
 
-A `Many` / `ManyFrom` / `ManyTo` property is a `ManyProperty<T>`:
+A `Many`, `ManyFrom` or `ManyTo` end is a `ManyProperty<T>`:
 
 ```csharp
 var venue = db.Get<IVenue>(id);
 
-int n = venue.Events.Count();            // counted from the index — does not load the nodes
-bool has = venue.Events.Contains(evId);
+int n    = venue.Events.Count();         // from the relation index: loads no nodes
+bool has = venue.Events.Contains(eventId);
 
-foreach (var e in venue.Events) { … }    // enumerates; loads lazily if not preloaded
+foreach (var e in venue.Events) { … }    // loads lazily when nothing was included
 var all = venue.Events.Get();            // IEnumerable<IEvent>
 
-// …or keep composing as a real query, which is what you want for anything non-trivial:
+// a full query rooted at the relation, for anything more
 var upcoming = venue.Events
                     .Query()
                     .Where(e => e.StartsUtc > DateTime.UtcNow)
@@ -1499,100 +1305,64 @@ var upcoming = venue.Events
                     .Execute();
 ```
 
-`ManyProperty<T>.Query()` returns a full `IQueryOfNodes` rooted at that relation, so everything in
-Part III applies to it.
-
-> Unlike `Reference<T>`, **`foreach` over a `Many` side does load lazily** when nothing was
-> preloaded. It is still worth using `.Include(...)` when you are iterating many parents — see
-> [§24](#24-eager-loading-include-and-preload).
+`Query()` returns an `IQueryOfNodes`, so everything in Part III applies to it. When you loop over the
+ends of many parents, `Include` them in the query instead ([§24](#24-eager-loading-include-and-preload)).
 
 ### 9.1 Relation lists are ordered
 
-A `Many` side is a **list, not a set**. Each node keeps its related items in a fixed order, and that
-order is stored, durable and reorderable. This is a real modelling feature: use it for hand-curated
-sequences — a programme running order, a menu, an image gallery, a set of related products — instead
-of inventing a `SortIndex` property and sorting on it in every query.
+A many end is a list, not a set: its order is stored, and you can change it. Use it for
+hand-curated sequences, such as a running order, a menu or a gallery, instead of a `SortIndex`
+property.
 
-Four consequences to design around:
+- **`AddRelation` appends at the bottom.**
+- **Reads follow the stored order:** `foreach`, `Get()` and included ends all return it.
+- **No duplicates.** Relating a pair that is already related throws, and so does removing a pair that
+  is not related.
+- **Each end has its own order.** In a many-to-many relation, the order of attendees on an event and
+  the order of events on an attendee are separate.
 
-- **`AddRelation` appends to the bottom.** The most recently related item is last.
-- **Enumeration follows the stored order.** `foreach`, `Get()` and preloaded includes all yield it,
-  so a curated sequence survives a round trip untouched.
-- **Duplicates are rejected.** Relating a pair that is already related **throws**, as does
-  unrelating a pair that is not related. Order plus no duplicates is exactly list semantics over a
-  set of distinct targets.
-- **Each side is ordered independently.** In a many-to-many relation, the order of targets on a
-  source and the order of sources on a target are two separate orderings; reordering one says
-  nothing about the other.
-
-A `One` / `OneFrom` / `OneTo` side holds at most one item, so ordering is a `Many`-side concept only.
+A one end holds at most one node, so ordering applies to many ends only.
 
 #### The `MoveRelation…` family
 
-Six method families reorder a list. Every one exists on `NodeStore` — returning `TransactionResult`
-and taking `flushToDisk: bool = false` — and on `Transaction`, where it returns the `Transaction` so
-calls chain.
+These methods change the order without adding or removing anything:
+
+| Method | Moves |
+|---|---|
+| `MoveRelation(from, end, item, offset)` | `item` by `offset` places: negative toward the top, positive toward the bottom |
+| `MoveRelationToTop(from, end, item)` | `item` to the top |
+| `MoveRelationToBottom(from, end, item)` | `item` to the bottom |
+| `MoveRelationBefore(from, end, item, anchor)` | `item` just before `anchor`, another node in the list |
+| `MoveRelationAfter(from, end, item, anchor)` | `item` just after `anchor` |
+| `SetRelationOrder(from, end, itemsInOrder)` | the whole list into the given order |
 
 ```csharp
-// offset: negative moves toward the top, positive toward the bottom
-db.MoveRelation<IVenue>(venue, v => v.Events, ev, offset: -1);
-
 db.MoveRelationToTop<IVenue>(venue, v => v.Events, headliner);
-db.MoveRelationToBottom<IVenue>(venue, v => v.Events, lateAddition);
-
-// anchor is another item already in the same list
+db.MoveRelation<IVenue>(venue, v => v.Events, ev, offset: -1);
 db.MoveRelationBefore<IVenue>(venue, v => v.Events, ev, anchor: other);
-db.MoveRelationAfter<IVenue>(venue, v => v.Events, ev, anchor: other);
-
-// replace the whole order in one call
 db.SetRelationOrder<IVenue>(venue, v => v.Events, orderedEvents);
+
+// relate and position in one transaction
+db.CreateTransaction()
+  .AddRelation<IVenue>(venue, v => v.Events, ev)
+  .MoveRelationToTop<IVenue>(venue, v => v.Events, ev)
+  .Execute();
 ```
 
-Chained inside a transaction — relate and position in one commit:
+- **Pass several items** and they move as a block that keeps its own order.
+- **Positions are clamped.** Moving past the top or the bottom never throws.
+- **`SetRelationOrder` must list exactly the nodes related now.** It only reorders.
+- **Never reorder by removing and adding again.** That is two writes, and the add lands at the bottom.
 
-```csharp
-var t = db.CreateTransaction();
-t.AddRelation<IVenue>(venue, v => v.Events, ev)
- .MoveRelationToTop<IVenue>(venue, v => v.Events, ev)
- .Execute();
-```
-
-#### Semantics
-
-- **Multi-item moves behave like a list UI.** Pass a collection instead of a single item and the
-  selection keeps its internal order and compacts against the ends of the list — the behaviour you
-  want behind a multi-select drag handle.
-- **Positions are clamped.** Moving past the top or bottom never throws.
-- **`SetRelationOrder` reorders; it does not add or remove.** The ids you supply must be *exactly*
-  the currently related ids.
-- **Never reorder by un-relating and re-relating.** Beyond being two writes instead of one, a
-  re-`AddRelation` lands at the bottom, and re-relating an already-related pair throws.
-
-#### Overload shapes
-
-Each family takes a single item or an `IEnumerable` of items, in three addressing styles:
-
-```csharp
-MoveRelationToTop<T>(T fromNode,  Expression<Func<T, object?>> expression, object item)
-MoveRelationToTop<T>(Guid fromId, Expression<Func<T, object?>> expression, Guid item)
-MoveRelationToTop   (Guid fromId, Guid propertyId,                         Guid item)
-```
-
-`MoveRelation` adds `int offset`; `MoveRelationBefore` / `MoveRelationAfter` add an `anchor` of the
-same shape as `item`; `SetRelationOrder` takes only `itemsInOrder`. On `Transaction` the same
-families also accept `int` internal ids. **Prefer the expression form** — readable and type-checked.
-
-For raw relation-id access there is
-`TransactionRelation.Move(relationId, owner, items, offset, reorderSourcesOfTarget = false)`, where
-`reorderSourcesOfTarget: true` reorders a *target's* list of sources rather than the owner's list of
-targets. Only meaningful for many-to-many, and rarely what you want from application code.
+All of them are on `NodeStore` and on `Transaction`, where calls chain. Besides nodes and an
+expression, they take `Guid` ids or a raw property id; `Transaction` also takes internal `int` ids.
 
 ### Relation options
 
 ```csharp
 [Relation(
-    Id = "9f4e2c11-77a3-4d5e-8b21-0c6f9a3e7d54",  // stable id, survives renames
-    DisallowCircularReferences = true              // enforce acyclicity on self-referential relations
+    Id = "9f4e2c11-77a3-4d5e-8b21-0c6f9a3e7d54",  // a stable id that survives renames
+    DisallowCircularReferences = true              // no cycles in a relation of a type to itself
 )]
 public class VenueTree : OneToMany<IVenue, IVenue> {
     public class Parent   : One { }
@@ -1600,71 +1370,67 @@ public class VenueTree : OneToMany<IVenue, IVenue> {
 }
 ```
 
-`[Relation]` also accepts `SourceTypes` / `TargetTypes` as full type-name strings, but the generic
-parameters already carry that information — you rarely need them.
+`[Relation]` also takes `SourceTypes` and `TargetTypes`, but the generic parameters already say that.
 
-Relation properties can also feed the parent's text index, which is how you make a venue findable
-by the names of the events held there:
+`[RelationProperty]` on an end can put the related nodes into this node's text index, so a venue is
+found by the names of its events, and makes the relation a facet:
 
 ```csharp
 [RelationProperty(
-    TextIndexRelatedDisplayName = true,
-    TextIndexRelatedContent = false,
-    TextIndexRecursiveLevelLimit = 1,
-    Facet = true                          // opt in to faceting on this relation
-)]
-public EventsAtVenue.Events Events { get; }
+    TextIndexRelatedDisplayName = true,   // index the related nodes' names
+    TextIndexRelatedContent = false,      // true indexes their text as well
+    TextIndexRecursiveLevelLimit = 1,     // how far related content is followed
+    Facet = true)]                        // facets are opt-in for relations
+EventsAtVenue.Events Events { get; }
 ```
 
 ---
 
 ## 10. Choosing between relation, reference and embedded
 
-This is the decision you will make most often. The short version:
+This is the modelling choice you make most often.
 
 | | **Embedded** | **Reference** | **Relation** |
 |---|---|---|---|
-| Identity | none — owned by parent | target is an independent node | both sides are independent nodes |
-| Direction | n/a | one-way | bidirectional, automatic |
+| Identity | none: owned by the parent | the target is a node | both ends are nodes |
+| Direction | n/a | one way | both ways, automatic |
 | Reverse lookup | n/a | no | yes, indexed |
 | Traversable (`Traverse`, `ShortestPath`) | no | no | yes |
 | Filter by target | no | yes, with `Indexed = true` | yes, `WhereRelates` |
-| Order preserved | yes | `References<T>`: yes | **yes, per side** — and reorderable, see [§9.1](#91-relation-lists-are-ordered) |
-| Duplicates | yes | `References<T>`: yes | no — relating an existing pair throws |
-| Cost to change | rewrites parent node | rewrites parent node | index update, no node rewrite |
-| Lifecycle | dies with parent | independent | independent |
+| Order kept | yes | `References<T>`: yes | yes, per end, and reorderable ([§9.1](#91-relation-lists-are-ordered)) |
+| Duplicates | yes | `References<T>`: yes | no: relating an existing pair throws |
+| Cost of a change | rewrites the parent | rewrites the parent | an index update, no node rewrite |
+| Lifetime | dies with the parent | independent | independent |
 
 **Decision guide**
 
-- The child has no meaning outside the parent, and you never query it independently → **embedded**.
-- You need the **same target more than once**, and you never need the reverse lookup →
-  **`References<T>`**. Note that ordering by itself is *not* a reason to pick this: relation lists
-  are ordered too, and come with reorder operations that references do not have.
-- You point at one thing, cheaply, and never ask "what points at me?" → **`Reference<T>`**.
-- You need reverse navigation, traversal, relation filters, relation facets, a curated order you can
-  rearrange, or referential bookkeeping → **relation**. When in doubt, this is the right default.
+- The data means nothing outside its parent, and you never query it on its own: **embedded**.
+- You need the same target more than once, and never the reverse lookup: **`References<T>`**. Order
+  alone is no reason to choose it: relation lists are ordered too, and can be reordered.
+- You point at one thing, cheaply, and never ask "what points at me?": **`Reference<T>`**.
+- You need reverse navigation, traversal, relation filters or facets, or a hand-curated order:
+  **relation**. When in doubt, choose a relation.
 
-Applied to the running example:
+In the running example:
 
-- `Venue.Hours` → embedded. Opening hours are meaningless without their venue.
-- `Event.Cover` → `Reference<IMediaAsset>`. One-way pointer; nobody asks "which events use this
-  image?" from the image side.
-- `Event.Sponsors` → `References<IOrganizer>`. The same organizer can appear twice at different
-  billing tiers, and we never ask an organizer for its sponsored events from that property. Order
-  matters here, but that alone would not decide it — a relation would give ordering too, plus
-  reorder operations; **duplicates are what rule a relation out**.
-- `Event ↔ Venue`, `Event ↔ Attendee` → relations. Both directions are navigated constantly, and a
-  venue's event list is curated by hand — which the relation's stored order handles for free.
+- `IVenue.Hours` is embedded: opening hours mean nothing without their venue.
+- `IEvent.Cover` is a `Reference<IMediaAsset>`: nobody asks an image which events use it.
+- `IEvent.Sponsors` is a `References<IOrganizer>`: one organizer can appear twice, at different
+  billing tiers. The duplicates rule out a relation.
+- Event ↔ venue and event ↔ attendee are relations: both directions are read all the time, and a
+  venue's events are ordered by hand.
 
 ### How an editor shows them: `Display`
 
-All three can say how an editing interface, such as the Relatude CMS, shows the nodes they hold, with
-`Display` on `[RelationProperty]`, `[ReferenceProperty]`, `[ReferencesProperty]`, `[EmbeddedProperty]`
-or `[EmbeddedMapProperty]`:
+`Display` says how an editing interface, such as the Relatude CMS, shows the nodes a property holds.
+It goes on `[RelationProperty]`, `[ReferenceProperty]`, `[ReferencesProperty]`, `[EmbeddedProperty]`
+and `[EmbeddedMapProperty]`:
 
 ```csharp
+using Relatude.DB.Datamodels.Properties;   // DisplayMode
+
 [RelationProperty(Display = DisplayMode.Table)]
-public EventsAtVenue.Events Events { get; }
+EventsAtVenue.Events Events { get; }
 
 [ReferencesProperty(Indexed = true, Display = DisplayMode.Cards)]
 References<IOrganizer> Sponsors { get; }
@@ -1673,29 +1439,30 @@ References<IOrganizer> Sponsors { get; }
 EmbeddedMap<string, OpeningHours> Hours { get; }
 ```
 
-`DisplayMode` is in `Relatude.DB.Datamodels.Properties`, beside `IncludeTypeOptions`:
-
 | Value | Shown as |
 |---|---|
-| `List` | a list of the nodes: the default, and what an editor shows when nothing is said |
+| `List` | a list of the nodes; the default |
 | `Table` | rows with columns, paged |
-| `Inline` | each node as a form of its own that opens in place |
-| `Cards` | a card of information for each node |
+| `Inline` | each node as its own form, opened in place |
+| `Cards` | a card for each node |
 | `Thumbnail` | the type's icon and the node's first picture |
+| `Pills` | a pill with each node's name |
+| `Dropdown` | a drop-down to choose nodes from; not for embedded nodes |
 
-It says nothing to the store. Like a type's icon it is left out of the store's checksum, so changing
-it rebuilds no state and no index. The model keeps it as `Display` on `RelationPropertyModel`,
-`ReferencePropertyModel`, `ReferencesPropertyModel` and `EmbeddedPropertyModel`, where an application
-reads it; the datamodel editor offers it as a choice on those properties, and on a type from compiled
-code saves it as an override of the database, on the type that declares the property
+The store ignores `Display`, so changing it rebuilds nothing. An application reads it from the
+property's model (`RelationPropertyModel.Display` and the like). The admin UI's datamodel editor can
+change it; for a type from compiled code, the change is saved as an override in the database
 ([§3.1](#31-overriding-attributes)).
 
 ---
 
 ## 11. The complete example model
 
-Here is the whole running domain in one place. Everything in Part II and Part III queries this
-model.
+Here is the whole running domain in one place. Parts II and III query this model.
+
+Two details follow from [§4](#4-marker-properties). Names are ordinary properties marked
+`DisplayName = true`, so you set, index and query them like any other. `Slug` is the node's address,
+so it is read-only here: give a node its slug with `UpdateAddress`.
 
 ```csharp
 using Relatude.DB.Common;
@@ -1707,26 +1474,20 @@ namespace VenueApp.Models;
 public enum EventStatus { Draft = 0, Published = 1, SoldOut = 2, Cancelled = 3 }
 public enum VenueKind   { Indoor = 0, Outdoor = 1, Hybrid = 2 }
 
-// ────────────────────────────────────────────────────────────────────────────
-//  Node types
-// ────────────────────────────────────────────────────────────────────────────
+// ── Node types ───────────────────────────────────
 
 public interface IOrganizer {
     Guid Id { get; set; }
     NodeMeta Meta { get; }
 
-    [DisplayNameProperty]
-    [StringProperty(Indexed = true, MaxLength = 200, IndexedByWords = true)]
+    [StringProperty(Indexed = true, MaxLength = 200, IndexedByWords = true, DisplayName = true)]
     string Name { get; set; }
 
-    [StringProperty(StringType = StringValueType.Email, UniqueValues = true)]
+    [StringProperty(UniqueValues = true, IgnoreDuplicateEmptyValues = true)]   // unique, but may be empty
     string ContactEmail { get; set; }
 
-    [AddressProperty]
-    [StringProperty(Indexed = true, UniqueValues = true, RegularExpression = @"^[a-z0-9-]+$")]
-    string Slug { get; set; }
-
-    [CreatedUtcProperty] DateTime CreatedUtc { get; set; }
+    [AddressProperty]    string Slug { get; }
+    [CreatedUtcProperty] DateTime CreatedUtc { get; }
 
     OrganizerEvents.Events Events { get; }
 }
@@ -1735,13 +1496,10 @@ public interface IVenue {
     Guid Id { get; set; }
     NodeMeta Meta { get; }
 
-    [DisplayNameProperty]
-    [StringProperty(Indexed = true, IndexedByWords = true, PrefixSearch = true)]
+    [StringProperty(Indexed = true, IndexedByWords = true, PrefixSearch = true, DisplayName = true)]
     string Name { get; set; }
 
-    [AddressProperty]
-    [StringProperty(Indexed = true, UniqueValues = true)]
-    string Slug { get; set; }
+    [AddressProperty] string Slug { get; }
 
     [HtmlProperty(IndexedByWords = true, IndexedBySemantic = true)]
     string Description { get; set; }
@@ -1767,17 +1525,17 @@ public interface IVenue {
     [EmbeddedMapProperty(KeyProperty = nameof(OpeningHours.DayCode))]
     EmbeddedMap<string, OpeningHours> Hours { get; }
 
-    VenueTree.Parent        Parent { get; }   // e.g. a hall inside a complex
-    VenueTree.Children      Halls  { get; }
-    EventsAtVenue.Events    Events { get; }
+    VenueTree.Parent     Parent { get; }   // e.g. the complex a hall is in
+    VenueTree.Children   Halls  { get; }
+    EventsAtVenue.Events Events { get; }
 }
 
 public interface IEvent {
     Guid Id { get; set; }
     NodeMeta Meta { get; }
 
-    [DisplayNameProperty]
-    [StringProperty(Indexed = true, IndexedByWords = true, IndexedBySemantic = true, PrefixSearch = true)]
+    [StringProperty(Indexed = true, IndexedByWords = true, IndexedBySemantic = true, PrefixSearch = true,
+                    DisplayName = true)]
     string Title { get; set; }
 
     [HtmlProperty(IndexedByWords = true, IndexedBySemantic = true)]
@@ -1805,20 +1563,19 @@ public interface IEvent {
     [ReferencesProperty(Indexed = true)]
     References<IOrganizer> Sponsors { get; }
 
-    EventsAtVenue.Venue    Venue     { get; }
-    OrganizerEvents.Host   Host      { get; }
-    Attendance.Attendees   Attendees { get; }
+    EventsAtVenue.Venue  Venue     { get; }
+    OrganizerEvents.Host Host      { get; }
+    Attendance.Attendees Attendees { get; }
 }
 
 public interface IAttendee {
     Guid Id { get; set; }
     NodeMeta Meta { get; }
 
-    [DisplayNameProperty]
-    [StringProperty(Indexed = true, IndexedByWords = true)]
+    [StringProperty(Indexed = true, IndexedByWords = true, DisplayName = true)]
     string FullName { get; set; }
 
-    [StringProperty(StringType = StringValueType.Email, Indexed = true, UniqueValues = true)]
+    [StringProperty(Indexed = true, UniqueValues = true)]
     string Email { get; set; }
 
     [GeoCoordinateProperty(Indexed = true)]
@@ -1832,17 +1589,14 @@ public interface IMediaAsset {
     Guid Id { get; set; }
     NodeMeta Meta { get; }
 
-    [DisplayNameProperty]
-    [StringProperty(Indexed = true)]
+    [StringProperty(Indexed = true, DisplayName = true)]
     string FileName { get; set; }
 
     [FileProperty]
     FileValue File { get; set; }
 }
 
-// ────────────────────────────────────────────────────────────────────────────
-//  Embedded types
-// ────────────────────────────────────────────────────────────────────────────
+// ── Embedded types ───────────────────────────────
 
 public class OpeningHours {
     public Guid Id { get; set; }
@@ -1851,9 +1605,7 @@ public class OpeningHours {
     public TimeSpan Closes { get; set; }
 }
 
-// ────────────────────────────────────────────────────────────────────────────
-//  Relations
-// ────────────────────────────────────────────────────────────────────────────
+// ── Relations ────────────────────────────────────
 
 public class EventsAtVenue : OneToMany<IVenue, IEvent> {
     public class Venue  : One { }
@@ -1883,32 +1635,27 @@ public class VenueTree : OneToMany<IVenue, IVenue> {
 
 ### 11.1 The same model with facet interfaces
 
-The model above declares everything directly on each type, which keeps each one readable in
-isolation. In a real project you would factor the cross-cutting properties into facet interfaces,
-as in [§2](#2-your-first-node-type). Notice how much duplication disappears — and what it buys you
-at query time.
+The model above declares everything on each type, so each type reads on its own. In a real project
+you would move the shared properties into facet interfaces, as in [§2](#2-your-first-node-type). Most
+of the repetition goes, and queries across types get simple.
 
-One deliberate change along the way: `Venue.Name`, `Event.Title` and `Attendee.FullName` all become
-a single `INamedNode.Title`. Unifying the name is the price of the shared facet, and it is usually
-worth paying — it is what makes a single search box and a single "recently changed" feed possible.
+One change comes with it: the names (`Name`, `Title`, `FullName`, `FileName`) become one
+`INamedNode.Title`. A shared name is worth it: it is what makes one search box and one "recently
+changed" feed possible. The enums, `OpeningHours` and the relation classes stay as above.
 
 ```csharp
-// ── Facets ──────────────────────────────────────────────────────────────────
+// ── Facets ───────────────────────────────────────
 
 public interface INamedNode {
     Guid Id { get; set; }
     NodeMeta Meta { get; }
 
-    [DisplayNameProperty]
-    [StringProperty(Indexed = true, IndexedByWords = true, PrefixSearch = true)]
+    [StringProperty(Indexed = true, IndexedByWords = true, PrefixSearch = true, DisplayName = true)]
     string Title { get; set; }
 
-    [AddressProperty]
-    [StringProperty(Indexed = true, UniqueValues = true)]
-    string Slug { get; set; }
-
-    [CreatedUtcProperty] DateTime CreatedUtc { get; set; }
-    [ChangedUtcProperty] DateTime ChangedUtc { get; set; }
+    [AddressProperty]    string Slug { get; }
+    [CreatedUtcProperty] DateTime CreatedUtc { get; }
+    [ChangedUtcProperty] DateTime ChangedUtc { get; }
 }
 
 public interface IDescribed {
@@ -1929,7 +1676,7 @@ public interface ITagged {
     string[] Tags { get; set; }
 }
 
-// ── Composed node types ─────────────────────────────────────────────────────
+// ── Composed node types ──────────────────────────
 
 public interface IVenue : INamedNode, IDescribed, ILocatable, ITagged {
     [IntegerProperty(Indexed = true, MinValue = 0)] int Capacity { get; set; }
@@ -1946,16 +1693,16 @@ public interface IVenue : INamedNode, IDescribed, ILocatable, ITagged {
 }
 
 public interface IEvent : INamedNode, IDescribed, ITagged {
-    [DateTimeProperty(Indexed = true)]  DateTime StartsUtc { get; set; }
-    [TimeSpanProperty(Indexed = true)]  TimeSpan Duration { get; set; }
-    [IntegerProperty(Indexed = true)]   EventStatus Status { get; set; }
+    [DateTimeProperty(Indexed = true)]                          DateTime StartsUtc { get; set; }
+    [TimeSpanProperty(Indexed = true, MaxValue = "1.00:00:00")] TimeSpan Duration { get; set; }
+    [IntegerProperty(Indexed = true)]                           EventStatus Status { get; set; }
 
     [DecimalProperty(Indexed = true, MinValue = "0", DefaultValue = "0",
                      FacetRangePowerBase = 2.0, FacetRangeCount = 6)]
     decimal Price { get; set; }
 
-    [ReferenceProperty(Indexed = true)]  Reference<IMediaAsset>  Cover    { get; }
-    [ReferencesProperty(Indexed = true)] References<IOrganizer>  Sponsors { get; }
+    [ReferenceProperty(Indexed = true)]  Reference<IMediaAsset> Cover    { get; }
+    [ReferencesProperty(Indexed = true)] References<IOrganizer> Sponsors { get; }
 
     EventsAtVenue.Venue  Venue     { get; }
     OrganizerEvents.Host Host      { get; }
@@ -1963,7 +1710,7 @@ public interface IEvent : INamedNode, IDescribed, ITagged {
 }
 
 public interface IAttendee : INamedNode, ILocatable {
-    [StringProperty(StringType = StringValueType.Email, Indexed = true, UniqueValues = true)]
+    [StringProperty(Indexed = true, UniqueValues = true)]
     string Email { get; set; }
 
     Attendance.Events Attending { get; }
@@ -1971,7 +1718,7 @@ public interface IAttendee : INamedNode, ILocatable {
 }
 
 public interface IOrganizer : INamedNode, IDescribed {
-    [StringProperty(StringType = StringValueType.Email, UniqueValues = true)]
+    [StringProperty(UniqueValues = true, IgnoreDuplicateEmptyValues = true)]
     string ContactEmail { get; set; }
 
     OrganizerEvents.Events Events { get; }
@@ -1982,30 +1729,30 @@ public interface IMediaAsset : INamedNode {
 }
 ```
 
-`Id`, `Meta`, `Title`, `Slug` and the timestamps are now written **once**, in `INamedNode`, and the
-whole model inherits them. `Location` is written once and shared by venues and attendees.
+`Id`, `Meta`, `Title`, `Slug` and the timestamps are now written once, in `INamedNode`, and every
+type inherits them. `Location` is written once and shared by venues and attendees.
 
-And the payoff at query time:
+The payoff comes at query time:
 
 ```csharp
-// One search box across venues, events, organizers and assets
+// one search box across venues, events, organizers and assets
 db.Query<INamedNode>().WhereSearch("nordic jazz", semanticRatio: 0.5).Execute();
 
-// One map query across venues and attendees
+// one map query across venues and attendees
 db.Query<ILocatable>().Where(x => x.Location.IsWithin(oslo, 5_000)).Execute();
 
-// One tag cloud across venues and events
+// one tag cloud across venues and events
 db.Query<ITagged>().Facets().AddValueFacet(x => x.Tags).Execute();
 
-// Global "recently changed" feed
+// one "recently changed" feed across everything
 db.Query<INamedNode>().OrderByDescending(x => x.ChangedUtc).Page(0, 50).Execute();
 ```
 
-Each of those is a single indexed query. Without shared facet interfaces they would be one query
-per concrete type, merged and re-sorted in memory — and re-merged every time you add a type.
+Each of these is a single indexed query. Without the facet interfaces, each would be one query per
+type, merged and sorted again in memory, and changed every time you add a type.
 
-Watch the [two constraints](#two-constraints-to-design-around): because `INamedNode` declares
-`Title`, no other facet may declare `Title` too, and no composed type may redeclare it.
+Mind the [two constraints](#two-constraints-to-design-around): because `INamedNode` declares
+`Title`, no other facet may declare a `Title`, and no composed type may declare it again.
 
 ---
 
@@ -2015,227 +1762,175 @@ Watch the [two constraints](#two-constraints-to-design-around): because `INamedN
 
 ```csharp
 // Program.cs
-var builder = WebApplication.CreateBuilder(args);
+using Relatude.DB.NodeServer;   // RelatudeDBContext
 
+var builder = WebApplication.CreateBuilder(args);
 builder.AddRelatudeDB(options => {
-    // options.FileConverters.Add(new SkiaImageConverter());
-    // options.FileConverters.Add(new FFMpegVideoConverter());
+    // file converters, folders and callbacks go here
 });
 
 var app = builder.Build();
-
 app.MapGet("/", (RelatudeDBContext ctx) => $"{ctx.Database.Count()} nodes.");
-
-app.UseRelatudeDB();   // mounts the admin UI at /relatude.db
+app.UseRelatudeDB();   // starts the server and mounts the admin UI at /relatude.db
 app.Run();
 ```
 
-`AddRelatudeDB` lives in the default global namespace — no `using` required. `RelatudeDBContext` is
-injected by DI; `ctx.Database` is the `NodeStore`, which is the API surface for everything below.
+`AddRelatudeDB` and `UseRelatudeDB` are in the global namespace. Inject `RelatudeDBContext` wherever
+you need the database: `ctx.Database` is the `NodeStore` that the rest of this manual works with. The
+options are described in [Options and events in Program.cs](#options-and-events-in-programcs).
 
 ### relatude.db.json
 
-Everything that is *not* code lives in `relatude.db.json`: storage backends, index engines, file
-stores, AI providers, admin credentials and datamodel sources. It sits in `relatude.settings/`
-below the root data folder — `ServerOptions.DefaultDataFolderPath` resolved against the app's
-content root, so by default `relatude.settings/relatude.db.json` in the app's own folder, with
-`relatude.data/` (the data) and `relatude.data.temp/` (scratch, emptied at every start) beside
-`relatude.settings/`. Relative paths in the file still resolve against the root data folder, not
-against the folder the file is in. The Web SDK publishes the file like any other `.json` in the
-project. The same folder holds the other files every installation shares: the definitions of custom
-logs ([§32.1](#321-defining-a-log)) and the shared datamodel overrides
-([§3.1](#31-overriding-attributes)). The folder is part of the application, kept in source control and
-deployed with it. `relatude.data/` and `relatude.data.temp/` are the opposite: they belong to the
-installation, so they are never committed — a [typical `.gitignore`](https://github.com/Relatude/Relatude.DB/blob/main/docs/.gitignore) leaves them out — and
-the project file excludes them, so that a publish does not deploy them either.
-[§12.2](#122-what-goes-where-source-control-deployment-and-appsettings) sets out what goes where, and
-what stays with an installation.
+Everything that is not code goes in `relatude.settings/relatude.db.json`: the databases, where they
+keep their data, the index engines, file stores, AI providers, the admin login and where the
+datamodel comes from. `relatude new` and `relatude init` write the file for you
+([§31](#31-the-command-line-tool)). If it is missing, the server creates one at start that loads the
+bundled demo model. A store full of `Relatude.DB.Demo.Models` types means the file was never set up.
 
-**Older versions kept the file in the root data folder itself, and for a while in
-`relatude.settings/db/`.** At its first start the server moves such a file into `relatude.settings/`
-— the text as it is, comments and all — and says so in the start-up log. A move that fails (a
-read-only deployment, a lock) does not stop the start: the file is read and written where it is, a
-warning says why, and the next start tries again. When an older place has a file as well, only
-`relatude.settings/relatude.db.json` is read and the start-up log warns about the other one; delete
-it once anything in it that still matters is in the new file.
+`relatude.settings/` sits in the *root data folder*. That is the app's content root, unless
+`ServerOptions.DefaultDataFolderPath` names another folder. Relative paths in the file resolve
+against the root data folder, not against `relatude.settings/`.
 
-**If the file is missing it is created for you, from a default that points at the bundled demo
-model.** A store full of `Relatude.DB.Demo.Models` types means exactly that: the file was never
-configured. The admin UI edits the same file and rewrites it wholesale, so comments in a
-hand-written file survive being read but not being saved from the UI.
+```text
+MyApp/                    the content root and the root data folder
+├── relatude.settings/    the settings: part of the application, committed and deployed
+│   └── relatude.db.json
+├── relatude.data/        the database: log, indexes, files; never committed or deployed
+└── relatude.data.temp/   scratch space, emptied at every start
+```
 
-One server holds N containers (databases); each container names the storage it uses by id:
+`relatude.settings/` also holds the custom log definitions ([§32.1](#321-defining-a-log)) and the
+shared datamodel overrides ([§3.1](#31-overriding-attributes)).
+[§12.2](#122-what-goes-where-source-control-deployment-and-appsettings) shows the whole layout and
+what to commit.
+
+At every start, three more layers are merged over the file, in this order:
+
+1. `relatude.db.overrides.json`, where the settings pages of the admin UI save their changes. They
+   never write `relatude.db.json` itself
+   ([Changes made in the admin UI](#changes-made-in-the-admin-ui-relatudedboverridesjson)).
+2. The `RelatudeDB` configuration section: appsettings, environment variables and user secrets. This
+   is where secrets such as `MasterPassword`, `TokenEncryptionSecret` and API keys belong
+   ([Overriding settings from configuration](#overriding-settings-from-configuration)).
+3. The settings callbacks in `Program.cs`, such as `OnServerSettingsInit`.
+
+A typical file, with one database on local disk:
 
 ```jsonc
 {
-  "MasterUserName": "admin",           // lowercase — see below
-  "MasterPassword": "…",               // plain text; prefer injecting these, see OnServerSettingsInit
-  "TokenEncryptionSecret": "…",        // without it, logins do not survive a restart
-  "DefaultStoreId": "8f6b…",           // which container ctx.Database resolves to
-  "DBAdminUIUrlPath": "/relatude.db",  // overrides the argument passed to UseRelatudeDB()
-
+  "MasterUserName": "admin",                  // the password comes from configuration
+  "DefaultStoreId": "8f6b…",                  // the database ctx.Database returns
   "ContainerSettings": [
     {
       "Id": "8f6b…",
       "Name": "MyDatabase",
       "AutoOpen": true,
-      "WaitUntilOpen": false,          // true blocks startup until the store is open
-
-      "IOSettings": [                  // storage backends this container may use
+      "IOSettings": [                         // storage backends, referred to by Id
         { "Id": "1a2b…", "Name": "Local disk", "IOType": "LocalDisk", "Path": "relatude.data" }
       ],
-      "IoDatabase": "1a2b…",           // the transaction log — the source of truth
-      "IoIndexes": null,               // persisted index files; falls back to IoDatabase
+      "IoDatabase": "1a2b…",                  // the transaction log: the source of truth
       "IoBackup": "1a2b…",
       "IoLog": "1a2b…",
-      "AISettings": null,              // per-database AI provider; required for semantic search
-
-      "FileStoreSettings": [           // a new installation's: one copy per content, SHA256
+      "FileStoreSettings": [                  // where uploaded files go
         { "Id": "c4d5…", "IoProviderId": "1a2b…", "StoreType": "MultiFile", "MultiFileFolderDepth": 2,
           "SameHashSameFile": true, "HashAlgorithm": "SHA256" }
       ],
-
-      "DatamodelSources": [ /* below */ ],
-      "LocalSettings": { /* the engine knobs: index engines, flushing, caches, backups */ }
+      "DatamodelSources": [                   // where the node types come from
+        { "Id": "7e1c…", "Name": "App", "Type": "CompiledTypes", "Namespace": "MyApp.Models" }
+      ],
+      "LocalSettings": {                      // the engine: index engines, caches, backups…
+        "EnableTextIndexByDefault": true,
+        "DefaultFileStore": "c4d5…"
+      }
     }
   ]
 }
 ```
 
-An `IOSettings` entry is a storage backend (`Memory`, `LocalDisk` or `AzureBlobStorage`); the `Io…`
-fields point at one by id. That indirection is what lets the log, the indexes and the file bytes
-live in different places without repeating connection details.
-
-`LocalSettings` is the per-store engine configuration — the index engines (`ValueIndexes`,
-`TextIndexes`, `VectorIndexes` and the `Default…Index` ids that pick among them), the disk-flush
-policy, cache sizes, auto-backup retention,
-`EnableTextIndexByDefault`, `DefaultCultureCode`, and so on. Every field has a working default;
-leave it out until you need it. [§12.1](#121-every-setting-in-relatudedbjson) documents every key in
-the file, object by object, with its default.
-
-`AISettings` configures the container's own AI provider (embeddings and completions) and its
-semantic index. `TypeName` picks the provider; all of them are dependency-free implementations that
-ship inside `Relatude.DB.Server` itself (assembly `Relatude.DB.Providers`), so there is nothing extra
-to install: `AzureAIProvider` (Azure OpenAI, the default) with
-`ServiceUrl` as the resource endpoint and deployment names in `CompletionModel`/`EmbeddingModel`;
-`OpenAIProvider` for OpenAI or any OpenAI-compatible endpoint (`ServiceUrl` defaults to
-`https://api.openai.com/v1` — point it at Mistral, Groq, Ollama or similar); and
-`AnthropicAIProvider` for Claude completions, which pairs with an OpenAI-compatible
-`EmbeddingServiceUrl`/`EmbeddingApiKey`/`EmbeddingModel` since Anthropic has no embeddings API.
-There is also `RelatudeServices`, which needs no account with an AI vendor at all: it calls the
-hosted Relatude AI service, which holds the vendor credentials and meters every call against your
-Relatude license ([§35](#35-relatude-services)). On a server it pays with the installation's own API
-key, so `ApiKey` is only needed in a store built from code, and `EmbeddingModel` /
-`CompletionModel` are model keys the service publishes rather than vendor model names. The license
-has to carry the credit account each kind of call is charged to, with a balance: `ai_embeddings` for
-embeddings and `ai_completion` for completions (no feature is needed). A refusal (no such account, no
-credits, too many calls) comes back as an error naming the reason.
-The vector index engine itself is not an AI setting: it is chosen in `LocalSettings` like the
-other index kinds (`VectorIndexes` and `DefaultVectorIndex`, see below), and only exists on a
-container that has `AISettings`.
+Objects refer to each other by `Id`. A database names its storage backends and file stores by Guid,
+so the log, the index files and the file bytes can live in different places without repeating
+connection details. Most other keys have a working default, so leave out what you do not change.
 
 ### 12.1 Every setting in relatude.db.json
 
-The file is one JSON object, deserialised into `RelatudeDBServerSettings` with case-insensitive
-property names, enums written as names (`"LocalDisk"`, `"Native"`) and `//` comments allowed on read.
-Every field has a working default; omit what you are not changing. The tables below list all of them,
-grouped by the object they sit on, with the default the engine uses when the key is absent.
-
-Two conventions run through the whole file. **Objects are wired together by `Id`**: a container names
-its storage backends and file stores by their Guid rather than repeating connection details, which is
-what lets the log, the index files and the file bytes live in three different places. And **relative
-paths resolve against the root data folder** (`ServerOptions.DefaultDataFolderPath` against the
-content root — the content root itself unless you change it), never against the current directory.
+The file is one JSON object, read into `RelatudeDBServerSettings`. Keys are case-insensitive, enums
+are written as names (`"LocalDisk"`, `"Native"`), and `//` comments are allowed, though trailing
+commas are not. The tables list every key by the object it sits on. The default is the value used
+when the key is left out.
 
 #### Server level
 
-```jsonc
-{
-  "Id": "3f9c...",
-  "Name": "Relatude.DB Server",
-  "MasterUserName": "admin",
-  "MasterPassword": "…",
-  "TokenEncryptionSecret": "…",
-  "DefaultStoreId": "8f6b…",
-  "ContainerSettings": [ /* one entry per database */ ]
-}
-```
-
 | Key | Default | What it does |
 |---|---|---|
-| `Id` | new Guid on first write | Identifies this server. Only meaningful when several servers share settings; changing it re-identifies the server rather than reconfiguring it. |
-| `Name`, `Description` | `"Relatude.DB Server"`, null | Labels, shown in the admin UI. |
-| `DefaultStoreId` | the single container | Which container `RelatudeDBContext.Database` (and therefore `ctx.Database`) resolves to. Set it as soon as you have more than one. |
-| `ContainerSettings` | one demo container | The databases. One server hosts N of them; each is independent — its own datamodel, storage, indexes and files. |
+| `DefaultStoreId` | – | The `Id` of the database `ctx.Database` returns. Required. |
+| `ContainerSettings` | – | The databases, one entry each. Each has its own datamodel, storage, indexes and files. |
+| `Id` | new Guid | Identifies the server. Only matters when several servers share settings. |
+| `Name`, `Description` | null | Labels shown in the admin UI. |
+| `DBAdminUIUrlPath` | `/relatude.db` | The admin UI's path. Overrides the argument to `UseRelatudeDB()`. A change needs a restart of the process. |
+| `InfoUrlPath` | `/-info/` | Where the server serves the bot check its pages carry, and takes their reports ([§35.5](#355-who-is-behind-a-request-ip-lookup)). |
+| `DBSettingsFilePath` | null | The file name the settings pages show as the source of the settings. It does not change which file is read. |
 
-**Authentication.** These govern the admin UI only; they have nothing to do with your application's
+**The admin login.** These keys protect the admin UI. They have nothing to do with your application's
 own users.
 
 | Key | Default | What it does |
 |---|---|---|
-| `MasterUserName` | null | The single admin user name. **Store it lowercase** — the login lowercases the input before comparing. Null means no one can log in ("No master user configured on the server."). |
-| `MasterPassword` | null | Compared verbatim, stored in plain text. Supply it through the `RelatudeDB` configuration section, not this file. |
-| `TokenEncryptionSecret` | null | Key the session cookie is encrypted with. Without it the server generates a random key per process, so every restart invalidates every session. Set it to a long random string, unique per installation. |
-| `NoLoginRequiredForLocalhost` | `true` | A request that really came from a browser on this machine reaches the admin UI with no login at all. This is why it just works in development. "Really came from this machine" is decided narrowly — see below — so this does **not** hold once anything proxies for the server. |
-| `AllowMasterLoginOutsideLocalhost` | `false` | Until this is `true`, both the login endpoint and any existing session cookie are refused from a remote address. Turn it on deliberately, over HTTPS, after setting credentials. |
-| `TokenCookieName` | `"RelatudeDBToken"` | Name of the session cookie. Change it when two apps share a host name. |
-| `TokenCookieMaxAgeInSec` | `864000` (10 days) | Lifetime of a "remember me" cookie, and the age at which any token is rejected. |
-| `TokenCookieSecure` | `true` | `Secure` flag on the cookie. |
-| `TokenCookieSameSite` | `true` | `true` → `SameSite=Strict`, `false` → `None`. |
-| `TokenLockedToIP` | `false` | Bind the token to the IP that created it. Safer, but it logs people out whenever their address changes. |
-| `DBAdminUIUrlPath` | null → `/relatude.db` | Overrides the path passed to `UseRelatudeDB()`. The routes are mapped once at startup, so changing it later only takes effect after a full process restart — the startup log says so when that happens. |
-| `InfoUrlPath` | null → `/-info/` | Where the server serves the bot check its pages carry and takes their reports, which it passes on to the Relatude IP lookup service ([§35.5](#355-who-is-behind-a-request-ip-lookup)). Read at every request. |
-| `DBSettingsFilePath` | null | Present in the settings object but not read by the current build; the settings file path comes from `ServerOptions`. |
+| `MasterUserName` | null | The one admin user. Write it in lowercase: the login lowercases what is typed before comparing. Null means no one can log in. |
+| `MasterPassword` | null | The admin password, compared exactly. Keep it in the `RelatudeDB` configuration section, not in this file. |
+| `TokenEncryptionSecret` | null | The key that encrypts the session cookie. Without it each process makes a random key, so every restart signs everyone out. Use a long random string, unique per installation. |
+| `NoLoginRequiredForLocalhost` | `true` | A browser on the same machine gets into the admin UI without logging in. This is why it just works in development. |
+| `AllowMasterLoginOutsideLocalhost` | `false` | Allow the master login, and its sessions, from other machines. Turn it on only over HTTPS, with credentials set. |
+| `TokenCookieName` | `"RelatudeDBToken"` | The session cookie's name. Change it when two apps share a host name. |
+| `TokenCookieMaxAgeInSec` | `864000` (10 days) | How long a "remember me" cookie lasts. Older tokens are rejected. |
+| `TokenCookieSecure` | `true` | The cookie's `Secure` flag. |
+| `TokenCookieSameSite` | `true` | `true` gives `SameSite=Strict`, `false` gives `None`. |
+| `TokenLockedToIP` | `false` | Tie a session to the IP address that started it. Safer, but users are logged out when their address changes. |
 
-**Relatude Services.** The account an installation may use for hosted AI, imaging, files to text and
-text messages, and for signing in to the admin UI ([§35](#35-relatude-services)). None of it is
-needed: with no `ApiKey`, nothing is charged and nothing is reported.
+A request counts as local only when it comes from a loopback address with no sign of a proxy: no
+forwarding headers, and not hosted behind IIS, Azure App Service or Kubernetes. Behind a reverse proxy
+nobody is local, so you need `MasterUserName`, `MasterPassword` and
+`AllowMasterLoginOutsideLocalhost`, or *Sign in with Relatude Services* (below).
+
+**Relatude Services.** The account an installation uses for hosted AI, imaging, files to text and
+text messages, and for signing in to the admin UI ([§35](#35-relatude-services)). All of it is
+optional: without `ApiKey`, nothing is charged and nothing is reported.
 
 | Key | Default | What it does |
 |---|---|---|
-| `ApiKey` | null | An API key from the license's page at services.relatude.com: all an installation needs to use the hosted services, which charge every call to that license. A secret: keep it in the `RelatudeDB` configuration section, not in this file. |
-| `LicenseKey` | null | The license's id. Not needed: it is looked up from `ApiKey`, and the Relatude Services page saves it beside the key. When the two disagree, the API key's license is the one used. |
-| `AllowLicenseeAdminLogin` | `false` | Adds *Sign in with Relatude Services* to the login page. Anyone with access to the license in the portal gets in; the master login is unaffected. Turning it off ends those sessions at once. |
-| `PublicUrl` | null | The addresses the server is reached on, separated by commas: where a sign-in may send the browser back to. It fills itself in with every https address a signed-in admin uses the admin UI on. Localhost, and addresses approved for the installation in the portal, are accepted as well. |
-| `DisableHeartbeat` | `false` | Stops the installation reporting in ([§35.4](#reporting-in)). Read at each report, so it takes effect without a restart. Not offered on the settings pages. |
-| `ServicesServerUrl` | `https://services.relatude.com` | Where the license server is. Only a self-hosted or test server changes it. |
+| `ApiKey` | null | An API key from the license's page at services.relatude.com. It is all an installation needs to use the hosted services, which charge each call to that license. A secret: keep it in configuration. |
+| `LicenseKey` | null | The license's id. Not needed: it is looked up from `ApiKey`, whose license wins if the two disagree. |
+| `AllowLicenseeAdminLogin` | `false` | Adds *Sign in with Relatude Services* to the login page, for anyone with access to the license. Turning it off ends those sessions at once. |
+| `PublicUrl` | null | The addresses the server is reached on, separated by commas: where a sign-in may return to. Every https address an admin uses is added automatically, and localhost always works. |
+| `DisableHeartbeat` | `false` | Stop the installation reporting in ([Reporting in](#reporting-in)). Applies without a restart. Not on the settings pages. |
+| `ServicesServerUrl` | `https://services.relatude.com` | The license server. Change it only for a self-hosted or test server. |
 
 #### Container level
 
-```jsonc
-{
-  "Id": "8f6b…",
-  "Name": "MyDatabase",
-  "AutoOpen": true,
-  "WaitUntilOpen": false,
-  "IOSettings": [ … ],
-  "IoDatabase": "1a2b…",
-  "FileStoreSettings": [ … ],
-  "DatamodelSources": [ … ],
-  "AISettings": null,
-  "LocalSettings": { … }
-}
-```
-
 | Key | Default | What it does |
 |---|---|---|
-| `Id` | – | The container's identity. `DefaultStoreId` points at it, and it survives renames. |
-| `Name`, `Description` | null | Labels. `Name` is what the CLI's `--store` matches and what the admin UI shows. |
-| `ShortName` | null | A short folder name for the database — letters, digits, `-` and `_` — naming its folder in `relatude.settings/`, its SHARED folder: `relatude.settings/<ShortName>/` holds the definitions of its logs (`logs/`, [§32.1](#321-defining-a-log)) and GraphQL endpoints (`graphql/`, [§33.2](#332-the-definition-file)) and its datamodel overrides (`datamodel.json`, [§3.1](#31-overriding-attributes)). Without one they are kept directly in `relatude.settings/`, which is all an installation with one database needs. Set it in `relatude.db.json`: a short name saved for one installation from the settings page makes it read other SHARED files than the rest, and the settings page and the start-up log say so. Short names are unique, and only one database can be without one; the settings page refuses a clash, and the start-up log warns about one written by hand. A database added on the Databases page while another has none gets a short name made from its name. Changed on the settings page, its files are moved along when the database next opens. |
-| `AutoOpen` | `false` | Open this database when the host starts. Without it the database exists but stays closed until something opens it — usually the admin UI. |
-| `WaitUntilOpen` | `false` | Block startup until the open completes. Off by default, so the app starts immediately and requests arriving during the open get the 503 progress page instead. Turn it on when a failed open should fail the boot. |
-| `IOSettings` | one local-disk entry | The storage backends this container may use. See below. |
-| `IoDatabase` | that entry | Where the append-only transaction log lives — **the source of truth**. Required (or `IoLog`). |
-| `IoDatabaseSecondary` | null | A second log, on other storage. With `LocalSettings.SecondaryBackupLog` it keeps the history a log rewrite would otherwise compact away — which is what `FindOlderVersions` ([§16](#16-older-versions-of-a-node)) reads. |
-| `IoIndexes` | falls back to `IoDatabase` | Where the persisted index engines write. Point it at fast local disk when the log lives on blob storage. |
-| `IoBackup` | same entry | Where backups are written. |
-| `IoLog` | falls back to `IoDatabase` | Where the activity logs, and the logs defined for the database ([§32](#32-logs--recording-what-the-application-does)), are written. |
-| `FileStoreSettings` | `[]` | The file stores holding `FileValue` bytes. See below. |
-| `AISettings` | null | The container's AI provider and semantic index. Required for semantic/vector search. See below. |
-| `ImagingSettings`, `FileToTextSettings`, `TranslationSettings` | null | The image AI, the file reader and the translator behind `db.Services.Imaging`, `db.Services.FileToText` and `db.Services.Translation`. Null on a server is the hosted Relatude service, charged to the license. See [§34](#34-ai-services). |
-| `SMSSettings` | null | The text messages behind `db.Services.SMS`: `TypeName` (empty or `RelatudeServices` for the hosted service, charged to the license; otherwise your own `ISMSProvider`), `ServiceUrl`, `ApiKey`, and `From`, the sender shown on the phone when a call names none. Null means no SMS, and `db.Services.SMS` throws. See [§35](#35-relatude-services). |
-| `DatamodelSources` | the bundled demo model | Where the model comes from — the previous section. |
-| `LocalSettings` | all defaults | The engine knobs. See below. |
+| `Id` | – | The database's identity. `DefaultStoreId` points at it, and it stays when the name changes. |
+| `Name`, `Description` | null | Labels. `Name` is what the admin UI shows and what the CLI's `--store` matches. |
+| `ShortName` | null | Names the database's folder of shared settings, `relatude.settings/<ShortName>/`. Letters, digits, `-` and `_`. See below. |
+| `AutoOpen` | `false` | Open the database when the app starts. Turn it on for the database your code uses, or it stays closed until someone opens it in the admin UI. |
+| `WaitUntilOpen` | `false` | Hold the app's start until the database is open. When off, the app starts at once and requests during the open get a 503 progress page. Turn it on when a failed open should fail the start. |
+| `IOSettings` | – | The storage backends this database can use. See [below](#iosettings--a-storage-backend). |
+| `IoDatabase` | – | The backend that holds the transaction log, the source of truth. Required. |
+| `IoIndexes` | `IoDatabase` | Where the index engines write. Point it at a fast local disk when the log is on blob storage. |
+| `IoBackup` | `IoDatabase` | Where backups are written. |
+| `IoLog` | `IoDatabase` | Where the activity logs and the logs you define ([§32](#32-logs--recording-what-the-application-does)) are written. |
+| `IoDatabaseSecondary` | null | A second log on other storage. With `LocalSettings.SecondaryBackupLog` it keeps the history that a log rewrite removes, which `FindOlderVersions` reads ([§16](#16-older-versions-of-a-node)). |
+| `FileStoreSettings` | none | The file stores that hold `FileValue` bytes. See [below](#filestoresettings--where-file-bytes-live). |
+| `DatamodelSources` | none | Where the node types come from. See [Two ways to register a datamodel](#two-ways-to-register-a-datamodel). |
+| `AISettings` | null | The AI provider for embeddings and completions. Required for semantic search. See [below](#aisettings--embeddings-completions-and-the-vector-index). |
+| `ImagingSettings`, `FileToTextSettings`, `TranslationSettings`, `IPLookupSettings` | null | The providers behind `db.Services.Imaging`, `FileToText`, `Translation` and `IPLookup`. Null means the hosted Relatude service, used with the installation's license ([§34](#34-ai-services)). |
+| `SMSSettings` | null | The provider behind `db.Services.SMS` ([§35](#35-relatude-services)). Null means no SMS, and `db.Services.SMS` throws. |
+| `LocalSettings` | defaults | The engine settings. See [below](#localsettings--the-engine). |
+
+**`ShortName`.** A database's shared settings files are its log definitions, its GraphQL endpoints
+([§33.2](#332-the-definition-file)) and its datamodel overrides. With a short name they live in
+`relatude.settings/<ShortName>/`; without one, directly in `relatude.settings/`. That is all you need
+with one database. Short names must be unique, and only one database can go without one. Set it in
+`relatude.db.json`, so that every installation reads the same folder.
 
 #### `IOSettings` — a storage backend
 
@@ -2243,275 +1938,283 @@ needed: with no `ApiKey`, nothing is charged and nothing is reported.
 { "Id": "1a2b…", "Name": "Local disk", "IOType": "LocalDisk", "Path": "relatude.data" }
 { "Id": "9d8c…", "Name": "Azure",      "IOType": "AzureBlobStorage",
   "BlobConnectionString": "…", "BlobContainerName": "mydb", "LockBlob": true }
-{ "Id": "0000…", "Name": "In memory",  "IOType": "Memory" }
+{ "Id": "5e6f…", "Name": "In memory",  "IOType": "Memory" }
 ```
 
 | Key | Default | What it does |
 |---|---|---|
-| `Id` | – | What the `Io…` fields and `FileStoreSettings.IoProviderId` refer to. |
+| `Id` | – | What the `Io…` keys and `FileStoreSettings.IoProviderId` refer to. |
 | `Name` | null | Label. |
-| `IOType` | `Memory` | `Memory` (nothing survives a restart — tests and demos), `LocalDisk`, or `AzureBlobStorage`. |
-| `Path` | `"~"` | `LocalDisk` only. A leading `~` or a relative path is combined with the content root, and the result must stay under it — a path that escapes the content root is refused. `relatude.data` is the conventional value (older versions used `relatude.db`, which the server renames at start). |
-| `BlobConnectionString` | null | `AzureBlobStorage` only, required. |
-| `BlobContainerName` | null | `AzureBlobStorage` only, required. |
-| `LockBlob` | `false` | Lease every blob with an open stream, so a second process cannot write or delete it - another instance, or the next process of an overlapped recycle. Worth having wherever two instances could overlap. See *Blob leases* below. |
+| `IOType` | `Memory` | `LocalDisk`, `AzureBlobStorage`, or `Memory`, where nothing survives a restart (tests and demos). |
+| `Path` | `"~"` | `LocalDisk` only. Relative to the root data folder, which `~` stands for. `relatude.data` is the usual value. |
+| `BlobConnectionString` | null | `AzureBlobStorage` only. Required. |
+| `BlobContainerName` | null | `AzureBlobStorage` only. Required. |
+| `LockBlob` | `false` | Lease every blob that has an open stream, so no other process can write or delete it. Use it wherever two instances can overlap, such as an overlapped recycle. |
 
-**Blob leases.** A lease lasts 60 seconds and is renewed in the background for as long as the stream is
-open, and it is let go of when the last stream on the blob closes - also when the close fails, or when the
-open fails half-way. A process that dies without letting go therefore blocks its blobs for at most a
-minute: an open that finds a blob leased waits up to 75 seconds for it, and then fails with a
-`FileLockedException`, which the startup restart treats as a lock, not as corruption. Readers of one blob
-in the same process share its lease. A write that finds its lease expired - the process was paused past
-it - renews it and carries on, as long as nobody touched the blob meanwhile; if another process has taken
-it, the write fails instead. Earlier versions leased for ever and could leave such a lease behind,
-which then blocked every open of that blob for good. To release them, open **Files** in the admin UI on
-the storage and press the **Leases** button (the open lock): it lists the leased blobs and breaks every
-lease this server does not hold itself. Break them only when no other instance uses the storage.
+A `LocalDisk` path must stay inside the root data folder, even an absolute one, or the server refuses
+it. To keep the data somewhere else, move the root data folder with
+`ServerOptions.DefaultDataFolderPath`, which moves `relatude.settings/` along with it. Several roles
+can share one backend: inside it, the log, state, backups, logs and indexes each get their own
+folder.
 
-Within a `LocalDisk` folder the engine keeps its own layout — `data/`, `state/`, `backup/`, `logs/` and
-an index folder with one subfolder per engine — so several roles can share one backend without
-colliding.
+**Blob leases.** A lease lasts 60 seconds and is renewed while the stream is open. A process that
+dies without letting go keeps its blobs locked for at most a minute: an open that finds a blob leased
+waits up to 75 seconds, then fails with a `FileLockedException`. A lease that never ends, one taken by
+another tool for example, blocks every open of its blob. To release it, open **Files** in the admin UI
+on that storage and press **Leases**. It lists the leased blobs and breaks the leases this server
+does not hold itself. Break them only when no other instance uses the storage.
 
 #### `FileStoreSettings` — where file bytes live
 
-```jsonc
-{ "Id": "c4d5…", "IoProviderId": "1a2b…", "StoreType": "MultiFile", "MultiFileFolderDepth": 2,
-  "SameHashSameFile": true, "HashAlgorithm": "SHA256" }
-```
-
-A new installation gets this store, named as `LocalSettings.DefaultFileStore`: the server's default
-settings, `relatude new` / `relatude init`, and a database added under **Databases** in the admin UI all
-write one. A store added under **Settings › FileValue providers**, or made in code with `new FileStoreSettings()`
-or `FileStoreSettings.CreateMultiFile(ioProviderId)`, also starts with `SameHashSameFile` on and
-`SHA256`.
+A new database gets one `MultiFile` store that keeps one copy per content and hashes with SHA256, as
+in the example above, and `LocalSettings.DefaultFileStore` names it.
+`FileStoreSettings.CreateMultiFile(ioProviderId)` makes the same store in code.
 
 | Key | Default | What it does |
 |---|---|---|
-| `Id` | – | The id you paste into `[FileProperty(FileStorageProviderId = "…")]`, and what `LocalSettings.DefaultFileStore` names. |
-| `IoProviderId` | – | Which `IOSettings` entry holds the bytes. Must exist, or the open throws. |
-| `StoreType` | `SingleFile` | `SingleFile` packs everything into one append-only container file — fewer file handles, and cheap on blob storage. `MultiFile` writes one file per upload, which is what you want when something outside the engine also reads the files. |
-| `MultiFileFolderDepth` | 2 | `MultiFile` only: how many levels of hashed subfolders to spread files over, so no directory grows unmanageably large. |
-| `SameHashSameFile` | `true`; `false` when absent | `MultiFile` only: keep one copy of any content. An upload with the same hash and length as a file the store already holds is not stored again — its `FileValue` points at the existing copy (`FileId` is then derived from the hash, and `Name` stays the upload's own). Shared files, as every stored file, are only deleted by the unreferenced file cleanup, never by `FileDeleteAsync`. Applies to new uploads; files already stored stay where they are, and stay readable if it is turned off again. Cached conversions (thumbnails, resized images, video) are shared too, per source format. On blob storage a new file is written twice, as it is copied into place. |
-| `HashAlgorithm` | `SHA256`; `MD5` when absent | `MultiFile` only: the hash computed over every upload, stored in `FileValue.Hash` and, with `SameHashSameFile`, what decides that two uploads are the same file. `SHA256` is the safer choice when people who are not trusted can upload, as two different files with the same MD5 can be made on purpose; on processors with SHA instructions (Intel since Ice Lake / Alder Lake, AMD since Zen, ARM64 servers) it is also about three times faster than MD5. Changing it affects new uploads only. |
+| `Id` | – | What `[FileProperty(FileStorageProviderId = "…")]` and `LocalSettings.DefaultFileStore` refer to. |
+| `IoProviderId` | – | The `IOSettings` entry that holds the bytes. It must exist, or the open fails. |
+| `StoreType` | `SingleFile` | `MultiFile` writes one file per upload: use it when anything outside the engine reads the files. `SingleFile` packs all files into one append-only file, which means fewer file handles and is cheap on blob storage. |
+| `MultiFileFolderDepth` | 2 | `MultiFile` only: levels of hashed subfolders, so that no folder grows too large. |
+| `SameHashSameFile` | `false` in JSON | `MultiFile` only: keep one copy of each content. An upload with the same hash and length as a stored file points at that file instead of being stored again. Applies to new uploads. |
+| `HashAlgorithm` | `MD5` in JSON | `MultiFile` only: `SHA256` or `MD5`. The hash stored in `FileValue.Hash`, which also decides whether two uploads are the same file. Use `SHA256` when untrusted users upload, as two different files with the same MD5 can be made on purpose. Applies to new uploads. |
 
-**"When absent"** is what a store gets when its JSON leaves the key out: a store written before these
-two settings existed, in `relatude.db.json`, the overrides file or the `RelatudeDB` configuration
-section, keeps MD5 and one copy per upload rather than changing behaviour on upgrade. A `SingleFile`
-store ignores both: its container format records an MD5 checksum per file and never shares copies.
+A store written in JSON without `SameHashSameFile` and `HashAlgorithm` gets `false` and `MD5`. A
+store made in code, by the CLI or by the admin UI gets `true` and `SHA256`, and writes both keys
+out. So when you add a store by hand, write both keys. A `SingleFile` store ignores them.
 
-Leave the array empty and the store creates an implicit default store on `IoDatabase`: a `MultiFile`
-store, one file per upload, MD5. A database that already runs on it keeps it as it is. Files record the
-store they went into, and the implicit one's id is the empty guid: when a configured store is named as
-`DefaultFileStore` later, new uploads go there and the files already uploaded are still read from the
-implicit store.
+When `DefaultFileStore` is not set, uploads go to an implicit store: `MultiFile` on `IoDatabase`, one
+file per upload, MD5. Each file records the store it went into, and the implicit store's id is the
+empty Guid. If you name a configured store as `DefaultFileStore` later, new uploads go there and the
+earlier files are still read from the implicit store.
 
-##### Moving files to another store, or bringing old files up to date
+##### Moving files to another store
 
-Changing the default store, or turning on `SameHashSameFile` or `SHA256`, only affects new uploads. To
-move the files already stored, use **Storage › File storage › Rewrite files…** in the admin UI. Pick the
-store to write the files into, and how it writes them: the hash (MD5 or SHA256) and **Same hash, same
-file**. Those two are the store's own settings - changing them in the dialog saves them, and the open
-store writes new uploads that way from then on, without a reopen. They cannot be chosen for the implicit
-store, for a `SingleFile` store, or where configuration or code decides them. The job runs in the
-background while the database stays in use, and its progress can be minimized to the top bar like the
-other file jobs.
+Changing `DefaultFileStore`, `SameHashSameFile` or `HashAlgorithm` affects new uploads only. To bring
+the stored files along, use **Storage › File storage › Rewrite files…** in the admin UI. Choose the
+store to write into and how it writes: the hash, and **Same hash, same file**. Those two are saved as
+the store's own settings and apply to new uploads at once. They cannot be chosen for the implicit
+store, for a `SingleFile` store, or where configuration or code sets them. The job runs in the
+background while the database stays in use.
 
-- Every file that belongs in the store - the files of the properties whose uploads go there: the default
-  store, or the store a file property names - is written into it, wherever it is stored now. Files of
-  properties that upload into another store stay where they are. A store nothing uploads into has
-  nothing that belongs in it; make it the default first.
-- A file stored elsewhere gets a copy written by the target store, with that store's hash, layout and,
-  where it keeps one copy per content, sharing. Revisions and embedded objects are included. A stored
-  file that several values share is copied once.
-- The name, image size, meta data and extracted text stay the same, and nothing is re-indexed.
-- Each node is updated under its own lock. A value that changed while its file was being copied (a new
-  upload, say) is left alone.
-- A file **already in the store** is rewritten only where the store would now write it differently: a
-  hash of the other algorithm, or a file not yet kept by its hash. That is how files stored before
-  `SameHashSameFile` or `SHA256` was turned on are brought up to date.
-- **The old copies are left where they are.** Older versions in a node's history still point at them.
-  **Storage › Missing and redundant files** removes them; after that, those older versions can no
-  longer give their files back.
-- A file that cannot be read is reported and its value is left as it was. Running the rewrite again
-  picks up whatever is left, including the rest of a cancelled run.
+- It writes every file that belongs in the store, wherever the file is now: the files of the
+  properties that upload into it, as the default store or by name. Revisions and embedded objects are
+  included. Files of properties that upload elsewhere stay where they are, so a store nothing uploads
+  into has nothing to rewrite: make it the default first.
+- The target store writes each copy with its own hash, layout and sharing. A file that several values
+  share is copied once. Name, image size, meta data and extracted text are kept, and nothing is
+  indexed again.
+- A file already in the store is rewritten only where the store would now write it differently: with
+  another hash, or not yet kept by its hash. So after you change a store's hash or turn on **Same
+  hash, same file**, a rewrite into the same store brings its existing files in line.
+- A value that changes during the copy, a new upload for example, is left alone. A file that cannot
+  be read is reported and its value is left as it was. Running the job again picks up whatever is
+  left, including the rest of a cancelled run.
+- The old copies stay where they are, because older versions in a node's history still point at
+  them. **Storage › Missing and redundant files** removes them; after that, those older versions have
+  no file.
 
-From code, call `DataStoreLocal.RewriteFilesAsync(toStoreId, onProgress, cancellationToken)` for what the
-dialog does, or `RewriteFilesAsync(fromStoreId, toStoreId, …)` to move every file of one store into
-another regardless of where its property uploads. `Guid.Empty` names the implicit store. Both return a
+From code:
+
+```csharp
+var local = (DataStoreLocal)db.Datastore;
+var result = await local.RewriteFilesAsync(toStoreId,
+    (step, percent) => Console.WriteLine($"{percent}% {step}"));
+Console.WriteLine($"{result.ValuesRewritten} rewritten, {result.FailedCount} failed");
+```
+
+`RewriteFilesAsync(fromStoreId, toStoreId, …)` moves every file of one store into another, whatever
+store its property uploads to. `Guid.Empty` names the implicit store. Both return a
 `RewriteFilesResult` with the counts and the values that could not be rewritten.
-`DataStoreLocal.SetFileStoreWriteOptions(storeId, sameHashSameFile, hashAlgorithm)` changes how an open
-`MultiFile` store writes new files; the settings are what it opens with next time.
+`SetFileStoreWriteOptions(storeId, sameHashSameFile, hashAlgorithm)` changes how an open `MultiFile`
+store writes new files; at the next open, the settings decide again.
 
 #### `AISettings` — embeddings, completions and the vector index
 
+`AISettings` gives a database an AI provider for embeddings, which semantic search uses, and for
+completions. `TypeName` picks the provider. All of these are built into `Relatude.DB.Server`, so
+there is nothing extra to install:
+
+| `TypeName` | Provider |
+|---|---|
+| `AzureAI` (or empty) | Azure OpenAI. `ServiceUrl` is the resource endpoint, and the model keys hold deployment names. |
+| `OpenAI` | OpenAI, or any OpenAI-compatible endpoint (Mistral, Groq, Ollama and the like) through `ServiceUrl`. |
+| `Anthropic` | Claude, for completions. Anthropic has no embeddings API, so point `EmbeddingServiceUrl`, `EmbeddingApiKey` and `EmbeddingModel` at an OpenAI-compatible endpoint. |
+| `RelatudeServices` | The hosted Relatude AI service. No vendor account: every call is charged to your Relatude license ([§35](#35-relatude-services)). |
+| `Dummy` | Placeholder vectors: for tests, or to open a database whose real provider is unavailable. |
+| anything else | The assembly-qualified name of your own `IAIProvider` ([§35.2](#352-a-provider-of-your-own)). |
+
 ```jsonc
 "AISettings": {
-  "TypeName": "AzureAIProvider",
+  "TypeName": "AzureAI",
   "ServiceUrl": "https://my-resource.openai.azure.com",
-  "ApiKey": "…",
+  "ApiKey": "…",                                // better in configuration
   "EmbeddingModel": "text-embedding-3-small",
   "CompletionModel": "gpt-4o-mini"
 }
 ```
 
+With `RelatudeServices` on a server, leave `ApiKey` empty: calls are paid with the installation's own
+API key. Its models are names the service publishes, and left empty the service picks its default.
+The license needs a credit account with a balance for each kind of call: `ai_embeddings` for
+embeddings and `ai_completion` for completions.
+
 | Key | Default | What it does |
 |---|---|---|
-| `TypeName` | `AzureAIProvider` | `AzureAIProvider` (Azure OpenAI), `OpenAIProvider` / `OpenAI`, `AnthropicAIProvider` / `Anthropic`, `RelatudeServices` (the hosted Relatude AI service, billed to your Relatude license instead of a vendor account), `DummyAIProvider` (placeholder vectors — useful in tests, and for opening a database whose real provider is unavailable), or the assembly-qualified name of your own `IAIProvider` ([§35.2](#352-a-provider-of-your-own)). All the built-ins ship inside `Relatude.DB.Server`. |
+| `TypeName` | `AzureAI` | The provider, as above. |
 | `Name` | null | Label. |
-| `ServiceUrl` | provider default | Azure: the resource endpoint. OpenAI: defaults to `https://api.openai.com/v1`, so point it at Mistral, Groq, Ollama or any other OpenAI-compatible endpoint. |
-| `ApiKey` | null | Belongs in the `RelatudeDB` configuration section, not in this file. `RelatudeServices` on a server pays with the installation's own API key ([§35](#35-relatude-services)) and needs none here. |
-| `ApiVersion` | provider default | Overrides the `api-version` query parameter, for Azure OpenAI. |
-| `EmbeddingModel` | provider default | Model (Azure: deployment) name used for embeddings. |
-| `EmbeddingServiceUrl`, `EmbeddingApiKey` | fall back to `ServiceUrl` / `ApiKey` | A separate embeddings endpoint. **Required for Anthropic**, which has no embeddings API — point them at an OpenAI-compatible endpoint. |
-| `CompletionModel` | provider default | Model used for completions. |
-| `CompletionModelsByKey` | null | Named alternatives, addressed by `GetCompletionAsync(prompt, modelKey)` — a cheap model and a strong one side by side. |
-| `MaxOutputTokens` | provider default (Anthropic: 4096) | Sent when set. Anthropic requires the parameter, so it is defaulted there. |
-| `ModelDimensions` | model default | The embedding length. It has to match the vectors already in the index: a wrong length is coerced to a placeholder rather than throwing, which shows up as uniformly poor similarity rather than as an error. |
-| `DefaultSemanticRatio` | engine default | The `semanticRatio` used when a query does not name one. `0` pure BM25, `1` pure vector. |
-| `DefaultMinimumSimilarity` | engine default | Similarity floor below which a vector hit is dropped. |
-| `MaxCharsInBatch` | 50 000 | Batching limits for the embeddings API: characters per request, |
-| `MaxCountInBatch` | 500 | paragraphs per request, and |
-| `MaxCharsOfEach` | 20 000 | the point at which a single paragraph is truncated. |
-| `CacheType` | `Native` | Where computed embeddings are cached so a reindex does not pay for them twice: `Native` (a local KV file), `Sqlite`, `Memory`, or `None`. An embedding is kept by its text and the embedding model (`EmbeddingModel`, `ModelDimensions`), so changing the model never hands out the old model's vectors. |
-| `FilePath` | the index folder | Folder for the provider's own files (the embedding cache). Relative paths resolve against the root data folder. |
+| `ServiceUrl` | per provider | The endpoint. Required for Azure. OpenAI defaults to `https://api.openai.com/v1`. |
+| `ApiKey` | null | The vendor's key. Keep it in the `RelatudeDB` configuration section, not in this file. |
+| `ApiVersion` | per provider | Overrides the `api-version` query parameter, for Azure OpenAI. |
+| `EmbeddingModel` | – | The embedding model (on Azure, the deployment name). |
+| `EmbeddingServiceUrl`, `EmbeddingApiKey` | `ServiceUrl`, `ApiKey` | A separate endpoint for embeddings. Required for Anthropic. |
+| `CompletionModel` | – | The completion model (on Azure, the deployment name). Anthropic and `RelatudeServices` have a default. |
+| `CompletionModelsByKey` | null | Named alternatives for `GetCompletionAsync(prompt, modelKey)`, such as a cheap model and a strong one. |
+| `MaxOutputTokens` | not sent (Anthropic: 4096) | The upper bound on a completion's length. |
+| `ModelDimensions` | the first vector's | The embedding length. It must match the vectors in the index: a vector of another length is replaced by a placeholder, with a warning in the log, so search quality drops without an error. |
+| `DefaultSemanticRatio` | 0.5 | The `semanticRatio` of a query that names none. `0` is pure BM25, `1` pure vector search. |
+| `DefaultMinimumSimilarity` | 0.34 | Vector hits below this similarity are dropped. |
+| `MaxCharsInBatch` | 50 000 | Characters per embeddings request. |
+| `MaxCountInBatch` | 500 | Texts per embeddings request. |
+| `MaxCharsOfEach` | 20 000 | Longer texts are cut to this length before embedding. |
+| `CacheType` | `Native` | Where embeddings are cached, so a reindex does not pay for them twice: `Native` (a local file), `Sqlite`, `Memory` or `None`. The cache is keyed by the text and the model, so a new model never gets the old one's vectors. |
+| `FilePath` | the `IoIndexes` folder | The folder for the embedding cache. Relative to the root data folder. |
+
+The vector index engine is not an AI setting. Choose it in `LocalSettings` with `VectorIndexes` and
+`DefaultVectorIndex`, below. Semantic indexes exist only on a database with `AISettings`.
 
 #### `LocalSettings` — the engine
 
-Every key here has a working default. The groups below are ordered by how often you actually touch
-them.
+Every key has a working default. The groups start with the ones you change most often.
 
-**Indexing.** What gets indexed at all, and by which engine. A fresh `relatude.db.json` comes with one
-`Native` value engine and one `Native` text engine, and the defaults pointing at them:
+**Indexing.** What is indexed, and by which engine. Without engines, every index is kept in memory and
+loaded again at each open, which suits small databases only. A new `relatude.db.json` has a `Native`
+value engine and a `Native` text engine, with the defaults pointing at them. This example also keeps
+the vectors on disk:
 
 ```jsonc
 "LocalSettings": {
-  "ValueIndexes":  [ { "Id": "4d1f…", "TypeName": "Native", "MaxMemoryUsageInMb": 256 } ],
-  "TextIndexes":   [ { "Id": "9b2c…", "TypeName": "Native", "MaxMemoryUsageInMb": 256 } ],
-  "VectorIndexes": [ { "Id": "e7a0…", "TypeName": "HNSW",   "MaxMemoryUsageInMb": 512 } ],
+  "EnableTextIndexByDefault": true,
+  "ValueIndexes":  [ { "Id": "4d1f…", "TypeName": "Native" } ],
+  "TextIndexes":   [ { "Id": "9b2c…", "TypeName": "Native" } ],
+  "VectorIndexes": [ { "Id": "e7a0…", "TypeName": "HNSW", "MaxMemoryUsageInMb": 512 } ],
   "DefaultValueIndex":  "4d1f…",
   "DefaultTextIndex":   "9b2c…",
-  "DefaultVectorIndex": "00000000-0000-0000-0000-000000000000"   // the memory index; the HNSW engine is ready to be chosen
+  "DefaultVectorIndex": "e7a0…"
 }
 ```
 
 | Key | Default | What it does |
 |---|---|---|
-| `EnableTextIndexByDefault` | `false` | Include every node type in the BM25 index unless it opts out. Off means only types with `[Node(TextIndex = BoolValue.True)]` and properties with `IndexedByWords = true` are searchable. Turning it on is the usual first change to this file. |
-| `EnableSemanticIndexByDefault` | `false` | The same for the vector index. Costs an embedding call per node, so opt in per property unless you mean it. |
-| `EnableInstantTextIndexingByDefault` | `false` | Index text inside the transaction instead of queueing it. A node is searchable the instant the write returns, at the cost of write latency. |
-| `ValueIndexes` | `null` | The disk engines the value indexes (`Indexed = true`) may run on: an array of `{ "Id", "TypeName", "MaxMemoryUsageInMb" }`. `TypeName` is `Native` (the built-in key-value engine) or `Sqlite` (needs `Relatude.DB.Plugins.Sqlite`), or the full type name of a custom `IValueIndexEngine`. An entry is configuration only until a default points at it. |
-| `TextIndexes` | `null` | The same for the BM25 word indexes: `Native` (the built-in disk text index), `Lucene` (needs `Relatude.DB.Plugins.Lucene`) or `Sqlite` (FTS5 tables; with `Sqlite` value indexes too, one database serves both and every index change commits in one transaction). |
-| `VectorIndexes` | `null` | The same for the semantic indexes: `IVS` (clustered, cheap to build) or `HNSW` (graph, higher recall; the graph always stays resident, so a budget below it is exceeded with a warning). Compared in the [vector index benchmarks](vector-matrix.html). Only used on a container with `AISettings`. |
-| `DefaultValueIndex`, `DefaultTextIndex`, `DefaultVectorIndex` | `00000000-…` | The `Id` of the engine behind every index of that kind that does not say otherwise. The empty guid is the memory index: everything resident, saved with the state snapshot and otherwise rebuilt from the log at every open — fine for small databases, slow for large ones. Changing a default moves every index of that kind, so they are rebuilt at the next open. |
-| `MaxMemoryUsageInMb` (per engine) | `256` | What the engine may spend on caches and buffers. A bound, not an allocation: `0` makes it use as little as it can. Changing it never invalidates the engine's files. |
-| `PersistedValueIndexFolderPath` | beside the index IO provider | Where the disk engines write. Each engine gets its own folder there, named by its `Id`, so two engines of the same type can share one path. |
-| `StateStore` | `Memory` | Where the per node state lives: the guid to id map, each node's position in the log, addresses and relations. `Memory` keeps it resident and saves it as one state snapshot. `Native` keeps it in the built-in key-value engine on disk (a `state` folder below the index folder), committed with every transaction and made durable with every log flush, so memory use is the budget below instead of the node count and opening no longer grows with the number of nodes. Changing it rebuilds the state from the log at the next open. |
-| `StateStoreMaxMemoryUsageInMb` | `256` | The cache budget of the `Native` state store. Not used by `Memory`. |
+| `EnableTextIndexByDefault` | `false` | Put every node type in the BM25 text index unless it opts out. When off, only types with `[Node(TextIndex = BoolValue.True)]` and properties with `IndexedByWords = true` are searchable. Usually the first thing you change. |
+| `EnableSemanticIndexByDefault` | `false` | The same for the vector index. Every node costs an embedding call, so prefer opting in per property. |
+| `EnableInstantTextIndexingByDefault` | `false` | Index text inside the transaction instead of in the background, so a node is searchable as soon as the write returns. Writes get slower. |
+| `CultureSensitiveTextIndex` | `false` | Keep a text index per culture, so a search in a culture finds the words of the version its readers see ([§29](#29-cultures-visibility-and-scoped-stores)). A change rebuilds the text indexes at the next open. |
+| `ValueIndexes` | null | The engines that value indexes (`Indexed = true`) can run on: `{ "Id", "TypeName", "MaxMemoryUsageInMb" }`. `TypeName` is `Native`, `Sqlite` (needs `Relatude.DB.Plugins.Sqlite`) or the full type name of your own `IValueIndexEngine`. An engine is used only when a default names it. |
+| `TextIndexes` | null | The same for the BM25 indexes: `Native`, `Lucene` (needs `Relatude.DB.Plugins.Lucene`) or `Sqlite`. With `Sqlite` for both value and text indexes, one database holds both and each change commits in one transaction. |
+| `VectorIndexes` | null | The same for semantic indexes: `IVS` (clustered, cheap to build) or `HNSW` (a graph kept in memory, higher recall). Compared in the [vector index benchmarks](vector-matrix.html). |
+| `DefaultValueIndex`, `DefaultTextIndex`, `DefaultVectorIndex` | empty Guid | The `Id` of the engine behind every index of that kind. The empty Guid is the memory index. A change rebuilds those indexes at the next open. |
+| `MaxMemoryUsageInMb` (per engine) | 256 | What the engine may use for caches and buffers. A limit, not an allocation: `0` uses as little as possible. |
+| `PersistedValueIndexFolderPath` | the `IoIndexes` folder | Where the engines write, each in a subfolder named by its `Id`. |
+| `StateStore` | `Memory` | Where the per-node state lives: ids, positions in the log, addresses and relations. `Memory` holds it in memory and saves it with the state snapshot. `Native` keeps it on disk, so memory use stays within the budget below however many nodes there are. A change rebuilds the state at the next open. |
+| `StateStoreMaxMemoryUsageInMb` | 256 | The cache budget of the `Native` state store. |
 
 **Culture, access and files.**
 
 | Key | Default | What it does |
 |---|---|---|
-| `DefaultCultureCode` | null | Culture assumed when a node or query names none. Null means culture is not in play. |
-| `DefaultReadAccess` | `Everyone` | ACL group applied to a node whose `ReadAccess` is unset and whose type does not name one: `Everyone`, `Member` or `Admins`. |
-| `DefaultWriteAccess` | `Everyone` | Present in the settings object; not read by the current build — write access comes from the type and the node's metadata. |
-| `DefaultFileStore` | null | Which `FileStoreSettings` entry `FileValue` properties use when they do not name one. Must match an entry, or the open throws. Null means the implicit `MultiFile` store on `IoDatabase`. A new installation names the store it is created with. |
-| `ImageDefaultFormat` | `Jpeg` | Format an adaptive image variant resolves to (`FileFormat.Image`, the default `RequestedFormat`): `Jpeg`, `WebP` or `Png`. A site-wide switch to WebP is this one key — see [§18.1](#181-asset-urls-files-variants-and-deeplinks). |
-| `ImageDefaultQuality` | 85 | Quality used when the request does not name one. Changing this or `ImageDefaultFormat` converts the adaptive variants again as they are next requested, under new URLs ([§18.1](#181-asset-urls-files-variants-and-deeplinks)). |
-| `UrlOptions` | flat `DefaultUrlManager` | The URL manager's configuration — [§18](#18-urls-and-the-url-manager). |
+| `DefaultCultureCode` | null | The culture used when a node or a query names none. Null means cultures are not in play. |
+| `DefaultReadAccess` | `Everyone` | Who may read a node when neither the node nor its type sets read access: `Everyone`, `Member` or `Admins`. |
+| `DefaultFileStore` | null | The `FileStoreSettings` entry that file properties upload to when they name none. It must exist, or the open fails. Null means the implicit store. |
+| `ImageDefaultFormat` | `Jpeg` | The format adaptive image variants resolve to: `Jpeg`, `WebP` or `Png`. Switching a site to WebP is this one key ([§18.1](#181-asset-urls-files-variants-and-deeplinks)). |
+| `ImageDefaultQuality` | 85 | The quality used when a request names none. A change to this or `ImageDefaultFormat` makes new variants, under new URLs, as they are requested. |
+| `UrlOptions` | flat URLs | The URL manager's settings ([§18](#18-urls-and-the-url-manager)). |
+| `Passwords` | null | The keys and hash settings of password properties ([Passwords](#passwords)). Without an `EncryptionKey`, no password can be kept encrypted. |
+| `DefaultWriteAccess` | `Everyone` | Has no effect. |
 
-**Durability.** How eagerly writes reach the disk. The defaults trade a sub-second window for
-throughput; nothing here risks *corruption*, only the last fraction of a second of writes.
+**Durability.** How soon writes reach the disk. The defaults can lose the last second of writes in a
+crash, but never corrupt the database.
 
 | Key | Default | What it does |
 |---|---|---|
-| `FlushDiskOnEveryTransactionByDefault` | `false` | Make every write behave as if `flushToDisk: true` had been passed. Full durability per transaction, at roughly two fsyncs per commit. |
+| `FlushDiskOnEveryTransactionByDefault` | `false` | Treat every write as if `flushToDisk: true` were passed: full durability per transaction, at about two fsyncs per commit. |
 | `AutoFlushDiskInBackground` | `true` | Flush on a timer instead. |
-| `AutoFlushDiskIntervalInSeconds` | 1 | The timer. This is the size of the window a crash can lose. |
-| `DelayAutoDiskFlushIfBusy` | `true` | Skip a scheduled flush while the store is busy, so a burst of writes is not interrupted by fsyncs. |
-| `MaxDelayAutoDiskFlushIfBusyInSeconds` | 15 | The cap on that postponement — a sustained load cannot defer the flush forever. |
-| `ForceDiskFlushAfterActionCountLimit` | 10 000 | Flush regardless once this many actions are unflushed, which bounds the memory the pending writes hold. |
-| `DeepFlushDisk` | `false` | Ask the OS to flush its own write cache too, not just the file handle. Slower, and only meaningful where that cache is not battery-backed. |
-| `BusyThresholdActivitiesLast10Sec` | 100 | What counts as "busy" for the delay above: writes in the last 10 seconds, |
-| `BusyThresholdQueriesLast10Sec` | 1 000 | and queries in the last 10 seconds. |
-| `ThrowOnBadLogFile` | `false` | Fail the open when the transaction log ends mid-record (the normal aftermath of a crash) instead of replaying up to the last good record. Turn it on in tests, never in production. |
-| `ThrowOnBadStateFile` | `false` | The same for a corrupt state snapshot, which is otherwise discarded and rebuilt from the log. |
+| `AutoFlushDiskIntervalInSeconds` | 1 | The timer, and so the most a crash can lose. |
+| `DelayAutoDiskFlushIfBusy` | `true` | Put off a timed flush while the store is busy, so a burst of writes is not interrupted. |
+| `MaxDelayAutoDiskFlushIfBusyInSeconds` | 15 | The longest a flush is put off. |
+| `ForceDiskFlushAfterActionCountLimit` | 10 000 | Flush anyway once this many actions are waiting. |
+| `DeepFlushDisk` | `false` | Also flush the operating system's write cache. Slower, and only matters where that cache has no battery backup. |
+| `BusyThresholdActivitiesLast10Sec` | 100 | How many writes in the last 10 seconds count as busy. |
+| `BusyThresholdQueriesLast10Sec` | 1 000 | How many queries in the last 10 seconds count as busy. |
+| `ThrowOnBadLogFile` | `false` | Fail the open when the log ends mid-record, as it does after a crash, instead of replaying up to the last good record. For tests, never for production. |
+| `ThrowOnBadStateFile` | `false` | Fail the open on a corrupt state snapshot, instead of rebuilding the state from the log. |
 
-**State snapshots.** How fast the next start is. A snapshot lets the engine skip replaying the log
-from the beginning; without one, opening is a full replay. A snapshot written with another datamodel
-is still used, but the users, groups, collections and cultures in it are made again from their nodes
-and relations at the open, as which types those are is the datamodel's to say: a group type renamed
-before its id was pinned, or given another base type, would otherwise leave its groups out until the
-log was replayed in full.
+**State snapshots.** A snapshot lets the next open skip replaying the log from the start.
 
 | Key | Default | What it does |
 |---|---|---|
-| `AutoSaveIndexStates` | `true` | Write index state snapshots in the background. |
-| `AutoSaveIndexStatesIntervalInMinutes` | 120 | How often, at most. |
-| `AutoSaveIndexStatesActionCountLowerLimit` | 50 000 | Do not bother below this many actions since the last snapshot — snapshotting would cost more than the replay it saves. |
-| `AutoSaveIndexStatesActionCountUpperLimit` | 200 000 | Above this many, snapshot regardless of the interval. |
+| `AutoSaveIndexStates` | `true` | Write snapshots in the background. |
+| `AutoSaveIndexStatesIntervalInMinutes` | 120 | At most this often. |
+| `AutoSaveIndexStatesActionCountLowerLimit` | 50 000 | Skip the snapshot when fewer actions than this came since the last one: replaying them is cheaper. |
+| `AutoSaveIndexStatesActionCountUpperLimit` | 200 000 | Write one when more actions than this came, whatever the interval. |
 
-**Backups.** Off by default; the admin UI has a one-click backup either way.
+**Backups.** Off by default. The admin UI takes a backup with one click either way.
 
 | Key | Default | What it does |
 |---|---|---|
 | `AutoBackUp` | `false` | Take backups on a schedule. |
-| `NoHourlyBackUps` | 10 | How many of each generation to keep: the first backup of each of the last N hours, days, weeks, months and years. Older members of a generation are pruned as newer ones arrive, so the set thins out with age instead of being a flat cap. |
-| `NoDailyBackUps` | 10 | |
-| `NoWeeklyBackUps` | 4 | |
-| `NoMonthlyBackUps` | 12 | |
-| `NoYearlyBackUps` | 10 | |
-| `TruncateBackups` | `false` | Compact the log to current state when backing up. Much smaller backups, but they carry no version history — see [§16](#16-older-versions-of-a-node). |
-| `SecondaryBackupLog` | `false` | Also append every transaction to `IoDatabaseSecondary`. The secondary log survives rewrites, so this is what keeps deep history available to `FindOlderVersions`. |
+| `NoHourlyBackUps`, `NoDailyBackUps`, `NoWeeklyBackUps`, `NoMonthlyBackUps`, `NoYearlyBackUps` | 10, 10, 4, 12, 10 | How many backups to keep: the first of each of the last N hours, days, weeks, months and years. So the backups thin out with age. |
+| `TruncateBackups` | `false` | Write backups that hold the current state only. Much smaller, but without version history ([§16](#16-older-versions-of-a-node)). |
+| `SecondaryBackupLog` | `false` | Also append every transaction to `IoDatabaseSecondary`. That log survives rewrites, so it keeps the full history for `FindOlderVersions`. |
 
-A backup is taken once an hour. A generation set to 0 is skipped: with `NoHourlyBackUps` at 0 no hourly
-backups are taken at all, only one a day; with `NoDailyBackUps` at 0 as well, one a week; and so on. With
-all five at 0 there is no automatic backup, and the backups already there are deleted unless marked keep.
+With `AutoBackUp` on, a backup is taken every hour. The finest generation above 0 sets the pace: with
+`NoHourlyBackUps` at 0 a backup is taken once a day, with `NoDailyBackUps` at 0 too, once a week, and
+so on. With all five at 0 there are no automatic backups, and the existing ones are deleted unless
+they are marked keep.
 
-**Log truncation.** The transaction log grows forever unless something compacts it.
+**Log truncation.** The transaction log grows until something rewrites it.
 
 | Key | Default | What it does |
 |---|---|---|
-| `AutoTruncate` | `false` | Rewrite the log to current state on a schedule. Reclaims space; discards version history. |
-| `AutoTruncateIntervalInMinutes` | 240 | How often, at most. |
-| `AutoTruncateActionCountLowerLimit` | 100 000 | Due once this many actions can go (a remove each: a deleted or replaced node or relation), or at the share below, whichever comes first. |
-| `AutoTruncateRedundantPercentageLimit` | 50 | Due once this share of the log can go: each remove and the add before it, against every action in the log (`DataStoreInfo.LogTotalActions`). 0 turns it off. |
-| `AutoTruncateDeleteOldFileOnSuccess` | `false` | Delete the pre-rewrite log once the rewrite has succeeded. Off means it stays until you delete it yourself. |
+| `AutoTruncate` | `false` | Rewrite the log to the current state on a schedule. Frees space, but discards version history. |
+| `AutoTruncateIntervalInMinutes` | 240 | At most this often. |
+| `AutoTruncateActionCountLowerLimit` | 100 000 | Due once this many actions can go: deletes and replacements of nodes and relations. |
+| `AutoTruncateRedundantPercentageLimit` | 50 | Also due once this share of the log can go, whichever comes first. 0 turns this check off. |
+| `AutoTruncateDeleteOldFileOnSuccess` | `false` | Delete the old log after a successful rewrite. When off, it stays until you delete it. |
 
-**Caches.** Sized in gigabytes, and both are upper bounds rather than reservations.
+**Caches.** Sizes in gigabytes. Both are upper limits, not reservations.
 
 | Key | Default | What it does |
 |---|---|---|
-| `NodeCacheSizeGb` | 1 | Budget for cached node data. The single biggest lever on read latency for a database larger than memory. |
-| `SetCacheSizeGb` | 1 | Budget for cached result sets — the id sets behind `Where`, facet counts and relation lookups. This is what makes a repeated faceted query sub-millisecond. |
-| `AutoPurgeCache` | `true` | Trim the caches in the background rather than only under pressure. |
+| `NodeCacheSizeGb` | 1 | Cached node data. The biggest lever on read speed for a database larger than memory. |
+| `SetCacheSizeGb` | 1 | Cached result sets: the id sets behind `Where`, facet counts and relation lookups. They make a repeated faceted query fast. |
+| `AutoPurgeCache` | `true` | Trim the caches in the background, not only under memory pressure. |
 | `AutoPurgeCacheIntervalInMinutes` | 5 | How often. |
-| `AutoPurgeCacheLowerSizeLimitInMb` | 1 | Leave the caches alone below this size. |
+| `AutoPurgeCacheLowerSizeLimitInMb` | 1 | Leave caches smaller than this alone. |
 
 **Background tasks and diagnostics.**
 
 | Key | Default | What it does |
 |---|---|---|
-| `AutoDequeTasks` | `true` | Run the task queue — text indexing, embeddings, file conversion. With it off the work is still queued, but nothing processes it. The CLI turns it off for its own runs. |
-| `TaskQueueSpeed` | 90 | How eagerly the task queues start background work, 0–100 — the *Speed* slider on the Tasks page, which saves it here. Higher means longer rounds of starting batches (1 s at 0, 9.1 s at 90, 10 s at 100), shorter pauses between rounds (5.1 s, 0.6 s, 0.1 s), and carrying on while the database is busier: a round is skipped above 4 × speed² writes a second, so at 0 any write holds the queues back. A started batch always runs to the end, and 0 does not stop the queues — `AutoDequeTasks` does. A change applies at once. |
-| `PersistedQueueStoreEngine` | `Native` | Where the task queue is persisted: `Native`, `Sqlite` or `Memory`. `Memory` loses queued work on restart. |
-| `PersistedQueueStoreFolderPath` | beside the index folder | Where the persisted queue writes. |
-| `TaskConcurrency` | null | How many batches of a task type run at once, for the types that should not run as many as their code asks for: a list of `{ "Id", "TaskType", "MaxConcurrency" }`. Edited under *Settings › Maintenance › Batches at once*. |
-| `Schedules` | null | The timetable of jobs: which one runs when. Edited on *Tasks › Scheduler*. See [§36](#36-background-tasks-and-the-scheduler). |
-| `WriteSystemLogConsole` | `true` | Echo the engine's system log to the console. |
-| `LogRecording` | null | Which activity logs record entries and statistics after a restart — written by *Save and remember changes* on the Activity page. A log not listed starts off. The logs you define keep their own switches in their settings files ([§32](#32-logs--recording-what-the-application-does)). |
-| `MinQueryDurationMsBeforeLogging` | 0 | Leave queries faster than this out of the query log. 0 records every one. |
-| `MaxQueryDurationInSeconds` | 0 | Stop a query still running after this long, with a `TimeoutException`. 0 sets no limit. See [Heavy queries, and stopping one](#heavy-queries-and-stopping-one). |
-| `WarnWhenQueryReadsNodesFromDisk` | 100 000 | Note a query that reads more nodes than this from the log file in the system log, at most once a minute. 0 turns it off. |
-| `DoNotCacheMapperFile` | `false` | Present in the settings object; not read by the current build. |
+| `AutoDequeTasks` | `true` | Run the task queue: text indexing, embeddings, file conversion. When off, tasks are queued but nothing runs them. |
+| `TaskQueueSpeed` | 90 | How eagerly background work starts, 0–100: the *Speed* slider on the Tasks page. Higher runs longer rounds with shorter pauses, and keeps going on a busier database. 0 does not stop the queues; `AutoDequeTasks` does. |
+| `PersistedQueueStoreEngine` | `Native` | Where queued tasks are kept: `Native`, `Sqlite` or `Memory`. `Memory` loses them at a restart. |
+| `PersistedQueueStoreFolderPath` | the `IoIndexes` folder | `Sqlite` only: where the queue's database goes. |
+| `TaskConcurrency` | null | How many batches of a task type may run at once: a list of `{ "Id", "TaskType", "MaxConcurrency" }`. Edited as *Batches at once* in the admin UI. |
+| `Schedules` | null | Which job runs when. Edited on *Tasks › Scheduler* ([§36](#36-background-tasks-and-the-scheduler)). |
+| `WriteSystemLogConsole` | `true` | Echo the system log to the console. |
+| `LogRecording` | null | Which activity logs record after a restart. Written by *Save and remember changes* on the Activity page; a log that is not listed starts off. The logs you define keep their own switches ([§32](#32-logs--recording-what-the-application-does)). |
+| `MinQueryDurationMsBeforeLogging` | 0 | Leave queries faster than this out of the query log. 0 logs every query. |
+| `MaxQueryDurationInSeconds` | 0 | Stop a query still running after this long, with a `TimeoutException`. 0 means no limit. See [Heavy queries, and stopping one](#heavy-queries-and-stopping-one). |
+| `WarnWhenQueryReadsNodesFromDisk` | 100 000 | Warn in the system log, at most once a minute, about a query that reads more nodes than this from the log file. 0 turns it off. |
+| `DoNotCacheMapperFile` | `false` | Has no effect. |
 
 ### Overriding settings from configuration
 
-Any setting in `relatude.db.json` can be overridden from standard ASP.NET configuration. At startup
-the server reads the `RelatudeDB` section — from `appsettings.json`,
-`appsettings.{Environment}.json`, environment variables, user secrets, or any other configuration
-source the host has — and merges it over the loaded file. The section has the same shape as
-`relatude.db.json`; there is no separate schema to learn.
+Any setting in `relatude.db.json` can be overridden from ASP.NET configuration. At startup the server
+reads the `RelatudeDB` section and merges it over the file. The section can come from
+`appsettings.json`, `appsettings.{Environment}.json`, environment variables, user secrets or any other
+configuration source, and it has the same shape as `relatude.db.json`:
 
 ```jsonc
 // appsettings.Development.json
@@ -2525,56 +2228,49 @@ source the host has — and merges it over the loaded file. The section has the 
 }
 ```
 
-The same keys work as environment variables (`RelatudeDB__MasterPassword=…`) and as user secrets
-(`dotnet user-secrets set RelatudeDB:TokenEncryptionSecret …`). That is the intended home for
-credentials: user secrets in development, environment variables or a vault in production, and
-`relatude.db.json` never holds them at all.
+The same keys work as environment variables (`RelatudeDB__MasterPassword=…`) and as user
+secrets (`dotnet user-secrets set RelatudeDB:TokenEncryptionSecret …`). That is where credentials
+belong: user secrets in development, environment variables or a vault in production, never
+`relatude.db.json`.
 
-The merge rules:
+How the section is merged:
 
-- Objects merge key by key; scalars replace. Keys are case-insensitive, and values are coerced to
-  the setting's type (`"true"`, `"2.5"`, enum names).
-- Array elements are matched on `Id` when the overlay element gives one, on position otherwise;
-  unmatched elements are appended. An overlay can change and add, but not remove — and it cannot
-  set a value to null (a JSON null is invisible to the configuration system).
-- A key that matches no setting, a read-only setting, or a value that does not parse is reported as
-  a warning at startup and skipped. A typo never fails the boot, but it is never silent either.
-- The startup log lists every overridden key path — paths only, never values. Overriding `Id` or
-  `DefaultStoreId` re-identifies an object instead of reconfiguring it, and draws an explicit
-  warning.
+- Objects merge key by key, and scalars replace. Keys are case-insensitive, and values are converted
+  to the setting's type (`"true"`, `"2.5"`, enum names).
+- List elements are matched on `Id` when the section gives one, and on position otherwise. Elements
+  that match nothing are added.
+- The section can change and add, but it cannot remove an element or set a value to null.
+- A key that matches no setting, a read-only setting, or a value that does not parse is skipped with
+  a warning in the startup log. A typo never stops the start.
+- The startup log lists every overridden key path, never the values. Overriding an `Id` or
+  `DefaultStoreId` changes which object is meant, and logs a warning.
 
-**Overridden values never reach a file.** Before the admin UI saves settings — to
-`relatude.db.overrides.json`, see the next section — the server restores every overridden key to the
-value the files gave it, so a secret supplied through configuration is not baked into a file by the
-next save. The flip side: while a key is overridden, editing it in the admin UI has no lasting
-effect — configuration wins again on the next load — so the settings pages lock it. The startup log
-tells you which keys are in that state.
+**Values from configuration never reach a file.** Before the admin UI saves, the server restores
+every overridden key to its value from the files, so a secret from configuration is never saved. The
+settings pages lock overridden keys.
 
-The overlay is applied after the settings file is read and before `OnServerSettingsInit` fires, so
-every callback sees the merged settings. `ServerOptions.ConfigurationSectionName` renames the
-section; set it to `null` to turn the overlay off. A custom `SettingsLoader` is composed with, not
-replaced: the overlay applies to whatever the loader returns.
+The section is merged before `OnServerSettingsInit` runs, so every callback sees the merged settings.
+`ServerOptions.ConfigurationSectionName` renames the section, and `null` turns it off.
 
 ### Changes made in the admin UI: relatude.db.overrides.json
 
-The settings pages of the admin UI never write `relatude.db.json`. That file is the application's
-own description of itself — usually written by a developer, kept in source control and deployed with
-the application — while what an administrator changes belongs to the installation. So every save from
-the settings pages compares the settings in force with `relatude.db.json` as it was read, and writes
-only the difference to `relatude.db.overrides.json`, kept with the default database:
+The settings pages of the admin UI never write `relatude.db.json`. That file describes the
+application: you write it, keep it in source control and deploy it with the code. What an
+administrator changes belongs to the installation. So a save from the settings pages writes only the
+difference from `relatude.db.json`, into `relatude.db.overrides.json`:
 
 ```jsonc
-// relatude.data/overrides/relatude.db.overrides.json, beside the default database's data/ and state/ folders
+// relatude.data/overrides/relatude.db.overrides.json
 {
   "Name": "Production",
   "ContainerSettings": [
     {
       "Id": "6f1d2c3b-2222-4a5b-9c8d-000000000002",
-      "LocalSettings": { "NodeCacheSizeGb": 2.5 },
-      "IOSettings": [
+      "LocalSettings": { "NodeCacheSizeGb": 2.5 },          // a changed value
+      "IOSettings": [                                       // an element added here
         { "Id": "a30d711e-…", "$added": true, "Name": "Second disk", "IOType": "LocalDisk", "Path": "second" }
       ],
-      "DatamodelSources": [
+      "DatamodelSources": [                                 // an element removed here
         { "Id": "6f1d2c3b-4444-…", "$removed": true }
       ]
     }
@@ -2582,8 +2278,12 @@ only the difference to `relatude.db.overrides.json`, kept with the default datab
 }
 ```
 
-At every start, and every soft restart, the settings are built in four layers, each merged over the
-one before:
+The file has the shape of `relatude.db.json` and holds only the keys that changed. List elements are
+matched on their `Id`: a changed element holds its `Id` and the changed fields, an added one is
+written whole with `"$added": true`, and a removed one is its `Id` with `"$removed": true`.
+
+At every start and soft restart, the settings are built in four layers, each merged over the one
+before:
 
 | Layer | Where | Written by |
 |---|---|---|
@@ -2592,102 +2292,76 @@ one before:
 | 3 | the `RelatudeDB` configuration section | appsettings, environment variables, user secrets |
 | 4 | `OnServerSettingsInit`, `OnContainerSettingsInit`, `OnStoreSettingsInit` | your code |
 
-A save takes layers 3 and 4 off again before it makes the difference, so neither a secret from
-configuration nor a value your code forces at every start ever lands in either file. The settings
-pages lock both kinds of field, marked *from configuration* and *from code*.
+A save takes layers 3 and 4 off before it works out the difference. So neither a secret from
+configuration nor a value your code sets ever lands in either file.
 
-The file has the same shape as `relatude.db.json`. Objects hold only the keys that changed. List
-elements are matched on their `Id`: a changed element holds its `Id` and the changed fields, an element
-added in the admin UI is written whole with `"$added": true`, and one removed there is its `Id` with
-`"$removed": true`. A list without ids is written whole. A change to an element that `relatude.db.json`
-no longer has is reported at startup and skipped, rather than added as half an element. Unknown keys
-and values that do not fit a setting are warnings, as in the configuration section. A file that is not
-valid JSON stops the start, because the next save would otherwise write over everything in it.
+Unknown keys and values that do not fit are skipped with a warning. A file that is not valid JSON
+stops the start, because the next save would overwrite it. If its storage cannot be reached at
+startup, the server starts without it, and the settings pages refuse to save until a restart can
+read it.
 
-**On the settings pages** every field is tagged with where its value comes from, and the tag's
-tooltip names the file and says where a change made here is written:
+**On the settings pages**, every field is tagged with where its value comes from:
 
 | Tag | The value comes from |
 |---|---|
 | *default* | nothing: the built-in default applies |
-| *shared* | `relatude.settings/relatude.db.json` - SHARED, part of the application |
-| *this server* | `relatude.db.overrides.json` - THIS SERVER, saved on this installation; the tooltip shows what `relatude.db.json` has |
-| *appsettings* | the configuration section (appsettings, environment variables, secrets); the field is locked |
+| *shared* | `relatude.settings/relatude.db.json`, part of the application |
+| *this server* | `relatude.db.overrides.json`, saved on this installation |
+| *appsettings* | the configuration section; the field is locked |
 | *code* | the settings callbacks in `Program.cs`; the field is locked |
 
-The restore button beside a *this server* field puts the `relatude.db.json` value back as an edit you then
-save. A list element added on THIS SERVER is marked *added here*, and elements removed there are named under
-the list. **Move to shared**, at the top right of the page, says how many entries are only on this server
-(*all shared* when none) and opens a dialog with both values side by side. On Server settings it lists
-everything in the file — the server's settings and every database's; on a database's settings page, that
-database's entries:
+**Move to shared**, at the top right of the page, lists what is set only on this server, beside what
+`relatude.db.json` says. Choose entries, then:
 
-- **Move into relatude.db.json** writes the selected entries, or all of them, into `relatude.db.json`
-  and takes them out of the overrides file. Nothing that is running changes. Settings decided by the
-  configuration section are never moved, so configuration cannot leak into `relatude.db.json` this
-  way. The file is rewritten by the settings loader, so comments in it are lost, and a secret moved
-  there is stored in plain text. Do this where the application runs from its project folder: on a
-  server `relatude.db.json` is the deployed copy, which the next deployment replaces
-  ([§12.2](#on-a-server)).
-- **Discard** puts back what `relatude.db.json` says for the selected entries — a value, a removed
-  element restored, an added element taken out again — and saves.
+- **Move into relatude.db.json** writes them into `relatude.db.json` and removes them from the
+  overrides file. Values from configuration are never moved. The file is rewritten, so its comments
+  are lost, and a moved secret is stored in plain text. Do this in development: on a server,
+  `relatude.db.json` is the deployed copy, which the next deployment replaces
+  ([On a server](#on-a-server)).
+- **Discard** puts back what `relatude.db.json` says, and saves.
 
-The same tags, and the same **Move to shared** button at the top right with a dialog like this one, are on
-every page that saves on this server: **Databases** (databases added or removed there, and the default),
-**Activity** (what is saved with *Save and remember changes*), the model editor's overrides
-([§3.1](#31-overriding-attributes)), the Logs page ([§32.1](#321-defining-a-log)) and the API page
-([§33.2](#332-the-definition-file)).
+The same tags and **Move to shared** button are on every page that saves on this server:
+**Databases**, **Activity**, the model editor's overrides ([§3.1](#31-overriding-attributes)),
+**Logs** ([§32.1](#321-defining-a-log)) and **API** ([§33.2](#332-the-definition-file)).
 
-**Where the file is.** It is kept with the default database — the one `DefaultStoreId` names — in an
-`overrides/` folder at the root of the storage provider that database keeps its files in. On local
-disk that folder is beside its `data/`, `state/` and `logs/` folders, so with the default settings
-`relatude.data/overrides/relatude.db.overrides.json`; on Azure Blob storage it is a blob under
-`overrides/` in the database's container. Wherever the database's files go, the admin UI's changes go
-with them.
+**Where the file is.** It is kept with the default database (the one `DefaultStoreId` names), in an
+`overrides/` folder in that database's storage: `relatude.data/overrides/relatude.db.overrides.json`
+on local disk with the default settings, or a blob under `overrides/` on Azure Blob storage. So the
+admin UI's changes go wherever the database's files go. If you move the default database's folder by
+hand in `relatude.db.json`, move the overrides file with it.
 
-The file has to be found before the settings are put together, so the default database is looked up
-in `relatude.db.json` with the configuration section over it — never with the overrides file itself.
-Changing the default database, its storage provider or that provider's folder in the admin UI moves
-the database's files at its next open, but leaves the overrides file where `relatude.db.json` puts it,
-and the next start finds it there. Moving such a change into `relatude.db.json` takes the file along
-to the new place. Values set by the settings callbacks are not consulted, as they run later. If you
-change the database's folder in `relatude.db.json` by hand, move the file together with the
-database's own files. With no database to follow, the file is kept at
-`relatude.data/overrides/relatude.db.overrides.json` below the root data folder.
-
-If the storage cannot be reached when the server starts — a blob service that is down, say — the
-server starts anyway, on `relatude.db.json` and configuration alone, and the settings pages say so and
-refuse to save until a restart can read the file, since a save would write over it.
-
-`ServerOptions.SettingsOverridesFilePath` names a file on disk instead, relative to the root data
-folder or absolute. `ServerOptions.UseSettingsOverridesFile = false` turns the file off: the settings
-pages then write `relatude.db.json` again, as they did before it existed — still without configuration
-values or values set by code. The CLI finds the file the same way, `--overrides <file>` points it
-elsewhere, and `relatude settings` reports where it is and how many settings it changes.
+`ServerOptions.SettingsOverridesFilePath` and `UseSettingsOverridesFile` keep the file elsewhere or
+turn it off ([the options](#options-and-events-in-programcs)). The CLI finds the file the same way:
+`relatude settings` shows where it is and how many settings it changes, and `--overrides <file>`
+points elsewhere.
 
 ### Settings of your own: custom settings
 
-An application usually has settings of its own — a shop's currency, its payment provider's key, the
-address orders are mailed to. Register them with the server and they get a tab in the admin UI, beside
-**Server settings** or beside each database's **Settings**, with the same editors, tags and **Move to
-shared** button, layered the same way as the server's own settings, and read from code with
-`db.Settings.Get<T>()`.
+An application usually has settings of its own: a shop's currency, a payment provider's key, the
+address orders are mailed to. Register them with the server, and they get a tab in the admin UI
+(beside **Server settings**, or beside each database's **Settings**) with the same editors, tags and
+layers as the built-in settings. Code reads them with `db.Settings.Get<T>()`.
 
-A set is a plain settings class — public, with a parameterless constructor, serialized with
-System.Text.Json — and a definition that implements `ICustomSettingsDefinition<T>`:
+A set of settings is a plain class and a definition that implements `ICustomSettingsDefinition<T>`.
+The class must be public, have a parameterless constructor and serialize with System.Text.Json.
 
 ```csharp
 public class WebshopSettings {
-    public string Currency { get; set; } = "NOK";              // the class defaults are the bottom layer
+    public string Currency { get; set; } = "NOK";              // class defaults are the bottom layer
     public decimal FreeShippingAbove { get; set; } = 500;
     public string? PaymentApiKey { get; set; }
-    public ShippingZone[] Zones { get; set; } = [];             // elements need a Guid Id
+    public ShippingZone[] Zones { get; set; } = [];
+}
+public class ShippingZone {
+    public Guid Id { get; set; }                                // list elements need a Guid Id
+    public string Name { get; set; } = "";
+    public decimal Price { get; set; }
 }
 
 public class WebshopSettingsDefinition : ICustomSettingsDefinition<WebshopSettings> {
-    public string FileKey => "webshop";                         // names its files and its configuration section
+    public string FileKey => "webshop";                         // names its files and config section
     public string Title => "Webshop";                           // the tab
-    public CustomSettingsScope Scope => CustomSettingsScope.Database; // or Server: one set for the whole server
+    public CustomSettingsScope Scope => CustomSettingsScope.Database; // or Server: one set for the server
     public string? Description => "How the shop on this database sells.";
     public string Icon => "shop";
     public SettingGroupDefinition[] Groups => [
@@ -2710,55 +2384,60 @@ public class WebshopSettingsDefinition : ICustomSettingsDefinition<WebshopSettin
 builder.AddRelatudeDB(options => {
     options.AddCustomSettings(new WebshopSettingsDefinition());
 });
-// or, from a library: builder.Services.AddSingleton<ICustomSettingsDefinition, WebshopSettingsDefinition>();
+// a library registers the definition as a service instead:
+// builder.Services.AddSingleton<ICustomSettingsDefinition, WebshopSettingsDefinition>();
 
-var shop = db.Settings.Get<WebshopSettings>();      // this database's set, or the server's for a Server set
-var site = server.CustomSettings.Get<SiteSettings>(); // without a store at hand
+var shop = db.Settings.Get<WebshopSettings>();   // this database's set, or the server's for a Server set
+var site = RelatudeDBRuntime.Server.CustomSettings.Get<SiteSettings>();   // with no store at hand
 ```
 
-The groups are the same `SettingGroupDefinition` and `SettingDefinition` the server's own settings pages
-are built from: `Path` is the property path into the class (`"Shipping.FreeAbove"` for a nested object),
-and the editor, an enum's choices and the default are read off the property. `Secret`, `ReadOnly`,
-`Unit`, `Placeholder`, `VisibleWhen`/`HiddenWhen`, `Suggestions`, `Editor = SettingEditor.Color` and list
-groups all work as they do there. Leave `Groups` out and the tab shows every property in one group,
-labelled from `[DisplayName]` and `[Description]`, with `[PasswordPropertyText(true)]` marking a secret.
-Note that `Applies` defaults to `Reopen`: say `Live` for a value your code reads each time it is used.
+`Groups` uses the same `SettingGroupDefinition` and `SettingDefinition` classes as the built-in
+settings pages:
+
+- `Path` is the property path into your class (`"Shipping.FreeAbove"` for a nested object). The
+  editor, an enum's choices and the default are read from the property.
+- `Secret`, `ReadOnly`, `Unit`, `Placeholder`, `VisibleWhen`, `HiddenWhen`, `Suggestions`,
+  `Editor = SettingEditor.Color` and list groups work as they do on the built-in pages.
+- `Applies` defaults to `Reopen`. Set `Live` for a value your code reads each time it uses it.
+- Leave `Groups` out, and the tab shows every property in one group, labelled from `[DisplayName]`
+  and `[Description]`. `[PasswordPropertyText(true)]` marks a secret.
 
 The layers, each merged over the one before at every start and soft restart:
 
 | Layer | Server set | Set per database |
 |---|---|---|
 | defaults | `new T()` | `new T()` |
-| SHARED | `relatude.settings/{FileKey}.json` | `relatude.settings/{short name}/{FileKey}.json` (`relatude.settings/{FileKey}.json` for the database without one) |
-| THIS SERVER | `{FileKey}.overrides.json` beside `relatude.db.overrides.json` | `overrides/{FileKey}.overrides.json` on the database's storage |
-| APPSETTINGS | `RelatudeDB:CustomSettings:{FileKey}` | that, for every database, and `RelatudeDB:CustomSettings:Databases:{short name or id}:{FileKey}` over it |
+| SHARED | `relatude.settings/{FileKey}.json` | `relatude.settings/{short name}/{FileKey}.json`; `relatude.settings/{FileKey}.json` without a short name |
+| THIS SERVER | `overrides/{FileKey}.overrides.json`, beside `relatude.db.overrides.json` | `overrides/{FileKey}.overrides.json` in the database's storage |
+| APPSETTINGS | `RelatudeDB:CustomSettings:{FileKey}` | that for every database, then `RelatudeDB:CustomSettings:Databases:{short name or id}:{FileKey}` |
 | CODE | `OnInit` | `OnInit`, told which database |
 
-SHARED holds only what differs from the defaults if you like — a property it leaves out keeps the class
-default — and it may have comments. THIS SERVER is the difference from SHARED in the format of
-`relatude.db.overrides.json`, which is what the tab saves; **Move to shared** on the tab moves its
-entries into the set's SHARED file (rewritten whole, so comments are lost) and **Discard** takes them
-back. As everywhere, configuration and code values are taken out before a save, so a key from user
-secrets never lands in a file:
+The SHARED file needs only what differs from the class defaults, and it may have comments. The tab
+saves to THIS SERVER. **Move to shared** moves entries into the SHARED file, which is rewritten
+whole, so its comments are lost. Values from configuration and code are never saved, so a key in user
+secrets stays out of every file:
 
 ```bash
 dotnet user-secrets set "RelatudeDB:CustomSettings:webshop:PaymentApiKey" "sk_live_…"
 ```
 
-`Get<T>()` returns the settings object in force. A save from the tab puts a new object in force rather
-than changing the one you hold, so ask again to see a change — it is a dictionary lookup, cheap on every
-request — and treat what you get as read only. A definition that is wrong — a file key that cannot name
-a file, two sets with one key or one class, a `Path` that names no property — stops the start with a
-message saying so. A SHARED or THIS SERVER file that is not valid JSON makes `Get<T>()` throw, with the
-file named, rather than quietly falling back to defaults.
+`Get<T>()` returns the settings object in force. A save from the tab replaces that object rather than
+changing it. So call `Get<T>()` each time you need the values (it is a cheap lookup), and treat the
+result as read only.
+
+Mistakes show early:
+
+- A wrong definition stops the start with a message saying what is wrong: a file key that cannot
+  name a file, two sets with the same key or class, or a `Path` that names no property.
+- A SHARED or THIS SERVER file that is not valid JSON makes `Get<T>()` throw, naming the file. It does
+  not fall back to the defaults.
 
 ### 12.2 What goes where: source control, deployment and appsettings
 
-An application on Relatude.DB is configured from four places, and each has its own owner and its own
-life: the **code**; the **settings files** that describe the application, in `relatude.settings/`;
-the **configuration** of the environment it runs in — `appsettings*.json`, environment variables,
-secrets; and the **installation** itself — the data folder, which holds the database and everything
-that was changed on that one installation. The layout follows three rules:
+An application on Relatude.DB is configured from four places: the **code**, the **settings files**
+in `relatude.settings/` (SHARED), the **configuration** of each environment (`appsettings*.json`,
+environment variables, secrets), and the **data folder** of each installation (THIS SERVER). Three
+rules decide what goes where:
 
 - What describes the application is committed to source control and deployed with the code.
 - What an installation changed or recorded stays with that installation. It is never committed, and
@@ -2767,126 +2446,90 @@ that was changed on that one installation. The layout follows three rules:
 
 **In short:** commit `relatude.settings/`. Never commit `relatude.data/` or `relatude.data.temp/`,
 and exclude both from the project file so that a publish does not deploy them either
-([Publishing](#publishing)). [`.gitignore`](https://github.com/Relatude/Relatude.DB/blob/main/docs/.gitignore) is a typical one for a project on Relatude.DB.
+([Publishing](#publishing)).
 
-**The folders.** With the default `ServerOptions` a project looks like this. The content root is the
-project folder while you develop, and the folder the application was deployed to on a server:
+**The folders.** With the default `ServerOptions`, a project looks like this. The content root is the
+project folder while you develop, and the folder the application is deployed to on a server.
 
 ```text
-MyApp/                                 the content root, and the root data folder
-├── Program.cs, Models/, …             the code                           committed
-├── appsettings.json                   configuration, every environment   committed, no secrets
-├── appsettings.Development.json       … what Development changes         committed
-├── appsettings.Production.json        … what Production changes          committed, no secrets
-├── relatude.settings/                 SHARED: what the application says   committed, deployed
+MyApp/                                 content root and root data folder
+├── Program.cs, Models/, …             the code                              committed
+├── appsettings.json                   configuration for every environment   committed, no secrets
+├── appsettings.Development.json       what Development changes              committed
+├── appsettings.Production.json        what Production changes               committed, no secrets
+├── relatude.settings/                 SHARED: what the application says     committed, deployed
 │   ├── relatude.db.json               databases, storage, index engines, model sources
-│   ├── datamodel.json                 the datamodel overrides (§3.1)
+│   ├── <FileKey>.json                 custom settings
+│   ├── datamodel.json                 datamodel overrides (§3.1)
 │   ├── logs/                          log definitions, one <key>.json per log (§32.1)
-│   ├── graphql/                       GraphQL endpoints, one <name>.json per endpoint (§33.2)
-│   └── <ShortName>/                   the same three, per database with a short name
-│       ├── datamodel.json
-│       ├── logs/
-│       └── graphql/
-├── relatude.data/                     THIS SERVER: this installation's database   never committed or deployed
+│   ├── graphql/                       GraphQL endpoints, one <name>.json each (§33.2)
+│   └── <ShortName>/                   the same, per database with a short name
+├── relatude.data/                     THIS SERVER: this installation        never committed or deployed
 │   ├── data/ state/ backup/ logs/ …   transaction log, state, backups, log entries, indexes, files
 │   ├── overrides/                     what the admin UI changed here
-│   │   ├── relatude.db.overrides.json   the settings (default database only)
-│   │   ├── datamodel.overrides.json     the datamodel overrides
-│   │   ├── logs/                        log definitions added, changed or taken away here
-│   │   └── graphql/                     endpoints added, changed or taken away here
+│   │   ├── relatude.db.overrides.json   settings (default database only)
+│   │   ├── <FileKey>.overrides.json     custom settings
+│   │   ├── datamodel.overrides.json     datamodel overrides
+│   │   └── logs/  graphql/              log definitions and endpoints added, changed or removed here
 │   ├── datamodels/                    the model editor's draft and model history
-│   ├── modelsources/                  model files of RuntimeTypes sources with no Filepath
+│   ├── modelsources/                  model files of RuntimeTypes sources without a Filepath
 │   └── installation/                  this installation's id
-└── relatude.data.temp/                scratch, emptied at every start    never committed or deployed
+└── relatude.data.temp/                scratch, emptied at every start       never committed or deployed
 ```
 
-Every other database has the folders from `data/` to `datamodels/` in its own storage; `modelsources/`
-and `installation/` are the default database's only. `relatude.settings/` sits in the root data
-folder, beside `relatude.data/`: moving the root data folder with `ServerOptions.DefaultDataFolderPath`
-takes the settings folder along, out of the project. A database's SHARED files are found by its
-short name, so give each database its `ShortName` in `relatude.db.json`, where every installation
-reads it ([§12.1](#121-every-setting-in-relatudedbjson)).
+Other databases keep the folders from `data/` to `datamodels/` in their own storage.
+`relatude.settings/` sits in the root data folder, so `ServerOptions.DefaultDataFolderPath` moves it
+too. A database's SHARED files are found by its short name, so set each database's `ShortName` in
+`relatude.db.json`, where every installation reads it ([§12.1](#121-every-setting-in-relatudedbjson)).
 
-Older versions called the data folder `relatude.db/` and the scratch folder `relatude.db.temp/`. At
-start the server renames an old data folder to `relatude.data/` and changes the paths in
-`relatude.db.json` and `relatude.db.overrides.json` that point into it — as text, so their comments
-stay — and deletes the old scratch folder.
-
-**Who writes what:**
-
-| What | Kept in | Written by | Belongs to |
-|---|---|---|---|
-| The model, hooks, middleware | the code | you | the application: committed, built, deployed |
-| `relatude.db.json` | `relatude.settings/` | you, `relatude new` / `relatude init`, **Move into relatude.db.json** on the settings pages | SHARED: the application |
-| Datamodel overrides | `relatude.settings/`, `relatude.settings/<ShortName>/` (`datamodel.json`) | you, **Move to shared** in the model editor | SHARED: the application |
-| Log definitions | `relatude.settings/…/logs/` | you, **Move to shared** on the Logs page | SHARED: the application |
-| GraphQL endpoints | `relatude.settings/…/graphql/` | you, **Move to shared** on the API page | SHARED: the application |
-| The `RelatudeDB` section | `appsettings.json`, `appsettings.{Environment}.json` | you | APPSETTINGS: the application, per environment — no secrets |
-| Secrets | user secrets, environment variables, a vault | you, and whoever runs the server | the environment — never a file in source control |
-| Settings changed in the admin UI | `overrides/relatude.db.overrides.json` | the settings pages | THIS SERVER: the installation |
-| Datamodel overrides activated in the admin UI | `overrides/datamodel.overrides.json` | the model editor | THIS SERVER: the installation |
-| Log definitions made or changed in the admin UI | `overrides/logs/` | the Logs page, `CustomLogs.Create` / `Update` / `Delete` | THIS SERVER: the installation |
-| GraphQL endpoints made or changed in the admin UI | `overrides/graphql/` | the API page | THIS SERVER: the installation |
-| Model files of a `RuntimeTypes` source | its `Filepath`; without one `modelsources/<Name>` | the model editor | the application when `Filepath` is in the project, else the installation |
-| The data | `relatude.data/` | the engine | THIS SERVER: the installation, backed up, never committed or deployed |
-
-At every start the layers are merged, a later one over an earlier one. The settings are
-`relatude.db.json`, then `relatude.db.overrides.json`, then the `RelatudeDB` configuration section,
-then the settings callbacks in `Program.cs` (the table [above](#changes-made-in-the-admin-ui-relatudedboverridesjson)).
-A datamodel is what the sources declare, then `[PropertyOverride]` in code, then the SHARED
-overrides, then THIS SERVER ([§3.1](#31-overriding-attributes)). A log or an endpoint is defined whole: the
-definition on THIS SERVER replaces the SHARED one with the same key or id, and a marker on THIS SERVER takes a
-SHARED one away on that installation.
+At every start, THIS SERVER is merged over SHARED. Logs and GraphQL endpoints are replaced whole: a
+definition on THIS SERVER replaces the SHARED one with the same key, and one removed on THIS SERVER
+is gone on that installation only.
 
 #### While you develop
 
-`dotnet run` and Visual Studio start the application with the project folder as its content root,
-so the `relatude.settings/` the application reads is the very folder in source control, and what the
-admin UI writes into it is ready to commit:
+`dotnet run` and Visual Studio start the application with the project folder as its content root. So
+the `relatude.settings/` the application reads is the folder in source control, and what the admin UI
+writes into it is ready to commit:
 
-- **Settings** changed on the settings pages go to `relatude.data/overrides/relatude.db.overrides.json`,
-  outside source control — the place to try a value out. To make a change part of the application,
-  choose **Move to shared** on the settings page, **Move into relatude.db.json**, and commit the file.
-- **Model changes** in the model editor are written into the source wherever it can be written — the
-  generated C# files of a `CompiledTypes` source with `GenerateModelFile` (rebuild and restart to see
-  them), or a `RuntimeTypes` source's model files — and saved as overrides on THIS SERVER where it cannot.
-  **Move to shared** at the top right of the model editor puts them into `relatude.settings/…/datamodel.json`;
-  commit that file.
-- **Log definitions** and **GraphQL endpoints** made or changed in the admin UI go to THIS SERVER,
-  `relatude.data/overrides/logs/` and `…/graphql/`. **Move to shared** on the Logs page and on the API page
-  moves them into `relatude.settings/…/logs/` and `…/graphql/`; commit those.
-- A `RuntimeTypes` source without a `Filepath` keeps its model files in `relatude.data/modelsources/`,
-  inside the data folder. For a model that belongs to the application, give the source a `Filepath`
-  in the project — `"Models/Json"`, say, which resolves against the root data folder — and commit
-  that folder.
+- **Settings** changed on the settings pages go to the overrides file in `relatude.data/`, outside
+  source control. That is the place to try a value out. To keep a change, choose **Move to shared** →
+  **Move into relatude.db.json** on the settings page, and commit the file.
+- **Model changes** in the model editor are written into the model source where it can be written:
+  the model files of a `RuntimeTypes` source, or the generated C# files of a `CompiledTypes` source
+  (rebuild and restart to see them). Otherwise they are saved as overrides on THIS SERVER, and **Move
+  to shared** in the model editor moves them into `relatude.settings/…/datamodel.json`. Commit that.
+- **Log definitions** and **GraphQL endpoints** made in the admin UI go to
+  `relatude.data/overrides/`. **Move to shared** on the Logs and API pages moves them into
+  `relatude.settings/…/logs/` and `…/graphql/`. Commit those.
+- **A `RuntimeTypes` source without a `Filepath`** keeps its model files in
+  `relatude.data/modelsources/`, inside the data folder. For a model that belongs to the application,
+  give the source a `Filepath` in the project, such as `"Models/Json"`, and commit that folder.
 
-The `.gitignore` leaves out the data folder and the scratch folder, and nothing else of Relatude's —
-`relatude.settings/` is committed:
+The `.gitignore` needs only two entries for Relatude. `relatude.settings/` is committed:
 
 ```text
 relatude.data/
 relatude.data.temp/
 ```
 
-[`.gitignore`](https://github.com/Relatude/Relatude.DB/blob/main/docs/.gitignore) here in the documentation is a complete one for a typical project, with
-build output, client builds, secret files and editor files as well; put it in the root of the
-repository. Its patterns match at any depth, so a project in a subfolder — `Backend/` in the React
-project type — is covered too. The project types of `relatude new` come with one of their own.
-Ignoring the data folder keeps it out of source control only; the project file has to leave it out
-as well ([below](#publishing)).
+A complete [`.gitignore`](https://github.com/Relatude/Relatude.DB/blob/main/docs/.gitignore) for a
+typical project, with build output, client builds and secret files too, is in the documentation. Put
+it in the root of the repository; its patterns match at any depth. The project types of
+`relatude new` come with their own. A `.gitignore` does not stop a publish from copying the data
+folder ([below](#publishing)).
 
 **Secrets do not go into `relatude.db.json`.** `relatude new` and `relatude init` write a random
-`TokenEncryptionSecret` into the file, and the admin password when given `--password`, so that a new
-project can be logged into at once. Before the repository is shared, move both into user secrets
-(below) and take them out of the file. A server gets its own through its environment.
+`TokenEncryptionSecret` into the file, and the admin password when given `--password`, so you can log
+in to a new project at once. Before you share the repository, move both into user secrets
+([below](#appsettings-environment-variables-and-secrets)) and remove them from the file.
 
 #### Publishing
 
-The Web SDK makes every `.json` file in the project folder content, copied to the build output and to
-the publish folder. That is what takes `relatude.settings/` and the appsettings files to a server, and
-it would take the data folder too: the admin UI changes and model history of a developer's machine,
-deployed over the server's own. So the project file leaves the data folder out —
-the project types of `relatude new` have this, and an older project needs it added:
+The Web SDK copies every `.json` file in the project folder to the publish folder. That is how
+`relatude.settings/` and the appsettings files reach a server, but it would also deploy your
+machine's data folder over the server's. So the project file leaves the data folder out, as the
+project types of `relatude new` do:
 
 ```xml
 <PropertyGroup>
@@ -2894,68 +2537,66 @@ the project types of `relatude new` have this, and an older project needs it add
 </PropertyGroup>
 ```
 
-Look in the publish folder before the first deployment: `relatude.settings/relatude.db.json` must be
-there, and `relatude.data/` must not. A server that finds no settings file writes one that points at the
-bundled demo model, so a database full of `Relatude.DB.Demo.Models` types is a deployment that left
+Check the publish folder before the first deployment: `relatude.settings/relatude.db.json` must be
+there, and `relatude.data/` must not. A server that finds no settings file creates one that uses the
+bundled demo model. So a database full of `Relatude.DB.Demo.Models` types means the deployment left
 `relatude.settings/` behind.
 
 #### On a server
 
 **A deployment leaves the data alone.** It replaces the code, `relatude.settings/` and the appsettings
-files, and nothing in the data folder. With the defaults that folder is `relatude.data/` inside the
-application's folder, which works on a virtual machine, under IIS or on Azure App Service as long as
-the deployment never deletes files it did not put there: turn off options such as *Remove additional
-files at destination*, and keep `relatude.data/` out of an `rsync --delete`. Two other places are common:
+files, but nothing in the data folder, which is `relatude.data/` in the application's folder by
+default. That works on a virtual machine, under IIS or on Azure App Service, as long as the deployment
+never deletes files it did not put there: turn off *Remove additional files at destination*, and keep
+`relatude.data/` out of an `rsync --delete`. Two other setups are common:
 
 - **In a container**, mount a volume at `relatude.data/` below the content root. The image carries the
-  code and `relatude.settings/`; the volume carries the installation.
-- **On Azure Blob storage** — an `IOSettings` entry of type `AzureBlobStorage` for `IoDatabase` — the
-  database, and with it `overrides/`, live in the blob container, and the application's
-  folder holds only what was deployed. With deployment slots this is where the database belongs: a
-  swap makes the other slot's folder the production one, so a database kept in the folder would change
-  places with the code.
+  code and `relatude.settings/`, and the volume carries the installation.
+- **On Azure Blob storage** (an `IOSettings` entry of type `AzureBlobStorage` for `IoDatabase`), the
+  database and its `overrides/` live in the blob container, and the application's folder holds only
+  what was deployed. Use this with deployment slots: a swap exchanges the slots' folders, so a
+  database kept in the folder would change places with the code.
 
-**The admin UI's changes stay with the installation.** What an administrator changes on a server —
-settings, datamodel overrides, log definitions, GraphQL endpoints — is kept on THIS SERVER, the data folder,
-so it survives every deployment, and what each deployment's SHARED files say still applies underneath it. That is the point of the split: a deployment changes what the application says, and
-an installation's own changes stay on top.
+**Admin UI changes stay with the installation.** Settings, datamodel overrides, log definitions and
+GraphQL endpoints changed on a server are kept on THIS SERVER, in the data folder. They survive every
+deployment, and each deployment's SHARED files still apply beneath them.
 
-**Some admin UI actions write into `relatude.settings/` and the project's files**, which on a server
-are the deployed copy: every move from a **Move to shared** dialog — on the settings page, in the model editor,
-on the Logs and API pages — and activating a model change of a `RuntimeTypes` source whose `Filepath`
-is in the application's folder. What they write there lasts until a deployment replaces the folder —
-in a container, until the container is replaced — and a moved entry has left the overrides file by
-then as well, so it is gone from the installation too. The **Move to shared** dialogs warn before a move outside
-the Development environment. On a server, take a change home through source control instead:
+**A move to SHARED on a server does not last.** Every **Move to shared** writes into
+`relatude.settings/`, and so does activating a model change in a `RuntimeTypes` source whose
+`Filepath` is in the application's folder. On a server those files are the deployed copy, which the
+next deployment (or the next container) replaces. The moved entries have left the overrides file too,
+so they are lost. The dialogs warn about this outside the Development environment. Bring a change into
+the application through source control instead:
 
 | Changed on a server | To make it part of the application |
 |---|---|
-| A setting | **Move to shared** on the settings page lists every entry beside what `relatude.db.json` says. Put the value into `relatude.db.json` in source control and deploy it. Once the deployed file says the same, the entry changes nothing, and the next save leaves it out of the overrides file. |
-| A datamodel override | In the model editor's **Move to shared** dialog, **Download shared file** gives `datamodel.json` with the chosen overrides in it and changes nothing on the server. Commit it in place of the old one, and deploy. |
-| A log definition | **Move to shared** on the Logs page lists what THIS SERVER holds. The log's Definition view shows the file: copy it into `relatude.settings/…/logs/` in source control and deploy it. A definition taken away by a deployment leaves the entries and statistics in the data folder, and a definition with the same key picks them up again. |
-| A model in a `RuntimeTypes` source | Copy the files from the source's `Filepath` into source control before the next deployment — or make the change in development, commit it and deploy it. |
-| A GraphQL endpoint | **Move to shared** on the API page lists what THIS SERVER holds. Copy the endpoint's file into `relatude.settings/…/graphql/` in source control and deploy it, or map the endpoint in code. |
+| A setting | Copy the value from the **Move to shared** list into `relatude.db.json` in source control, and deploy. Once the deployed file agrees, the next save drops the entry. |
+| A datamodel override | In the model editor's **Move to shared** dialog, **Download shared file** gives a `datamodel.json` with the chosen overrides, without changing the server. Commit it and deploy. |
+| A log definition | The log's Definition view shows its file. Copy it into `relatude.settings/…/logs/` and deploy. Entries stay in the data folder, so a definition with the same key picks them up. |
+| A GraphQL endpoint | Copy the endpoint's file into `relatude.settings/…/graphql/` and deploy, or map the endpoint in code. |
+| A model in a `RuntimeTypes` source | Copy the files from the source's `Filepath` into source control before the next deployment, or make the change in development instead. |
 
-A copy of a data folder carries the installation's changes with it: production's `relatude.data/`
-restored on a test server brings production's settings, datamodel overrides, log definitions and
-GraphQL endpoints on THIS SERVER along. Look through the **Move to shared** dialogs after such a restore.
+**A restored data folder brings its changes along.** Production's `relatude.data/` restored on a test
+server brings production's settings, datamodel overrides, log definitions and GraphQL endpoints with
+it, on THIS SERVER. Look through the **Move to shared** dialogs after such a restore.
 
 #### appsettings, environment variables and secrets
 
-The `RelatudeDB` configuration section ([above](#overriding-settings-from-configuration)) is what
-lets one `relatude.db.json` serve every environment. ASP.NET reads the sources in this order, a
-later one winning: `appsettings.json`, `appsettings.{Environment}.json`, user secrets (in
-Development only), environment variables, the command line. The environment is `Production` unless
-`ASPNETCORE_ENVIRONMENT` or `DOTNET_ENVIRONMENT` says otherwise; `dotnet run` and Visual Studio set
-`Development` from `Properties/launchSettings.json`. A split that works:
+The `RelatudeDB` configuration section ([above](#overriding-settings-from-configuration)) lets one
+`relatude.db.json` serve every environment. ASP.NET reads configuration in this order, a later source
+winning: `appsettings.json`, `appsettings.{Environment}.json`, user secrets (in Development only),
+environment variables, the command line. The environment is `Production` unless
+`ASPNETCORE_ENVIRONMENT` says otherwise; `dotnet run` and Visual Studio set `Development`.
+
+A split that works:
 
 | Where | What goes there |
 |---|---|
-| `relatude.db.json` | the structure every environment shares: the databases and their ids, the storage backends without their connection strings, file stores, index engines, model sources, engine defaults |
-| `appsettings.json` | Relatude values that every environment shares and that you would rather keep with the rest of the application's configuration — often nothing |
-| `appsettings.{Environment}.json` | what one environment does differently: cache sizes, backups, `AllowMasterLoginOutsideLocalhost`, another blob container |
-| user secrets | the secrets of a developer's machine: the admin password, `TokenEncryptionSecret`, API keys, a storage connection string. Kept in the user's profile, outside the project folder |
-| environment variables, a vault | the secrets of a server: Azure App Service application settings, a container's environment, Key Vault references |
+| `relatude.db.json` | What every environment shares: the databases and their ids, storage backends without connection strings, file stores, index engines, model sources, engine defaults. |
+| `appsettings.json` | Relatude values every environment shares that you prefer to keep with the rest of the configuration. Often nothing. |
+| `appsettings.{Environment}.json` | What one environment does differently: cache sizes, backups, `AllowMasterLoginOutsideLocalhost`, another blob container. |
+| User secrets | A developer machine's secrets: the admin password, `TokenEncryptionSecret`, API keys, a storage connection string. They live in your user profile, outside the project folder. |
+| Environment variables, a vault | A server's secrets: App Service application settings, a container's environment, Key Vault references. |
 
 ```jsonc
 // appsettings.Production.json: committed, no secrets
@@ -2970,7 +2611,7 @@ Development only), environment variables, the command line. The environment is `
 ```
 
 ```bash
-# a developer's machine: "init" adds a UserSecretsId to the project file the first time
+# a developer's machine ("init" adds a UserSecretsId to the project file the first time)
 dotnet user-secrets init
 dotnet user-secrets set "RelatudeDB:MasterPassword" "…"
 dotnet user-secrets set "RelatudeDB:TokenEncryptionSecret" "…"
@@ -2985,82 +2626,86 @@ RelatudeDB__ContainerSettings__0__IOSettings__0__Id=9d8c…
 RelatudeDB__ContainerSettings__0__IOSettings__0__BlobConnectionString=…
 ```
 
-In environment variables `__` separates the levels, where JSON nests and user secrets write `:`. The
-numbers are positions in the configuration's own lists. Give an element's `Id` beside them, as above,
-and it is matched to the element with that id in `relatude.db.json` rather than to the one at that
-position, so reordering the file never sends a connection string to the wrong backend.
+Environment variables separate the levels with `__`, where user secrets use `:`. The numbers are
+positions in the configuration's own lists. Give each element's `Id` beside them, as above, and the
+element is matched by id to the one in `relatude.db.json`, not by position. Then reordering the file
+never sends a connection string to the wrong backend.
 
 A few things to know:
 
 - **An empty value is a value.** `"ApiKey": ""` in an appsettings file blanks the setting. Leave the
   key out instead; a `//` comment can say where the real value comes from.
-- **Configuration changes and adds; it cannot remove anything or set a value to null.** Which
-  databases and storage backends there are belongs in `relatude.db.json`.
-- **The settings pages lock what configuration decides**, and the start-up log lists the overridden
-  key paths, never the values.
+- **Configuration cannot remove anything or set a value to null.** Which databases and storage
+  backends exist belongs in `relatude.db.json`.
 - **The command line tool reads the same files.** `relatude settings --environment Production` shows
-  the settings a server in that environment would run with, from the appsettings files and the
-  environment variables of the shell — not user secrets — and reports each secret as set or not set,
-  never its value ([§31](#31-the-command-line-tool)).
+  the settings a Production server would run with, from the appsettings files and the shell's
+  environment variables, but not user secrets. It reports each secret as set or not set, never its
+  value ([§31](#31-the-command-line-tool)).
 
 ### Options and events in Program.cs
 
-`ServerOptions` owns what only code can express — the file converters, the folder paths, an
-alternative settings store, and the lifecycle callbacks:
+`ServerOptions` holds what only code can say: file converters, folder paths, how settings are loaded,
+and the lifecycle callbacks.
 
 ```csharp
 builder.AddRelatudeDB(options => {
+    options.FileConverters.Add(new SkiaImageConverter(1)); // optional: tried before the built-in converters
+    options.DefaultDataFolderPath = "data";                // relative to the content root, or absolute
 
-    // Image and video conversion does not work without these
-    options.FileConverters.Add(new SkiaImageConverter(1));
-    options.FileConverters.Add(new FFMpegVideoConverter());
+    // applied at every start, locked on the settings pages, never saved to a file
+    options.OnServerSettingsInit = s => s.TokenCookieName = "MyToken";
 
-    options.DefaultDataFolderPath = "data";          // relative to the content root, or absolute
-    options.DefaultTempFolderPath = "data/tmp";
-    options.SettingsLoader = new MySettingsLoader();  // replaces relatude.db.json entirely
-    options.SettingsOverridesFilePath = "data/relatude.db.overrides.json"; // admin UI changes; default: with the default database
-
-    // Secrets belong in the RelatudeDB configuration section — it is merged in automatically and
-    // stripped again before saves. What this callback sets is applied at every start, locked on the
-    // settings pages, and never saved to relatude.db.json or relatude.db.overrides.json.
-    options.OnServerSettingsInit = s => {
-        s.TokenCookieName = "MyToken";
-    };
-
-    options.OnDatamodelInit = (dm, container) => dm.AddNamespace<IVenue>();
+    options.OnDatamodelInit = (dm, database) => dm.AddNamespace<IVenue>();
     options.OnStoreInit = db => db.RegisterTransactionPlugin(new AuditPlugin());
     options.OnStoreOpenBackground = db => Seeder.SeedIfEmpty(db);
 });
 ```
 
-They fire in this order:
+| Option | What it does |
+|---|---|
+| `FileConverters` | Your own file converters, tried before the built-in image and video converters. |
+| `DefaultDataFolderPath` | The root data folder. Default: the content root. |
+| `DefaultTempFolderPath` | The scratch folder, emptied at every start. Default: `relatude.data.temp`. |
+| `SettingsLoader` | An `ISettingsLoader` that replaces `relatude.db.json`. |
+| `ConfigurationSectionName` | The configuration section merged over the settings. Default `RelatudeDB`; `null` turns it off. |
+| `UseSettingsOverridesFile` | `false` makes the settings pages write `relatude.db.json` instead of the overrides file. |
+| `SettingsOverridesFilePath` | Keeps `relatude.db.overrides.json` at this path instead of with the default database. |
+| `AddCustomSettings(…)` | Registers a set of custom settings ([above](#settings-of-your-own-custom-settings)). |
+| `CreateUrlManager` | Makes each database's URL manager ([§18](#18-urls-and-the-url-manager)). |
 
-| Event | When | What it is for |
+The callbacks run in this order:
+
+| Callback | When | Use it for |
 |---|---|---|
-| `OnServerSettingsInit` | after the settings file is read | credentials, container list |
-| `OnContainerSettingsInit` | per container | IO providers, file stores, datamodel sources |
-| `OnStoreSettingsInit` | per container | the `LocalSettings` engine knobs |
-| `OnDatamodelInit` | after the JSON datamodel sources have loaded | add types from code |
-| `OnStoreInit` | store constructed, not yet open | transaction plugins, task runners |
-| `OnStoreOpen` | store open — **blocking** | light work only |
-| `OnStoreOpenBackground` | store open, on the thread pool | seeding, warm-up |
+| `OnServerSettingsInit` | after the settings are read and merged | server settings set by code, the database list |
+| `OnContainerSettingsInit` | per database | storage providers, file stores, model sources |
+| `OnStoreSettingsInit` | per database | the engine settings (`LocalSettings`) |
+| `OnDatamodelInit` | after the model sources have loaded | adding types from code |
+| `OnStoreInit` | store created, not yet open | transaction plugins, task runners |
+| `OnStoreOpen` | store open; the open waits for it | light work only |
+| `OnStoreOpenBackground` | store open, on a background thread | seeding, warm-up |
 | `OnStoreClose` | host shutdown | cleanup |
 
-Two things about these are worth knowing before you rely on them. **Every callback is wrapped in a
-try/catch by the server**: an exception inside one is written to the startup log and swallowed, so
-a callback that silently did nothing is a startup-log question rather than a crash. And **seeding
-belongs in `OnStoreOpenBackground`** — `OnStoreOpen` blocks the open, and while a store is opening
-every request gets a 503 progress page.
+Two things to know before you rely on them:
 
-**`AddRelatudeDB` can be called any number of times.** Every call configures the same `ServerOptions`
-instance, so a library that calls it itself, as Relatude.CMS does, and the host's own call can come
-in any order. A second `UseRelatudeDB` on the same application does nothing; there is one server per
-process, so a second application throws.
+- **The server catches every exception in a callback.** It writes the exception to the startup log
+  and carries on. If a callback seems to do nothing, look there.
+- **Seed in `OnStoreOpenBackground`.** `OnStoreOpen` holds up the open, and while a store opens every
+  request gets a 503 progress page.
 
-**A library hooks into the start with a service, not a callback.** The callbacks belong to the host,
-and a host that assigns `OnStoreInit` after a library chained onto it would drop the library's part.
-A library registers an `IStoreInitializer` instead, which the server calls for every store, right
-after `OnStoreInit`:
+**`AddRelatudeDB` can be called any number of times.** Every call configures the same
+`ServerOptions`, so a library and the host can each call it, in any order. A second `UseRelatudeDB` on
+the same application does nothing. There is one server per process, so a second application throws.
+
+**A library hooks into the start with services, not callbacks.** The callbacks belong to the host: a
+host that assigns `OnStoreInit` after a library has chained onto it drops the library's part. A
+library registers these services instead (namespace `Relatude.DB.NodeServer`):
+
+| Service | Called | Use it for |
+|---|---|---|
+| `IDatamodelInitializer.Initialize(datamodel, database)` | for every datamodel, right after `OnDatamodelInit` | the library's model types |
+| `IStoreInitializer.Initialize(store)` | for every store before it opens, right after `OnStoreInit` | transaction plugins, task runners, jobs |
+| `IStoreOpenHandler.OpenedAsync(store)` | for every store once open, in the background, beside `OnStoreOpenBackground` | seeding, work that needs an open store |
 
 ```csharp
 public sealed class AuditInitializer : IStoreInitializer {
@@ -3070,247 +2715,223 @@ public sealed class AuditInitializer : IStoreInitializer {
 services.TryAddEnumerable(ServiceDescriptor.Singleton<IStoreInitializer, AuditInitializer>());
 ```
 
-Two more services cover the other moments a library needs (all three in `Relatude.DB.NodeServer`):
-
-| Service | Called | Use it for |
-|---|---|---|
-| `IDatamodelInitializer.Initialize(datamodel, database)` | every datamodel as it is built, right after `OnDatamodelInit` | the library's model types, so the host need not list them |
-| `IStoreInitializer.Initialize(store)` | every store set up, not yet open, right after `OnStoreInit` | transaction plugins, task runners, jobs |
-| `IStoreOpenHandler.OpenedAsync(store)` | every store once open, on a background thread, beside `OnStoreOpenBackground` | seeding, work that needs the store open |
-
-Open handlers run one after another in the order they were registered, and an exception in one is
-logged without stopping the next. A datamodel initializer also runs when the admin UI builds a
-datamodel to check a draft of the model, so it should only add types.
+Open handlers run one after another, in the order they were registered. If one throws, the exception
+is logged and the next one still runs. The admin UI also builds datamodels to check a draft model,
+which runs the datamodel initializers too, so an initializer should only add types.
 
 ### Two ways to register a datamodel
 
-The JSON sources load first, then `OnDatamodelInit` runs against the same `Datamodel` object — so
-the two are additive rather than alternatives.
+Register model types in code with `OnDatamodelInit`, or as datamodel sources in `relatude.db.json`.
+The two add up: the server loads the sources first, then runs `OnDatamodelInit` on the same
+`Datamodel`.
 
-**From `relatude.db.json`**, when the model must change without a rebuild, or differs between
-deployments of the same binary:
-
-```jsonc
-"DatamodelSources": [
-  {
-    "Id": "8a3f...",                   // required, and unique across the sources
-    "Name": "VenueApp",
-    "Type": "CompiledTypes",           // see the table below
-    "Namespace": "VenueApp.Models",    // one namespace, or a pattern: "VenueApp.Models.*" takes it and everything under it
-    "Reference": "VenueApp",           // assembly name; null means the current project (the entry assembly)
-    "Filepath": null,                  // RuntimeTypes: model file or folder; null = relatude.data/modelsources/{Name}
-    "FileIO": null,                    // legacy: read a model file through an IO provider instead
-    "SourceCodePath": null,            // CompiledTypes: the folder with the C# files, for the model editor
-    "GenerateModelFile": false,        // CompiledTypes: the model editor owns that folder and regenerates it
-    "Enabled": true,                   // false skips the source entirely
-    "Color": null                      // the colour the admin UI marks this source's types with; null picks one from a palette
-  }
-]
-```
-
-| `Type` | What it does |
-|---|---|
-| `CompiledTypes` | loads the assembly named by `Reference` (or the entry assembly — the current project — when it is null or empty) and adds every type whose namespace matches `Namespace`. `Namespace` is required: one namespace, or a pattern in which `*` stands for any run of characters — `VenueApp.Models.*` takes `VenueApp.Models` and every namespace under it, `VenueApp.*.Models` takes `VenueApp.Web.Models` and `VenueApp.Api.Models`. Called `AssemblyNameReference`, and then `TypeReference`, before September 2026; both old names still read, and a settings file carrying one is rewritten to `CompiledTypes` when it is loaded. The single-type `TypeNameReference` kind was removed at the same time: name the type's namespace instead. |
-| `RuntimeTypes` | reads model files from disk when the database opens: serialised `Datamodel` JSON, in the form the model editor writes, so the model can change without rebuilding the application. `Filepath` may name a file or a folder (searched recursively). Left empty, the source gets a folder of its own named after it, `relatude.data/modelsources/{Name}`, beside the default database's files (characters no file system takes become `_`); renaming such a source in the admin UI writes that folder into `Filepath`, so its files are not left behind. Until October 2026 the default was `Models/Json`, for every source alike. Each node type still needs a backing CLR class of the same full name at runtime for the mapper to compile against. Called `JsonFile`, and then `TextFiles`, before September 2026 — and a `TextFiles` source could also hold `.cs` files compiled while the database opened, chosen by a `FileFormat` key. That kind is gone: **a source of any of the old file kinds is dropped from the settings file when it is loaded**, along with the `FileFormat` key, so a model kept in files is added again as a `RuntimeTypes` source (from the model editor, or by hand). |
-| `Code` | **reserved.** It is the id stamped on types added from `OnDatamodelInit`, and configuring it as a source throws. |
-
-Relative `Filepath` values resolve against the root data folder. Every source must carry a unique
-`Id` — it is what tags each type with its provenance, which is how the admin UI knows which source a
-type came from and which sources it may edit.
-
-`Color` is the one setting nothing in the engine reads: it is the colour the admin UI marks this
-source's types and relations with, wherever they are listed — the model editor, the dashboard's
-content panel, the query page's type picker. Any CSS colour (`"#2f7fd6"`, `"teal"`); left out, the
-source takes one from a ten-hue palette by its position in the list, which is what every source did
-before there was anything to set. It can be changed on the settings page while the database is open.
-
-A `CompiledTypes` source is compiled into the application, so the admin UI's model editor can only
-write to it when `GenerateModelFile` is on and `SourceCodePath` names the folder the generated C#
-files go into (relative to the settings folder unless rooted, and inside the project that builds the
-assembly); the application then has to be rebuilt and restarted for the change to take effect. That
-folder belongs to the editor: activating a model deletes every file in it and generates one file per
-node type and relation, each starting with an `// <auto-generated>` comment saying it will be
-overwritten. Files in the folder without that comment are listed before the activation, which only
-goes ahead once they are given up — so point it at a folder of its own, not at the project root.
-(`SourceCodePath` without `GenerateModelFile` still works from a hand-edited settings file: the editor
-then rewrites the existing files in place and leaves files that hold no model types alone. The admin
-UI only offers the generated form.) In the editor's source form the assembly and namespace are
-comboboxes: the first assembly choice is the current project, and a *scan* lists the assemblies the
-running application can see, then the namespaces of the chosen one — scanned on request, since
-reflecting over every loaded assembly takes a moment. Under the form the editor lists what the chosen
-assembly and namespace would load, so a typo shows up before the database is reopened.
-
-`Enabled` (`true` when absent) is a switch rather than a setting: a source turned off contributes
-nothing and is not registered on the model at all, so nothing it defines survives the next open, and
-nodes already stored under those types come back without the properties the types declared. Turning
-it back on restores the model exactly. Sources are edited from the admin UI under
-**Settings → Data model → Model sources**, and one added there starts turned off — an unfinished
-source would otherwise stop the database from opening, since every configured source is loaded and
-one that throws fails the open.
-
-**From `Program.cs`**, which is the common case when the model ships with the app — refactor-safe,
-and it fails at compile time rather than at boot:
+**In `Program.cs`**, the usual choice when the model ships with the application. It is refactor-safe,
+and a mistake fails at compile time:
 
 ```csharp
-options.OnDatamodelInit = (dm, container) => {
-    dm.AddNamespace<IVenue>();          // every node & relation type in IVenue's namespace
-    dm.Add<IEvent>();                   // one type, plus everything it references
+options.OnDatamodelInit = (dm, database) => {
+    dm.AddNamespace<IVenue>();       // every node and relation type in IVenue's namespace
+    dm.Add<IEvent>();                // one type, and the types it references (not embedded ones)
     dm.Add(typeof(IAttendee));
-    dm.AddAssembly(typeof(IVenue).Assembly, "VenueApp.Models.Sub");
+    dm.AddAssembly(typeof(IVenue).Assembly, "VenueApp.Models.*");   // a namespace pattern
 };
 ```
 
-With more than one database, branch on the container the callback is given:
+- `AddNamespace<T>` adds the types in exactly `T`'s namespace, from `T`'s assembly. It skips enums,
+  static classes and anything marked `[Exclude]`.
+- `Add<T>` also adds every type `T` references, unless you pass `includeAllReferencedModels: false`.
+- `AddAssembly` takes one namespace, or a pattern in which `*` stands for any run of characters.
+
+With more than one database, branch on the database the callback is given:
 
 ```csharp
-options.OnDatamodelInit = (dm, container) => {
-    if (container.Name == "Catalog") dm.AddNamespace<IProduct>();
+options.OnDatamodelInit = (dm, database) => {
+    if (database.Name == "Catalog") dm.AddNamespace<IProduct>();
     else dm.AddNamespace<IAuditEntry>();
 };
 ```
 
-The static flag `DatamodelSource.AutoDeduceRelations` (off by default, and process wide — set it
-before the database opens) decides what happens to a plain node-typed property with no relation
-declared: off, it becomes a `Reference`/`References`; on, it is turned into an auto-created relation,
-which is the old behaviour. Leave it off in new models. Until September 2026 this was a per-source
-setting in `relatude.db.json`; a leftover `"AutoDeduceRelations"` key there is ignored.
+**In `relatude.db.json`**, when the model must change without a rebuild, or differs between
+deployments of the same build. You can also edit the sources in the admin UI, on the database's
+**Settings → Data model → Model sources**.
 
-Either way the server builds the datamodel, generates the proxy assembly and reloads, and from then
-on the model is rebuilt automatically whenever the assembly loads.
+```jsonc
+"DatamodelSources": [
+  {
+    "Id": "8a3f…",                     // required, unique among the sources
+    "Name": "VenueApp",
+    "Type": "CompiledTypes",
+    "Reference": "VenueApp",           // the assembly; empty means the application itself
+    "Namespace": "VenueApp.Models.*"   // required: one namespace, or a pattern
+  }
+]
+```
+
+There are two kinds of source:
+
+| `Type` | What it loads |
+|---|---|
+| `CompiledTypes` | Types compiled into the application: every type in `Namespace` in the assembly `Reference` names. |
+| `RuntimeTypes` | Model files read from disk when the database opens: datamodel JSON, as the model editor writes it. The model can change without a rebuild. |
+
+`Code` is reserved. It marks the types added from code, and configuring it as a source throws.
+
+| Key | What it is |
+|---|---|
+| `Id` | Required and unique. Every type is tagged with its source's id, which tells the admin UI where a type came from and whether it may edit it. |
+| `Name` | A label for the admin UI and error messages. |
+| `Type` | `CompiledTypes` or `RuntimeTypes`. |
+| `Reference` | `CompiledTypes`: the assembly name, without `.dll`. Empty is the entry assembly, the application itself. |
+| `Namespace` | `CompiledTypes`, required: one namespace or a pattern. `VenueApp.Models.*` takes `VenueApp.Models` and every namespace under it; `VenueApp.*.Models` takes `VenueApp.Web.Models` and `VenueApp.Api.Models`. |
+| `Filepath` | `RuntimeTypes`: a `.json` file, or a folder searched recursively. Empty is a folder of the source's own, `relatude.data/modelsources/{Name}`. |
+| `FileIO` | `RuntimeTypes`: the id of a storage provider to read the model from instead of disk, for a model kept in blob storage. `Reference` then names the file. |
+| `SourceCodePath` | `CompiledTypes`: the folder of the model's C# files, for the model editor. |
+| `GenerateModelFile` | `CompiledTypes`: the model editor owns `SourceCodePath` and generates its files. Default `false`. |
+| `Enabled` | `false` leaves the source out of the model. Default `true`. |
+| `Color` | The CSS colour the admin UI marks the source's types with. Empty picks one. |
+
+Relative paths resolve against the root data folder.
+
+**Every configured source must load.** A source that throws stops the database from opening, so a
+source added in the admin UI starts with `Enabled` off: fill it in, then turn it on. While a source is
+off, nodes of its types read without the properties those types declare. A source with no types yet
+(an empty folder, a namespace with no model types) loads empty and leaves a note in the log, where a
+typo shows up.
+
+**A `RuntimeTypes` type uses your class when you have one**: a plain class with the type's full name.
+Without one, the server generates a class when the database opens. The type then works by name
+(`db.Create("Venue")`, untyped queries, the admin UI), but compiled code cannot refer to it. A source
+without a `Filepath` reads from a folder named after the source, so rename that folder too if you
+rename the source by hand.
+
+**The model editor and `CompiledTypes`.** The model editor writes to a compiled source only when
+`GenerateModelFile` is on and `SourceCodePath` names a folder inside the project that builds the
+assembly. After a change, rebuild and restart. The folder belongs to the editor: activating a model
+deletes every file in it and generates one file per node type and relation, each marked
+`// <auto-generated>`. It lists the files without that mark first and asks before deleting them, so
+point `SourceCodePath` at a folder of its own, not at the project root.
+
+**Node-typed properties without a relation** become `Reference` or `References` properties
+([chapter 8](#8-references--lightweight-pointers)). To make them relations instead, set the static
+`DatamodelSource.AutoDeduceRelations = true` before the database opens (for sources in
+`relatude.db.json`), or pass `autoDeduceRelations: true` to `Add`, `AddNamespace` or `AddAssembly`.
 
 ### The admin UI
 
-The admin UI is not an optional extra — it is where the parts of Relatude.DB that are *not* code
-get configured. Your **model** lives in C#; the **runtime** lives in the admin UI. Worth knowing
-your way around it early.
+The admin UI is where you manage everything about a database that is not code: storage, indexes,
+model sources, backups, logs, tasks and APIs. Learn your way around it early.
 
-`app.UseRelatudeDB()` mounts it at `/relatude.db`. Pass a path to move it:
+`app.UseRelatudeDB()` mounts it at `/relatude.db`. Pass a path to move it (`DBAdminUIUrlPath` in the
+settings wins over the argument):
 
 ```csharp
 app.UseRelatudeDB("/admin/db");
 ```
 
-It has its own authentication, and **nothing creates an admin user for you** — but locally you do
-not need one. `NoLoginRequiredForLocalhost` defaults to `true`, so a request that really came from a
-browser on this machine reaches the admin UI without logging in at all; that is why it just works in
-development.
+**On your own machine, you need no login.** `NoLoginRequiredForLocalhost` is `true` by default, so a
+browser on the same machine reaches the admin UI directly.
 
-"Really came from this machine" is decided narrowly, and it is worth knowing where the line is. The
-connection's peer must be loopback, **and** the request must carry no sign of a reverse proxy —
-neither forwarded headers (`X-Forwarded-For`, `Forwarded`, `X-Real-IP`, `X-ARR-LOG-ID` and the
-platform-specific variants) nor a hosting environment that is always fronted, such as Azure App
-Service, IIS or Kubernetes. The reason is that a proxy on the same host makes *every* request arrive
-from loopback, so a loopback peer on its own cannot tell a local browser apart from the whole
-internet. Deployed behind a proxy, then, nothing is ever "localhost" and this setting stops applying
-— which is the point, but it means such a deployment needs real credentials and
-`AllowMasterLoginOutsideLocalhost`, or no one can get in at all. The server says so in its log the
-first time it refuses a request for that reason.
+A request counts as local only when its connection comes from loopback and nothing suggests a reverse
+proxy: no forwarded headers (`X-Forwarded-For`, `Forwarded`, `X-Real-IP` and similar), and no hosting
+environment that is always behind a proxy (Azure App Service, IIS, Kubernetes). Behind a proxy every
+request arrives from loopback, so nothing counts as local, and you need real credentials to get in.
+The server logs this the first time it refuses a request for that reason.
 
-Away from localhost it is the opposite: `AllowMasterLoginOutsideLocalhost` defaults to **`false`**,
-which refuses both the login and any existing session cookie from a remote address. Turn it on
-deliberately, over HTTPS, and only after setting credentials. Set `MasterUserName` and
-`MasterPassword` in `relatude.db.json`, or better, in the `RelatudeDB` configuration section (user
-secrets, environment variables); until they are set, logging in throws "No master user configured on
-the server." The admin UI's login page asks the server first, and leaves the user name and
-password fields out wherever the master account cannot be used - no master user set, or a remote
-address while this setting is off - showing only *Sign in with Relatude Services*
-([§35.4](#354-connecting-an-installation)) when that is set up,
-or a line saying that logging in is not possible from there.
+**To sign in from another machine:**
 
-Three more details cost people time: the stored user name must be **lowercase** (the check
-lowercases the input before comparing), the password is compared verbatim and stored in plain text,
-and without `TokenEncryptionSecret` the server uses a random per-process key, so every restart
-invalidates every session cookie. Failed logins are rate-limited per IP and every attempt is
-answered after a randomised 300–400 ms delay, so a wrong password and an unknown user name are
-indistinguishable by timing.
+1. Set `MasterUserName`, in lowercase, and `MasterPassword`. Put them in the `RelatudeDB`
+   configuration section (user secrets, environment variables) rather than in `relatude.db.json`.
+2. Set `TokenEncryptionSecret`. Without it, the server makes a new key at every start, which signs
+   everyone out.
+3. Set `AllowMasterLoginOutsideLocalhost` to `true`, and serve the admin UI over HTTPS. Until then,
+   the server refuses both the login and existing session cookies from remote addresses.
 
-What you do in it:
+The password is compared exactly and stored in plain text, and failed logins are rate-limited per IP
+address. Where the master account cannot be used, the login page leaves out the user name and
+password, and offers *Sign in with Relatude Services* if that is set up
+([§35.4](#354-connecting-an-installation)). [§12.1](#121-every-setting-in-relatudedbjson) describes
+these settings.
 
-| Area | What it is for |
+What you find in it:
+
+| Page | What it is for |
 |---|---|
-| **Datamodels** | Register and reload datamodel sources; browse the built model — every node type, its parents, its properties and its relations, exactly as the engine sees them. |
-| **Data browser** | Inspect, search and edit actual nodes. Invaluable while modelling: create a node by hand and confirm the shape is what you intended. |
-| **Indexing** | Text, semantic and value index configuration; reindexing. |
-| **File storage** | Add and configure storage providers (local disk, Azure Blob) and pick a default. The id you paste into `[FileProperty(FileStorageProviderId = "…")]` comes from here. |
-| **IO** | Where the append-only transaction log and backups are written. |
-| **Storage** | Backups — one click to take one, one to go back to it. Take one before upgrading, the project is pre-1.0. The database file itself lives here too: download it, upload one, or copy it up to a moment in time and open the database on that copy. Any file the Files page lists can be made the database file, which is the way back from all three: whatever is replaced is kept beside the new file, never deleted. **Benchmark storage** measures the storages you tick: writes and reads of small and large pieces, in order and at random, commits made durable, reads past the operating system's cache on a local disk, and the small requests around a file, each with its throughput and the time one operation takes (typical, 90 %, 99 %, slowest). The report compares the storages side by side; from code the same test is `IIOProvider.BenchmarkPerformanceAsync(testDurationInMs)`. |
-| **Status** | Store state, running file conversions, activity and timings. |
-| **Activity** | What the database records about itself — queries, transactions, actions, tasks, metrics, the system trace — each log switched on or off, with its entries, search and graphs. |
-| **Logs** | Logs of your own: define one, and read what the application recorded into it as graphs, entries and the spread of a column's values. The **Built-in logs** switch shows the Activity logs here too, read only. See [§32](#32-logs--recording-what-the-application-does). |
-| **Tasks** | The task queue — what is waiting and running, failed batches to queue again, how much of the machine background work may take — and the **Scheduler**, which runs jobs such as backups and your own at set intervals. See [§36](#36-background-tasks-and-the-scheduler). |
-| **API** | GraphQL endpoints over the database: each one a url, the types and properties it exposes and under which names, views, mutations, API keys with expiry dates, generated client code, and an explorer to try queries. See [§33](#33-graphql-endpoints). |
-| **Relatude Services** (server menu) | The installation's Relatude Services account: connecting it to a license, what the license carries, the sign-in switch, and a test view for each hosted service. Not needed to run anything. See [§35](#35-relatude-services). |
-| **Performance** (on the dashboard) | The server process over the last few minutes - its managed heap and cpu - and, in a band under them, what the storage providers read and wrote a second, summed over every provider the server has; the tooltip splits a second's traffic per provider and adds the operations behind the bytes. The counters are kept per stream and folded into the provider as streams close, so the graph costs the database nothing. The database's own rates - queries, transactions, actions, node reads - are in the **Activity** panel below it. |
-| **Activity** and **Running operations** (on the dashboard) | Activity charts what the database is asked to do a second over the last few minutes - queries, transactions, actions and node reads - with the count since the caches were last cleared. Running operations lists the work going on this second, each with its progress, and the background task and file conversion queues. |
-| **Memory** (on the dashboard) | Every memory budget of one database on one line - the node and result set caches, each index engine, the state store - each showing what it is actually holding against what it is allowed. Dragging a budget takes effect at once where the part can be re-sized while it runs; saving keeps them for the next start, in `relatude.db.overrides.json` like every change made on the settings pages. Under the budgets the node, result set and aggregate caches each show the share of lookups they answered, their hits and misses, and the hits and misses a second they take now, updated live with the rest of the page. |
+| **Dashboard** | The database at a glance: activity, running operations, memory budgets and cache hit rates. |
+| **Datamodel** | The model as the engine built it (every node type with its parents, properties and relations), and the model editor. |
+| **Query** | Search, inspect and edit nodes. While modelling, create a node by hand to check its shape. |
+| **Activity** | What the database records about itself: queries, transactions, tasks, metrics and the system trace. |
+| **Storage** | Backups (take one before you upgrade Relatude.DB), the database file, stored files and their conversions, and a storage benchmark. |
+| **Logs** | Your own logs ([§32](#32-logs--recording-what-the-application-does)). |
+| **Tasks** | The task queue and the **Scheduler** ([§36](#36-background-tasks-and-the-scheduler)). |
+| **API** | GraphQL endpoints ([§33](#33-graphql-endpoints)). |
+| **Settings** | The database's settings: model sources, storage providers, file stores, index engines, AI. A file store's id is what `[FileProperty(FileStorageProviderId = "…")]` takes. |
+| **Databases**, **Server settings** | The server's databases, and server-wide settings such as the admin login. |
+| **Relatude Services** | The installation's account, and a test page for each hosted service ([§35](#35-relatude-services)). |
 
 Two habits worth forming:
 
-- **Check the datamodel browser after any modelling change.** It shows the parent chain of each
-  type, so it is the fastest way to confirm that your facet interfaces
-  ([§2](#2-your-first-node-type)) actually landed as parent node types, and that a property you
-  expected to be indexed really is.
-- **Middleware order matters.** `UseRelatudeDB` installs the engine's own startup-progress and auth
-  middleware, so call it *after* your own `UseCors` / `UseHttpsRedirection` / `UseAuthentication`.
+- **Check the Datamodel page after a modelling change.** It shows each type's parents, so it is the
+  quickest way to confirm that your facet interfaces ([§2](#2-your-first-node-type)) became parent
+  node types, and that a property you expected to be indexed is.
+- **Mind the middleware order.** `UseRelatudeDB` adds the engine's startup-progress and auth
+  middleware, so call it *after* your own `UseCors`, `UseHttpsRedirection` and `UseAuthentication`.
 
 ### Programmatic / embedded
 
-Outside the server host — tests, an embedded store, an import tool — you build the `Datamodel`
-yourself and hand it to the store:
+Outside the server (in tests, an embedded store or an import tool), build the `Datamodel` yourself
+with the same methods, then open a store on it:
 
 ```csharp
 var datamodel = new Datamodel();
-datamodel.AddNamespace<IVenue>();        // every node & relation type in that namespace
-// or, one at a time:
+datamodel.AddNamespace<IVenue>();
 datamodel.Add<IEvent>();
-datamodel.Add(typeof(IAttendee));
+
+// on disk in the folder "data"; DataStoreLocal.Open(datamodel) alone keeps the store in memory
+var datastore = DataStoreLocal.Open(datamodel, new SettingsLocal(), new IOProviderDisk("data"));
+using var db = new NodeStore(datastore);
 ```
 
-`AddNamespace<T>` scans the assembly containing `T` and adds every type whose namespace matches
-`T`'s exactly, skipping enums, static classes and anything marked `[Exclude]`. `Add<T>` also pulls
-in every type `T` references, unless you pass `includeAllReferencedModels: false`. Adding to a
-datamodel that has already initialised throws — which is why `OnDatamodelInit` is the window for
-this when you are running under the server.
+Add every type before the store is created: adding to a datamodel that is already initialized
+throws. Under the server, `OnDatamodelInit` is the place for this.
 
 ### What the model builder validates
 
-At **build time** (you find out on startup):
+At **build time** (you find out at startup):
 
-- Non-interface node types must have a parameterless constructor.
-- Two parent interfaces may not declare the same property name.
-- Two classes may not declare the same property name. Re-declaring an inherited property with
-  `override` or `new` is not supported. To give a derived type its own default, text index or
-  display name setting for an inherited property, or to ask for its value index or a facet, use
-  `[PropertyOverride]` ([§3.1](#31-overriding-attributes)).
-- A `[PropertyOverride]` must name a property the type inherits, not a system member, and give a
-  default the property's type can hold ([§3.1](#31-overriding-attributes) lists each error).
+- A node type that is a class needs a public parameterless constructor.
+- Two parent interfaces may not declare the same property name, and neither may two classes.
+  Re-declaring an inherited property with `override` or `new` is not supported. To give a derived type
+  its own default, text index or display name setting for an inherited property, or to ask for its
+  value index or a facet, use `[PropertyOverride]` ([§3.1](#31-overriding-attributes)).
+- A `[PropertyOverride]` must name a property the type inherits (not a system member), with a default
+  the property's type can hold.
 - Nullable value types (`int?`, `DateTime?`, `GeoCoordinate?`) are not supported.
-- Only these value types are allowed: `bool`, `byte`, `int`, `long`, `double`, `float`, `decimal`,
-  `DateTime`, `DateTimeOffset`, `Guid`, `TimeSpan`, `GeoCoordinate` and any enum.
-- `Id` must be `Guid` or `string`; the internal id must be `int`, `long` or `string`.
-- Marker attributes must sit on a compatible type — `[DisplayNameProperty]` and
-  `[AddressProperty]` on `string`, `[CreatedUtcProperty]` and `[ChangedUtcProperty]` on `DateTime`.
-- Two types with the same `[Node(Id = …)]` Guid but different full names → error.
-- A relation class must have the right number of nested side classes for its shape.
-- A `RegularExpression` must be a valid regular expression, and a `[Node]`'s `MaxNoInstances` can be
-  neither negative nor below its `MinNoInstances`.
+- The allowed value types are `bool`, `byte`, `int`, `long`, `double`, `float`, `decimal`, `DateTime`,
+  `DateTimeOffset`, `Guid`, `TimeSpan`, `GeoCoordinate` and enums.
+- `Id` must be `Guid` or `string`, and the internal id `int`, `long` or `string`.
+- Marker attributes need a matching type: `[DisplayNameProperty]` and `[AddressProperty]` on
+  `string`, `[CreatedUtcProperty]` and `[ChangedUtcProperty]` on `DateTime`.
+- Two types with the same `[Node(Id = …)]` but different full names are an error.
+- A relation class needs the right nested side classes for its shape.
+- A `RegularExpression` must be valid, and `MaxNoInstances` can be neither negative nor below
+  `MinNoInstances`.
 
 At **write time** (the transaction fails):
 
-- `LegalValues` / `LegalCharacters` / `RegularExpression` / min/max / length bounds (the empty string
-  always passes `LegalValues` and `LegalCharacters`; enums are not held to theirs), checked after
-  `Trim` and `CaseTransform` have changed the value.
-- `MinNoInstances` / `MaxNoInstances` per type, descendants included, on the counts the transaction
-  leaves.
-- `UniqueValues = true` uniqueness across the type; on strings upper and lower case count as the same
-  unless `CaseSensitive = true`.
-- `DisallowCircularReferences = true` acyclicity on self-referential relations.
+- `LegalValues`, `LegalCharacters`, `RegularExpression`, min/max and length bounds, checked after
+  `Trim` and `CaseTransform` have changed the value. The empty string always passes `LegalValues` and
+  `LegalCharacters`, and enums are not checked against theirs.
+- `MinNoInstances` and `MaxNoInstances` per type, descendants included, on the counts the
+  transaction leaves.
+- `UniqueValues = true`: unique across the type. For strings, case is ignored unless
+  `CaseSensitive = true`.
+- `DisallowCircularReferences = true`: no cycles in a self-referencing relation.
 
 ### Do not redefine the native types
 
-The engine ships its own model in `Relatude.DB.Native.Models` — `ISystemUser`, `ISystemUserGroup`,
-`ISystemCollection`, `ISystemCulture`. They back the admin UI, auth and culture handling. If your
-domain needs a "user", model your own type and relate it to `ISystemUser` if you need the link.
+Relatude.DB has its own model in `Relatude.DB.Native.Models`: `ISystemUser`, `ISystemUserGroup`,
+`ISystemCollection` and `ISystemCulture`. The admin UI, authentication and cultures depend on them.
+If your domain needs users, model your own type, and relate it to `ISystemUser` if you need the link.
 
 ---
 ---
@@ -3319,21 +2940,26 @@ domain needs a "user", model your own type and relate it to `ISystemUser` if you
 
 ## 13. Create, insert, update, delete
 
-`db` below is `ctx.Database`, a `NodeStore`.
+In the examples, `db` is `ctx.Database`, the `NodeStore`.
+
+`Create<T>()` makes a node object in memory and gives it a new id. Nothing is stored until you insert
+it:
 
 ```csharp
-// CREATE — hands you a proxy that tracks changes
-var venue = db.Create<IVenue>();
+var venue = db.Create<IVenue>();     // in memory only
 venue.Name = "Sentrum Scene";
-venue.Slug = "sentrum-scene";
 venue.Location = new GeoCoordinate(59.9200, 10.7480);
 venue.Capacity = 1750;
 venue.Kind = VenueKind.Indoor;
-venue.IsAccessible = true;
 
-db.Insert(venue);                    // returns TransactionResult
+db.Insert(venue);                    // now it is stored
+db.UpdateAddress(venue.Id, "sentrum-scene");   // Slug is the node's address (§4)
+```
 
-// …or in one call:
+`CreateAndInsert` does both in one transaction. The callback also gets that transaction, so you can
+relate the new node in the same commit:
+
+```csharp
 var ev = db.CreateAndInsert<IEvent>((e, t) => {
     e.Title     = "Winter Session";
     e.StartsUtc = new DateTime(2026, 11, 14, 19, 0, 0, DateTimeKind.Utc);
@@ -3341,133 +2967,129 @@ var ev = db.CreateAndInsert<IEvent>((e, t) => {
     e.Price     = 450m;
     e.Status    = EventStatus.Published;
     e.Tags      = ["live", "electronic"];
+    t.AddRelation<IEvent>(e, x => x.Venue, venue);
 });
 ```
+
+`Insert` throws if a node with the same id exists; `InsertIfNotExists` skips it instead. `Insert` also
+inserts related node objects that are not stored yet, and relates them. Pass `ignoreRelated: true`
+when you have inserted them yourself.
 
 ### Read
 
 ```csharp
 var byGuid = db.Get<IVenue>(venueId);
-var byInt  = db.Get<IVenue>(1234);                  // internal int id
+var byInt  = db.Get<IVenue>(1234);                     // internal int id
 var many   = db.Get<IVenue>(new[] { id1, id2 });
-var nb     = db.Get<IVenue>(venueId, "nb-NO");      // a specific culture
+var nb     = db.Get<IVenue>(venueId, "nb-NO");         // in a specific culture
 
-if (db.TryGet<IVenue>(venueId, out var maybe)) { … }   // no throw
+if (db.TryGet<IVenue>(venueId, out var maybe)) { … }    // no throw
+bool exists = db.Exists<IVenue>(venueId);
 
-var refreshed = db.Get(venue);                       // re-fetch a known node
+var fresh = db.Get(venue);                              // read a node object again
 
 long total  = db.Count();
 long venues = db.Count<IVenue>();
 ```
 
-`Get` throws when the id is missing or belongs to a node of another type; `TryGet` returns `false` for
-both. A node whose type inherits from `T` counts as a `T`, just as it does for `Exists<T>`.
+`Get` throws when the id is missing or the node is not a `T`; `TryGet` returns `false`. A node whose
+type inherits from `T` counts as a `T`. A read by id applies the store's culture but not its read
+access. To find out what a user may read, use a query
+([chapter 29](#29-cultures-visibility-and-scoped-stores)).
 
 ### Update, upsert, delete
 
-Every mutating call returns a `TransactionResult` and accepts `flushToDisk: bool = false`. The
-default is queued/async, which is what you want in hot paths; pass `true` to force a disk sync
-before returning.
+`Update` writes every property of the node object back. It does not change relations: use the
+methods of [chapter 14](#14-relating-nodes) for those.
 
 ```csharp
 venue.Capacity = 1800;
-db.Update(venue);
+db.Update(venue);                    // skips the write when nothing changed
+db.Upsert(venue);                    // inserts, or updates when the id exists
+db.UpdateIfExists(venue);            // does nothing when the node is gone
+db.ForceUpdate(venue);               // writes without comparing first
 
-db.Upsert(venue);          // insert or update, with a change comparison
-db.ForceUpsert(venue);     // insert or update, skip the comparison
-db.ForceUpdate(venue);     // always write, even if nothing changed
-db.UpdateIfExists(venue);  // no-op when missing
-db.UpdateOrFail(venue);    // throw when missing
-db.InsertIfNotExists(venue);
-db.InsertOrFail(venue);
+db.UpdateProperty(venue, v => v.Capacity, 1800);   // one property, leaving the others alone
+db.AddToProperty(venue, v => v.Capacity, 50);      // read, add and write in one atomic step
 
-db.Delete(venueId);
+db.Delete(venueId);                  // also removes the node's relations
 db.DeleteIfExists(venueId);
-db.DeleteOrFail(venueId);
 db.Delete(new[] { id1, id2 });
 ```
 
-The suffix convention is consistent across the whole API:
+The variants follow one naming rule across the API:
 
-| Suffix | Behaviour when the precondition fails |
+| Name | Behaviour |
 |---|---|
-| *(none)* / `OrFail` | throw |
-| `IfExists` / `IfNotExists` | no-op |
-| `Force…` | skip change detection and write anyway |
+| no suffix, `…OrFail` | throws when the node is missing, or already there for an insert |
+| `…IfExists`, `…IfNotExists` | does nothing in that case |
+| `Force…` | writes without comparing with the stored node first |
 
-`Insert(node, ignoreRelated: true)` tells the engine not to walk relation properties looking for
-cascading inserts — useful when you have already inserted the related nodes yourself.
+Each call is a transaction of its own ([chapter 15](#15-transactions)). By default it returns once the
+change is in the log buffer. Pass `flushToDisk: true` to wait until it is on disk.
 
 ---
 
 ## 14. Relating nodes
 
-There is no `Relate` / `UnRelate`. The verbs are `AddRelation`, `SetRelation`, `RemoveRelation`,
-`ClearRelation`, `ClearRelations` and `ClearAndSetRelation`, all of them on both `NodeStore` (where
-they return `TransactionResult` and take `flushToDisk: bool = false`) and `Transaction` (where they
-return the `Transaction` so calls chain).
+Name a relation by one of its relation properties, as a lambda, and pass the two nodes or their ids:
 
 ```csharp
-// By expression — readable and type-checked. Preferred.
-db.AddRelation<IVenue>(venue, v => v.Events, ev);
-
-// By ids
-db.AddRelation<IVenue>(venueId, v => v.Events, eventId);
+db.AddRelation<IVenue>(venue, v => v.Events, ev);                   // node objects
+db.AddRelation<IVenue>(venueId, v => v.Events, eventId);            // ids
 db.AddRelation<IVenue>(venueId, v => v.Events, new[] { eventId1, eventId2 });
 
-// Symmetric relations only need to be stated once
-db.AddRelation<IAttendee>(alice, a => a.Friends, bob);   // bob.Friends now contains alice
-
-// Remove
 db.RemoveRelation<IVenue>(venue, v => v.Events, ev);
 
-// Probe
 bool related = db.RelationExists<IVenue>(venueId, v => v.Events, eventId);
 ```
 
-Because relations are bidirectional, it does not matter which side you relate from —
-`db.AddRelation<IEvent>(ev, e => e.Venue, venue)` has exactly the same effect as the first line
-above.
+It does not matter which end you name: `db.AddRelation<IEvent>(ev, e => e.Venue, venue)` does the
+same as the first line. A symmetric relation is stated once: after
+`db.AddRelation<IAttendee>(alice, a => a.Friends, bob)`, each is in the other's `Friends`.
+
+Every relation method exists on `NodeStore`, where it commits at once, and on `Transaction`, where it
+returns the transaction so calls chain.
 
 ### Which verb
 
-The six differ only in what they do when the relation is already there, or when the cardinality
-leaves no room:
+The six verbs differ only in what they do when the relation is already there, or when the
+cardinality leaves no room:
 
-| Verb | Already related | "One" side already occupied | Not related |
+| Verb | Already related | "One" side already taken | Not related |
 |---|---|---|---|
-| `AddRelation` | **throws** | **throws** | adds, at the bottom |
-| `SetRelation` | no-op | removes what is in the way, then adds | adds |
+| `AddRelation` | **throws** | **throws** | adds, at the end |
+| `SetRelation` | does nothing | removes what is in the way, then adds | adds |
 | `RemoveRelation` | removes | – | **throws** |
-| `ClearRelation` | removes | – | no-op |
-| `ClearRelations(from, expr)` | removes every relation on that side | – | no-op |
-| `ClearAndSetRelation` | clears the side, then sets exactly the given ids | – | – |
+| `ClearRelation` | removes | – | does nothing |
+| `ClearRelations(from, expr)` | removes every relation on that side | – | does nothing |
+| `ClearAndSetRelation` | clears the side, then sets exactly the given nodes | – | – |
 
-So `AddRelation` is the strict one, `SetRelation` is the idempotent one — and on a `One` /
-`OneFrom` / `OneTo` side `SetRelation` is what reads as an assignment, because it evicts the
-previous target for you. `ClearRelation` is `RemoveRelation` without the throw.
+`AddRelation` is strict and `SetRelation` is forgiving. On a `One`, `OneFrom` or `OneTo` side,
+`SetRelation` works like an assignment, because it removes the node that was there:
 
-Two more behaviours to keep in mind: **`AddRelation` appends to the bottom** of the target's list,
-and adding a pair that already exists throws (as does removing a pair that does not). To change an
-item's position, use the `MoveRelation…` family from [§9.1](#91-relation-lists-are-ordered) rather
-than un-relating and re-relating:
+```csharp
+db.SetRelation<IEvent>(ev, e => e.Venue, otherVenue);   // moves the event to another venue
+```
+
+`AddRelation` puts the new node at the end of the list. To change the order, use the
+`MoveRelation…` methods of [§9.1](#91-relation-lists-are-ordered) rather than removing and adding
+again:
 
 ```csharp
 db.MoveRelationToTop<IVenue>(venue, v => v.Events, headliner);
-db.MoveRelation<IVenue>(venue, v => v.Events, ev, offset: +2);
-db.SetRelationOrder<IVenue>(venue, v => v.Events, orderedEvents);
 ```
 
 ---
 
 ## 15. Transactions
 
-`Transaction` mirrors every mutating call on `NodeStore` — same names, same `OrFail` / `IfExists` /
-`Force…` variants — and commits them together:
+A transaction groups writes so they succeed or fail together. `Transaction` has the same write
+methods as `NodeStore`, with the same `OrFail`, `IfExists` and `Force…` variants. Nothing is written
+until you call `Execute`:
 
 ```csharp
 var t = db.CreateTransaction();
-
 t.Insert(venue);
 t.Insert(ev);
 t.AddRelation<IVenue>(venue, v => v.Events, ev);
@@ -3477,40 +3099,85 @@ t.Update(organizer);
 TransactionResult result = t.Execute();
 ```
 
-`TransactionResult` carries the per-operation outcomes, the ids generated by inserts, and timing.
+If one action fails, `Execute` throws and nothing is written. `result.ResultingOperations` says what
+each action did, in order: `CreateNode`, `UpdateNode`, `None` for an update that changed nothing, and
+so on. After `Execute` the transaction is empty and can be filled again.
 
-For a workflow that needs stricter isolation, take a lock:
+### Locks
+
+Every transaction is atomic on its own. A lock is for longer work, such as an editing session, where
+nobody else may write a node in the meantime. Writes to a locked node are retried and then rejected,
+unless the transaction carries the lock id:
 
 ```csharp
-var lockId = db.RequestLock(venue, lockDurationInMs: 10_000, maxWaitTimeInMs: 10_000);
-// …do the work…                  // the lock expires on its own; request again to extend
-
-if (db.TryRequestLock(venueId, out var id)) { … }
-
-var globalLockId = db.RequestGlobalLock(1000, 1000);   // for maintenance windows
+Guid lockId = db.RequestLock(venue.Id, lockDurationInMs: 30_000);
+try {
+    var t = new Transaction(db, lockId);   // may write the locked node
+    t.Update(venue);
+    t.Execute();
+    db.RefreshLock(lockId);                // extends the lock during long work
+} finally {
+    db.ReleaseLock(lockId);
+}
 ```
+
+A lock expires on its own after its duration, so a crashed client cannot block the database.
+`TryRequestLock` returns `false` instead of throwing when the node is busy. `RequestGlobalLock` locks
+the whole store, for maintenance.
 
 ### Transaction plugins
 
-Cross-cutting concerns — audit trails, derived properties, computed timestamps — belong in a
-transaction plugin rather than scattered through your call sites:
+A transaction plugin runs your code in every transaction that writes nodes of a type `T`, or of a
+type that inherits from it. Use it for rules that must hold however a node is written: checks,
+derived values, audit trails.
 
 ```csharp
-db.RegisterTransactionPlugin(myPlugin);   // INodeTransactionPlugin: BeforeExecute / AfterExecute
+public class EventRules : NodeTransactionPlugin<IEvent> {
+    public override void OnBeforeNodeAction(NodeKey id, NodeOperation operation,
+            Transaction transaction, NodeHelper<IEvent> helper) {
+        if (operation is NodeOperation.DeleteOrFail or NodeOperation.DeleteIfExists
+                      or NodeOperation.ReIndex or NodeOperation.ChangeType) return;
+        var ev = helper.GetNode();                         // the values being written
+        if (ev.Status == EventStatus.Published && ev.StartsUtc == default)
+            throw new InvalidOperationException($"\"{ev.Title}\" has no start time.");
+        helper.SetProperty(e => e.Title, (ev.Title ?? "").Trim());
+    }
+
+    public override void OnAfterNodeAction(NodeKey id, NodeOperation operation,
+            ResultingOperation result) {
+        if (result == ResultingOperation.CreateNode) Console.WriteLine($"Event {id.Guid} created");
+    }
+}
 ```
 
-`BeforeExecute` can inspect, veto or augment the transaction before it commits.
+Register it while the store is still closed, in `OnStoreInit`:
+
+```csharp
+builder.AddRelatudeDB(options => {
+    options.OnStoreInit = db => db.RegisterTransactionPlugin(new EventRules());
+});
+```
+
+`OnBeforeNodeAction` runs before the commit for each insert, update or delete of a whole node.
+`OnBeforePropertyAction` does the same for writes of single properties: `UpdateProperty`, file copies,
+addresses. In these hooks you can throw to cancel the transaction, change what is written through
+`helper`, or add actions to `transaction`, such as `transaction.UpdateAddress(id.Guid, slug)`. The
+`OnAfter…` hooks run after the commit, and the `OnError…` hooks when it fails.
+
+- **A rule about values needs both `Before` hooks**, as a value can be written either way.
+- **Make `Before` hooks repeatable.** One can run more than once for the same action.
+- **Plugins run on the synchronous write path:** `Execute` and the methods built on it. The `…Async`
+  write methods and `Transaction.ExecuteAsync` skip them.
 
 ---
 
 ## 16. Older versions of a node
 
-Every write appends the **full node** to the transaction log — an update never overwrites the
-previous record, it links back to it. The log is therefore a version history, and
-`FindOlderVersions` walks it, newest first:
+Every write appends the whole node to the transaction log, linked to the version before it. So the
+log is a version history, and `FindOlderVersions` reads it, newest first:
 
 ```csharp
-NodeVersion<IVenue>[] history = db.FindOlderVersions<IVenue>(venueId);          // up to 100
+NodeVersion<IVenue>[] history = db.FindOlderVersions<IVenue>(venueId);               // up to 100
 NodeVersion<IVenue>[] recent  = db.FindOlderVersions<IVenue>(venueId, maxCount: 10);
 
 foreach (var v in history) {
@@ -3518,130 +3185,98 @@ foreach (var v in history) {
 }
 ```
 
-Each `NodeVersion<T>` carries the node **as it was when that version was written**, mapped to your
-model type, plus:
+Each `NodeVersion<T>` holds the node as it was (`Node`) and the time of the write (`Timestamp`, or
+`EstimatedCreationUtc` as a UTC time). The current version is not included.
 
-- `Timestamp` — the log timestamp of the transaction that wrote the version, also available as a
-  UTC time through `EstimatedCreationUtc`.
-- `Source` — which log file the version was read from.
-
-The result is strictly *older* versions: the current version is not included. There is also an
-untyped overload, `db.FindOlderVersions(venueId)`, returning `NodeVersion<object>[]`.
-
-Five things to know before building on it:
-
-- **Versions are read straight from the log files on every call** — one disk read per version,
-  nothing cached. Treat it as a history and audit API, not something to call per page view.
-- **How far back it reaches depends on the log.** The primary log holds versions back to the last
-  log rewrite — a rewrite (used by backups and log truncation) compacts the log to current state
-  only, which discards history by design. With `SecondaryBackupLog` enabled in settings, the
-  secondary log survives rewrites and keeps the deeper history; `FindOlderVersions` searches both
-  logs and merges the results.
-- **Relations are not versioned.** A version records the node's property values; relation
-  properties on the returned object resolve against the store as it is *now*.
-- **Deleted nodes have no history.** The API answers for nodes that currently exist, and deleting
-  a node ends its chain — re-inserting the same id starts a fresh history.
-- **Older databases join in gradually.** Version chains require the current log file format; a
-  database created before it keeps working, but history only starts accumulating once the log is
-  rewritten (primary) or the secondary log is recreated.
+- **It reads the log files on every call.** Use it for history and audit screens, not on every page
+  view.
+- **How far back it reaches depends on the log.** A log rewrite (a backup with `TruncateBackups`, or
+  `AutoTruncate`) keeps only the current state. Turn on `SecondaryBackupLog`
+  ([§12.1](#121-every-setting-in-relatudedbjson)) to keep a second log that survives rewrites.
+- **Relations are not versioned.** The relation properties of a version read the store as it is now.
+- **Deleted nodes have no history**, and inserting the same id again starts a new one.
 
 ### 16.1 Reverting the database to an earlier point
 
-Where `FindOlderVersions` *reads* history, the revert API *rewrites* it: it puts the whole database
-back to an earlier point by **permanently deleting every transaction after it** — the log is
-truncated as if they never happened. It exists for experiments, tests and seeding: try something
-against real data, then keep it or throw it away. It is also the intended workflow for a coding
-agent working on your database: remember the timestamp, experiment freely, revert.
+The revert API puts the whole database back to an earlier point by permanently deleting every
+transaction after it. Use it for experiments, tests and seeding, by hand or from a coding agent: try
+something on real data, then keep it or throw it away.
 
-There are two forms. The **revert window** is the cheap, planned one:
+The **revert window** is the cheap form, for when you know in advance:
 
 ```csharp
-long ts = db.BeginRevertWindow();   // mark the rollback target
-// ... experiment freely: insert, update, delete, query ...
-db.RollbackRevertWindow();          // discard everything since Begin — the exact prior state
+long ts = db.BeginRevertWindow();   // the point to return to
+// ... insert, update, delete, query ...
+db.RollbackRevertWindow();          // back to exactly the state at Begin
 // ... or ...
-db.CommitRevertWindow();            // keep everything, resume normal persistence
+db.CommitRevertWindow();            // keep everything
 ```
 
-While a window is active the store suspends everything that would persist state past the window
-start — index engine durability, state snapshots, log rewrites — so a rollback is just a log
-truncation plus a reload, with no index rebuild. The transactions themselves stay fully durable in
-the log the whole time: a crash mid-window *keeps* the changes, rollback is an explicit act, never
-a side effect. Keep windows short-lived (durability of the index engines is deferred for their
-duration), and note that closing the store ends an open window as a commit. Only one window can be
-active at a time. `db.RevertWindow` returns the active window, or null.
+While a window is open, the store saves no state past its start, so a rollback is only a log
+truncation and a reload. The changes are still durable: a crash inside the window keeps them. Keep
+windows short, as the indexes are not made durable meanwhile. One window can be open at a time,
+`db.RevertWindow` returns it (or null), and closing the store commits it.
 
-**`DeleteTransactionsAfter`** is the general, unplanned form — no window needed, it works against
-any remembered timestamp, even across restarts:
+**`DeleteTransactionsAfter`** works with any timestamp you kept, without a window, even across
+restarts:
 
 ```csharp
-long ts = db.Timestamp;                                  // remember BEFORE the changes
+long ts = db.Timestamp;                                       // take it BEFORE the changes
 // ... changes, possibly across a restart ...
-var preview = db.DeleteTransactionsAfter(ts, dryRun: true);   // counts only, changes nothing
-var result  = db.DeleteTransactionsAfter(ts);                 // truncate the log + reload
+var preview = db.DeleteTransactionsAfter(ts, dryRun: true);  // counts only, changes nothing
+var result  = db.DeleteTransactionsAfter(ts);                // truncates the log and reloads
 ```
 
-Both forms return a `DeleteTransactionsResult`: transactions and actions deleted, bytes truncated,
-and what had to be rebuilt. The difference between the forms is cost, not correctness: whatever
-persisted state has advanced past the target — the state snapshot, index files, index engines — is
-reset and rebuilt from the truncated log, which on a large database means a full replay. Inside a
-revert window nothing advances, so nothing rebuilds; the one exception is the SQLite index engine,
-which is durable per transaction and is always reset and rebuilt on rollback. The other engines
-(native KV, Lucene, the disk text index) reopen at the window start untouched.
+Both forms return a `DeleteTransactionsResult`: what was deleted and what had to be rebuilt. Without a
+window, state and indexes saved after the target are rebuilt from the log, which takes a while on a
+large database. While a window is open, `DeleteTransactionsAfter` runs only as a dry run.
 
-Six things to know before reaching for it:
-
-- **It is destructive and global.** Deleted transactions are gone from the log as if never
-  executed — including writes made by *other* parts of the application during the window. This is
-  a development and maintenance tool; on a shared live database, coordinate before rolling back.
-- **The method names are blunt on purpose.** `DeleteTransactionsAfter` describes exactly what
-  happens; there is no undo of a rollback.
-- **Deleting everything is refused.** The timestamp must be at or after the first transaction in
-  the log.
-- **Files are not reverted.** Content uploaded to the file store by deleted transactions stays
-  behind as orphans; the file slots on the reverted nodes are back to their old values.
-- **Reverting interacts with history.** Section 16's version chains are read from the same log, so
-  a revert deletes the versions with it — and a log rewrite (backup with truncate, auto truncate)
-  is blocked while a revert window is active, since it would compact away the rollback target.
-- **The CLI wraps the general form** for use from the outside, without writing any code — see
-  [section 31](#31-the-command-line-tool).
+- **It is destructive and global.** The deleted transactions are gone, including writes that other
+  parts of the application made in the meantime. There is no undo.
+- **The target must be in the log.** A timestamp before its first transaction is refused.
+- **Files are not reverted.** File properties get back the values they had, but files uploaded since
+  stay behind in the file store, unreferenced.
+- **History goes too.** The versions of [chapter 16](#16-older-versions-of-a-node) are in the same
+  log.
+- **From the command line,** `relatude timestamp` and `relatude revert --after <timestamp>` do the
+  same ([chapter 31](#31-the-command-line-tool)).
 
 ---
 
 ## 17. Uploading files
 
+Insert the node first: an upload writes to a stored node. It stores the bytes and sets the
+`FileValue` on the node, so no `Update` is needed afterwards.
+
 ```csharp
-// From a local path, by expression — the readable form
+// from a local path
 await db.FileUploadAsync<IVenue>(venue, v => v.Photo, @"/tmp/sentrum.jpg");
 
-// From a stream or byte array
+// from a stream or a byte array
 await db.FileUploadAsync<IVenue>(venue, v => v.Photo, stream, "sentrum.jpg");
-await db.FileUploadAsync<IVenue>(venue, v => v.Photo, bytes,  "sentrum.jpg");
+await db.FileUploadAsync<IVenue>(venue, v => v.Photo, bytes, "sentrum.jpg");
 
-// When you already hold the FileValue slot
+// into a FileValue you already hold
 await db.FileUploadAsync(venue.Photo, @"/tmp/sentrum.jpg");
+
+// take the file out of the property
+await db.FileDeleteAsync<IVenue>(venue, v => v.Photo);
 ```
 
-The node has to be stored before any of this: `FileValue.PropertyPath` is what addresses the
-upload, and it is `null` on an unsaved node. The upload writes the bytes *and* the `FileValue` on
-the node, so there is no `Update` to make afterwards.
+Only uploads and copies put a file into a property. A `FileValue` written with `Update` or a
+transaction can remove the file (`FileValue.Empty`) or change its name and meta data, but cannot
+point at another stored file. So `b.Photo = a.Photo` copies nothing: use `FileCopyAsync`. And a node
+object read before an upload, then written back, keeps the uploaded file.
 
-Only the store puts a stored file into a property: an upload, or a copy (below). A `FileValue` written
-with the rest of a node, by `Update` or a transaction, may take the file out (`FileValue.Empty`) or
-change what may change of the file the property holds - its name, meta, extracted text, width and
-height - and nothing else. A value naming another stored file is not taken, nor any file in a node
-being inserted: the property keeps what it has. So `b.Photo = a.Photo` copies nothing (use
-`FileCopyAsync`), and an object read before an upload and written back after it keeps the upload.
-
-`FileDeleteAsync` takes the file out of the property, in the revision the context reads. Its bytes
-stay in the store until the unreferenced file cleanup (the job `delete-unreferenced-files`) finds
-nothing pointing at them, as when an upload replaces a file or a node is deleted: a revision is made
-of its source's values, so a draft and the published version hold the same stored file.
+`FileDeleteAsync` takes the file out of the property. The bytes stay in the store until the job
+`delete-unreferenced-files` finds nothing pointing at them, as revisions of a node can share a file.
 
 ### Copying files
 
 ```csharp
-// one file, from one node's file property to another's
+var photoId = db.Mapper.GetProperty<IVenue>(v => v.Photo).Id;
+
+// one file, from one node's property to another's
 FileValue? copy = await db.FileCopyAsync(original.Id, photoId, duplicate.Id, photoId);
 
 // several, in one transaction
@@ -3649,38 +3284,31 @@ FileValue?[] copies = await db.FileCopyAsync(pairs.Select(p =>
     (new PropertyPath(p.From, photoId), new PropertyPath(p.To, photoId))));
 ```
 
-A copy gets the source's file with its name and what was read from it - size, width and height,
-meta, extracted text - so nothing is read from the file again. In a store that keeps one copy per
-content (`SameHashSameFile`, [section 12.1](#121-every-setting-in-relatudedbjson)) the copy points at
-the stored file the source has: no bytes are read or written, `FileDeleteAsync` on either value leaves
-the file for the other, and only the unreferenced-file cleanup removes it once nothing points at it.
-Elsewhere the bytes are streamed into the store the target property uses. Every target is written in
-one transaction, and the answer is the new values in the order given: null where the source holds no
-file, or one that could not be read, which leaves that target as it was; a target node that is not
-there fails it, as any write to it does. Like an upload, it writes the `FileValue` on the node itself.
+A copy gets the source's file with its name and meta data. When the file store keeps one copy per
+content (`SameHashSameFile`, [§12.1](#121-every-setting-in-relatudedbjson)), the two share the stored
+file and no bytes move. The result lists the new values in order, with null where the source has no
+file.
 
-A copy can also be one action of a transaction of your own, with the insert of the node it goes to,
-say, so the node and its file are written together:
+To write a copy together with other changes, such as the insert of its node, add it to a
+`TransactionData`:
 
 ```csharp
+var duplicate = db.Create<IVenue>();
+duplicate.Name = original.Name + " (copy)";
+
 var td = new TransactionData();
-td.InsertOrFail(newNode, null, null);
-var copy = td.CopyFile(new PropertyPath(original.Id, photoId), new PropertyPath(newNode.Id, photoId));
+td.InsertOrFail(db.Mapper.CreateNodeDataFromObject(duplicate, null, null), null, null);
+var copy = td.CopyFile(new PropertyPath(original.Id, photoId), new PropertyPath(duplicate.Id, photoId));
 db.Execute(td);
-FileValue? photo = copy.Result;   // the target's value, once the transaction has run
+FileValue? photo = copy.Result;   // set once the transaction has run
 ```
 
-The store reads and stores the bytes before the transaction takes its lock, so other writes do not wait
-on the files, and if the transaction fails, bytes it stored are deleted again. The source must be stored
-already; the target may be inserted earlier in the same transaction. A file value written from outside
-cannot name a stored file - an insert's is emptied, an update's keeps the file it had - but the one the
-store makes for a copy is its own, and goes through. A transaction plugin sees the copy as a property
-action on the target, with the operation `CopyFile` and no values.
+The source must be stored already; the target may be inserted earlier in the same transaction.
 
 ### Very large files
 
-Files too large to push through a single request go up in chunks — initiate once, append the
-chunks, finalize:
+Where the file store supports it, files too large for one request go up in chunks: start the upload,
+append the chunks, finalize.
 
 ```csharp
 if (db.FileStoreSupportsMultipartUploads(venue.Photo)) {
@@ -3693,25 +3321,18 @@ if (db.FileStoreSupportsMultipartUploads(venue.Photo)) {
 }
 ```
 
-Four constraints are worth knowing before you build on this:
-
-- **Chunks must be appended in order**, one at a time per upload id. The store appends to an open
-  file and folds each chunk into a running hash, so parallel or out-of-order appends corrupt both.
-  Upload several *files* concurrently if you want throughput, not several chunks of one file.
-- **The session lives in memory on that store instance** and expires after 10 minutes of
-  inactivity, at which point the partial file is deleted.
-- **Not every file store supports it** — only those implementing `IFileStoreMultiPartSupport`.
-  That is what `FileStoreSupportsMultipartUploads` checks.
-- **The `FileValue` is only written onto the node at finalize**, so a cancelled or expired upload
-  leaves the node untouched.
+- **Append the chunks in order**, one at a time. For speed, upload several files at once instead.
+- **An upload lives in memory** on that store. After 10 minutes without activity it expires and the
+  partial file is deleted.
+- **The node changes only when you finalize**, so a cancelled or expired upload leaves it as it was.
 
 ### Serving and converting
 
-Ask the datastore for a URL, describing the output you want. Conversion runs asynchronously:
+`GetUrl` with an adjustment gives the URL of a variant of a file: resized, cropped or in another
+format. The middleware that answers these URLs is in
+[chapter 18](#the-middleware-that-serves-it).
 
 ```csharp
-var path = venue.Photo.PropertyPath!;
-
 var adjustment = new FileAdjustmentImage {
     Width = 1200,
     Height = 630,
@@ -3720,53 +3341,54 @@ var adjustment = new FileAdjustmentImage {
     Quality = 80
 };
 
-var url = db.GetUrl(path, adjustment);
+string url = db.GetUrl(venue.Photo, adjustment);
 
-bool ready = db.IsFileReady(path, adjustment, requestIfNot: true);
-
+var path = venue.Photo.PropertyPath!;
+bool ready = db.IsFileReady(path, adjustment, requestIfNot: true);   // queues it when not ready
 if (db.TryGetConversionInfo(path, adjustment, true, out var progress)) { … }
 ```
 
-Every option on `FileAdjustmentImage` is nullable, and only the ones you set take part in the
-conversion key — so two requests that differ in nothing produce one conversion:
+Every option of `FileAdjustmentImage` is nullable. Set only what you need; two requests that ask for
+the same thing share one conversion.
 
 | Group | Options |
 |---|---|
-| Canvas | `Width`, `Height`, `CropMode` (`Fill`, `Fit`, `Stretch`, `Auto`), `BackgroundColor` (`"#RRGGBB"` / `"#RRGGBBAA"`, used by the modes that letterbox), `AutoBackgroundColor` (pick it from the image's edges) |
-| Framing | `Zoom` (percent; 100 is 1:1), `FocusX` / `FocusY`, `OffsetX` / `OffsetY`, `Rotation` (degrees) |
+| Canvas | `Width`, `Height`, `CropMode` (`Fill`, `Fit`, `Stretch`, `Auto`), `BackgroundColor`, `AutoBackgroundColor` |
+| Framing | `Zoom` (percent; above 100 zooms in on the focus), `FocusX` / `FocusY`, `OffsetX` / `OffsetY`, `Rotation` (degrees) |
 | Tone | `Brightness`, `Contrast`, `Saturation` (−100…100), `HueShift` (−180…180), `Sharpness` (0…100) |
-| Light/dark | `InvertLuminance`, `AutoLightDarkMode` — below |
+| Light/dark | `InvertLuminance`, `AutoLightDarkMode` (below) |
 | Output | `RequestedFormat`, `Quality` (0…100, lossy formats only) |
-| Video source | `TimeOffsetMs` or `TimeOffsetPercentage` — which frame of a video to grab the still from |
+| From a video | `TimeOffsetMs` or `TimeOffsetPercentage`: the frame to take |
 
-`FileAdjustmentVideo` is the equivalent for video: `Width`, `Height`, `TargetBitRateInMbps`,
-`CropNotZoom`, `RequestedFormat = FileFormat.Mp4`. `FileAdjustmentMeta` asks for the conversion
-status and extracted metadata as JSON instead of a converted file.
+`RequestedFormat` is optional for images: left out, you get the original file when nothing is
+adjusted, and otherwise the store's default format
+([Image variants adapt by default](#image-variants-adapt-by-default)). `FileAdjustmentVideo` converts
+a video, `FileAdjustmentAudio` takes the sound of a video or a recording (Mp3 by default), and
+`FileAdjustmentMeta` asks for a file's metadata as JSON.
 
-Naming `RequestedFormat` is optional for images: it defaults to the adaptive `FileFormat.Image`,
-which resolves per file against the store defaults — the original untouched when nothing is
-adjusted, a GIF kept as a GIF so its animation survives (the original itself at its own size), everything
-else the configured default format and quality. See [§18.1](#181-asset-urls-files-variants-and-deeplinks).
+Conversion runs in the background:
 
-Three things follow from conversion being asynchronous. **A URL you just built is usually not
-servable yet** — the conversion is queued, and `IsFileReady` is how you find out. Conversions start in
-the order they were queued, unless asked for with `firstInQueue: true`, which puts one ahead of every
-conversion waiting (and moves it there if it is waiting already). Pass it when a web request waits for
-the result — a browser loading the picture, a page checking `IsFileReady` — and leave it off for
-work in the background, or a page view waits behind every conversion a batch job has queued. **A variant that
-is not ready does not fail**: the store serves a generated status placeholder in the requested
-format, which is why you must not cache a response the store reports as uncacheable. And
-**converters have to be registered at startup** — `options.FileConverters.Add(new
-SkiaImageConverter(1))` for images, `new FFMpegVideoConverter()` for video — or every conversion
-comes back as "No converter available".
+- **A URL you just built may not be ready yet.** `IsFileReady` tells you. Pass `firstInQueue: true`
+  when a web request waits for the result, so it goes ahead of the conversions already queued. Leave
+  it off for background work, or page views wait behind your batch jobs.
+- **A variant that is not ready does not fail.** A request for it waits a little, then gets a status
+  picture in the requested format, marked as not cacheable. Never cache such a response.
+- **A failed conversion** is tried again by the first request after an hour.
 
-**Size limits.** A file of a few bytes can declare a picture of gigabytes, and readable asset URLs let
-anyone ask for any size. So the image converters read the size a file declares and refuse a picture
-larger than `ImageLimits.MaxPixels` — 200 megapixels by default, room for the largest phone photos —
-before anything is allocated, and an adjustment may enlarge a picture to at most
-`ImageLimits.MaxEnlargedPixels` (4096 × 4096); making it smaller is bounded by `MaxPixels` alone. A
-refused file comes back as a conversion error. Both are static, set once at startup; lower them on a
-small server, where a 200-megapixel picture takes 800 MB once decoded:
+**Converters.** Conversion works without registering anything. Every store converts JPEG, PNG, WebP,
+GIF and BMP pictures itself, and takes frames and sound from video with FFmpeg, which it downloads
+beside the application the first time it is needed. Converters you add are tried first:
+
+```csharp
+builder.AddRelatudeDB(options => {
+    options.FileConverters.Add(new SkiaImageConverter());   // adds AVIF, for example
+});
+```
+
+**Size limits.** A small file can declare a huge picture, and asset URLs let anyone ask for any size.
+So the converters refuse a picture larger than `ImageLimits.MaxPixels` (200 megapixels), and an
+adjustment may enlarge a picture to at most `ImageLimits.MaxEnlargedPixels` (4096 × 4096). Lower
+them at startup on a small server, where a 200-megapixel picture takes 800 MB once decoded:
 
 ```csharp
 ImageLimits.MaxPixels = 50_000_000;            // namespace Relatude.DB.FileConversion
@@ -3775,12 +3397,8 @@ ImageLimits.MaxEnlargedPixels = 2048 * 2048;
 
 ### Light and dark mode
 
-Artwork drawn for one background rarely survives on the other: a diagram on white turns into a
-bright slab in a dark theme. Two options on `FileAdjustmentImage` deal with that.
-
-`InvertLuminance` inverts every colour channel and then rotates the hue 180° back again. Light
-becomes dark and dark becomes light, but the hues survive the trip — the blue bars below are still
-blue:
+A diagram drawn on white becomes a bright slab in a dark theme. `InvertLuminance` turns light into
+dark and dark into light, but keeps the hues: the blue bars below are still blue.
 
 ```csharp
 var darkVariant = new FileAdjustmentImage {
@@ -3788,13 +3406,12 @@ var darkVariant = new FileAdjustmentImage {
     RequestedFormat = FileFormat.Png
 };
 
-var url = db.GetUrl(venue.Diagram.PropertyPath!, darkVariant);
+string url = db.GetUrl(asset.File, darkVariant);
 ```
 
 ![A bar chart on a white background beside the same chart after InvertLuminance, now on black](invert-luminance.png)
 
-`AutoLightDarkMode` leaves the decision to the converter, which examines the image and only inverts
-when that is likely to give the better result:
+`AutoLightDarkMode` lets the converter decide. It inverts only when that is likely to look better:
 
 ```csharp
 var forDarkTheme = new FileAdjustmentImage {
@@ -3808,86 +3425,58 @@ var forDarkTheme = new FileAdjustmentImage {
 | `AdaptToLightModeIfNeeded` | Invert if the image looks made for a dark surface. |
 | `AdaptToDarkModeIfNeeded` | Invert if the image looks made for a light surface. |
 
-"Looks made for" is decided from a subsampled grid of at most 160×160 pixels, so it costs nothing
-next to the conversion itself. Two questions settle it:
+It inverts only flat artwork, such as logos, icons, diagrams and screenshots, never a photograph, and
+leaves an image alone when unsure. The two options are independent: `InvertLuminance = false` does
+not stop `AutoLightDarkMode`. Both are applied before the tone options. A light and a dark variant
+are two URLs, so a `<picture>` element can let the browser choose:
 
-- **Is this flat artwork?** Logos, icons, diagrams, screenshots and scanned documents have a small
-  palette, long runs of identical pixels, and most of their tone at the two ends of the luminance
-  range. Photographs have none of that, and a photograph is never inverted — inverting one gives you
-  a negative, not a dark-mode variant. Anything the analysis is unsure about is left alone.
-- **Which surface is it for?** For a mostly opaque image, its own dominant tone answers that: a dark
-  image was made for a dark surface. For artwork on a transparent background the visible pixels are
-  the ink instead, and ink is drawn to contrast with its surface, so the reading flips — dark ink
-  implies a light surface. That is why a logo on transparency and a screenshot with a baked-in
-  background both behave the way you would expect.
-
-Three things worth knowing. The two options are independent: `InvertLuminance = true` always inverts,
-and setting it to `false` does not stop `AutoLightDarkMode` from inverting. The inversion happens
-before `Brightness`, `Contrast`, `Saturation`, `HueShift` and `Sharpness`, so those apply to the
-final look rather than to the original. And both options are part of the conversion key, so the light
-and the dark variant of one file are two conversions at two URLs — which is what lets you hand both
-to a `<picture>` element and let `prefers-color-scheme` choose.
-
-### Serving it
-
-The URL a variant is served on, and the middleware that answers it, are the subject of the next
-chapter — see [§18](#18-urls-and-the-url-manager), and [§18.1](#181-asset-urls-files-variants-and-deeplinks)
-for the shapes an asset URL can take.
+```cshtml
+<picture>
+    <source media="(prefers-color-scheme: dark)" srcset="@db.GetUrl(asset.File, forDarkTheme)">
+    <img src="@db.GetUrl(asset.File)" alt="Seating plan">
+</picture>
+```
 
 ---
 
 ## 18. URLs and the URL manager
 
-A URL is never stored. The database keeps a short **address segment** on each node — the slug from
-`[AddressProperty]` — and a *URL manager* assembles complete URLs from those segments plus live
-data: the node's place in a tree, its culture, the requesting host. Because nothing is stored,
-renaming a section is one write, and the thousands of URLs below it change on the next read.
+A URL is never stored. Each node keeps a short **address**, the slug in its `[AddressProperty]`, and
+the store's *URL manager* builds URLs from addresses and live data: the node's place in a tree, its
+culture, the host of the request. So renaming a section is one write, and every URL below it changes.
 
-Every store has a manager. Configure nothing and you get `DefaultUrlManager` in its flat shape,
-where a node's URL is simply `/{address}` and addresses have to be unique — the classic behaviour.
-Give it a parent relation and the same manager builds `/{ancestor addresses}/{address}` instead.
+Without configuration the manager is `DefaultUrlManager` running flat: a node's URL is `/{address}`,
+so addresses must be unique. Give it a parent relation and it builds
+`/{addresses of the ancestors}/{address}` instead.
 
 ```csharp
-// the URL of a node, and the URL of a file variant
-string pageUrl = db.GetUrl(article);
-string fileUrl = db.GetUrl(article.Photo, new FileAdjustmentImage { Width = 400 });
+// the URL of a node, and of a file variant
+string pageUrl = db.GetUrl(venue);                        // absolute: true adds scheme and host
+string fileUrl = db.GetUrl(venue.Photo, new FileAdjustmentImage { Width = 400 });
 
 // the reverse: what does this URL point at?
-if (db.TryParseUrl(url, out UrlKeys keys)) { … }         // node, file, variant or deeplink
-if (db.TryParseUrlForContent(url, out var content)) { … } // …resolved all the way to content
-var file = await db.GetUrlContentAsync(keys);              // the same, from keys already parsed
+if (db.TryParseUrl(url, out UrlKeys keys)) { … }          // node, file, variant or deeplink
+if (db.TryParseUrlForContent(url, out var content)) { … } // all the way to the content to serve
+var file = await db.GetUrlContentAsync(keys);             // the same, from keys already parsed
 
-// may this node have this address? (editor-side validation)
-bool ok = db.WillAddressResultInUniqueUrl(new NodeKey(article.Id), "contact-us");
+// may this node have this address? (check in an editor, before saving)
+bool ok = db.WillAddressResultInUniqueUrl(new NodeKey(venue.Id), "sentrum-scene");
 ```
 
 ### Configuring it
 
-Three places, in increasing order of control. Options in `relatude.db.json` under the container's
-`LocalSettings.UrlOptions`:
+Set the options in `relatude.db.json`, under the database's `LocalSettings.UrlOptions`:
 
 ```json
 "LocalSettings": {
   "UrlOptions": {
     "UrlFormat": "OnlyAddress",
-    "Parents": [ { "ParentRelationName": "PageTree" } ],
-    "PrimaryBaseAddress": null,
-    "AssetUrlSignatureKey": "00000000-0000-0000-0000-000000000000"
+    "Parents": [ { "ParentRelationName": "PageTree" } ]
   }
 }
 ```
 
-…the same options in code, when you build the store yourself:
-
-```csharp
-var manager = new DefaultUrlManager(new DefaultUrlManagerOptions {
-    Parents = [new UrlParentRelation { ParentRelationName = "PageTree" }],
-    UrlFormat = NodeUrlFormat.OnlyAddress,
-});
-var store = new DataStoreLocal(datamodel, settings, io, urlManager: manager);
-```
-
-…or a factory per container in `AddRelatudeDB`, which is also where a hand-written manager goes:
+Or give `AddRelatudeDB` a factory, which is also where a URL manager of your own goes:
 
 ```csharp
 builder.AddRelatudeDB(options => {
@@ -3902,76 +3491,64 @@ builder.AddRelatudeDB(options => {
 });
 ```
 
+A store you build yourself takes the manager in its constructor:
+`new DataStoreLocal(datamodel, settings, io, urlManager: manager)`.
+
 ### Where the path comes from
 
 | Option | Meaning |
 | --- | --- |
-| `Parents` | The relations that lead from a node to its parent, in priority order. Each is a `UrlParentRelation` with `ParentRelationId` **or** `ParentRelationName` (CodeName or full name), plus `ParentIsRelationSource` (default `true`: the parent sits on the source side). Empty means flat — every node is top level. |
-| `Domains` | `UrlDomain { Host, RootId }` pairs. Each host serves the subtree of its root node, and the root itself answers at `/`. Nothing about the domain is stored on any node, so the same content runs locally unchanged. |
-| `FallbackRootId` | The root used when the host is unknown — localhost, staging, tests. Defaults to the first configured domain's root. |
-| `OwnHosts` | Other hosts the site is served at, separated by commas (`"staging.site.com, localhost"`). Links in HTML and Markdown to them are stored by id, like links to the domains (18.2). |
-| `Scheme` | Scheme for absolute URLs. Default `https`. |
-| `MaxDepth` | Cycle guard on the parent walk. Default 32. |
+| `Parents` | The relations from a node to its parent, in priority order. Empty means flat. |
+| `Domains` | `UrlDomain { Host, RootId }`: each host serves the tree below its root node, and the root is `/`. |
+| `FallbackRootId` | The root for unknown hosts: localhost, staging, tests. Default: the first domain's root. |
+| `OwnHosts` | More hosts the site runs at, separated by commas: `"staging.site.com, localhost"` ([§18.2](#182-links-inside-html-and-markdown)). |
+| `Scheme` | Scheme of absolute URLs. Default `https`. |
+| `MaxDepth` | Limit on the walk up the parents, against cycles. Default 32. |
 
-With several `Parents` entries, the first one whose child side accepts the node's type — the type
-itself or a type it inherits — and that actually has a parent for the node is followed. That is what
-lets one tree be held together by more than one relation: pages hang under pages through one
-relation, documents hang under pages through another, and a single URL crosses both.
+A `UrlParentRelation` names its relation by `ParentRelationName` (CodeName or full name) or
+`ParentRelationId`; `ParentIsRelationSource` (default `true`) puts the parent on the source side. With
+several `Parents`, the manager follows the first that accepts the node's type and has a parent for it.
+So pages can hang under pages through one relation and documents under pages through another, and one
+URL crosses both. Domains are not stored on nodes, so the same content runs unchanged on localhost.
 
-```
+```text
 Shop (root)                    →  /
 ├─ tv                          →  /tv
 │  └─ sony-x90                 →  /tv/sony-x90
-│     └─ info                   →  /tv/sony-x90/info
+│     └─ info                  →  /tv/sony-x90/info
 └─ mobile
    └─ pixel
-      └─ info                   →  /mobile/pixel/info
+      └─ info                  →  /mobile/pixel/info
 ```
 
-Both leaves carry the plain address `info`. That is the point of segments: an address only has to be
-unique among nodes that would otherwise produce the same complete URL.
+Both leaves have the address `info`. An address only has to be unique among nodes that would
+otherwise get the same URL.
 
 ### Address uniqueness
 
-`WillAddressResultInUniqueUrl(node, address)` answers whether an address is free *as a URL* — ask it
-from an editor before saving. The store asks the same question at commit time and, when the answer
-is no, appends `-2`, and failing that a number from each of the ranges above it, doubling in size
-(3–4, 5–8, 9–16 …), until it is yes, writing the adjusted value back onto the node. So a collision is
-never an error; it is a silently adjusted slug. The number picked in each range is the node's own:
-giving a node its address again finds the number it has, and nodes added beside each other spread
-over the range, so a free number turns up in about as many tries as the taken ones have binary
-digits, rather than one try per taken number. Writes of the text and semantic index alone (the
-indexing tasks') change neither an address nor the tree, and skip the question.
+`WillAddressResultInUniqueUrl(node, address)` says whether an address gives a unique URL; ask it in an
+editor before saving. The store asks the same when it commits. If the answer is no, it adds a number
+to the address (`info-2`, then higher numbers) until the URL is unique, and writes that address on
+the node. A collision is never an error.
 
-The answer compares URLs, not addresses: the other nodes holding the same address are found from the
-top down — the root's children holding the URL's first address, their children holding the next, and
-so on to the parent, then the parent's children holding the address — and only those are read. So a
-check costs a few steps for each level of the URL however many nodes share the address, as thousands
-do in many copies of a branch. Incoming URLs are resolved the same way. To give many nodes their
-addresses, `SetAddresses` does it in one transaction for less still:
+To address many nodes at once, such as a copied branch, use `SetAddresses`. It checks them in one
+transaction, far faster than one write each, when parents come before their children:
 
 ```csharp
 var td = new TransactionData();
-td.SetAddresses(branch.Select(n => (n.Id, (string?)n.Slug, (bool?)null)));   // top first: parents before their children
+// (node, address, keep the address in step with the name: null leaves it as it is)
+td.SetAddresses(branch.Select(n => (n.Id, (string?)n.Slug, (bool?)null)));   // top first
 db.Execute(td);
 ```
 
-A node whose parent the same call has already given its address is compared with that parent's other
-children alone: the parent's URL has just been checked and is unique, so only a sibling can have the
-node's URL. The nodes holding each address are read once for the whole call. So a copied branch,
-inserted without addresses and given them afterwards top first, costs one full check, for its top. The answers are the ones one write at a time would give, in
-the same order; a node whose parent comes later in the list, or is not in it, gets the full check. A
-transaction plugin sees each node's address written as a property action with the operation
-`SetAddresses`.
-
-> **Do not put `UniqueValues = true` on an address property** unless you are running flat. That is an
-> index constraint demanding global uniqueness, which is precisely what tree URLs relax — two `info`
-> pages under different parents are legitimate, and the constraint would reject the second one.
+> **Do not put `UniqueValues = true` on an address property** unless your URLs are flat. It demands
+> addresses that are unique in the whole database, which tree URLs do not need: two `info` pages under
+> different parents are fine, and the constraint would reject the second one.
 
 ### Page URL formats
 
-`UrlFormat` decides how a page URL is rendered. The examples below are all the same node: address
-`info`, ancestors `tv/sony-x90`, internal id `1042`, public id `9c1b2a3d-4e5f-6071-8293-a4b5c6d7e8f9`.
+`UrlFormat` decides how a page URL looks. The examples are all the same node: address `info`,
+ancestors `tv/sony-x90`, internal id `1042`, public id `9c1b2a3d-4e5f-6071-8293-a4b5c6d7e8f9`.
 
 | `NodeUrlFormat` | Example URL | Resolved by |
 | --- | --- | --- |
@@ -3986,13 +3563,10 @@ transaction plugin sees each node's address written as a property action with th
 | `OnlyGuid` | `/9c1b2a3d-4e5f-6071-8293-a4b5c6d7e8f9` | the id |
 | `EncodedGuidOnly` | `/PSobnF9OcWCCk6S1xtfo-Q` | the id |
 
-The encoded forms are the public Guid as URL-safe Base64: 22 characters instead of 36, and no
-dashes. `DefaultUrlManager.EncodeGuid` / `TryDecodeGuid` do the conversion if you need it yourself.
-
-Two properties of the `…AndAddress` formats are worth the extra characters. They are resolved by the
-id alone, so the readable tail is decoration: **old URLs keep working after a rename**, and
-duplicate addresses never need suffixing. The `…OrAddress` formats do the opposite — they prefer the
-readable path and fall back to an id only for nodes that have no address at all.
+The encoded forms are the public Guid in URL-safe Base64, 22 characters long
+(`DefaultUrlManager.EncodeGuid` and `TryDecodeGuid`). The `…AndAddress` formats find the node by its
+id alone, so the readable part is decoration: a URL keeps working after a rename, and duplicate
+addresses get no number added.
 
 ### Prefixes
 
@@ -4003,39 +3577,38 @@ readable path and fall back to an id only for nodes that have no address at all.
 | `BaseAddressAssets` | asset URLs, after the primary base | `/files` → `/app/files/assets/…` |
 | `IncludeTrailingSlash` | page URLs | `/tv/sony-x90/` |
 
-A base may be a path (`/app`) or carry scheme and host (`https://www.site.com`), which makes those
-URLs absolute. A lane base that carries its own scheme and host is a complete origin and *replaces*
-the primary base rather than being appended to it — that is how a CDN origin for assets coexists with
-a path prefix for pages. Inbound matching always goes by path, so both the absolute and the relative
-form of a URL resolve.
+A base can be a path (`/app`) or include scheme and host (`https://www.site.com`), which makes those
+URLs absolute. A page or asset base with its own host replaces the primary base, so assets can come
+from a CDN while pages keep a path prefix. Incoming URLs are matched by their path, so the absolute
+and the relative form both resolve.
 
 ### 18.1 Asset URLs: files, variants and deeplinks
 
-An asset URL addresses a file property, a converted variant of it, or a deeplink into embedded
-content. It carries an opaque **token** the store encodes and parses; the manager only decides where
-that token sits in URL space. Defaults first, then the options that change them:
+An asset URL points at a file property, a converted variant of it, or a deeplink into embedded
+content. It carries a **token** that the store encodes and reads; the URL manager only decides where
+the token goes. The defaults:
 
-```
+```text
 /assets/{token}/sentrum.jpg                     a file
 /assets/{token}/sentrum.webp                    a converted variant
-https://cdn.example.com/assets/{token}/…        BaseAddressAssets = "https://cdn.example.com"
+https://cdn.example.com/assets/{token}/…        with BaseAddressAssets = "https://cdn.example.com"
 ```
 
-The trailing file name is cosmetic — it is there so a browser download gets a sensible name.
+The file name at the end only gives a download a sensible name.
 
 | Option | Meaning |
 | --- | --- |
-| `AssetUrlStyle` | `AssetRoot` (default) puts assets under their own root. `UnderPageUrl` builds them on the owning node's page URL instead: `/tv/sony-x90/sentrum.jpg?asset={token}`. Falls back to the asset root for nodes with no page URL. |
-| `AssetUrlRoot` | That root. Default `/assets/`. |
-| `AssetUrlParamName` | The query parameter carrying the token in `UnderPageUrl` style. Default `asset`. |
-| `PropertyPathFormat` | How the *target* — which file property on which node — is rendered. |
-| `AssetUrlFormat` | How the *adjustment* — size, crop, format, quality — is rendered. |
-| `AssetUrlSignatureKey` | When set, asset URLs are HMAC signed and edited ones stop resolving. |
+| `AssetUrlStyle` | `AssetRoot` (default), or `UnderPageUrl`: on the owner's page URL, `/tv/sony-x90/sentrum.jpg?asset={token}`. |
+| `AssetUrlRoot` | The asset root. Default `/assets/`. |
+| `AssetUrlParamName` | The query parameter that carries the token with `UnderPageUrl`. Default `asset`. |
+| `PropertyPathFormat` | How the *target* is written: which file property of which node. |
+| `AssetUrlFormat` | How the *adjustment* is written: size, crop, format, quality. |
+| `AssetUrlSignatureKey` | When set, asset URLs are signed, and edited ones stop working. |
 
-`PropertyPathFormat` and `AssetUrlFormat` trade opacity for readability. `Encrypted`, the default,
-keeps everything inside the token; the readable modes lift it out into the URL:
+`PropertyPathFormat` and `AssetUrlFormat` are `Encrypted` by default, which keeps everything inside
+the token. The readable formats take it out into the URL:
 
-```
+```text
 Encrypted            /assets/aEQL7Rt7YbRadQ4Qhkmg…/sentrum.webp
 AssetUrlFormat = QueryParameters
                      /assets/pXy9…/sentrum.webp?w=1200&h=630&f=webp&q=80
@@ -4047,66 +3620,44 @@ PropertyPathFormat = FriendlyShortString
                      /assets/Photo-1042/w1200h630/sentrum.webp
 ```
 
-`pn` is the property's CodeName, `pid` the node id, and a readable target segment is
-`{propertyName}-{internal id}`. Readable targets apply to plain node properties only — deeplinks into
-embedded content always use the token — and require the adjustment to be readable too, since an
-adjusted token cannot address a readable target. A `v` parameter may appear alongside: it is a cache
-buster derived from the file content and is ignored on the way in.
+`pn` is the property's CodeName and `pid` the node's internal id. A readable target works only for
+plain node properties, not deeplinks into embedded content, and needs a readable adjustment too.
 
-Readable URLs are hand-editable by design, which is also their risk: anyone who can see one file can
-ask for other variants of it, or address another file entirely. `AssetUrlSignatureKey` closes that.
-With a key set, every asset URL carries a `sig` parameter over the token, the target and the
-adjustment together, and an edited URL is refused — not silently turned into something else:
+Readable URLs can be edited by hand, so anyone who sees one file can ask for other variants of it, or
+for another file. `AssetUrlSignatureKey` closes that: every asset URL then carries a `sig` parameter
+over the token, the target and the adjustment, and an edited URL is refused, like a URL that never
+existed. Use a stable secret, such as the container id, since URLs handed out stop working when the
+key changes.
 
-```
+```text
 /assets/Photo-1042/w1200h630/sentrum.webp?sig=k7QmXn4…
 ```
 
-Use a stable secret (the container id is a natural choice): change the key and previously handed-out
-URLs stop resolving. Signing and readability are the trade-off — with a key set, a developer can no
-longer tweak `w=1200` in the browser, which was half the appeal of the readable modes.
-
-> A refused asset URL is as unrecognised as a URL that never existed. In particular, a tampered asset
-> URL built on top of a page URL does **not** fall back to serving that page.
+**Caching.** A variant is converted once and kept, however it is asked for. Asset URLs carry a
+version (a `v` parameter in the readable formats), so a ready response may be cached for 30 days. The
+version changes with the file content, *Delete converted files* in the admin UI, and, for adaptive
+variants, `ImageDefaultFormat` and `ImageDefaultQuality`.
 
 #### Image variants adapt by default
 
 `FileAdjustmentImage.RequestedFormat` defaults to `FileFormat.Image`, an adaptive format resolved per
 file when the request is served:
 
-- No adjustments at all → the original file is served untouched, no conversion.
-- A GIF asked for at its own dimensions with no other edits → the original GIF, so animation and palette
-  survive.
-- A resized or edited GIF → an animated WebP when the default format is `WebP`, else still a GIF:
-  every frame is adjusted, so the animation survives either way.
-- Everything else → `SettingsLocal.ImageDefaultFormat` (`Jpeg`, `WebP` or `Png`; default `Jpeg`) at
-  `SettingsLocal.ImageDefaultQuality` (default 85) unless the request names its own quality.
+- No adjustments at all: the original file, unconverted.
+- A GIF at its own size with no other changes: the original GIF, so animation and palette survive.
+- A resized or edited GIF: an animated WebP when the default format is `WebP`, else a GIF. Every
+  frame is adjusted, so the animation survives either way.
+- Everything else: `ImageDefaultFormat` (`Jpeg`, `WebP` or `Png`; default `Jpeg`) at
+  `ImageDefaultQuality` (default 85), unless the request names a quality.
 
-So `?w=1200` alone is a complete request, and a site-wide switch to WebP is one setting rather than a
-sweep through every `GetUrl` call. Naming a format explicitly always wins.
-
-#### Converted variants are cached, and their URLs are stable
-
-A variant is converted once and kept in the `converted` folder of the index storage (`IoIndexes`, else
-the database storage), keyed by the file and the adjustment. The adjustment is normalized first — out
-of range values clamped, `#AABBCC` and `aabbcc` the same color — so one picture is converted once
-whether it is asked for by an encoded URL, a readable one, the admin UI or code. A variant is written
-next to its key and moved into place whole, so a crash never leaves half a picture behind.
-
-File URLs carry a version, and a ready response may be cached for 30 days, so the version changes
-exactly when what the URL serves may: another file content, *Delete converted files* in the admin UI,
-or — for adaptive variants — a change of `ImageDefaultFormat` or `ImageDefaultQuality`. A restart does
-not change it, so browsers and CDNs keep their copies.
-
-A failed conversion is reported as failed for an hour and then tried again on the next request, as a
-failure can be passing (the source briefly unreachable, a converter still being installed). A
-conversion canceled permanently stays canceled until the errors are cleared.
+So `?w=1200` alone is a complete request, and switching the whole site to WebP is one setting
+([§12.1](#121-every-setting-in-relatudedbjson)). A format you name explicitly always wins.
 
 ### 18.2 Links inside HTML and Markdown
 
-A link in a rich-text field must survive the rename of the page it points at. Properties marked
-`StringValueType.HTML` or `Markdown` — `[HtmlProperty]` is the short form — therefore store links in
-an internal, id-based form and never as public URLs:
+A link in a rich-text field must survive a rename of the page it points at. So properties marked
+`StringValueType.HTML` or `Markdown` (`[HtmlProperty]` is the short form) store links in an id-based
+form, never as public URLs:
 
 ```html
 <!-- what is stored -->
@@ -4116,40 +3667,32 @@ an internal, id-based form and never as public URLs:
 <p>Read about the <a href="/tv/sony-x90/info">Sony X90</a>.</p>
 ```
 
-The conversion is automatic in both directions: public URLs in a value you save are rewritten to
-`rdb:` tokens at commit time, and tokens are rewritten to current public URLs on every read. That
-holds for every write path, and for HTML inside embedded nodes too. The rewrite is idempotent, and a
-token whose target has been deleted comes back as `href="#"`, while the stored value keeps the token.
+This happens by itself, on every write and every read, in HTML inside embedded nodes too. A token
+whose target is deleted reads as `href="#"`, and the stored value keeps the token.
 
-What becomes a token:
+- **Pages, files and file variants** become tokens. A variant's adjustment goes into the token.
+- **Only this site's URLs** are resolved: paths from the root (`/tv/sony-x90`), and URLs whose host is
+  the site's (a domain's host, the host of an absolute base address, or one in `OwnHosts`). Another
+  site's URL stays as written, even if its path matches a page here. So does a relative path (`info`),
+  as the store does not know which page the value is on, and so do anchors, `mailto:` and `tel:`.
+- **The query and fragment are kept:** `/tv/sony-x90?tab=specs#reviews` is stored as the token
+  followed by `?tab=specs#reviews`. A file's query is part of its address, so only its fragment is
+  kept (`#page=3`).
 
-- **Pages, files and file variants.** A link to a page, an `src` of a file, and a resized or
-  converted variant of one (the adjustment is kept in the token, the URL's version is not).
-- **Only this site's URLs.** A path from the root (`/tv/sony-x90`) is resolved, and so is a URL whose
-  host is one of the site's: a domain's host, the host of an absolute base address, or one listed in
-  `OwnHosts` (`"staging.site.com, localhost"`). Another site's URL stays as written even when its path
-  is one of this site's, and so does a path relative to the page (`info`), as the store does not know
-  which page the value is on. Anchors, `mailto:`, `tel:` and unresolvable URLs pass through too.
-- **The query and fragment are kept.** `/tv/sony-x90?tab=specs#reviews` is stored as the token with
-  `?tab=specs#reviews` after it, and read as the current URL with them. A file's query is part of its
-  address and lives in the token, so only its fragment is kept (`#page=3`).
-- **By guid.** A token holds the node's guid: its int id can change between instances of a database.
-  A token stored with an int id still reads, and is given the guid the next time its value is saved.
+For content you handle yourself, `db.ExternalizeContentLinks(html)` turns tokens into URLs and
+`db.InternalizeContentLinks(html)` turns URLs into tokens. An editor can also work with tokens
+directly:
 
-A custom URL manager says what is the site's with `IUrlManager.IsOwnUrl`; the default accepts paths
-from the root only, and `UrlManagerBase` adds `OwnHosts` and the base addresses.
-
-That is why renaming a section is genuinely one write: the stored HTML is not touched, and the next
-read of it simply emits the new paths. `db.ExternalizeContentLinks` and `db.InternalizeContentLinks`
-expose the same conversion for content you handle yourself, and a migration utility can internalise
-existing content in place. An editor can work with the stored form directly: `db.GetContentLink(nodeId)`
-and `db.GetContentLink(propertyPath, adjustment)` give the token to insert, and
-`db.TryParseContentLink(link, out var keys)` says what one points at.
+```csharp
+string pageLink = db.GetContentLink(venue.Id);   // "rdb:…", to use as an href
+string picture  = db.GetContentLink(venue.Photo.PropertyPath!, new FileAdjustmentImage { Width = 800 });
+if (db.TryParseContentLink(pageLink, out var target)) { … }   // what a token points at
+```
 
 ### Writing your own manager
 
-When the built-in shapes do not fit, implement `IUrlManager` — three methods for pages, and derive
-from `UrlManagerBase` to inherit the whole asset side, signing included:
+When the built-in options do not fit, write a URL manager. Derive from `UrlManagerBase`, which brings
+the whole asset side, signing included, and write the page side:
 
 ```csharp
 public class PageUrlManager : UrlManagerBase {
@@ -4158,8 +3701,7 @@ public class PageUrlManager : UrlManagerBase {
     // outbound: the URL of a node, or null when it has none
     public override string? TryGetUrl(NodeMeta meta, bool absolute) { … }
 
-    // inbound: every node this URL could mean, best first — the store then filters
-    // the candidates by publication, access and culture
+    // inbound: every node this URL could mean, best first
     public override NodeKeyWithCulture[] GetMatches(string completeUrl) { … }
 
     // may this node have this address?
@@ -4167,27 +3709,23 @@ public class PageUrlManager : UrlManagerBase {
 }
 ```
 
-A manager may also implement `IUrlManagerBatch`, which lets `SetAddresses` compare a node with its
-siblings alone and keep what its checks read for the call; without it, every node of the call gets
-`WillAddressResultInUniqueUrl`. `DefaultUrlManager` implements it.
+Security is not the manager's job. `GetMatches` returns candidates whatever their publication or
+access, and the store filters them through the `QueryContext`: that is how one URL shows a draft to
+an editor and nothing to an anonymous visitor. Tokens are not its job either: files, variants and
+deeplinks arrive encoded, and the manager only places them.
 
-The store calls `GetMatches(completeUrl, nowUtc)` with the context's `NowUtc`, which by default calls
-the one above. A manager that reads nodes to match a URL can override it: `DefaultUrlManager` reads them
-as at that time, so in a context set to a later time (`QueryContext.Now`) a page released by then is found
-at its URL.
+Optional overrides:
 
-Two things the store keeps for itself, so a manager stays small. **Security is not the manager's
-job**: `GetMatches` returns candidates regardless of publication or access, and the store filters them
-through the `QueryContext` afterwards — which is what makes one URL serve a draft to an editor and
-nothing at all to an anonymous visitor. And **tokens are the store's business**: files, variants and
-deeplinks arrive already encoded, and a manager only chooses where to put them.
-`examples/Website.Simple/PageUrlManager.cs` is a complete one written against the typed model, using
-`Traverse` to walk down and `Parent.TryGet` to walk up.
+- `GetMatches(completeUrl, nowUtc)`, which the store calls with the context's time. Override it if
+  you read nodes to match a URL, so a page released by that time (`QueryContext.Now`) is found.
+- `IsOwnUrl(url)`, which says which URLs in HTML are the site's
+  ([§18.2](#182-links-inside-html-and-markdown)).
+- `IUrlManagerBatch`, which lets `SetAddresses` compare a node with its siblings only.
 
 ### The middleware that serves it
 
-Serving URLs is a middleware you write; nothing maps an endpoint for you. It is about thirty lines
-around `TryParseUrlForContent` and `FileHandler.HandleFileAsync`:
+Nothing maps an endpoint for these URLs: you add a middleware. It is about thirty lines around
+`TryParseUrlForContent` and `FileHandler.HandleFileAsync`:
 
 ```csharp
 public class RelatudeDBMiddleware(RequestDelegate next) {
@@ -4196,7 +3734,7 @@ public class RelatudeDBMiddleware(RequestDelegate next) {
             // scheme and host included, so domain routing can see them
             var url = http.Request.Scheme + "://" + http.Request.Host
                     + http.Request.Path.Value + http.Request.QueryString;
-            // firstInQueue: a browser waits for it, so it goes ahead of background conversions
+            // firstInQueue: a browser waits, so this goes ahead of background conversions
             if (ctx.Database.TryParseUrlForContent(url, out var content, firstInQueue: true)) {
                 var result = content.Id.Target switch {
                     UrlTarget.Property or UrlTarget.PropertyAdjusted
@@ -4213,37 +3751,32 @@ public class RelatudeDBMiddleware(RequestDelegate next) {
 }
 ```
 
-Registered after the static-file middleware, because a URL manager can own `/` and this therefore
-sees every request:
+Register it after the static files. A URL manager can own `/`, so the middleware sees every request
+that gets that far:
 
 ```csharp
 app.UseDefaultFiles();
 app.UseStaticFiles();
 app.UseMiddleware<RelatudeDBMiddleware>();
-app.StartRelatudeDB();
+app.UseRelatudeDB();
 ```
 
-Four things in there are load-bearing:
+Four things in the middleware matter:
 
-- **The `RelatudeDBRuntime.IsReady` gate.** The store opens asynchronously, and without the gate
-  requests arriving during startup throw instead of falling through.
-- **Scheme and host, not just the path.** Domain routing needs the host, and asset tokens may live in
-  the query string — `Path.Value` alone silently matches less than it should.
-- **Every non-match calls `next`.** `TryParseUrlForContent` returns `false` rather than throwing for
-  URLs that are not the store's, which is what makes the fall-through clean, and it is also how a
-  refused (tampered) asset URL ends up as a plain 404.
-- **Rendering a page is yours to write.** `UrlTarget.Node` and `EmbeddedNode` hand you
-  `UrlContent.NodeData`, and `UrlKeys.CultureId` / `CultureCode` tell you which culture the URL
-  matched. Return your own view, or `null` to fall through to MVC/Razor routing.
+- **Keep the `IsReady` check.** The store opens in the background, and requests that arrive before
+  it is open would throw instead of passing on.
+- **Pass scheme and host, not just the path.** Domain routing needs the host, and an asset token can
+  be in the query string.
+- **Other requests go on to `next`.** `TryParseUrlForContent` returns `false` for URLs that are not
+  the store's, so a tampered asset URL ends as a plain 404.
+- **Rendering pages is up to you.** For `UrlTarget.Node` and `EmbeddedNode` you get
+  `content.NodeData`, and `content.Id.CultureCode` names the culture the URL matched. Return `null`
+  to pass the request on to MVC or Razor Pages.
 
-`FileHandler` answers a `Range` request with `206 Partial Content` when the stream can seek, which
-video and audio players depend on. A file kept on local disk opens as a seekable `FileStream`; one on
-blob storage or in a single-file store streams through a pipe and is served whole. A web layer that
-takes URLs apart before it decides what serves them, as Relatude.CMS's content routes do, calls
-`TryParseUrl` once and `GetUrlContentAsync(keys)` for the files, rather than parsing twice.
-
-`examples/Website.Simple` has the whole thing running: a two-domain page tree, a rename demo that
-shows stored `rdb:` tokens surviving it, and endpoints that print every node's computed URL.
+`FileHandler` answers a `Range` request with `206 Partial Content` when the stream can seek, as a file
+on local disk can; video and audio players need that. A file in blob storage or in a single-file
+store is served whole. If your web layer parses URLs before it decides what serves them, call
+`TryParseUrl` once and then `GetUrlContentAsync(keys)`, rather than parsing twice.
 
 ---
 ---
@@ -4252,53 +3785,47 @@ shows stored `rdb:` tokens surviving it, and endpoints that print every node's c
 
 ## 19. Query anatomy
 
-Every query is built with the `IQueryOfNodes<TNode, TInclude>` builder and finished with
-`Execute()`.
+You build a query with the `IQueryOfNodes<TNode, TInclude>` builder and run it with `Execute()`:
 
 ```csharp
-var result = db.Query<IEvent>()                            // 1. entry point
-               .Where(e => e.Status == EventStatus.Published)   // 2. filters
-               .WhereSearch("jazz quartet")                     // 3. search
-               .Include(e => e.Venue)                           // 4. eager loading
-               .OrderBy(e => e.StartsUtc)                       // 5. sorting
-               .Page(0, 20)                                     // 6. paging
-               .Execute();                                      // 7. run
+var result = db.Query<IEvent>()                                 // entry point
+               .Where(e => e.Status == EventStatus.Published)   // filter
+               .WhereSearch("jazz quartet")                     // search
+               .Include(e => e.Venue)                           // eager loading
+               .OrderBy(e => e.StartsUtc)                       // sort
+               .Page(0, 20)                                     // page
+               .Execute();                                      // run
 ```
 
-The order of the chained calls does not matter — the builder composes a query plan, it does not
-execute step by step. **Prefer the builder methods over LINQ extensions on the result set**: the
-result set is already materialised, so `.Where()` on it happens in your process, while `.Where()`
-on the builder happens in the engine against the indexes.
+The calls apply in the order you write them, as in LINQ: filter, then sort, then page. Nothing runs
+until `Execute()`, `Count()` or a single-row helper. **Use the builder methods, not LINQ on the
+result.** The builder's `Where` runs in the engine against the indexes. LINQ on a result filters
+nodes already loaded into your process.
 
 ### Queries are immutable
 
-Query objects are immutable, exactly like LINQ queries: every operator returns a **new** query with
-the clause appended and leaves the original untouched. A base query can therefore be stored, shared
-across threads and forked freely:
+As in LINQ, every operator returns a **new** query and leaves the original unchanged. You can keep a
+base query, share it between threads and branch from it:
 
 ```csharp
-var active = db.Query<IEvent>().Where(e => e.Status == EventStatus.Published);
+var published = db.Query<IEvent>().Where(e => e.Status == EventStatus.Published);
 
-var upcoming = active.Where(e => e.StartsUtc > DateTime.UtcNow);   // fork
-var total    = active.Count();                                     // does not affect 'active'
-var page     = active.OrderBy(e => e.StartsUtc).Page(0, 20).Execute();
+var upcoming = published.Where(e => e.StartsUtc > DateTime.UtcNow);   // a new query
+var total    = published.Count();                                     // 'published' is unchanged
 ```
 
-The flip side is the same as in LINQ: the returned query must be used. `q.Where(...)` on its own
-line does nothing — write `q = q.Where(...)`. The operators are marked `[Pure]`, so a discarded
-result is flagged by .NET code analysis (rule CA1806; raise it to a warning with
-`dotnet_diagnostic.CA1806.severity = warning` in `.editorconfig`). This applies to the facet and
-search builders too: `fq = fq.SetFacetValue(...)`.
+So `q.Where(...)` on a line of its own does nothing: write `q = q.Where(...)`. The operators are
+marked `[Pure]`, so code analysis rule CA1806 flags a discarded result (make it a warning with
+`dotnet_diagnostic.CA1806.severity = warning` in `.editorconfig`). The facet, pivot, group and
+search builders work the same way.
 
 ### Heavy queries, and stopping one
 
-Queries run side by side. A query works out its answer from the indexes under the store's read lock,
-and reads the nodes it returns from the log after it has let go of it, so a query that reads a lot from
-disk does not hold up writes, nor the queries queued behind a write. Its answer is still the database
-as it was when it ran: a node written or deleted while it reads is not in it, or is in it as it was.
+Queries run side by side, and a query that reads many nodes from disk does not hold up writes. A
+query sees the database as it was when it started.
 
-A query can be stopped. Give it a cancellation token through its context, and it throws an
-`OperationCanceledException` at its next check - between batches of nodes read and rows evaluated:
+To stop a query, give its context a cancellation token. The query throws an
+`OperationCanceledException` at its next check:
 
 ```csharp
 using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
@@ -4306,26 +3833,22 @@ var ctx = QueryContext.Default.WithCancellation(cts.Token);   // or HttpContext.
 var result = db.Query<IEvent>(ctx).Where(e => e.Description.Contains("jazz")).Execute();
 ```
 
-The token is not part of what the context means - two contexts that differ only in it are equal -
-and the fluent methods keep it, so set it last. For a limit on every query, set
-`MaxQueryDurationInSeconds` ([§12.1](#121-every-setting-in-relatudedbjson)): a query past it is stopped with a
-`TimeoutException`. A query reading more nodes than `WarnWhenQueryReadsNodesFromDisk` from the log
-is noted in the system log, at most once a minute - page it, or filter on indexed properties. The
-admin UI's Query page has a Stop button for the query it is running.
+Set the token last, after the context's other settings. `MaxQueryDurationInSeconds`
+([§12.1](#121-every-setting-in-relatudedbjson)) stops every query that runs longer, with a
+`TimeoutException`. A query that reads more nodes from disk than `WarnWhenQueryReadsNodesFromDisk`
+is noted in the system log: page it, or filter on indexed properties. The admin UI's Query page has
+a Stop button.
 
-A transaction holds the store's write lock for as long as it runs, and a query waits for it before it
-starts. That wait is part of the query: a cancelled token ends it, and so does `MaxQueryDurationInSeconds`,
-whose `TimeoutException` then says the query was waiting for a transaction. Something that would rather
-say "busy" than wait - a count on a status page, say - sets `WithLockWait` on its context: a query or read
-that cannot take the lock in that time throws `StoreBusyException` (a `TimeoutException`), having read
-nothing. Zero does not wait at all; like the token, set it last.
+A query waits for a running transaction to finish, and the wait counts toward both limits. To show
+"busy" rather than wait, set `WithLockWait`, also last. A query that cannot start in time throws
+`StoreBusyException` (a `TimeoutException`) and has read nothing. Zero does not wait at all.
 
 ```csharp
 var ctx = QueryContext.Default.WithLockWait(TimeSpan.FromMilliseconds(100));
 try {
     count = db.Query<IEvent>(ctx).Count();
 } catch (StoreBusyException) {
-    count = null;   // a transaction is running: show it as unknown, and ask again later
+    count = null;   // a transaction is running: show "unknown" and ask again later
 }
 ```
 
@@ -4340,44 +3863,37 @@ IQueryOfNodes<T, T> Query<T>(int id, QueryContext? ctx = null);
 IQueryOfNodes<T, T> Query<T>(NodeKey id, QueryContext? ctx = null);
 IQueryOfNodes<T, T> Query<T>(IEnumerable<Guid> ids, QueryContext? ctx = null);
 IQueryOfNodes<T, T> Query<T>(Expression<Func<T, bool>> expression, QueryContext? ctx = null);
-IQueryOfNodes<T, T> Query<T>(T node, QueryContext? ctx = null);          // rooted at one node
+IQueryOfNodes<T, T> Query<T>(T node, QueryContext? ctx = null);          // one node, e.g. to traverse from
 
 IQueryOfNodes<object, object> QueryType(Guid nodeTypeId, QueryContext? ctx = null);
 IQueryOfNodes<object, object> QueryType(string typeName, QueryContext? ctx = null);
 IQueryOfNodes<T, T> QueryRelated<T>(Guid propertyId, Guid nodeId, QueryContext? ctx = null);
 ```
 
-`Query<T>()` with no predicate matches every instance of `T` **and its subtypes**. Use `WhereTypes`
-to narrow that. The `QueryType` pair is the untyped door in, for tooling that only has a type name
-or id.
+`Query<T>()` matches every node of type `T` **and of its subtypes**; narrow it with `WhereTypes`.
+`QueryType` is for tooling that has only a type name or id.
 
 ### Executing
 
 ```csharp
 ResultSet<IEvent> rs = query.Execute();
 ResultSet<IEvent> rs = await query.ExecuteAsync();
+
+IEvent? one   = query.FirstOrDefault();      // also FirstOrDefaultAsync()
+IEvent  first = query.First();               // also FirstAsync()
+IEvent  only  = query.Single();              // throws unless exactly one matches
+
+if (query.TryGet(out var ev)) { … }          // false for none, throws for more than one
 ```
 
-Single-row helpers (extension methods on the builder):
-
-```csharp
-IEvent? one   = query.FirstOrDefault();
-IEvent  first = query.First();
-IEvent  only  = query.Single();
-IEvent? oneA  = await query.FirstOrDefaultAsync();
-IEvent  firstA= await query.FirstAsync();
-
-if (query.TryGet(out var ev)) { … }    // succeeds only when exactly one row matches; throws on >1
-```
-
-`TryGet` is the safe "I expect at most one" probe.
+`TryGet` is the safe way to read something you expect at most once.
 
 ---
 
 ## 20. Filtering with Where
 
 ```csharp
-// Expression form — the everyday tool
+// Expressions: the everyday tool
 db.Query<IEvent>().Where(e => e.Price <= 500m && e.Status == EventStatus.Published);
 
 db.Query<IVenue>().Where(v => v.Capacity > 500 && v.CountryCode == "NO");
@@ -4387,21 +3903,21 @@ db.Query<IEvent>().Where(e => e.Title.StartsWith("Winter"));   // uses the Prefi
 db.Query<IEvent>().Where(e => e.StartsUtc > DateTime.UtcNow
                            && e.StartsUtc < DateTime.UtcNow.AddDays(30));
 
-// By id(s)
+// By id
 db.Query<IVenue>().Where(venueId);
 db.Query<IVenue>().Where(new[] { id1, id2, id3 });
 
-// Membership over a property
+// One of several values
 db.Query<IVenue>().WhereIn(v => v.CountryCode, new[] { "NO", "SE", "DK" });
 
-// Restrict to specific node types (useful when starting from Query())
+// Only some node types (useful after Query())
 db.Query().WhereTypes(new[] { typeof(IVenue), typeof(IEvent) }, includeDescendants: true);
 
-// Lambda as a string — for REST endpoints and tooling
+// The lambda as a string, for REST endpoints and tooling
 db.Query<IEvent>().Where("e => e.Price < 100");
 ```
 
-Chained `Where` calls are ANDed together:
+Chained `Where` calls are combined with AND:
 
 ```csharp
 db.Query<IEvent>()
@@ -4410,341 +3926,284 @@ db.Query<IEvent>()
   .Execute();
 ```
 
-> Every property you filter, sort or facet on should be declared `Indexed = true`. An unindexed
-> filter still returns the right answer, but it scans.
+> Declare every property you filter, sort or facet on with `Indexed = true`. A filter on a property
+> without an index still gives the right answer, but it checks the nodes one by one.
 
 ---
 
 ## 21. Text and semantic search
 
-Relatude.DB has BM25 keyword search and vector/semantic search built in, and blends them with a
-single `semanticRatio` knob: `0.0` is pure keyword, `1.0` is pure vector, anything between is a
-hybrid.
-
-Two entry points, for two different jobs.
+Relatude.DB has BM25 keyword search and vector (semantic) search built in. `semanticRatio` blends
+them: `0.0` is keyword only, `1.0` is vector only, and values between give a hybrid.
 
 ### `WhereSearch` — search as a filter
 
-Returns an `IQueryOfNodes` you can keep composing:
+`WhereSearch` keeps the matching nodes and returns a node query you can keep building on:
 
 ```csharp
 var results = db.Query<IEvent>()
                 .WhereSearch("outdoor jazz festival", semanticRatio: 0.5)
-                .Where(e => e.Status == EventStatus.Published)
                 .Where(e => e.Price < 800m)
                 .OrderBy(e => e.StartsUtc)
                 .Page(0, 20)
                 .Execute();
 ```
 
-```csharp
-IQueryOfNodes<T, T> WhereSearch(
-    string text,
-    double? semanticRatio = null,           // null = engine default
-    float?  minimumVectorSimilarity = null,
-    bool?   orSearch = null,                // true = OR over terms, false = AND
-    int?    maxWordsEvaluated = null);
-```
-
 ### `Search` — search as ranking
 
-Returns a `QueryOfSearch` with ranked hits and scores, which is what you want on a search results
-page:
+`Search` returns ranked hits, each with a score and a text sample. Use it for a search results page:
 
 ```csharp
-var ranked = db.Query<IEvent>()
-               .Where(e => e.Status == EventStatus.Published)   // pre-filter first
-               .Search("live electronic music", semanticRatio: 0.7)
-               .Execute();
+var hits = db.Query<IEvent>()
+             .Where(e => e.Status == EventStatus.Published)   // filter first
+             .Search("live electronic music", semanticRatio: 0.7)
+             .Page(0, 20)
+             .Execute();
+
+foreach (var hit in hits)
+    Console.WriteLine($"{hit.Score:0.00} {hit.Node.Title}: {hit.Sample.FormatSample("<b>", "</b>")}");
 ```
 
-```csharp
-QueryOfSearch<T, T> Search(
-    string text,
-    double? semanticRatio = null,
-    float?  minimumVectorSimilarity = null,
-    bool?   orSearch = null,
-    int?    maxWordsEvaluated = null,
-    int?    maxHitsEvaluated = null);
-```
+Both take the same optional settings after the text: `semanticRatio`, `minimumVectorSimilarity`,
+`orSearch` (true: any term may match, false: all must) and `maxWordsEvaluated`. `Search` also takes
+`maxHitsEvaluated`.
 
 ### What actually gets searched
 
-A property participates in search only if it opted in:
+`WhereSearch` and `Search` look in each node's text index:
 
-- `IndexedByWords = true` → BM25 keyword index
-- `IndexedBySemantic = true` → vector index
-- `TextIndexBoost` on the property weights it (its text goes into the index that many extra times);
-  `TextIndexBoost` on `[Node]` is not used yet
-- `ExcludeFromTextIndex = true` keeps a property out
-- `[RelationProperty(TextIndexRelatedDisplayName = true)]` pulls related nodes' display names into
-  this node's text index — so a venue becomes findable by the events held there
+- A node type is in it when it has `[Node(TextIndex = BoolValue.True)]`, or every type is when
+  `EnableTextIndexByDefault` is on ([§12.1](#121-every-setting-in-relatudedbjson)). `SemanticIndex`
+  does the same for the vector index. Subtypes inherit the setting.
+- Every property goes in except those with `ExcludeFromTextIndex = true`. Dates, booleans, ids and
+  coordinates are out by default. `TextIndexBoost` adds a property's text that many extra times.
+- `[RelationProperty(TextIndexRelatedDisplayName = true)]` adds the related nodes' display names, so
+  a venue can be found by the names of its events.
 
-> **How the vector index performs.** The three vector engines behind `IndexedBySemantic` — in-memory,
-> IVS and HNSW — are measured across corpus sizes and cache budgets in the
-> [vector index benchmarks](vector-matrix.html): indexing and search throughput, recall, restart cost
-> and memory footprint.
+`IndexedByWords` and `IndexedBySemantic` give one string property an index of its own. Search that
+property alone with `MatchesSearch`. It is an ordinary predicate, so it combines with `||` and `!`:
+
+```csharp
+db.Query<IEvent>().Where(e => e.Title.MatchesSearch("jazz") || e.Price == 0).Execute();
+```
+
+> The vector engines (in-memory, IVS and HNSW) are compared in the
+> [vector index benchmarks](vector-matrix.html).
 
 ---
 
 ## 22. Geo queries
 
-Spatial filtering is a normal `Where` clause. The query compiler recognises
-`GeoCoordinate.IsWithin(center, meters)` and accelerates it with the coordinate index.
+A radius filter is an ordinary `Where` clause. `GeoCoordinate.IsWithin(center, meters)` uses the
+property's index when it has `Indexed = true`:
 
 ```csharp
 var oslo = new GeoCoordinate(59.9139, 10.7522);
 
-// Every accessible venue within 5 km of Oslo central
+// Accessible venues within 5 km of Oslo central
 var nearby = db.Query<IVenue>()
                .Where(v => v.Location.IsWithin(oslo, 5_000))
                .Where(v => v.IsAccessible)
                .Execute();
 ```
 
-Compose it with anything else:
-
-```csharp
-// Published events, under 500 kr, at a venue within 25 km, in the next fortnight
-var soon = db.Query<IEvent>()
-             .Where(e => e.Status == EventStatus.Published)
-             .Where(e => e.Price < 500m)
-             .Where(e => e.StartsUtc < DateTime.UtcNow.AddDays(14))
-             .Execute();
-
-var venueIds = db.Query<IVenue>()
-                 .Where(v => v.Location.IsWithin(oslo, 25_000))
-                 .SelectId()
-                 .Execute();
-```
-
 ### Sorting by distance
 
-**Do not** `OrderBy(v => v.Location)`. The stored ordering follows a Z-order curve — spatially
-coherent for index scans, meaningless to a human. Filter by radius in the engine, then order the
-materialised page in memory:
+Sort by `DistanceTo` in the query. Nodes with no location come last:
 
 ```csharp
-var byDistance = db.Query<IVenue>()
-                   .Where(v => v.Location.IsWithin(oslo, 10_000))
-                   .Execute()
-                   .OrderBy(v => v.Location.DistanceTo(oslo))   // in-process, on a small page
-                   .ToList();
+var closest = db.Query<IVenue>()
+                .Where(v => v.Location.IsWithin(oslo, 10_000))
+                .OrderBy(v => v.Location.DistanceTo(oslo))
+                .Take(10)
+                .Execute();
 ```
 
-This is cheap precisely because the radius filter already cut the set down. Do not run
-`DistanceTo` over the whole table.
+The distance is worked out node by node, so filter by radius first to keep the set small.
+`OrderBy(v => v.Location)` throws: coordinates are stored along a space-filling curve, and that
+order means nothing to a reader.
 
 ### A widening search
 
 ```csharp
+// The nearest venues: widen the radius until enough are found
 IEnumerable<IVenue> FindNearest(NodeStore db, GeoCoordinate center, int wanted = 10) {
+    ResultSet<IVenue> hits = null!;
     foreach (var radius in new[] { 1_000d, 5_000, 25_000, 100_000, 500_000 }) {
-        var hits = db.Query<IVenue>()
-                     .Where(v => v.Location.IsWithin(center, radius))
-                     .Take(wanted * 4)
-                     .Execute()
-                     .OrderBy(v => v.Location.DistanceTo(center))
-                     .Take(wanted)
-                     .ToList();
-        if (hits.Count >= wanted) return hits;
+        hits = db.Query<IVenue>()
+                 .Where(v => v.Location.IsWithin(center, radius))
+                 .OrderBy(v => v.Location.DistanceTo(center))
+                 .Take(wanted)
+                 .Execute();
+        if (hits.Count == wanted) break;
     }
-    return [];
+    return hits;
 }
 ```
 
 ### Things to remember about geo filters
 
-- Venues with `GeoCoordinate.Empty` never match `IsWithin`. That is by design — no location means
-  no location, not "at 0°N 0°E".
-- The index cover over-scans slightly (square cells, round circles); the engine refines with the
-  exact haversine distance, so results are exact.
-- A radius that touches a pole widens the cover to every longitude. Correct, but not cheap.
-- Distances are great-circle metres over a mean Earth radius of 6 371 km.
+- `GeoCoordinate.Empty` means "no location". It never matches `IsWithin`, and its distance to
+  anything is infinite.
+- Distances are great-circle metres over a mean Earth radius of 6 371 km, and `IsWithin` is exact.
+- Without `Indexed = true` on the property, `IsWithin` checks the nodes one by one.
 
 ---
 
 ## 23. Relation filters
 
-Filter nodes by *what they are related to*, without loading either side:
+Filter nodes by what they are related to, without loading either side:
 
 ```csharp
-// Events at a specific venue
+// Events at a venue
 db.Query<IEvent>().WhereRelates(e => e.Venue, venueId).Execute();
 
-// Events NOT hosted by a given organizer
+// Events not hosted by an organizer
 db.Query<IEvent>().WhereNotRelates(e => e.Host, organizerId).Execute();
 
 // Events at any of these venues
 db.Query<IEvent>().WhereRelatesAny(e => e.Venue, new[] { id1, id2, id3 }).Execute();
 
-// When the relation lives on a derived type, name the subclass explicitly:
-//   .WhereRelates<TSubClass, TProperty>(expr, nodeId)
-db.Query<IEvent>().WhereRelates<IConcert, Attendance.Attendees>(c => c.Attendees, attendeeId);
-//                              ^^^^^^^^ a hypothetical IConcert : IEvent
+// A relation declared on a subtype: name the subtype (a hypothetical IConcert : IEvent)
+db.Query<IEvent>().WhereRelates<IConcert, object>(c => c.Performers, performerId).Execute();
 ```
 
-Combine freely with scalar filters:
+Relation filters combine with any other filter:
 
 ```csharp
-var affordableNearby = db.Query<IEvent>()
-                         .WhereRelates(e => e.Venue, venueId)
-                         .Where(e => e.Price <= 300m)
-                         .Where(e => e.Status == EventStatus.Published)
-                         .OrderBy(e => e.StartsUtc)
-                         .Execute();
+var affordable = db.Query<IEvent>()
+                   .WhereRelates(e => e.Venue, venueId)
+                   .Where(e => e.Price <= 300m)
+                   .OrderBy(e => e.StartsUtc)
+                   .Execute();
 ```
 
-Or query straight from a relation property, which is often the most natural reading:
+Or start the query from a relation property, which often reads most naturally:
 
 ```csharp
-var venue = db.Get<IVenue>(venueId);
-
-var sellingOut = venue.Events
-                      .Query()
-                      .Where(e => e.Status == EventStatus.SoldOut)
-                      .OrderByDescending(e => e.StartsUtc)
-                      .Take(5)
-                      .Execute();
+var soldOut = db.Get<IVenue>(venueId).Events
+                .Query()
+                .Where(e => e.Status == EventStatus.SoldOut)
+                .OrderByDescending(e => e.StartsUtc)
+                .Take(5)
+                .Execute();
 ```
 
 ---
 
 ## 24. Eager loading: Include and Preload
 
-Both fetch related data in the same round trip. The difference is *what kind of property* they
-target.
-
-| Method | Targets |
-|---|---|
-| `Include` | relation properties (`One`/`Many` sides) and collection-shaped properties |
-| `Preload` | `IRelationProperty<T>`, `IReference<T>`, `IReferences<T>` |
-
-Remember: `Reference<T>` and `References<T>` yield **nothing** from `foreach` unless preloaded.
-That is the whole reason `Preload` exists.
+`Include` and `Preload` load related nodes with the result, in the same round trip. Use `Include`
+for relations and `Preload` for `Reference<T>` and `References<T>` properties, which yield nothing
+from `foreach` unless preloaded. Without them, each relation you read costs a trip to the store.
 
 ```csharp
-// Relations
 var events = db.Query<IEvent>()
-               .Where(e => e.Status == EventStatus.Published)
                .Include(e => e.Venue)
-               .Include(e => e.Attendees, top: 50)      // cap how many related nodes to load
+               .Include(e => e.Attendees, top: 50)      // at most 50 attendees per event
+               .Preload(e => e.Cover)
                .Execute();
 
 foreach (var e in events) {
-    var venue = e.Venue.Get();                  // already loaded — no extra round trip
+    var venue = e.Venue.Get();                  // already loaded
     foreach (var a in e.Attendees) { … }        // already loaded
-}
-
-// References
-var withCovers = db.Query<IEvent>()
-                   .Preload(e => e.Cover)
-                   .Preload(e => e.Sponsors)
-                   .Execute();
-
-foreach (var e in withCovers) {
-    foreach (var img in e.Cover)    { … }       // now yields, because it was preloaded
-    foreach (var s   in e.Sponsors) { … }
+    foreach (var img in e.Cover) { … }          // yields, because it was preloaded
 }
 ```
 
 ### Going deeper: ThenInclude / ThenPreload
 
-`ThenInclude` operates on the previously-included element type, so you can walk down a chain:
+`ThenInclude` and `ThenPreload` load the next level, from the nodes the previous `Include` loaded.
+When that `Include` names a relation end, give it the related node type, so the next level knows
+what it starts from:
 
 ```csharp
-var deep = db.Query<IVenue>()
-             .Include(v => v.Events)
-             .ThenInclude(e => e.Attendees, top: 20)
-             .ThenPreload(a => a.Friends)
-             .Execute();
+var venues = db.Query<IVenue>()
+               .Include<IEvent>(v => v.Events)             // venue → its events
+               .ThenInclude(e => e.Attendees, top: 20)     // event → its attendees
+               .Execute();
 ```
+
+`ThenPreload` does the same for references:
+`.Include<IEvent>(v => v.Events).ThenPreload(e => e.Cover)`.
 
 ### Filtering what gets included
 
-Every `Include` / `Preload` / `ThenInclude` / `ThenPreload` overload has a variant that takes a
-filter on the related nodes. **The filter never affects the main result set** — it only narrows
-what is loaded — and it is applied *before* `top`:
+Each of these methods also takes a filter on the related nodes. The filter applies before `top`, and
+it **never changes the main result**, only what is loaded:
 
 ```csharp
 var venues = db.Query<IVenue>()
                .Where(v => v.CountryCode == "NO")
-               .Include(v => v.Events,
-                        e => e.StartsUtc > DateTime.UtcNow,   // only upcoming events loaded
-                        top: 10)
+               .Include(v => v.Events, e => e.StartsUtc > DateTime.UtcNow, top: 10)   // upcoming only
                .Execute();
 ```
 
-Every venue in `NO` still comes back — including those with no upcoming events. Only the attached
-event lists are filtered.
+Every venue in `NO` comes back, including those with no upcoming events.
 
 ### When you only need ids
 
-Materialising whole nodes to read their ids is wasteful. Don't:
+`SelectId()` returns the ids without loading the nodes:
 
 ```csharp
-IQueryCollection<ResultSet<Guid>> ids = db.Query<IEvent>()
-                                          .Where(e => e.Price == 0)
-                                          .SelectId();
-
-var idList = ids.Execute().ToArray();
+Guid[] free = db.Query<IEvent>().Where(e => e.Price == 0).SelectId().Execute().ToArray();
 ```
 
 ---
 
 ## 25. Graph traversal and shortest path
 
-This is where the graph model earns its keep. Both operations work over **relations** — not
-references, not embedded data.
+Both work over **relations**, not references or embedded data.
 
 ### Traverse
 
-`Traverse` expands the current result set over a relation with a breadth-first walk and returns
-the nodes it reaches, typed as the related node type. The current result set is the seed at
-level 0; the result contains every node whose *minimum* distance from any seed falls within
-`[minLevel, maxLevel]`. It is cycle-safe.
+`Traverse` walks a relation out from the current result, breadth first, and returns the nodes it
+reaches. The current result is level 0, and you get every node whose shortest distance from it is
+between `minLevel` and `maxLevel`. Cycles are safe.
 
 ```csharp
 IQueryOfNodes<TProperty, TProperty> Traverse<TProperty>(
     Expression<Func<TNode, TProperty>> relationProperty,
     int maxLevel,
     int minLevel = 1,
-    GraphDirection direction = GraphDirection.Default,
-    int? maxVisited = null);
+    GraphDirection direction = GraphDirection.Default,   // or Reverse, or Both
+    int? maxVisited = null);                             // a safety limit on wide graphs
 ```
+
+When the property is a relation end, as in this manual's model, name the node type you traverse to.
+The result is an ordinary query of that type, so `Where`, `OrderBy`, `Count`, `Page`, `Include` and
+`Facets` all chain after it:
 
 ```csharp
-// Friends-of-friends of Alice, excluding her direct friends
+// Friends of Alice's friends, without her direct friends
 var fof = db.Query<IAttendee>()
             .Where(aliceId)
-            .Traverse(a => a.Friends, maxLevel: 2, minLevel: 2)
+            .Traverse<IAttendee>(a => a.Friends, maxLevel: 2, minLevel: 2)
             .Execute();
 
-// Everything under a venue complex, to any depth, sorted
-var allHalls = db.Query<IVenue>()
-                 .Where(complexId)
-                 .Traverse(v => v.Halls, maxLevel: 10)
-                 .Where(v => v.Capacity > 100)      // the result is a normal node query
-                 .OrderBy(v => v.Name)
-                 .Execute();
+// The halls of a venue complex, at any depth
+var halls = db.Query<IVenue>()
+              .Where(complexId)
+              .Traverse<IVenue>(v => v.Halls, maxLevel: 10)
+              .Where(v => v.Capacity > 100)
+              .OrderBy(v => v.Name)
+              .Execute();
 ```
-
-The crucial detail: **the result of `Traverse` is a regular node query**, so `Where`, `OrderBy`,
-`Count`, `Page`, `Include` and `Facets` all chain after it.
-
-Use `maxVisited` as a safety valve on wide graphs.
 
 ### ShortestPath
 
-Finds one shortest unweighted path between two nodes over a relation, breadth-first:
+`ShortestPath` finds one shortest path between two nodes over a relation, counting steps:
 
 ```csharp
 var path = db.Query<IAttendee>()
              .ShortestPath(a => a.Friends, fromNodeId: aliceId, toNodeId: zaraId, maxLevel: 6)
              .Execute();
+
+if (path.Found)
+    Console.WriteLine($"{path.Length} steps: " + string.Join(" → ", path.Nodes.Select(a => a.FullName)));
 ```
 
-The result carries the node ids and the materialised nodes in order, from → to inclusive.
+`Nodes` and `NodeIds` run from the first node to the last, both included.
 
 ---
 
@@ -4760,13 +4219,14 @@ The result carries the node ids and the materialised nodes in order, from → to
 `OrderByMeta` sorts by the node's own `CreatedUtc` or `ChangedUtc`, on any type, whether or not the
 class maps them ([Querying by the node's own dates](#querying-by-the-nodes-own-dates)).
 
-Chain them for a compound sort — the first call is the primary key, later calls are tie-breakers:
+To sort by several keys, chain `OrderBy` calls. Each sort keeps the order that equal values already
+had, so **the last call is the main key**, as with LINQ's `OrderBy(…).OrderBy(…)`:
 
 ```csharp
+// By start time; events that start at the same time, dearest first
 db.Query<IEvent>()
-  .OrderBy(e => e.StartsUtc)
-  .OrderBy(e => e.Price, descending: true)
-  .OrderBy(e => e.Title)
+  .OrderBy(e => e.Price, descending: true)   // the tie-breaker first
+  .OrderBy(e => e.StartsUtc)                 // the main key last
   .Execute();
 ```
 
@@ -4778,35 +4238,34 @@ db.Query<IEvent>()
 .Skip(int offset)
 ```
 
-`Page(p, n)` is equivalent to `.Skip(p * n).Take(n)`, but the engine recognises it as a paged query
-and returns the total count without you running a second query. **Use `Page` for pagination.**
+`Page(p, n)` returns the same rows as `.Skip(p * n).Take(n)` and also records the page in the
+result. Either way, `TotalCount` is the number of matches before paging, so one query gives you both
+the page and the total. Use `Page` for pagination:
 
 ```csharp
 var page = db.Query<IEvent>()
              .Where(e => e.Status == EventStatus.Published)
              .OrderBy(e => e.StartsUtc)
-             .Page(2, 25)
+             .Page(2, 25)                       // the third page of 25
              .Execute();
 
-Console.WriteLine($"Showing {page.Count} of {page.TotalCount} " +
-                  $"(page {page.PageIndex + 1} of {page.PageCount}, size {page.PageSize}) " +
-                  $"in {page.DurationMs:0.0}ms");
+Console.WriteLine($"{page.Count} of {page.TotalCount} events in {page.DurationMs:0.0} ms");
 ```
 
 ### `ResultSet<T>`
 
-`ResultSet<T>` is `IEnumerable<T>` plus:
+`ResultSet<T>` is an `IEnumerable<T>` with these members:
 
 | Member | Meaning |
 |---|---|
-| `Count` | rows returned on this page |
-| `TotalCount` | total matching rows across the whole query |
-| `PageIndex`, `PageSize`, `PageCount` | echo of the paging that was applied, and how many pages there are |
-| `IsAll` | true when this result is the whole match set, not a page of it |
-| `IsLastPage` | true when there is nothing after this page |
-| `Capped` | true when the engine stopped short of counting everything |
-| `DurationMs`, `InnerDurationMs` | total server-side time, and the inner (index) part of it |
-| `Values`, `ToArray()`, `ToList()` | the rows |
+| `Count` | Rows in this result |
+| `TotalCount` | Matches in the whole query, before paging |
+| `PageIndex`, `PageSize`, `PageCount` | The page asked for, and how many pages there are |
+| `IsAll` | True when the result holds every match, not a page of them |
+| `IsLastPage` | True when no page comes after this one |
+| `Capped` | True when the engine stopped short of counting everything |
+| `DurationMs`, `InnerDurationMs` | Time in the store, and the index part of it |
+| `Values`, `ToArray()`, `ToList()` | The rows |
 
 ---
 
@@ -4821,213 +4280,194 @@ decimal revenue = db.Query<IEvent>()
                     .Sum(e => e.Price);
 ```
 
-`Count()` on the builder is answered from the index and never materialises nodes — much cheaper
-than `Execute().Count()`. It returns `int`; `db.Count()` and `db.Count<T>()`, the whole-store
-counters, return `long`.
+`Count()` on the builder answers from the indexes and loads no nodes, so it is much cheaper than
+`Execute().Count()`. It returns `int`; the whole-store counters `db.Count()` and `db.Count<T>()`
+return `long`.
+
+For an average, a minimum or a maximum, use a pivot with no groups ([§28.1](#281-pivot-tables)). Its
+grand total holds the measures over every match:
+
+```csharp
+var prices = db.Query<IEvent>().Pivot().AddAverage(e => e.Price).AddMax(e => e.Price).Execute();
+
+double? average = prices.GrandTotal.Get("Price.Average");
+double? dearest = prices.GrandTotal.Get("Price.Max");
+```
 
 ---
 
 ## 28. Faceted search
 
-Facets bucket a result set across indexed properties, and are what you build a filter sidebar
-from. Call `.Facets()` to switch the builder into facet mode, then declare which facets you want.
+Facets count the matching nodes per value or range of a property: what a filter sidebar shows. Call
+`.Facets()` to switch the builder to facet mode, then name the facets:
 
 ```csharp
 var result = db.Query<IEvent>()
                .Where(e => e.Status == EventStatus.Published)
                .WhereSearch("jazz")
                .Facets()
-               .AddValueFacet(e => e.Status)                 // discrete value buckets
-               .AddRangeFacet(e => e.Price)                  // auto-bucketed numeric ranges
-               .AddRangeFacet(e => e.Price, 0m, 250m)        // …plus an explicit range
-               .AddFacet(e => e.Tags)                        // engine picks value vs range
-               .SetFacetOptions(e => e.Tags,
-                                maxValues: 20,
-                                minCount: 1,
-                                includeMissing: false,
-                                sortByCount: true)
+               .AddValueFacet(e => e.Status)                 // a bucket per value
+               .AddRangeFacet(e => e.Price)                  // ranges chosen by the engine
+               .AddRangeFacet(e => e.Price, 0m, 250m)        // …plus a range of your own
+               .AddFacet(e => e.Tags)                        // the engine picks values or ranges
+               .SetFacetOptions(e => e.Tags, maxValues: 20, minCount: 1, sortByCount: true)
                .Page(0, 20)
                .Execute();
 
 foreach (var facet in result.Facets) {
     Console.WriteLine(facet.DisplayName);
-    foreach (var v in facet.Values) {
+    foreach (var v in facet.Values)
         Console.WriteLine($"  {v} ({v.Count}){(v.Selected ? " ←" : "")}");
-    }
 }
 ```
 
+The result is a `ResultSetFacets<T>`: the page of nodes plus `Facets` and `SourceCount`, from one
+query.
+
 ### Applying the user's selection
 
-The same builder both *produces* buckets and *applies* the user's clicks:
+The same builder applies what the user clicks. A selected value filters the result and comes back
+with `Selected` set:
 
 ```csharp
 var filtered = db.Query<IEvent>()
                  .Facets()
                  .AddValueFacet(e => e.Status)
                  .AddRangeFacet(e => e.Price)
-                 .SetFacetValue(e => e.Status, EventStatus.Published)     // user clicked "Published"
-                 .SetFacetRangeValue(e => e.Price, 0m, 250m, "Under 250") // user clicked a range
-                 .SetFacetMissingValue(e => e.Tags)                       // user clicked "no tags"
+                 .SetFacetValue(e => e.Status, EventStatus.Published)     // clicked "Published"
+                 .SetFacetRangeValue(e => e.Price, 0m, 250m, "Under 250") // clicked a price range
+                 .SetFacetMissingValue(e => e.Tags)                       // clicked "no tags"
                  .Execute();
 ```
 
-The returned `ResultSetFacets<T>` is a normal `ResultSet<T>` plus `Facets` and `SourceCount` — so
-you get the page of results and the updated bucket counts in one round trip.
-
 ### Facet declaration methods
 
-| Method | Purpose |
+| Method | Does |
 |---|---|
-| `AddFacet(expr \| name \| propertyId)` | Add a facet, engine chooses value vs range |
-| `AddFacetsOfType(…)` / `AddFacetsOfResult(…)` / `OnlyNamedFacets()` / `ExcludeFacet(…)` | Where the facets you did not name come from (see below) |
-| `AddValueFacet(…)` | Force discrete value buckets |
-| `AddRangeFacet(…)` | Auto-bucketed numeric/date ranges |
-| `AddRangeFacet(…, from, to)` | Add one explicit range bucket |
-| `AddSingleRangeFacet(…)` | One bucket spanning min..max |
-| `SetFacetValue(…, value)` | Select a value bucket |
-| `SetFacetRangeValue(…, from, to)` | Select a range bucket |
-| `SetFacetMissingValue(…)` | Select the "no value" bucket |
+| `AddFacet(…)` | Adds a facet; the engine picks values or ranges |
+| `AddValueFacet(…)` | One bucket per value |
+| `AddRangeFacet(…)` | Ranges of numbers or dates, chosen by the engine |
+| `AddRangeFacet(…, from, to)` | Adds one range of your own |
+| `AddSingleRangeFacet(…)` | One bucket from the lowest value to the highest |
+| `SetFacetValue(…, value)` | Selects a value |
+| `SetFacetRangeValue(…, from, to)` | Selects a range |
+| `SetFacetMissingValue(…)` | Selects "no value" |
 | `SetFacetOptions(…)` | `maxValues`, `minCount`, `includeMissing`, `sortByCount`, `rangeCount` |
 
-Every method has expression, property-name and `Guid` overloads, plus `<TChild>` variants for
-subtypes.
-
-**Faceting requires `Indexed = true`.** `NotFacet = true` excludes an indexed property from
-faceting. Relation properties need `[RelationProperty(Facet = true)]` to opt in. Numeric range
-bucketing is tuned by `FacetRangePowerBase` and `FacetRangeCount` on the property attribute.
+Each method takes the property as an expression, a name or an id. **Faceting needs
+`Indexed = true`.** `NotFacet = true` keeps a property out, and a relation takes part only with
+`[RelationProperty(Facet = true)]`.
 
 ### Where the un-named facets come from
 
-A facet query counts the facets it names, plus whatever its *discovery* adds. With nothing named
-and nothing said, that is every facetable property of every node type present in the result — a
-subtype's own property is there as soon as one node of that subtype is — and naming a single facet
-turns it off. These say so explicitly, and combine with named facets:
+With no facet named, a facet query counts every facetable property of every node type in the result.
+Naming a facet turns this off. These methods choose explicitly, and combine with the facets you
+name:
 
 | Method | Adds |
 |---|---|
-| `AddFacetsOfType()` / `AddFacetsOfType<TType>()` / `AddFacetsOfType(typeId)` | The properties of the query type (or the named one): its own and the inherited ones. `includeDescendants: true` takes its subtypes' properties too, whether or not any of their nodes are in the result |
-| `AddFacetsOfResult()` | The properties of every type present in the result — the default when nothing is named |
-| `OnlyNamedFacets()` | Nothing. A selection still filters, but no buckets are built: cheap paging within a filter |
-| `ExcludeFacet(…)` | Leaves a property out, however it got in. A selection on it still filters |
+| `AddFacetsOfType()` | The query type's properties, own and inherited; `includeDescendants: true` adds its subtypes' |
+| `AddFacetsOfResult()` | The properties of every type in the result: the default when nothing is named |
+| `OnlyNamedFacets()` | Nothing. A selection still filters, but no buckets are counted |
+| `ExcludeFacet(…)` | Leaves a property out, however it came in; a selection on it still filters |
 
 ```csharp
 var result = db.Query<IEvent>()
                .Facets()
-               .AddFacetsOfResult()                          // everything facetable in the result
-               .AddRangeFacet(e => e.Price)                  // …but Price as ranges
+               .AddFacetsOfResult()                              // everything facetable in the result
+               .AddRangeFacet(e => e.Price)                      // …with Price as ranges
                .ExcludeFacet(e => e.Title)
-               .SetFacetValue("Stage", "Main")               // a property only some of the types have
+               .SetFacetValue<IConcert>(c => c.Stage, "Main")    // a property of one subtype
                .Execute();
 ```
 
-A property found this way is dropped when it would come back with one bucket per unique value and
-there are more than a hundred of them. Both `AddFacetsOf…` methods take a `maxDistinctValues` that
-raises the limit (`-1` for none); range bucketed properties and named facets are never subject to it.
-
-`AddFacetsOfType(includeDescendants: true)` gives a filter sidebar that keeps its shape — a search
-that matches nothing still returns every facet, with zero counts — where `AddFacetsOfResult()` only
-counts what is there.
+A property found this way is left out when it would have more than 100 buckets of single values.
+Raise the limit with `maxDistinctValues` on `AddFacetsOfType` or `AddFacetsOfResult` (`-1` for
+none). `AddFacetsOfType(includeDescendants: true)` keeps a sidebar's shape: a search that matches
+nothing still returns every facet, with zero counts.
 
 ---
 
 ### 28.1 Pivot tables
 
-A pivot summarises the matching nodes as a table, the way a spreadsheet pivot table does: the rows
-and the columns are groups of nodes by property value, and every cell holds measures computed over
-the nodes in it — count, sum, average, min, max, distinct count. Call `.Pivot()` to switch the
-builder into pivot mode, declare the groups and the measures, and execute. The nodes themselves are
-not returned; a pivot is aggregate-only.
+A pivot summarises the matching nodes as a table, like a spreadsheet pivot table. Rows and columns
+are groups of nodes by property value, and each cell holds measures over its nodes. A pivot returns
+the table, not the nodes.
 
 ```csharp
 var pivot = db.Query<IEvent>()
               .Where(e => e.Status == EventStatus.Published)
               .Pivot()
-              .AddRow(e => e.Venue)                              // one row per related venue
-              .AddColumn(e => e.StartsUtc, DateInterval.Month)   // one column per calendar month
+              .AddRow(e => e.Venue)                              // a row per venue
+              .AddColumn(e => e.StartsUtc, DateInterval.Month)   // a column per calendar month
               .AddCount("events")
               .AddSum(e => e.Price, "revenue")
-              .AddAverage(e => e.Price)                          // named "Price.Average" unless you name it
+              .AddAverage(e => e.Price)                          // named "Price.Average"
               .SetRowOptions(e => e.Venue, maxGroups: 20, sortByMeasure: "revenue", otherGroup: true)
               .Execute();
 
 foreach (var row in pivot.EnumerateRows()) {
-    Console.Write(row.Group.DisplayName);                        // the venue's display name
+    Console.Write(row.Group.DisplayName);                        // the venue's name
     foreach (var cell in row.Cells) Console.Write("\t" + (cell?.Get("revenue") ?? 0));
-    Console.WriteLine("\t" + row.Total!.Get("revenue"));         // the row total
+    Console.WriteLine("\t" + row.Total!.Get("revenue"));         // the row's total
 }
 ```
 
-With no `AddColumn` the pivot is a plain group-by: one column, `(all)`, so every row has one cell
-equal to its total. With no `AddRow` and no `AddColumn` it is one cell holding the measures over
-everything.
+Grouping by a relation needs `[RelationProperty(Facet = true)]` on it, here on `IEvent.Venue`. With
+no `AddColumn`, a pivot is a plain group-by. With no rows and no columns, it is one cell over every
+match.
 
 #### Groups
 
-Every `AddRow` / `AddColumn` call adds a nesting level to its axis, in call order — two row levels
-give one row per distinct combination, grouped under the first level. The bucketing follows the
-facet rules, and the same properties are groupable: indexed scalars, string/guid/enum arrays,
-references, and relations that opted in with `[RelationProperty(Facet = true)]`.
+Each `AddRow` or `AddColumn` adds a level to its axis, in call order. You can group by anything you
+can facet on.
 
 | Method | Groups by |
 |---|---|
-| `AddRow(expr)` / `AddColumn(expr)` | The property, engine picks value buckets or ranges (the `AddFacet` rule) |
-| `AddRow(expr, DateInterval.Month)` | A date property by calendar interval: `Year`, `Quarter`, `Month`, `Week` (ISO, Monday first), `Day`, `Hour` |
-| `AddRowValues(expr)` | One group per distinct value |
-| `AddRowRanges(expr, bucketCount)` | Auto-generated numeric/date ranges |
-| `AddRowRange(expr, from, to, "label")` | One explicit range; consecutive ranges on the same property form one level |
-| `SetRowOptions(expr, …)` / `SetColumnOptions(expr, …)` | `maxGroups`, `minCount`, `includeMissing`, `sortByMeasure`, `descending`, `otherGroup` |
+| `AddRow(expr)` | Values or ranges, chosen as for `AddFacet` |
+| `AddRow(expr, DateInterval.Month)` | `Year`, `Quarter`, `Month`, `Week` (ISO, Monday first), `Day` or `Hour` |
+| `AddRowValues(expr)` | One group per value |
+| `AddRowRanges(expr, bucketCount)` | Ranges chosen by the engine |
+| `AddRowRange(expr, from, to, "label")` | One range of your own; ranges on one property form one level |
+| `SetRowOptions(expr, …)` | `maxGroups`, `minCount`, `includeMissing`, `sortByMeasure`, `descending`, `otherGroup` |
 
-`sortByMeasure` orders the groups of that level by a measure name (`"Count"` always works, even
-without a count measure); without it groups come in their natural order — values sorted, ranges in
-range order, enum and relation groups by name. `maxGroups` keeps the first N after sorting and
-`minCount` drops groups with fewer nodes; with `otherGroup: true` what was trimmed is collected
-into one `(other)` group, aggregated over the union of the trimmed nodes. `includeMissing` adds a
-`(none)` group for nodes without a value. Every method has expression, property-name, `Guid` and
-`<TChild>` overloads, like the facet API.
+The column twins (`AddColumn`, `AddColumnValues`, `SetColumnOptions`, …) work the same way.
+`sortByMeasure` sorts a level's groups by a measure, largest first; `"Count"` always works.
+`maxGroups` and `minCount` trim the groups, and `otherGroup: true` gathers what they trim into one
+`(other)` group. `includeMissing` adds a `(none)` group for nodes without a value.
 
 #### Measures
 
-`AddCount(name?)`, `AddCountDistinct(expr, name?)`, `AddSum`, `AddAverage`, `AddMin`, `AddMax`,
-and `AddMeasure(PivotFunction, expr, name?)`. Sum, average, min and max need a numeric property
-(`int`, `long`, `double`, `float`, `decimal`, `byte`); distinct count works on any indexed scalar
-property. Every measure value is a `double?` — `null` when it is undefined for the cell, that is a
-sum, average, min or max over nodes that have no value for the property. An average divides by the
-nodes that *have* a value, not by the cell count. The default name is `Count` or
-`<Property>.<Function>`; name measures yourself when you look them up by name.
+`AddCount`, `AddCountDistinct`, `AddSum`, `AddAverage`, `AddMin`, `AddMax` and
+`AddMeasure(PivotFunction, …)`. Sum, average, min and max need a numeric property. A measure is
+named `Count` or `<Property>.<Function>` unless you give it a name. Values are `double?`, and `null`
+where no node in the cell has a value. An average divides by the nodes that have a value.
 
 #### The result
 
-`PivotResult` has `Rows` and `Columns` (each `Levels` and `Groups`, plus `TotalGroupCount`),
-`Measures`, and `Cells` — sparse, a row/column pair with no nodes has no cell. Read a cell with
-`pivot[row, column]` (null when empty) or by `Row` / `Column` on the cell, and a value with
-`cell.Get("revenue")` or `cell.Get(measureIndex)`; `cell.Count` is always there. `RowTotals`,
-`ColumnTotals` and `GrandTotal` are aggregated over their own node sets, never added up from cells,
-so averages are right and a node that sits in two groups of an array-valued property (two tags) is
-counted once in the totals. `EnumerateRows()` gives a dense row-by-row view for rendering,
-`ToTable()` a flat table with one line per cell.
+`PivotResult` has `Rows` and `Columns` (with their `Levels` and `Groups`), `Measures` and `Cells`.
+Cells are sparse: read one with `pivot[row, column]`, which is null when empty, and a value with
+`cell.Get("revenue")`. `RowTotals`, `ColumnTotals` and `GrandTotal` are computed over their own
+nodes, not added up from cells, so averages are right and a node in two groups counts once.
+`EnumerateRows()` gives the table row by row, and `ToTable()` one line per cell.
 
-A group's `Values` holds one entry per level: the bucket value (a relation group carries the related
-node object, an enum group its int), `Values2` the upper bound of a range bucket, `DisplayNames`
-the labels — enum names, related node names, `2026-03` for a month, `(none)`, `(other)`. Those
-values are exactly what `SetFacetValue` / `SetFacetRangeValue` take, so a cell can be turned back
-into the nodes behind it with a facet query.
+A group's `Values` (one per level, the related node for a relation) and `Values2` (the top of a
+range) are what `SetFacetValue` and `SetFacetRangeValue` take, so a facet query can list the nodes
+behind a cell.
 
 #### Totals, limits and paging
 
 ```csharp
-.SetTotals(rows: true, columns: true, subTotals: true)   // sub-totals: every group above the leaf level
-.SetLimits(maxCells: 10_000, throwWhenExceeded: false)   // default 250 000; past it the row axis is cut and Capped is set
-.SetRowPaging(pageIndex: 0, pageSize: 50)                // rows are the long axis; Rows.TotalGroupCount has the full count
+.SetTotals(rows: true, columns: true, subTotals: true)   // sub-totals for every level above the last
+.SetLimits(maxCells: 10_000, throwWhenExceeded: false)   // default 250 000; past it rows are cut and Capped is set
+.SetRowPaging(pageIndex: 0, pageSize: 50)                // Rows.TotalGroupCount has the full count
 ```
 
-Sub-totals come back as `RowSubTotals` / `ColumnSubTotals`: the group, its cells against the other
-axis and its total. The grand total is always computed, over the whole source.
+Sub-totals come back in `RowSubTotals` and `ColumnSubTotals`. The grand total is always computed.
 
 #### After a facet selection
 
-A pivot can be opened on a facet query, where it summarises the nodes the selection leaves — the
-sidebar filter, pivoted:
+Open a pivot on a facet query to summarise the nodes the user's selection leaves:
 
 ```csharp
 var byMonth = db.Query<IEvent>()
@@ -5040,319 +4480,282 @@ var byMonth = db.Query<IEvent>()
                 .Execute();
 ```
 
-Only the selection filters apply: the facet buckets are not counted and the facet page is ignored.
+Only the selection applies: no facet buckets are counted, and the facet page is ignored. The admin
+UI's Query section has a pivot view built on this: click a cell to see the nodes behind the number.
 
-The admin UI has this as the third view of the Query section (list, table, pivot): the same search and
-facet selection, a builder for the groups and measures, and a click on any cell that turns its groups
-back into a facet selection showing the nodes behind the number.
-
-Like every query, a pivot travels to the store as a query string, which is what a REST client sends:
+A pivot goes to the store as a query string, which a REST client can send too. Properties are named
+`"Type.Property"` or by id, and `ToString()` gives the string of a typed pivot:
 `IEvent.Pivot().AddRow("IEvent.Venue").AddColumn("IEvent.StartsUtc", "Month").AddSum("IEvent.Price", "revenue")`.
-`QueryOfPivot.ToString()` gives the string for a typed pivot.
 
 ---
 
 ### 28.2 GroupBy
 
-`GroupBy` is SQL's `GROUP BY`, written the way LINQ and EF Core write it: group the matching nodes by
-a key built from their properties, then count and aggregate per group. It is the flat, typed cousin
-of the pivot — one axis, one row per group, the result shaped by your own `Select` — and it runs on
-the same engine, so it costs the same and obeys the same rules. Reach for `GroupBy` in application
-code and for reports with a known shape; reach for `Pivot` when you want two axes, sub-totals, or a
-table someone else defines at runtime.
+`GroupBy` is SQL's `GROUP BY`, written the way LINQ and EF Core write it. It is the typed, one-axis
+form of a pivot and runs on the same engine. Use it in application code, and a pivot for two axes,
+sub-totals, or tables defined at runtime.
 
 ```csharp
 // SELECT Status, COUNT(*) FROM Event GROUP BY Status
 var byStatus = db.Query<IEvent>().GroupBy(e => e.Status).Execute();
-foreach (var g in byStatus) Console.WriteLine($"{g.Label}: {g.Count}");      // g.Key is the EventStatus
+foreach (var g in byStatus) Console.WriteLine($"{g.Label}: {g.Count}");   // g.Key is the EventStatus
 
-// the EF Core shape: a composite key, aggregates, HAVING, ORDER BY, LIMIT
+// A composite key, aggregates, HAVING, ORDER BY and LIMIT
 var report = db.Query<IEvent>()
     .Where(e => e.StartsUtc >= since)
-    .GroupBy(e => new { e.Venue, e.StartsUtc.Year, e.StartsUtc.Month })
+    .GroupBy(e => new { e.Status, e.StartsUtc.Year, e.StartsUtc.Month })
     .Select(g => new {
-        Venue    = g.Key.Venue!.Name,                 // a relation key is the related node
+        g.Key.Status,
         g.Key.Year,
         g.Key.Month,
         Events   = g.Count(),
         Revenue  = g.Sum(e => e.Price),
         AvgPrice = g.Average(e => e.Price),
         Dearest  = g.Max(e => e.Price),
-        Cities   = g.CountDistinct(e => e.City),
-        PerEvent = g.Sum(e => e.Price) / g.Count(),   // arithmetic over aggregates runs on the rows
+        Prices   = g.CountDistinct(e => e.Price),
+        PerEvent = g.Sum(e => e.Price) / g.Count(),   // arithmetic on the aggregates
     })
-    .Where(r => r.Events >= 3)                        // HAVING (Having(...) is the same call)
+    .Where(r => r.Events >= 3)                        // HAVING; Having(...) does the same
     .OrderByDescending(r => r.Revenue)
     .Take(20)
     .Execute();
 ```
 
-No node is read: every group is an id set from the value indexes and every aggregate a pass over
-the index, exactly as for a pivot. That is also why **grouping and aggregating need indexed
-properties** (`Indexed = true`; relations opt in with `[RelationProperty(Facet = true)]`) — the error
-says so at build time. For anything else, load the nodes and group them in memory with LINQ.
+No node is read: the groups and aggregates come from the indexes. So **the properties you group and
+aggregate must be indexed**, or the query throws when it is built. To group anything else, load the
+nodes and use LINQ. `GroupBy` also works after a facet selection: `.Facets()…GroupBy(…)`.
 
 #### Keys
 
-The key selector is translated, not run, so only these forms are accepted — each one is a stored
-value, which is what keeps every group one value (an expression like `e.Price / 100` is refused;
-compute it from the key on the result instead):
+The key is translated, not run, so it can only name stored values. `e => e.Price / 100` is refused;
+work that out from the key on the result.
 
 | Key | Groups by |
 |---|---|
-| `e => e.Status` | One group per distinct value. Enums come back as the enum, relations as the related node |
-| `e => new { e.Venue, e.Status }` | The distinct combinations; `g.Key.Venue`, `g.Key.Status` |
-| `e => e.StartsUtc.Year` / `.Month` / `.Day` / `.Date` / `.Hour` | A calendar interval; `new { d.Year, d.Month }` gives one group per month |
-| `e => Bucket.Interval(e.StartsUtc, DateInterval.Quarter)` | Quarter and week have no `DateTime` member; the key is the interval's start |
-| `e => Bucket.Ranges(e.Price, 5)` | About five auto-generated ranges; the key is a `GroupRange<decimal>` with `From`, `To`, `Label` |
-| `e => Bucket.Ranges(e.Price, new[] { 0m, 100m, 500m })` | Explicit consecutive ranges (inclusive at both ends; values outside fall in no group) |
+| `e => e.Status` | Each value; an enum comes back as the enum |
+| `e => new { e.Status, e.StartsUtc.Year }` | Each combination, read as `g.Key.Status` and `g.Key.Year` |
+| `e => e.StartsUtc.Year` (or `.Month`, `.Day`, `.Date`, `.Hour`) | A calendar interval; key months as `new { e.StartsUtc.Year, e.StartsUtc.Month }` |
+| `e => Bucket.Interval(e.StartsUtc, DateInterval.Quarter)` | Quarters or weeks; the key is the start of the interval |
+| `e => Bucket.Ranges(e.Price, 5)` | About five ranges; the key is a `GroupRange<decimal>` with `From`, `To`, `Label` |
+| `e => Bucket.Ranges(e.Price, new[] { 0m, 100m, 500m })` | Your own ranges, inclusive at both ends |
+| `e => e.Tags` | Each element, so a node with two tags is in two groups |
 
-An array-valued key (`e => e.Tags`) puts a node in one group per element, so the counts add up to
-more than the node count; the key of such a group is the one-element array. Nodes **without a value
-for a key** — no related venue, no tag — form a group of their own by default, as SQL and LINQ do
-with null: its `Key` is null (or the type's default), its `Label` `(none)`, and `IsMissing` is set
-on the group. `IncludeMissing(false)` drops it.
+Nodes **without a value** for the key form a group of their own, as null does in SQL. Its `Label` is
+`(none)` and its `IsMissing` is set; `IncludeMissing(false)` drops it. To group by a relation, use a
+runtime key ([Without a Select](#without-a-select)) or a pivot: the group then holds the related
+node.
 
 #### Aggregates
 
-Inside `Select` the group is an `IGrouping<TKey, T>`, so the calls are the LINQ ones: `g.Count()`,
-`g.LongCount()`, `g.Sum(e => e.Price)`, `g.Average(...)`, `g.Min(...)`, `g.Max(...)`, plus
-`g.CountDistinct(e => e.City)` (or the LINQ spelling `g.Select(e => e.City).Distinct().Count()`).
-Each selector must be a property of the node. Sum, average, min and max need a numeric property;
-distinct count works on any indexed scalar. The results keep the call's type — a `decimal` sum, a
-`double` average, an `int` count — converted from the engine's `double`, which is exact for integer
-sums below 2^53 and for decimals to about 15 significant digits. An aggregate over a group in which
-no node has the value gives `0` for a non-nullable result (LINQ's sum over nothing) and `null` for a
-nullable one. Anything else on `g` — `g.First()`, `g.Where(...)`, `g.Count(e => ...)` — is rejected
-when the query is built: the nodes of a group are never enumerated. Filter with `Where` *before*
-`GroupBy` instead.
+Inside `Select`, the group is an `IGrouping<TKey, T>`, so the calls are LINQ's: `Count`,
+`LongCount`, `Sum`, `Average`, `Min` and `Max`, plus `CountDistinct`. Each takes a property of the
+node, and the result has the type of the LINQ call. Over a group where no node has a value, a
+non-nullable result is `0` and a nullable one `null`. The nodes of a group are never read, so
+`g.First()`, `g.Where(…)` and the like are refused: filter with `Where` before `GroupBy`.
 
 #### Ordering, filtering and paging the groups
 
-`Where` (or `Having`), `OrderBy`, `OrderByDescending`, `ThenBy`, `Skip`, `Take` and `Page` run over
-the group rows, which are few compared to the nodes. One sort by one measure of a single-key query —
-`OrderByDescending(r => r.Revenue)`, `OrderBy(g => g.Count)` — is pushed into the engine together
-with the paging behind it, so `Take(20)` on a million nodes never materialises every group. Sorting
-by anything else, several keys, or a composite key sorts the rows in memory. `Execute()` returns a
-`ResultSetGroups<T>`: the page of rows, `TotalCount` (groups after `Where`) and `SourceCount` (the
-nodes grouped). `Count()` on the query is the number of groups.
+`Where` (or `Having`), `OrderBy`, `ThenBy`, `Skip`, `Take` and `Page` work on the group rows. One
+sort by one aggregate of a single-key query runs in the engine with the paging, so `Take(20)` over a
+million nodes does not build every group. `Execute()` returns a `ResultSetGroups<T>` with
+`TotalCount` (the groups) and `SourceCount` (the nodes grouped).
 
 #### Without a Select
 
-`Execute()` straight after `GroupBy` gives `NodeGroup<TKey>` rows: `Key`, `Count`, `Label` (the
-engine's name — the related node's display name, the enum name, `2026-03`), `Labels` per key
-property, and `IsMissing`. For code that does not know the properties when it is written — a
-dynamic report, the admin UI — the keys and the aggregates are chosen at runtime instead:
+`Execute()` straight after `GroupBy` gives `NodeGroup<TKey>` rows: `Key`, `Count`, `Label`, `Labels`
+and `IsMissing`. When the properties are known only at runtime, as in a dynamic report, choose keys
+and aggregates by property id:
 
 ```csharp
+// venueProperty, startsProperty, priceProperty: property ids, e.g. from db.Datastore.Datamodel
 var rows = db.Query<IEvent>()
-    .GroupBy(GroupKey.Values(venueId), GroupKey.Interval(startsId, DateInterval.Year))
-    .Aggregate(PivotFunction.Sum, priceId)
-    .Aggregate(PivotFunction.Average, priceId)
+    .GroupBy(GroupKey.Values(venueProperty), GroupKey.Interval(startsProperty, DateInterval.Year))
+    .Aggregate(PivotFunction.Sum, priceProperty)
+    .Aggregate(PivotFunction.Average, priceProperty)
     .OrderByDescending(g => g["Price.Sum"])
     .Page(0, 50)
     .Execute();
+
 foreach (var g in rows) Console.WriteLine($"{g.Label}: {g.Count} events, {g["Price.Sum"]:0} in total");
 ```
 
-The key of a runtime query is an `object?[]` with one entry per level: the value, or a
-`GroupRange<object>` (both bounds and the label) for a calendar or range level. Measures are read by
-their default name, `<Property>.<Function>`, case-insensitively.
+The key is then an `object?[]` with one entry per level. Read a measure by its name,
+`<Property>.<Function>`.
 
 #### The query string and the admin UI
 
-Like every query, a `GroupBy` travels to the store as a query string — a one-axis pivot in its own
-spelling, which the parser accepts from a REST client too:
-`IEvent.GroupBy("IEvent.Venue", "IEvent.Status").AddCount().AddSum("IEvent.Price")`. Every argument
-of `GroupBy(...)` is one value level (with its missing-value group); calendar and range levels
-follow as `AddRow("IEvent.StartsUtc", "Month")` / `AddRowRanges(...)`, then the measures, then
-`SetRowOptions` for a sort and `SetRowPaging` for a page. Row totals only and a cell limit that
-throws instead of truncating are the GroupBy defaults. `ToString()` on the typed query gives the
-string.
-
-The admin UI has it as the third view of the Query section (list, table, **groups**, pivot): the
-same search and facet selection, chips for the keys and the aggregates, a click on a column header to
-sort, and a click on a row that turns its groups into a facet selection showing the nodes behind it.
+A `GroupBy` also goes to the store as a query string:
+`IEvent.GroupBy("IEvent.Venue", "IEvent.Status").AddCount().AddSum("IEvent.Price")`. Calendar and
+range levels are added with `AddRow("IEvent.StartsUtc", "Month")` or `AddRowRanges(...)`.
+`ToString()` on a typed query gives its string. The admin UI's Query section has a groups view: pick
+the keys and aggregates, sort by a column, and click a row to see its nodes.
 
 ---
 
 ## 29. Cultures, visibility and scoped stores
 
-Two equivalent styles. Per query:
+A query reads through a context: a culture, a user, and what counts as visible. Set it per query:
 
 ```csharp
 db.Query<IEvent>()
   .WhereCulture("nb-NO")
   .WhereCultureFallback(true)
-  .WhereHidden(false)
   .Execute();
 
 db.Query<IEvent>(QueryContext.Default.Culture("nb-NO")).Execute();
 ```
 
-`QueryContext` is built by chaining off one of its static starting points — `Default`, `Anonymous`,
-`MasterAdmin` — not off the type itself: `Culture`, `User`, `Admin` and friends are instance methods
-that return a new context.
-
-Or scope a whole `NodeStore` once and reuse it:
+A `QueryContext` starts from `QueryContext.Default`, `Anonymous` or `MasterAdmin`, and each of its
+methods returns a new context. Or scope a whole `NodeStore` once and reuse it. The scoped store
+shares the data and indexes, and only reads differently:
 
 ```csharp
-var nb = db.Context
-           .Culture("nb-NO")
-           .CultureFallbacks(true)
-           .Hidden(false)
-           .Create();
+var nb = db.Context.Culture("nb-NO").CultureFallbacks().Create();
 
 nb.Query<IEvent>().Execute();
 nb.Get<IVenue>(venueId);
 ```
 
-`db.Context.Admin()` returns a store that bypasses ACL filtering. Use it in trusted server code
-only — **never hand it to a request handler**. The builder has every setting of the context:
-`Culture`, `User(userId)` (the id of a user node; `Guid.Empty` reads as an anonymous visitor),
-`Hidden`, `CultureFallbacks`, `Unpublished`, `EditView`, `Now(utc)`, `Admin`, and `With(queryContext)`
-for a context built elsewhere. A web layer builds one store per request this way, as the visitor:
+A web app builds one per request, as the visitor:
 
 ```csharp
 var visitor = db.Context.Culture(cultureCode).User(userId ?? Guid.Empty).Create();
 ```
 
-Note that `Get` and `TryGet` by id apply the context's culture but not its read access: queries and
-relation properties filter by it. To ask whether a visitor may read a node, query for it:
-`visitor.Query().Where(id).Count() > 0`.
+| Setting | Effect |
+|---|---|
+| `Culture(code)` | Read in this culture |
+| `CultureFallbacks()` | When a node has nothing in the culture, read another version (below) |
+| `User(userId)` | Read as this user node; read access follows its groups. `Guid.Empty` is an anonymous visitor |
+| `Admin()` | Read as the master admin, with no access filtering |
+| `Unpublished()` | Also read drafts and other unpublished revisions, and nodes outside their release and expiry dates |
+| `EditView()` | Also require edit-view access, as for an editor |
+| `Hidden()` | Include nodes of hidden types |
+| `Now(utc)` | Check release and expiry dates against this time |
+| `With(queryContext)` | Use a context built elsewhere |
+
+`db.Context.Admin()` bypasses access control. Use it only in trusted server code, and **never hand
+it to a request handler**.
+
+`Get` and `TryGet` by id apply the context's culture but **not its read access**. Queries and
+relation properties do apply it. To check what a visitor may read, query:
+
+```csharp
+bool canRead = visitor.Query().Where(id).Count() > 0;
+```
 
 ### Revisions in several cultures
 
-A node holds one version until it is given revisions (`EnableRevisions`, or the first
-`CreateRevision`, which enables them). Then each version is a revision with an id, a `RevisionType`
-and a culture, and values of its own: `CreateRevision` copies one into a new one - a draft
-(`Preliminary`) of the published version, or a version in another culture, by code - and a write in
-a context that selects a revision changes that one alone. Values are never copied between
-revisions: saving or publishing the `nb-NO` version leaves the `en-US` one as it is.
+A node starts with one version. `EnableRevisions`, or its first `CreateRevision`, turns it into
+revisions: versions with an id, a `RevisionType`, a culture and values of their own.
 
 ```csharp
-db.EnableRevisions(id, out var english);                                              // its version, published
-db.ChangeRevisionCulture(id, english, "en-US");                                       // in en-US
-db.CreateRevision(id, english, RevisionType.Published, out var norwegian, "nb-NO");   // a version in nb-NO
-db.CreateRevision(id, norwegian, RevisionType.Preliminary, out var draft);            // a draft of that one
-db.Execute(db.CreateTransaction()                                                     // published over it: one per culture
+db.EnableRevisions(id, out var english);                       // the current version, published
+db.ChangeRevisionCulture(id, english, "en-US");                // ...becomes the English one
+db.CreateRevision(id, english, RevisionType.Published, out var norwegian, "nb-NO");
+db.CreateRevision(id, norwegian, RevisionType.Preliminary, out var draft);   // a Norwegian draft
+
+// Publish the draft: archive the published Norwegian version in the same transaction
+db.Execute(db.CreateTransaction()
     .ChangeRevisionType(id, norwegian, RevisionType.Archived)
     .ChangeRevisionType(id, draft, RevisionType.Published));
 ```
 
-A node's versions are all neutral or all in cultures, never both: a neutral version is what every
-culture without one of its own reads, so beside versions in cultures it would answer for some
-cultures and not others. A neutral node given a version in a culture goes into that culture, every
-version of it: `CreateRevision` in `nb-NO` from a neutral node, or `ChangeRevisionCulture` of one of
-its revisions to `nb-NO`, moves its other revisions to `nb-NO` too. So a new *published* version in a
-neutral node's first culture is refused when the node has a published version, which becomes that
-culture's: make a draft and publish it over that one. A version cannot be made neutral while the node
-has others in cultures; `ChangeCulture(id, code)` moves the whole node, every version of it, to a
-culture or to none (`""`), revisions or not, and `Insert(node, cultureCode)` inserts it in one.
-Nodes stored with both before the rule are read as they are, and an action on one only refuses to
-add a neutral version to it.
+When you write:
 
-```csharp
-db.ChangeCulture(id, "");        // the whole node neutral again: refused while it is published in two cultures
-```
+- **Values are never copied between revisions.** Publishing the `nb-NO` version leaves `en-US` as it
+  is. A write in a context that selects a revision changes that revision only.
+- **A culture has at most one published revision.** To publish another, archive the current one in
+  the same transaction, as above.
+- **A node's versions are all neutral or all in cultures.** A neutral node given a version in a
+  culture moves all its versions into that culture. So if it has a published version, a new
+  published one in that culture is refused: make a draft and publish it over that one.
+- **`ChangeCulture(id, code)` moves the whole node** to a culture, or to none with `""`. It is
+  refused while the node is published in two cultures. `Insert(node, cultureCode)` inserts in a
+  culture.
+- **A culture in use cannot be deleted.**
 
-A culture has one published revision at most: publishing another archives it first, in the same
-transaction. A reader gets published revisions only - its culture's, else with `CultureFallbacks`
-a neutral node's or the node's other cultures in the order they were made -
-and a node with nothing it can read is left out of its queries. In edit view (`Unpublished`) the
-culture's own revision comes first whatever its type, then the others, so a node with only a draft
-or an archived version is still the editor's to find. `QueryContext.SelectedRevisions` names a
-revision to read and write by node, by its key (`NodeDataRevision.RevisionKey`), which changes with
-its type: look it up in `Datastore.GetRevisions(id)` by its `RevisionId`, which does not. A revision's
-keys tell its type: 0 to 9 999 999 are published, one per culture, and each other type has the next
-ten million. A selected revision is read whatever its publication and release dates, outside edit
-view too: by id, and in queries, counts and relation ends, where a node with only a draft is found
-when its draft is selected - a preview of a draft. Every other rule applies to it as to any
-revision: read access, culture, collection, deletion, hidden types. The indexes still hold published
-values alone, so a where, sort or search on a property does not see a selected draft's values.
+When you read:
 
-Indexes hold what readers read, of published revisions (release dates are not looked at). A property
-that is not culture-sensitive has one index, holding for each node the version a reader of no
-culture gets: a neutral node's, else the culture first in fallback order. A culture-sensitive property
-(`CultureSensitive`, set by a datamodel override) has that index too, which a query with no culture
-uses, and one per culture, holding the culture's own published version of each node and the
-fallback for the rest. So a `Where`, a sort or facets in a culture see the values its readers see,
-at the cost of a copy of the property's indexes per culture. The search index is per culture the
-same way with the store setting `CultureSensitiveTextIndex`; the semantic index stays one. The
-cultures are nodes the store reads as it opens, after it has made its indexes, so it keeps a record
-of the cultures it had indexes for (`state/indexrecord.json`) and makes the indexes of a culture new
-to it from the nodes, at the open or in the transaction that makes the culture. Because what a node
-puts in the indexes depends on the order of its cultures, a culture that nodes or revisions are in
-cannot be deleted, and a revision cannot be put in a culture that does not exist.
+- **A reader gets published revisions only:** its culture's, or with `CultureFallbacks` a neutral
+  version or another culture's, in the order the cultures were created. A node with nothing to read
+  is left out of queries and is not found by id.
+- **With `Unpublished()`,** the culture's own revision comes first whatever its type, so an editor
+  finds a node that has only a draft.
+- **`QueryContext.SelectedRevisions`** picks one revision per node, by node id and `RevisionKey`.
+  Look the key up with `db.Datastore.GetRevisions(id)`: it changes with the revision's type, unlike
+  its `RevisionId`. A selected revision is read whatever its type and dates, in queries and relation
+  ends too, which is how you preview a draft. Access and culture rules still apply.
+
+What the indexes hold:
+
+- **Published values only,** so a `Where`, a sort or a search never sees a draft's values, even a
+  selected one.
+- **One version per node:** the one a reader with no culture gets. Mark a property
+  `CultureSensitive` (a datamodel override) to give it an index per culture as well, so queries in a
+  culture see that culture's values. The store setting `CultureSensitiveTextIndex` does the same for
+  search.
 
 ---
 
 ## 30. Pitfalls and gotchas
 
-A checklist of the things that actually bite people.
-
 **Modelling**
 
-1. **`Reference`/`References` `foreach` yields nothing unless preloaded.** Use `.Get()` /
-   `.TryGet(out …)` for lazy access, or `.Preload(...)` in the query. This is deliberate — it makes
-   accidental N+1 loads impossible.
-2. **Never construct a `NodeMeta`.** Default it to `NodeMeta.Empty` and never assign it; write meta
-   through `db.UpdateMeta` ([§4](#writing-meta-updatemeta)).
-3. **Prefer interfaces.** No boilerplate, no parameterless-constructor rule, no initialisation to
-   forget — and multiple inheritance, which classes cannot give you.
-4. **Put property attributes on the interface,** not on the class implementing it. A property is
-   defined once, on the type that first declares it; attributes anywhere else are ignored.
-5. **Two parent interfaces may not declare the same property name.** Keep facet interfaces
-   disjoint, or hoist the shared member into a common base interface.
-6. **Property overriding is not supported.** You cannot redeclare a property further down the
-   hierarchy to change its attributes.
-7. **Nullable value types are not supported.** No `int?`, `DateTime?`, `GeoCoordinate?`. Use the
-   type's empty/default value — that is exactly what `GeoCoordinate.Empty` and `FileValue.Empty`
-   are for.
-8. **Parameterless constructor is mandatory** on every non-interface, non-`[Exclude]` node type.
-9. **Initialise every reference type on concrete classes** — `string.Empty`, `FileValue.Empty`,
-   `NodeMeta.Empty`, `[]`, `new()`. On interfaces these are getter-only; the proxy handles it.
-10. **Relations are not foreign keys.** No `VenueId` property. Declare the relation class and expose
-    the nested property types.
-11. **Relation lists are ordered, per side.** `AddRelation` appends to the bottom; adding an
-    already-related pair **throws**, as does removing a pair that is not related — reach for
-    `SetRelation` / `ClearRelation` when you want the idempotent forms, and there is no
-    `db.Relate(...)`. Change position with `MoveRelation…` / `SetRelationOrder`, never by
-    un-relating and re-relating. In a many-to-many relation each side is ordered independently.
-12. **Ordering is not a reason to choose `References<T>` over a relation.** Relations preserve order
-    too, and add reorder operations. Duplicates and the absence of a reverse index are what
-    distinguish references. Don't add a `SortIndex` property either — the relation already has one.
-13. **Embedded objects are owned.** They live and die with the parent. To share a sub-object,
-    promote it to a node type with a relation.
-14. **`[EmbeddedMapProperty(KeyProperty = …)]` requires the named property to exist on the value type**
-    and to match the map's key type.
-15. **You cannot read an embedded map by key until the parent is persisted.** Before insert, only
-    `Add` is safe.
-16. **Pin `[Node(Id = …)]` and `[Relation(Id = …)]` early.** Without them the id is a hash of the
-    full type name, so a rename or namespace move creates a new, empty type.
+1. **`Reference`/`References` yield nothing from `foreach` unless preloaded.** Use `.Get()`,
+   `.TryGet(out …)` or `.Preload(...)`. This makes accidental N+1 loads impossible.
+2. **Never construct or assign a `NodeMeta`.** Default it to `NodeMeta.Empty` and write meta with
+   `db.UpdateMeta` ([§4](#writing-meta-updatemeta)).
+3. **Prefer interfaces.** No boilerplate, nothing to initialise, and multiple inheritance.
+4. **Put property attributes on the interface that declares the property.** Attributes anywhere else
+   are ignored.
+5. **Two parent interfaces may not declare the same property name.** Move a shared member into a
+   common base interface.
+6. **A subtype cannot redeclare a property.** To change a default, a boost or text indexing per
+   type, use `[PropertyOverride]` ([§3.1](#31-overriding-attributes)).
+7. **Nullable value types (`int?`, `DateTime?`) are not supported.** Use the type's empty value,
+   such as `GeoCoordinate.Empty` or `FileValue.Empty`.
+8. **A class node type needs a parameterless constructor,** and must initialise every reference-type
+   property: `string.Empty`, `FileValue.Empty`, `NodeMeta.Empty`, `[]`, `new()`.
+9. **Relations are not foreign keys.** Do not add a `VenueId` property: declare the relation class
+   and expose its ends.
+10. **Relation lists are ordered, per side.** `AddRelation` appends, and throws for a pair that is
+    already related; `SetRelation` and `ClearRelation` do not throw. Reorder with `MoveRelation…` or
+    `SetRelationOrder`, never by removing and adding again.
+11. **Order is no reason to choose `References<T>` over a relation.** Relations keep their order
+    too. References differ in allowing duplicates and having no reverse lookup.
+12. **Embedded objects are owned by their parent.** To share one, make it a node type and relate to
+    it.
+13. **`[EmbeddedMapProperty(KeyProperty = …)]` must name a property of the value type** with the
+    map's key type.
+14. **You cannot read an embedded map by key before its parent is saved.** Until then, only `Add` is
+    safe.
+15. **Pin `[Node(Id = …)]` and `[Relation(Id = …)]` early.** Without them the id is a hash of the
+    full type name, so a rename creates a new, empty type.
 
 **Geo**
 
-17. **`GeoCoordinate.Empty` never matches `IsWithin`** and every distance to it is infinite.
-18. **Never `OrderBy` a `GeoCoordinate`.** Z-order is not proximity. Filter by radius, then sort by
-    `DistanceTo` in memory.
-19. Coordinates snap to a ~1 cm grid on construction, so a value you store and read back is
-    equal — but not bit-identical to arbitrary-precision input.
+16. **`GeoCoordinate.Empty` never matches `IsWithin`,** and its distance to anything is infinite.
+17. **`OrderBy` on a `GeoCoordinate` throws.** Filter by radius, then
+    `OrderBy(v => v.Location.DistanceTo(center))`.
+18. **Coordinates snap to a grid of about 1 cm,** so a stored value is not bit for bit the input.
 
 **Querying**
 
-20. **Filter, sort and facet only on `Indexed = true` properties.** Everything else scans.
-21. **Prefer builder methods over LINQ on the result set.** The result set is already materialised.
-22. **Use `Page(p, n)`, not `Skip().Take()`,** so you get `TotalCount` for free.
-23. **Use `Count()` on the builder, not `Execute().Count()`.**
-24. **Use `SelectId()` when you only need ids.**
-25. **`Query<T>()` includes subtypes** by default. That is the feature that makes facet-interface
-    queries work — and the thing to remember to narrow with `WhereTypes` when you want one type
-    only.
-26. **Include filters never shrink the main result set** — parents with zero matching children
-    still come back.
-27. **`Traverse` and `ShortestPath` only work over relations,** not references or embedded data.
-    If you need traversal, that is your signal to model the link as a relation.
+19. **Use the query an operator returns: `q = q.Where(...)`.** Queries are immutable.
+20. **Filter, sort and facet on `Indexed = true` properties.** Anything else is checked node by
+    node.
+21. **Use builder methods, not LINQ on the result.** Use `Count()` and `SelectId()` rather than
+    loading nodes to count them or read their ids.
+22. **The last `OrderBy` is the main sort key.** Earlier ones only break ties.
+23. **`Query<T>()` includes subtypes.** Narrow it with `WhereTypes` when you want one type only.
+24. **Name the node type when you go through a relation end:** `Traverse<IVenue>(v => v.Halls, …)`
+    and `Include<IEvent>(v => v.Events).ThenInclude(…)`.
+25. **Include filters never shrink the main result.** Parents with no matching children still come
+    back.
+26. **`Traverse` and `ShortestPath` work only over relations.** If you need traversal, model the
+    link as a relation.
+27. **`Get` and `TryGet` ignore read access.** To check what a user may read, use a query.
 
 ---
 ---
@@ -5361,68 +4764,41 @@ A checklist of the things that actually bite people.
 
 ## 31. The command line tool
 
-`Relatude.DB.Console` is a command line tool that works on a database and a datamodel **from the
-outside**: nothing of your application has to run, it only has to be readable. It exists for the
-things that otherwise need a running app and the admin UI — looking at the model, running a query,
-generating model code, checking a model before it is wired up, and routine maintenance — and for
-the one thing that comes before any of that: `relatude new` writes a complete new web application.
-It is also the fastest way for a coding agent to start a Relatude.DB project and then find out what
-it actually contains.
+`relatude` is the command line tool for Relatude.DB. It creates new applications, and it works on an
+existing database and datamodel from the outside, without your application running. Use it to look
+at the model, run a query, generate model code, check a model before you wire it up, and do routine
+maintenance. Its output is plain text or JSON, so scripts and coding agents can use it too.
 
 ```bash
-dotnet run --project src/Relatude.DB.Console -- help              # from this repository
-dotnet tool install -g Relatude.DB.Tool && relatude help          # as a global tool
+dotnet tool install -g Relatude.DB.Tool      # install
+dotnet tool update -g Relatude.DB.Tool       # update to the latest version
+relatude help
 ```
 
-The binary is called `relatude`. Every example below assumes it is on the path. The tool is built
-for net10.0 and needs the .NET 10 runtime: it loads your model assembly, which needs a runtime at
-least as new as the one the application targets.
-
-### Two things every command needs to know
-
-**Where the database is.** A database is named by its `relatude.db.json` (see
-[section 12](#12-registering-the-model--the-admin-ui)). The tool looks for it in the current folder
-and then upwards, or you point at it:
-
-```bash
-relatude info                            # nearest relatude.db.json, from here upwards
-relatude info --project ../MyApp         # application folder or .csproj
-relatude info --settings /srv/app/relatude.settings/relatude.db.json
-relatude info --store "Reporting"        # when the file holds more than one database
-```
-
-The folder holding `relatude.settings/relatude.db.json` is treated as the application's content
-root, exactly as the server treats it, so every relative path inside the file resolves to the same
-place. A `relatude.db.json` still in the content root itself, where older versions kept it, is read
-where it is — the tool never moves it; the application does at its next start.
-`relatude.db.overrides.json` (the changes made in the admin UI, found with the default database as the
-server finds it, or wherever `--overrides` says) and the `RelatudeDB` configuration section are applied
-too — the tool reads `appsettings.json`,
-`appsettings.{environment}.json` and environment variables from that root, so it works on the same
-effective settings the server would run with. `--environment` picks the environment (default:
-`DOTNET_ENVIRONMENT`, `ASPNETCORE_ENVIRONMENT` or `Production`).
-
-**Where the model is.** The datamodel is *not* stored in the database files — it lives in your code,
-which is why the tool has to load it. In order of preference:
-
-| Option | What it does |
-|---|---|
-| (nothing) | follows the `DatamodelSources` in `relatude.db.json`, loading your assemblies from the newest build output under `<project>/bin` |
-| `--bin <folder>` | load the application's assemblies from here instead |
-| `--assembly <file>` | load this assembly, repeatable |
-| `--source <path>` | compile these `.cs` files in memory — a model can be inspected before the project builds |
-| `--namespace <ns>` | add every model type in this namespace, repeatable |
-| `--model-type <name>` | add one model type by full name, and everything it references |
-
-With `--assembly` or `--source` and no `--namespace`/`--model-type`, the model types are detected by
-the Relatude attributes and member types they use. The engine's own model
-(`Relatude.DB.Native.Models`) is always part of the datamodel, as it is at runtime, but is left out
-of the output unless `--include-native` is given.
-
-The Relatude.DB assemblies are never loaded from your build output: your model types are bound to the
-ones the tool already has, so its version and your project's have to be compatible.
+The tool needs the .NET 10 runtime. It binds your model types to its own copy of Relatude.DB, so keep
+the tool on the same version as the Relatude.DB packages your project uses.
 
 ### The commands
+
+| Command | What it does |
+|---|---|
+| `new` | Create a new application: an API with a React client, or an MVC website |
+| `init` | Write `relatude.settings/relatude.db.json` into an existing application |
+| `info` | Report the database's state, node counts per type, file sizes and log status |
+| `schema` | Print the datamodel: node types, properties, relations and ids |
+| `query` | Run a query and print the result as JSON |
+| `validate` | Check the model code: what would fail at startup, and what to worry about |
+| `codegen` | Generate C# model code with every id spelled out |
+| `settings` | Print `relatude.db.json` as the server resolves it, without secrets |
+| `insert` | Insert nodes from JSON |
+| `delete` | Delete nodes by id |
+| `timestamp` | Print the head of the transaction log |
+| `revert` | Delete every transaction after a timestamp |
+| `maintenance` | Flush, truncate the log, save state, back up, clear caches, rebuild indexes |
+| `version` | Print the Relatude.DB version the tool was built against |
+
+`relatude help <command>` describes one command and its options. `relatude help all` prints the
+whole reference at once.
 
 ```bash
 relatude schema                          # node types, members, ids, relations
@@ -5445,18 +4821,18 @@ relatude validate                        # what would break at startup, and what
 relatude settings                        # relatude.db.json resolved, without secrets
 relatude init --namespace MyApp.Models   # write relatude.settings/relatude.db.json
 
-relatude new --list-types                # the project types: what each generates and is suited for
-relatude new MyApp                       # default type csharp_web_react_ts: Backend (API + Relatude.DB) + Client (React)
-relatude new MySite --projecttype csharp_web_mvc   # one ASP.NET Core MVC project, server-rendered pages
+relatude new --list-types                # the project types and what each is suited for
+relatude new MyApp                       # default type: Backend (API + Relatude.DB) + Client (React)
+relatude new MySite --projecttype csharp_web_mvc   # one ASP.NET Core MVC project
 relatude new MyApp --user admin --password secret
 
 relatude insert --type Product '{ "Name": "Rucksack", "Price": 249 }'
 relatude insert --type Product --file products.json
 relatude delete --id 4101bdce-040a-4aa7-940f-354e31cdc4c5 --yes
 
-relatude timestamp                       # head of the transaction log, as a bare number on stdout
+relatude timestamp                       # head of the transaction log, as a bare number
 relatude revert --after <ts> --dry-run   # what would be deleted after that point
-relatude revert --after <ts> --yes       # delete it — the database as if it never happened
+relatude revert --after <ts> --yes       # delete it: the database as if it never happened
 
 relatude maintenance flush
 relatude maintenance truncate-log        # rewrite the log to current state only
@@ -5466,32 +4842,87 @@ relatude maintenance clear-cache
 relatude maintenance reset-indexes --yes # delete state and index files, rebuild from the log
 ```
 
-`relatude help <command>` documents one command, **`relatude help all` prints the whole reference in
-one go** — that is the built-in reference, and it is the same text this section summarises.
+### A typical session
 
-`new` is the one command that does not need an existing project: `relatude new MyApp` writes a
-complete application into `./MyApp`, source only, nothing built. `--projecttype` picks what kind:
+Create a content website, give it a model, and look at it from the outside:
+
+```bash
+relatude new MyShop --projecttype csharp_web_mvc
+cd MyShop
+# add a Product class to Models/ (Models/README.md shows one), then build:
+dotnet build
+relatude validate                    # will the model build at startup?
+relatude schema                      # the node types, properties and relations
+relatude insert --type Product '{ "Name": "Rucksack", "Price": 249 }'
+relatude query "Product.Where(p => p.Price > 100).Take(10)"
+relatude info                        # node counts and file sizes
+dotnet run                           # start the site; stop it before you use the tool again
+```
+
+### Finding the database and the model
+
+Most commands start from the database's `relatude.db.json` (see
+[section 12](#12-registering-the-model--the-admin-ui)). The tool looks for
+`relatude.settings/relatude.db.json` in the current folder and in the folders above it. You can also
+point at it:
+
+```bash
+relatude info                            # nearest relatude.db.json, from here upwards
+relatude info --project ../MyApp         # application folder or .csproj
+relatude info --settings /srv/app/relatude.settings/relatude.db.json
+relatude info --store "Reporting"        # when the file holds more than one database
+```
+
+The tool resolves the settings as the server does. Relative paths resolve against the folder that
+holds `relatude.settings/`. The admin UI's changes (`relatude.db.overrides.json`) apply, and so does
+the `RelatudeDB` section of `appsettings.json`, `appsettings.{environment}.json` and environment
+variables. `--environment` picks the environment; the default comes from `DOTNET_ENVIRONMENT` or
+`ASPNETCORE_ENVIRONMENT`, else `Production`.
+
+The datamodel is not stored in the database files. It lives in your code, so the tool loads it. By
+default it follows the `DatamodelSources` in `relatude.db.json` and loads your assemblies from the
+newest build output under `bin/`, so build the project first. These options change where the model
+comes from:
+
+| Option | What it does |
+|---|---|
+| `--bin <folder>` | Load the application's assemblies from this folder |
+| `--assembly <file>` | Load this assembly; repeatable |
+| `--source <path>` | Compile `.cs` files, or a folder of them, in memory: inspect a model before the project builds |
+| `--namespace <ns>` | Add every model type in this namespace; repeatable |
+| `--model-type <name>` | Add one model type by full name, and everything it references |
+
+With `--assembly` or `--source` alone, the tool finds the model types by the Relatude attributes and
+member types they use. The engine's own model (`Relatude.DB.Native.Models`) is left out of the output
+unless you pass `--include-native`.
+
+### Creating a project
+
+`relatude new MyApp` writes a complete application into `./MyApp`. It writes source only and builds
+nothing. `--projecttype` picks the kind of application:
 
 | Type | What it writes | Suited for |
 |---|---|---|
-| `csharp_web_react_ts` (default) | `Backend/`, an ASP.NET Core minimal API on Relatude.DB, and `Client/`, a React + TypeScript + Vite app that calls it under `/api` and is built into `Backend/wwwroot` for production | interactive web applications: rich, app-like user interfaces where a browser client talks to an API |
-| `csharp_web_mvc` | one ASP.NET Core MVC project — controllers, Razor views, static files — with the HTML rendered on the server and a layout that writes `<title>` and `<meta name="description">` per page | content websites with traditional page navigation and SEO: crawlable URLs, no JavaScript build step |
+| `csharp_web_react_ts` (default) | `Backend/`, an ASP.NET Core minimal API on Relatude.DB, and `Client/`, a React + TypeScript + Vite app that calls it under `/api` | Interactive web applications where a browser client talks to an API |
+| `csharp_web_mvc` | One ASP.NET Core MVC project: controllers and Razor views rendered on the server, with a title and description per page | Content websites with page navigation and SEO, and no JavaScript build step |
 
-`relatude new --list-types` prints the same list (`--json` for tooling), so an agent can ask the
-user which fits before generating; types for other languages and stacks will be added under the
-same `language_platform_flavour` naming. Every type gets a README that says how to run it, where
-models, pages or endpoints go, and how to inspect the result with the tool, plus a
-`relatude.settings/relatude.db.json` pointing at the `MyApp.Models` namespace, so every class added to the `Models`
-folder becomes a node type. `--user`/`--password` set the admin login (optional on localhost),
-`--package-version` pins the NuGet version, which defaults to the tool's own — keep the two on
-the same version, the settings file is written in the vocabulary of the tool's version.
-`examples/WebApp.Empty` and `examples/WebApp.Mvc` in the repository are the two types, kept as
-references.
+Both need the .NET 10 SDK, and the React type also needs Node.js 20 or newer.
+`relatude new --list-types` prints the same list, and `--json` makes it machine readable.
 
-`timestamp` and `revert` are the two halves of the experiment workflow from
-[section 16.1](#161-reverting-the-database-to-an-earlier-point), run from the outside: capture the
-head of the log before making changes, and put the database back afterwards. `timestamp` prints the
-bare number on stdout so a script — or an agent — can hold on to it:
+Each project has a README that says how to run it and where models, pages or endpoints go. Its
+`relatude.settings/relatude.db.json` points at the `MyApp.Models` namespace, so every class you add
+to the `Models` folder of the C# project becomes a node type.
+
+- `--user` and `--password` set the admin UI login. On localhost you can leave them out.
+- `--out <folder>` writes somewhere other than `./MyApp`.
+- `--package-version` pins the Relatude.DB NuGet version. It defaults to the tool's own version.
+  Keep the two the same, since the settings file is written for the tool's version.
+
+### Undoing an experiment
+
+`timestamp` and `revert` run the workflow of
+[section 16.1](#161-reverting-the-database-to-an-earlier-point) from the outside. Take the head of
+the log before you change anything, and put the database back afterwards:
 
 ```bash
 ts=$(relatude timestamp)
@@ -5499,104 +4930,109 @@ ts=$(relatude timestamp)
 relatude revert --after $ts --yes
 ```
 
-`revert` always previews what would go and refuses to act without `--yes`; `--after` also accepts a
-UTC date/time like `2026-08-19T14:30:00Z`. Persisted state that advanced past the point (state
-snapshot, index engines) is reset and rebuilt from the log, which the command reports.
+`timestamp` prints a bare number, so a script can keep it. Without `--yes`, `revert` only reports
+what it would delete. `--after` also takes a UTC time such as `2026-08-19T14:30:00Z`. Index and
+state files saved after that point are rebuilt from the log. The command reports this, and on a
+large database the rebuild takes a while.
 
-The query given to `query` is the *text* form of the query API — the form the HTTP API and the admin
-UI send. It reads like the typed API of [Part III](#part-iii--querying): a node type followed by
-method calls, with `--param` values referenced by name. Results are printed as JSON in the same shape
-a client would receive; a projection (`Select(a => new { a.Name, a.Price })`) becomes one JSON object
-per row, keyed by the member names as they were written in the query.
+### Running queries
 
-### What it does not do
+`query` takes the text form of the query API, which is also what the HTTP API and the admin UI send.
+It reads like the typed API of [Part III](#part-iii--querying): a node type followed by method calls.
+Pass values with `--param name=value` and use them by name in the query. Numbers, `true`/`false`
+and guids keep their type; anything else is a string. `--file` reads the query from a file.
 
-`insert` sets scalar members only: text, numbers, bool, guid, dates, timespan, enums (by name or
-number), arrays of those, and geo coordinates as `[latitude, longitude]`. Relations, references,
-files and embedded values are refused with a message naming the member — relating nodes and uploading
-files belong in code, where the compiler checks what is being related to what.
+The result is printed as JSON in the shape a client receives. A projection such as
+`Select(a => new { a.Name, a.Price })` gives one JSON object per row, keyed by the member names as
+written in the query.
 
 ### Things worth knowing
 
-- **The application must not be running.** The log file has a single writer, so opening a database
-  that a running app holds fails with a message saying so. Read-only access to a live database is not
-  something the engine offers.
-- **Opening is a write.** Replaying the log, compiling the mapper and updating index files all touch
-  the data folder. Nothing is destroyed, but do not point the tool at production data casually.
-- **Background work stays off.** Auto backup, auto truncate, index state snapshots and the task queue
-  are disabled while a command runs, so nothing is started that the process cannot finish. Pass
-  `--allow-background` to keep the settings as they are. `maintenance` does the work it is asked for
-  synchronously, so it is finished when the command returns.
-- **Secrets are never printed.** `settings` reports whether a password, token secret, API key or
+- **Stop the application first.** `info`, `query`, `insert`, `delete`, `timestamp`, `revert` and
+  `maintenance` open the database, and its log file has a single writer. If a running application
+  holds it, the command fails and says so. The engine has no read-only access to a live database.
+  `schema`, `validate`, `codegen` and `settings` do not open the database.
+- **Opening writes.** Opening a database replays the log and updates index files, as the application
+  does. Nothing is lost, but take care with production data.
+- **Background work is off.** Auto backup, auto truncate, index state snapshots and the task queue
+  do not run while a command runs. `--allow-background` keeps them as configured. `maintenance`
+  finishes its work before it returns.
+- **Secrets are not printed.** `settings` shows whether a password, token secret, API key or
   connection string is set, never its value.
-- **Output is split.** Results go to stdout, progress and warnings to stderr, so
-  `relatude query ... 2>/dev/null > out.json` gives a clean file. `--json` is available on most
-  commands. Exit codes: 0 fine, 1 the command failed, 2 the command line was wrong.
-- **Ids derived from names are a trap the tool will point out.** `validate` counts the node types and
-  members whose ids come from their names, and `codegen` writes the model out with those ids made
-  explicit — which is how you pin them before a rename (see pitfall 16 in
-  [section 30](#30-pitfalls-and-gotchas)).
+- **Output is split.** Results go to stdout; progress and warnings go to stderr. So
+  `relatude query ... 2>/dev/null > out.json` gives a clean file. Most commands take `--json`. Exit
+  codes: 0 success, 1 the command failed, 2 wrong command line.
+- **`insert` sets scalar members only:** text, numbers, bool, guid, dates, timespan, enums by name or
+  number, arrays of these, and geo coordinates as `[latitude, longitude]`. It refuses relations,
+  references, files and embedded values. Set those from code.
+- **Pin ids before you rename.** `validate` warns about node types and members whose ids come from
+  their names: renaming one hides the data stored under the old name. `codegen` writes the model out
+  with those ids spelled out, which pins them. See the pitfall about pinning ids in
+  [section 30](#30-pitfalls-and-gotchas).
 
 ---
 
 ## 32. Logs — recording what the application does
 
-A database keeps logs about itself: every query, transaction, action and task, and a record of its
-metrics every second, each switched on or off on the admin UI's **Activity** page. Next to it, the **Logs**
-page is for logs of your own — what the *application* does: the requests a site answers, the orders
-placed, the jobs run, the errors met. You define a log as a list of columns, the application records
-entries into it by its key, and the page reads them back as graphs over time, as the entries
-themselves and as the spread of a column's values.
+A database keeps activity logs about itself: queries, transactions, actions, tasks, and its metrics
+every second. You switch them on and off on the admin UI's **Activity** page. The **Logs** page is
+for logs of your own, about what the *application* does: the requests a site answers, the orders
+placed, the jobs run, the errors met.
+
+You define a log as a list of columns, and the application records entries into it by the log's key:
 
 ```csharp
 db.CustomLogs.Record("orders", ("amount", 249.90), ("customer", "acme"), ("items", 3));
 ```
 
-That is the whole recording API in one line; the rest of this chapter is about what a log is, what
-it keeps, and how it is read. What a log records is part of the database, kept in its log folder
-next to the activity logs; what a log *is* — its definition — is kept with the application's
-settings. Logs work without a node type, a transaction or an index: a log is an
-append-only record of what happened and when, optimised to be written a million times a day and
-graphed.
+The Logs page shows the entries as graphs over time, as a list, and as the spread of a column's
+values. A log needs no node type, transaction or index. It is an append-only record, cheap enough to
+write a million times a day.
 
 ### 32.1 Defining a log
 
-A log is defined on the Logs page — **New log** starts one from a blank definition or from a
-template (web requests, business events, errors and warnings, positions, background jobs) — or by a definition
-file, or from code. All three end up as the same thing:
+You can define a log on the Logs page, in a definition file, or from code. On the Logs page,
+**New log** starts from a blank definition or from a template: web requests, business events, errors
+and warnings, positions, or background jobs. A definition has these parts:
 
 | Part | What it is |
 |---|---|
-| **Key** | What the application records by and what the files are named after: letters, digits, `-` and `_`, starting with a letter or a digit, at most 64 characters. It cannot be changed afterwards (duplicate the log instead), and the activity logs' own keys — `system`, `query`, `transaction`, `action`, `task`, `taskbatch`, `metrics` — are taken. |
-| **Name**, **description** | What the page shows. |
-| **Columns** | What an entry holds besides its timestamp: a key, a name, a type — text, whole number, decimal number, date and time, duration, bytes or a position ([§32.8](#328-positions)) — and the statistics kept about it ([§32.3](#323-statistics)). |
-| **Record entries** / **Keep statistics** | The two switches. Entries are the records themselves; statistics are the aggregates the graphs are drawn from. Either can be off: a log that only counts, or one that only records. |
-| **One file per** | Minute, hour, day or month: how the entries are cut into files. A file is what the age and size limits delete, whole. |
-| **Keep entries for** / **At most** | The age limit in days and the size limit in MB; 0 is no limit. |
-| **Level of statistical detail** | How far back every statistic reaches ([§32.3](#323-statistics)). |
-| **Weeks start on** | What a week is, for the weekly statistics. |
-| **Also write a text copy**, **Compress** | A tab separated `.txt` beside every entries file, readable without the database; smaller entries files. |
+| **Key** | The name the application records by, which the files are named after. Letters, digits, `-` and `_`, starting with a letter or digit; at most 64 characters |
+| **Name**, **description** | What the Logs page shows |
+| **Columns** | What an entry holds besides its timestamp: each column's key, name, type and statistics ([§32.3](#323-statistics)) |
+| **Record entries**, **Keep statistics** | Two switches. Turn one off for a log that only counts, or one that only records |
+| **One file per** | Minute, hour, day or month: how the entries are split into files |
+| **Keep entries for**, **At most** | The age limit in days and the size limit in MB, applied to whole files; 0 means no limit |
+| **Level of statistical detail** | How far back the statistics reach ([§32.3](#323-statistics)) |
+| **Weeks start on** | The first day of a week, for weekly statistics |
+| **Also write a text copy**, **Compress** | A tab-separated `.txt` beside each entries file, readable without the database; smaller entries files |
 
-A definition is a `<key>.json` file, in two places like every definition the admin UI edits. SHARED
-is `relatude.settings/logs/` below the application's folder, beside `relatude.settings/relatude.db.json`
-— deployed, and kept in source control, with the application. THIS SERVER is `overrides/logs/` on the
-database's storage, `relatude.data/overrides/logs/` with the defaults: what is defined or changed on
-the Logs page, or with `CustomLogs.Create` and `Update`, is saved there, and replaces the SHARED
-definition with the same key. Deleting a log defined in SHARED writes a marker on THIS SERVER that takes it
-away on this installation. A database with a short name (its `ShortName` setting,
-[§12.1](#121-every-setting-in-relatudedbjson)) keeps its SHARED files in `relatude.settings/<short name>/logs/`
-instead; only one database of an installation can be without one. The files are what the logs *are*:
-a definition written by hand into either folder, or copied from another application, is picked up when
-the database opens (or with **Reload from disk** on the Logs page).
+The column types are text, whole number, decimal number, date and time, duration, bytes and position
+([§32.8](#328-positions)). A key cannot change later, since the files are named after it; duplicate
+the log instead. The activity logs' keys are taken: `system`, `query`, `transaction`, `action`,
+`task`, `taskbatch` and `metrics`.
 
-Each log on the Logs page is tagged *shared* or *this server*. **Move to shared** at the top right lists what THIS SERVER
-holds — logs added, changed or taken away here — and moves the selection into SHARED, or discards it:
-a log goes back to its SHARED definition, entries moved as a change of definition would move them;
-one only THIS SERVER had goes, and what it recorded is kept for a log made later with the same key. Move in
-development and commit the folder; on a deployed server the SHARED folder is the deployed copy, which
-the next deployment replaces ([§12.2](#on-a-server)).
+**Where definitions are kept.** A definition is a `<key>.json` file in one of two folders, like
+everything the admin UI edits:
 
-The Definition view of a log shows its file as JSON and edits it as text as well as through the form:
+- **SHARED** is `relatude.settings/logs/`, part of the application: kept in source control and
+  deployed with it. A database with a short name (`ShortName`,
+  [§12.1](#121-every-setting-in-relatudedbjson)) uses `relatude.settings/<short name>/logs/`.
+- **THIS SERVER** is `overrides/logs/` on the database's storage, `relatude.data/overrides/logs/` by
+  default. The Logs page, `CustomLogs.Create` and `CustomLogs.Update` save here. A definition here
+  replaces the SHARED one with the same key. Deleting a SHARED log writes a marker here that removes
+  it on this installation.
+
+On the Logs page, each log is tagged *shared* or *this server*. **Move to shared** moves definitions
+from THIS SERVER into SHARED, or discards them. Move them in development and commit the folder: on a
+deployed server, SHARED is the deployed copy, and the next deployment replaces it
+([§12.2](#on-a-server)).
+
+A definition file you write by hand, or copy from another application, into either folder is picked
+up when the database opens, or with **Reload from disk** on the Logs page.
+
+**The definition file.** The Definition view of a log shows its file, and you can edit it there as
+text:
 
 ```json
 {
@@ -5622,16 +5058,15 @@ The Definition view of a log shows its file as JSON and edits it as text as well
 }
 ```
 
-A file is read forgivingly — comments and trailing commas are allowed, names in any case, enums by
-name or by number — and strictly in what it means: a key that cannot name a file, a column defined
-twice, an unknown type. A file that does not read as a log is left alone and listed on the Logs page
-with what is wrong with it, to be fixed there in an editor or deleted.
+Comments, trailing commas, names in any case, and enums by name or number are accepted. A file that
+is not a valid log is left alone and listed on the Logs page with the error, so you can fix it there
+or delete it.
 
-From code, the same definition is a `LogSettings`:
+**From code**, the same definition is a `LogSettings`:
 
 ```csharp
 using Relatude.DB.IO;        // FileInterval
-using Relatude.DB.Logging;   // LogSettings, LogProperty, StatisticsType
+using Relatude.DB.Logging;   // LogSettings, LogProperty, LogDataType, StatisticsType
 
 if (!db.CustomLogs.HasLog("requests")) {
     var requests = new LogSettings {
@@ -5649,26 +5084,27 @@ if (!db.CustomLogs.HasLog("requests")) {
         Name = "Duration (ms)", DataType = LogDataType.Double,
         Statistics = [new(StatisticsType.CountSumAvgMinMax)],
     });
-    db.CustomLogs.Create(requests);   // saves overrides/logs/requests.json on THIS SERVER and starts the log
+    db.CustomLogs.Create(requests);   // saved on THIS SERVER; the log starts at once
 }
 ```
 
-`Create` throws for a key that is taken or unusable, `CheckNewKey` says why first, and
-`GetDefinitions()` hands out copies — changing one changes nothing until it goes through `Update`
-([§32.6](#326-changing-a-definition)). `LogSettings` also reads and writes the JSON directly
-(`ToJson`, `FromJson`, `SaveToFile`, `LoadFromFile`), which is how a definition is kept in source
-control and deployed with the application.
+`Create` throws for a key that is taken or invalid, and `CheckNewKey` tells you why beforehand.
+`GetDefinition` and `GetDefinitions` return copies, so changing one has no effect until you pass it
+to `Update` ([§32.6](#326-changing-a-definition)). `LogSettings` also reads and writes the JSON:
+`ToJson`, `FromJson`, `SaveToFile` and `LoadFromFile`.
 
 ### 32.2 Recording from the application
 
-`db.CustomLogs` is the store's `ICustomLogs`. Four ways to record, all of them one entry per call:
+`db.CustomLogs` is the store's `ICustomLogs`. There are four ways to record, each one entry per call:
 
 ```csharp
 // property-value pairs, timestamped now
-db.CustomLogs.Record("requests", ("path", ctx.Request.Path.Value), ("status", 200), ("duration", sw.Elapsed.TotalMilliseconds));
+db.CustomLogs.Record("requests",
+    ("path", ctx.Request.Path.Value), ("status", 200), ("duration", sw.Elapsed.TotalMilliseconds));
 
-// an object: its public properties are matched to the columns without regard to case
-db.CustomLogs.RecordObject("requests", new { Path = "/products", Status = 200, Duration = 12.5, Position = new GeoCoordinate(59.9139, 10.7522) });
+// an object: its public properties are matched to the columns, ignoring case
+db.CustomLogs.RecordObject("requests",
+    new { Path = "/products", Status = 200, Duration = 12.5, Position = new GeoCoordinate(59.9139, 10.7522) });
 
 // a dictionary, with a time of its own
 db.CustomLogs.Record("requests", new Dictionary<string, object?> { ["path"] = "/cart" }, timestampUtc: startedUtc);
@@ -5677,115 +5113,112 @@ db.CustomLogs.Record("requests", new Dictionary<string, object?> { ["path"] = "/
 db.CustomLogs.Record("requests", new LogEntry { Timestamp = startedUtc, Values = { ["status"] = 404 } });
 ```
 
-Recording is cheap by design. A log that does not exist, or that is switched off, costs a dictionary
-lookup: `Record` returns `false` when there is no log with the key, and nothing else happens. A log
-that is on encodes the entry into a buffer; entries reach disk in batches — when a megabyte is
-buffered, and every half minute while the database is open — so a burst of a thousand requests is a
-thousand appends to memory, not a thousand writes. `Record(key, entry, flushToDisk: true)` writes one
-straight through, and `db.CustomLogs.FlushToDiskNow()` writes everything that is waiting.
+Recording is cheap. A log that does not exist or is switched off costs a dictionary lookup, and
+`Record` returns `false` when no log has the key. Entries are buffered and written to disk every 30
+seconds, or sooner when a megabyte is waiting. `Record(key, entry, flushToDisk: true)` writes one
+entry at once, and `db.CustomLogs.FlushToDiskNow()` writes everything waiting.
 
-**Values are converted to their column's type** when they are recorded, because the code that
-records rarely has exactly the type a log stores:
+**Values are converted to their column's type** when you record them:
 
 | Column type | What converts into it |
 |---|---|
-| Text | anything: numbers and dates are written the same on every server (`1.5`, ISO 8601 in UTC), bytes as base64 |
-| Whole number | `int`, `long` (clamped to the `int` range rather than wrapped), `short`, `byte`, enums, `bool` as 1/0, `double` and `decimal` rounded, numeric text |
-| Decimal number | any number, `bool`, `TimeSpan` as milliseconds, numeric text — `NaN` and infinity are left out |
-| Date and time | `DateTime` (local times moved to UTC, unspecified ones taken as UTC), `DateTimeOffset`, `DateOnly`, ISO text |
-| Duration | `TimeSpan`, `TimeOnly`, a number as milliseconds, text like `00:01:30` |
+| Text | Anything. Numbers and dates are written the same on every server (`1.5`, ISO 8601 in UTC), bytes as base64 |
+| Whole number | Integer types (a `long` is clamped to the `int` range), enums, `bool` as 1/0, rounded `double` and `decimal`, numeric text |
+| Decimal number | Any number, `bool`, `TimeSpan` as milliseconds, numeric text; not `NaN` or infinity |
+| Date and time | `DateTime` (stored in UTC; an unspecified kind counts as UTC), `DateTimeOffset`, `DateOnly`, ISO text |
+| Duration | `TimeSpan`, `TimeOnly`, a number of milliseconds, text such as `00:01:30` |
 | Bytes | `byte[]`, `Memory<byte>`, `ArraySegment<byte>`, text as UTF-8 |
-| Position | `GeoCoordinate`, text like `59.91, 10.75`, a `(latitude, longitude)` tuple, an array of the two ([§32.8](#328-positions)) |
+| Position | `GeoCoordinate`, text such as `59.91, 10.75`, a `(latitude, longitude)` tuple or a two-element array ([§32.8](#328-positions)) |
 
-A value that is null, or has no reading as its column's type, is **left out of the entry** rather
-than recorded as a zero the statistics would count as a measurement nobody made. Values for keys
-the log does not declare are kept in the entry as they are (or as their text), which is what lets a
-log's definition change without losing what older entries carried. The entry's timestamp is stored
-in UTC whatever kind of `DateTime` it was.
+A value that is null, or does not convert, is **left out of the entry** rather than recorded as a
+zero the statistics would count. Values under keys the log does not declare are kept as they are, so
+a column added later can read them. Timestamps are stored in UTC.
 
 ### 32.3 Statistics
 
 Entries are the record; **statistics** are what the graphs are drawn from. They are aggregated as
-entries arrive — not when a graph asks — and kept per interval: per second, minute, hour, day, week
-and month at once, so a graph of the last five minutes and one of the last year are both instant,
-whatever the log holds. Every log counts its entries; each column adds the statistics it declares:
+entries arrive and kept per second, minute, hour, day, week and month, so a graph of the last five
+minutes and one of the last year are both instant. Every log counts its entries, and each column
+adds the statistics you choose:
 
-| Statistic | What it answers | Column types | What it costs |
-|---|---|---|---|
-| **Count** | how many entries had a value in the column | all | a number per interval |
-| **Total** (`Sum`) | the values added up | numbers | a number per interval |
-| **Average, min, max** (`AvgMinMax`) | the average, lowest and highest, drawn as a line in a band | numbers | a few numbers per interval |
-| **Count, total, average, min, max** (`CountSumAvgMinMax`) | all of the above in one statistic | numbers | a few numbers per interval |
-| **Count per value** (`UniqueCountWithValues`) | how often each value occurred — a status code, a level, a country — drawn as stacked bars | all but bytes | every value and its count: meant for columns with few distinct values (under a hundred or so); up to 5,000 values per interval, and older intervals keep their 50 most common |
-| **Unique count** (`UniqueCountHashedValues`) | how many different values there were — exact | all but bytes | a 64-bit hash per distinct value per interval, up to 50,000 of them |
-| **Unique count, estimated** (`UniqueCountEstimate`) | how many different values there were, within about one percent, however many — users, sessions, paths | all but bytes | a fixed amount of memory per interval, whatever the number: the HyperLogLog algorithm, [§32.4](#324-estimated-unique-counts-hyperloglog) |
+| Statistic | What it answers | Column types |
+|---|---|---|
+| **Count** | How many entries had a value in the column | All |
+| **Total** (`Sum`) | The values added up | Numbers |
+| **Average, min, max** (`AvgMinMax`) | The average, lowest and highest value | Numbers |
+| **Count, total, average, min, max** (`CountSumAvgMinMax`) | All of the above in one statistic | Numbers |
+| **Count per value** (`UniqueCountWithValues`) | How often each value occurred, such as a status code or a country | All but bytes |
+| **Unique count** (`UniqueCountHashedValues`) | How many different values there were, exactly | All but bytes |
+| **Unique count, estimated** (`UniqueCountEstimate`) | How many different values there were, within about one percent | All but bytes |
 
-A column of positions keeps six more — a centre and spread, a heatmap, distances from a point,
-distance bands, zones and areas covered — described in [§32.8](#328-positions).
+**Count per value** suits columns with few distinct values, under a hundred or so: it keeps up to
+5,000 values per interval, and only the 50 most common once an interval is over. **Unique count**
+keeps up to 50,000 distinct values per interval. **Unique count, estimated** uses fixed memory
+however many values there are ([§32.4](#324-estimated-unique-counts-hyperloglog)). Columns of
+positions have six more ([§32.8](#328-positions)).
 
-**The level of statistical detail** is how far back the statistics reach. A statistic keeps a fixed
-number of intervals of each size, and the level multiplies them: level 1 keeps 60 seconds, 60
-minutes, 48 hours, 60 days, 52 weeks and 60 months; level 3 — the default for a new log — three
-times that: per second for 3 minutes, per minute for 3 hours, per hour for 6 days, per day for 6
-months, per week for 3 years and per month for 15 years. A graph asking further back at a fine
-bucket gets what is kept and says so, which is why a long range is drawn in a coarser bucket rather
-than the same one zoomed out. More detail costs memory (the current intervals are held while the
-log is open) and disk (the statistics file is saved about once a minute).
+**The level of statistical detail** sets how far back statistics reach. Level 1 keeps 60 seconds,
+60 minutes, 48 hours, 60 days, 52 weeks and 60 months, and higher levels multiply these. Level 3, the
+default, keeps seconds for 3 minutes, minutes for 3 hours, hours for 6 days, days for 6 months, weeks
+for 3 years and months for 15 years. More detail costs memory and disk. A fine interval further back
+than that shows only what is kept, so draw a long range with a coarser interval.
 
-Three things follow from statistics being aggregated as entries arrive:
+The Logs page sets one level for the whole log. In a definition file and in code, each statistic has
+its own level (`Resolution`, 3 unless given), and so does the entry count (`ResolutionRowStats`, 10
+unless set).
 
-- **A statistic added to a log covers what is recorded from then on.** The entries recorded before
-  can be counted into it by rebuilding the statistics from them — offered when the definition is
-  saved, and on the log's Data page (*Rebuild the statistics*). A rebuild reads every entry once:
-  about a second per hundred thousand entries.
-- **Entries may arrive out of order.** One recorded with an older timestamp — several threads
-  recording at once, or a time of its own — is counted in its own interval, as long as the statistic
-  still keeps that interval. Older than that, it is in the entries but in no graph; and a unique
-  count of an interval that has already been closed (see below) cannot take one more value, so it is
-  skipped there until a rebuild.
-- **Statistics off means nothing is aggregated,** and what was kept is not read until they are
-  switched back on — at which point they continue from where they stopped, with a gap.
+Because statistics are aggregated as entries arrive:
+
+- **A new statistic covers entries from then on.** To include older ones, rebuild the statistics.
+  The Logs page offers this when you save, and on the log's Data view (*Rebuild the statistics*).
+- **Late entries count only while their interval is kept.** An entry with an older timestamp goes
+  into its own interval if the statistic still keeps it. A unique count keeps only its number once
+  its interval is over, so a late value reaches it only through a rebuild.
+- **With statistics off, nothing is aggregated.** Switched back on, they continue with a gap.
 
 ### 32.4 Estimated unique counts: HyperLogLog
 
-Counting how many *different* values there were — distinct users in an hour, distinct paths in a
-day — is the one question a log cannot answer from a running total. An exact answer has to remember
-every value it has seen, to know whether the next one is new, so it grows with the data: a busy site
-has millions of sessions a month. The estimated unique count answers it from a summary of a fixed
-size instead, using the **HyperLogLog** algorithm (Flajolet, Fusy, Gandouet and Meunier, 2007) — how
-it works is explained on [Wikipedia](https://en.wikipedia.org/wiki/HyperLogLog).
+Counting *different* values, such as distinct users in an hour, cannot be done with a running total.
+An exact count must remember every value it has seen, so it grows with the data. The estimated
+unique count uses the [HyperLogLog](https://en.wikipedia.org/wiki/HyperLogLog) algorithm instead: a
+fixed-size summary, at most 64 KB per interval, with a standard error of about 0.8 %, whether an
+interval saw a hundred values or a hundred million.
 
-Here the summary is 16,384 registers: 64 KB per interval however many values went into it, and a
-standard error of about 0.8 % — the "within about one percent" — for a hundred values and a hundred
-million alike. Most intervals see only a handful of values, so an interval keeps just their hashes
-until it has seen more than 1,024 different ones (the estimate is the same either way), and an
-interval that is over keeps only its number — which is also why an entry arriving late for a closed
-interval cannot be added to it.
+A unique count **does not add up**. The number of different users in a day is not the sum of the
+numbers per hour, because the same user in two hours is one user for the day. So a unique count,
+exact or estimated, has no total over a range, and its graph shows one value per interval. Ask at
+the size you mean: for *distinct users per day*, draw the graph with one point per day.
 
-What it cannot do is **add up**. The number of different users in a day is not the sum of the
-numbers per hour — the same user in two hours is one user for the day — so an estimated (or exact)
-unique count has no total over a range, and the graph shows one value per interval. Ask the question
-at the size it is meant: *distinct users per day* is a graph drawn with one point per day. Which
-unique count to declare:
+Which unique count to use:
 
-- **Count per value** for a column with a few distinct values you want to see by name.
+- **Count per value** for a column with few distinct values that you want to see by name.
 - **Unique count** when the number must be exact and stays in the thousands per interval.
-- **Unique count, estimated** for anything that can grow — users, sessions, paths, search terms.
+- **Unique count, estimated** for anything that can grow: users, sessions, paths, search terms.
 
 ### 32.5 Reading a log
 
-Each log has a page of its own under Logs, with the *Record* and *Statistics* switches at the top and
-five views of the same log. The graphs, the entries and the analysis share one time range: one of
-the ranges that end now (5 minutes to 12 months, following the clock while *Live* is on), two
-moments typed in, or an interval picked on a graph.
+Each log has a page under Logs, with the *Record* and *Statistics* switches at the top and five
+views. Graphs, Entries and Analyse share one time range: a range ending now (5 minutes to 12 months),
+two moments you type in, or an interval you pick on a graph.
 
 | View | What it shows |
 |---|---|
-| **Graphs** | Tiles that sum the range up (entries, the busiest interval, averages, the most common values), then a graph per statistic: bars or a line for counts and totals; the average with its min–max band, or any one of count, total, min and max; a breakdown per value as stacked bars, or as shares of each interval. The bucket size follows the range or is chosen. Clicking an interval opens its entries. Each graph downloads as CSV. |
-| **Entries** | The entries of the range, newest (or oldest) first. The search box reads the whole range on the server — `timeout`, `get*nodes`, `"could not open"`, `-shutdown`, `status:500`; terms must all hold, `*` and `?` are wildcards, `column:term` searches one column — and the fields under the headings filter what the browser holds. Columns can be hidden and dragged wider. *Live* marks new entries as they arrive. An entry opens to all of it, with ways to filter or search by any of its values or show what else was recorded around it. *Download* writes the range or the whole log as tab separated, comma separated or JSON lines. |
-| **Analyse** | How one column's values are spread, read from the entries themselves — what statistics cannot say. Numbers and durations get percentiles (median, 90th, 99th…) and a histogram, text its most common values (click one to list its entries), positions their median centre, distances, clusters, tracks and a map ([§32.8](#328-positions)). It reads the newest entries of the range up to a limit (200,000 by default) and says when it stopped. |
-| **Definition** | The form, the JSON of the settings file, and the application code that records into the log, written for its columns. |
-| **Data** | *Try it out* — record a test entry, or up to a million made-up ones, spread over a stretch of time with plausible values for every column, to see the graphs before the application records anything. *Clean up* — delete older entries, every entry, the statistics; rebuild the statistics; write to disk now. The definition file, and the log's files on disk with a download each. |
+| **Graphs** | Summary tiles and a graph per statistic. Click an interval to see its entries. Each graph downloads as CSV. |
+| **Entries** | The entries of the range, with a search over all of them. Open an entry to see what was recorded around it. *Download* writes TSV, CSV or JSON lines. |
+| **Analyse** | How one column's values are spread, read from the entries: percentiles and a histogram for numbers, the most common values for text, maps for positions ([§32.8](#328-positions)). It reads the newest 200,000 entries of the range by default. |
+| **Definition** | The form, the JSON file, and C# code that records into the log. |
+| **Data** | *Try it out*: record a test entry, or up to a million made-up ones, to see the graphs before the application records anything. *Clean up*: delete entries or statistics, rebuild the statistics, write to disk. The log's files, each with a download. |
+
+The Entries search takes terms like these. All terms must match, and case is ignored unless you ask
+to match it:
+
+```text
+timeout                  "timeout" anywhere in the entry
+get*nodes                * matches any run of characters, ? exactly one
+"could not open"         a phrase
+error -shutdown          "error" somewhere and "shutdown" nowhere
+status:500               a term in one column
+```
 
 From code, `db.CustomLogs.LogStore` is the `ILogStore` behind the page, with the same reads:
 
@@ -5795,91 +5228,93 @@ using Relatude.DB.Logging.Statistics;   // IntervalType
 var store = db.CustomLogs.LogStore;
 var to = DateTime.UtcNow;
 var from = to.AddDays(-1);
+
+// the newest 100 entries of the last day, and how many the range holds
 var newest = store.ExtractLog("requests", from, to, skip: 0, take: 100, orderByDescendingDates: true, out var inRange);
+// the same search as the Entries view
 var failed = store.SearchLog("requests", "status:5??", from, to, 0, 100, true, out var failures);
+// entries per hour
 var perHour = store.AnalyseRows("requests", IntervalType.Hour, from, to, estimateNowInterval: false, fillInBlanks: true);
+// distinct users per day, over 30 days
 var users = store.AnalyseEstimatedUniqueCounts("requests", "user", IntervalType.Day, from.AddDays(-29), to, false, true);
 ```
 
-A search, like a page of entries, reads the records of the range it is given — nothing is indexed,
-so it can ask anything, and the range is what bounds its cost. Only the page asked for is held in
-memory while that happens: the newest hundred of a million entries are a hundred entries in memory.
+Nothing is indexed: a search reads every entry in its range, so the range sets the cost. Only the
+page you ask for is held in memory.
 
 ### 32.6 Changing a definition
 
-A log's definition can change while it has entries. Saving a change asks the server first what it
-does to what is recorded, and the confirmation lists it; nothing is lost that the list does not name.
+You can change a definition while the log has entries. Before it saves, the Logs page lists what the
+change does to what is recorded, for you to confirm. Nothing is lost that the list does not name.
 
 | Change | What happens to what is recorded |
 |---|---|
-| Name, description, text copy, compression | Nothing: compression and the text copy apply to what is written from then on. |
-| A column added | The entries recorded so far have no value for it — unless the application recorded one under its key before the column was declared: those values were kept in the entries, and are read as the new column (and counted by its statistics once they are rebuilt). |
-| A column removed | Its values stay in the entries they were recorded with (the entry view shows them); its statistics are dropped. |
-| A column's type | Old values are read as the new type where they convert, and shown as they were stored where they do not. A column with statistics has them rebuilt from the entries — what they held was aggregated as the old type. |
-| A statistic added | It starts empty; the confirmation offers to rebuild the statistics from the entries. |
+| Name, description, text copy, compression | Nothing. Compression and the text copy apply to new files. |
+| A column added | Older entries have no value for it, unless the application already recorded values under its key: those are kept, and read as the new column. |
+| A column removed | Its values stay in the entries, and the Entries view still shows them. Its statistics are dropped. |
+| A column's type changed | Old values are read as the new type where they convert, and shown as stored where not. The column's statistics are rebuilt. |
+| A statistic added | It starts empty; you can rebuild it from the entries. |
 | A statistic removed | What it held is dropped. |
-| The level of detail, the first day of the week | Every statistic starts over at the new setting; a rebuild is offered. |
-| The file interval | Every entry is moved into files of the new size — read and written once, which takes a while on a large log. |
-| A tighter age or size limit | The files past it are deleted at the next cleanup, within a minute. |
+| The level of detail, the first day of the week | Every statistic starts over; a rebuild is offered. |
+| The file interval | Every entry is moved into files of the new size, which reads and writes the whole log. |
+| A tighter age or size limit | Files past the limit are deleted at the next cleanup, within a minute. |
 
-In code this is `PlanUpdate(settings)` — the same consequences as sentences, without doing anything
-— and `Update(settings, rebuildStatistics)`. `SetEnabled(key, log, statistics)` flips the switches
-and saves them.
+In code, `PlanUpdate` returns the same list without changing anything, and `Update` makes the change.
+`SetEnabled` turns recording or statistics on or off, and saves the switch:
+
+```csharp
+var requests = db.CustomLogs.GetDefinition("requests")!;   // a copy
+requests.MaxAgeOfLogFilesInDays = 30;
+
+var plan = db.CustomLogs.PlanUpdate(requests);              // nothing changes yet
+foreach (var note in plan.Notes) Console.WriteLine(note);
+db.CustomLogs.Update(requests, rebuildStatistics: plan.CanRebuildStatistics);
+
+db.CustomLogs.SetEnabled("requests", log: false, statistics: null);   // stop recording entries
+```
 
 ### 32.7 Files, limits and cleaning up
 
-What a log records lives in a folder of its own in the database's log storage — `logs/<key>/`, the
-key in lower case — as a handful of files, all named after the key (the definition is kept apart, see
-[§32.1](#321-defining-a-log)):
+A log keeps what it records in `logs/<key>/` in the database's log storage, with the key in lower
+case:
 
-| File | Holds |
-|---|---|
-| `log.<key>.<interval>.<time>.bin` | The entries, one file per minute, hour, day or month: `log.requests.hour.2026-09-26-14.bin`. |
-| `log.<key>.<interval>.<time>.txt` | The text copies, when they are on. |
-| `log.<key>.statistics.bin` (and `.bkup`) | The statistics, saved about once a minute, with the previous save kept beside them. |
+- one entries file per minute, hour, day or month, such as `log.requests.hour.2026-09-26-14.bin`;
+- a `.txt` copy of each, when text copies are on;
+- the statistics, `log.requests.statistics.bin`, with a `.bkup` of the previous save.
 
-Older versions called the folder `log/` and kept these files directly in it; they are moved into
-`logs/` and the folder of their log when the database opens — on local disk the whole folder is
-renamed in one go. The activity logs are laid out the same way (`logs/query/`, `logs/system/`, …), and
-the critical error log is `logs/critical.error.txt`.
+The activity logs use the same layout (`logs/query/`, `logs/system/`, …). The critical error log is
+`logs/critical.error.txt`.
 
-While the database is open, a cleanup runs about once a minute: the statistics are saved, the files
-older than the age limit are deleted, and the oldest files go when the entries grow past the size
-limit — whole files each time, never the one being written. *Delete older entries* on the Data page
-works the same way, by whole files older than the moment chosen.
+While the database is open, a cleanup runs about once a minute. It saves the statistics, deletes
+files older than the age limit, and deletes the oldest files when the log is over its size limit. It
+always deletes whole files, never the one being written. *Delete older entries* on the Data view also
+works by whole files.
 
-Deleting a log asks what should go with it: **the definition only** leaves the entries and
-statistics on disk, and a log created again with the same key picks them up; **everything** deletes
-them too. The Logs page works while the database is closed — definitions can be made and changed,
-entries read and test entries recorded — but the application records only through an open store.
+Deleting a log asks what goes with it. **The definition only** leaves the entries and statistics on
+disk, and a new log with the same key picks them up. **The definition and everything it recorded**
+deletes them too. In code, this is `db.CustomLogs.Delete(key, deleteRecorded)`.
 
-A few things to know:
+The Logs page works while the database is closed: you can define and change logs, read entries and
+record test entries. The application records only through an open store.
 
-- **A value that does not convert is left out silently.** A column that stays empty on the Entries
-  page is usually a value of the wrong kind — text that is not a number in a number column.
-- **The key is forever.** It names the files; renaming would orphan them. Duplicate the log instead.
-- **Unique counts have no totals.** Pick the bucket size the question needs (see [§32.4](#324-estimated-unique-counts-hyperloglog)).
-- **Made-up entries mix with real ones.** They are for trying a definition out; they go only with
-  the entries of their time.
-- **Search costs the range.** A search of the last hour is instant, of a busy month a wait.
+Two things to know:
 
-The activity logs on the Activity page work the same way, with two differences: they are defined by
-the database itself, and a switch flipped there is live at once but kept across a restart only when
-*Save and remember changes* saves it with the settings (`LogRecording`,
-[§12.1](#121-every-setting-in-relatudedbjson)), in `relatude.db.overrides.json` like every other admin UI change.
+- **A value that does not convert is left out silently.** A column that stays empty in the Entries
+  view usually gets values of the wrong kind, such as text in a number column.
+- **Made-up entries mix with real ones.** You cannot delete them alone: they go only with the
+  entries of their time.
 
-They can be read on the Logs page as well: the **Built-in logs** switch at the end of its tabs (off
-until it is turned on, and remembered in the browser) adds a tab for each of them after your own logs,
-and a table of them on the overview. They get the same Graphs, Entries and Analyse views; the
-Definition and Data views are not offered, and their switches are shown but stay on the Activity page,
-where switching and saving belong together.
+**Activity logs** work the same way, but the database defines them. A switch on the Activity page
+takes effect at once, and lasts across a restart only when you click *Save and remember changes*.
+That saves it in the `LogRecording` setting ([§12.1](#121-every-setting-in-relatudedbjson)), in
+`relatude.db.overrides.json`. The **Built-in logs** switch on the Logs page adds a read-only tab for
+each activity log, with the Graphs, Entries and Analyse views.
 
 ### 32.8 Positions
 
-A column can hold a position: its type is **Position** (`LogDataType.GeoCoordinate`), the same
-`GeoCoordinate` the node store places nodes by ([§5](#5-geo-coordinates)) — eight bytes a value, on
-the store's own one-centimetre grid. The **Positions** template starts a log with one, beside a text
-column naming what moved and one for what happened.
+A column can hold a position. Its type is **Position** (`LogDataType.GeoCoordinate`), the same
+`GeoCoordinate` the node store uses ([§5](#5-geo-coordinates)). The **Positions** template starts a
+log with a position column, a text column naming what moved, and one for what happened.
 
 ```csharp
 using Relatude.DB.Common;   // GeoCoordinate
@@ -5889,16 +5324,14 @@ db.CustomLogs.Record("deliveries", ("position", "60.3913, 5.3221"));   // text: 
 db.CustomLogs.Record("deliveries", ("position", (63.4305, 10.3951)));  // a (latitude, longitude) tuple
 ```
 
-A position converts from a `GeoCoordinate`, from text (`"59.91, 10.75"`, with a comma, a semicolon or
-a space between the two, or the `{"latitude": .., "longitude": ..}` json a `GeoCoordinate` is written
-as), from a `(latitude, longitude)` tuple and from an array of the two — latitude first, always.
-`GeoCoordinate.Empty`, a latitude past a pole and a longitude past the antimeridian are no position,
-and are left out like any value that does not convert. A position reads as text with six decimals
-(about ten centimetres: `59.9139, 10.7522`), which is what the entries table shows and what a search
-reads.
+A position converts from a `GeoCoordinate`, from text such as `"59.91, 10.75"` (a comma, semicolon
+or space between the numbers), from a `GeoCoordinate`'s JSON, from a `(latitude, longitude)` tuple,
+and from an array of the two. Latitude always comes first. `GeoCoordinate.Empty` and coordinates out
+of range are left out. A position reads as text with six decimals, `59.9139, 10.7522`, which is what
+the Entries view shows and a search matches.
 
 **Searching by distance.** A term naming a column of positions, with a place and a distance, finds
-the entries within that distance of the place; `near:` asks it of any column of positions:
+the entries within that distance. `near:` searches every column of positions:
 
 ```text
 position:59.9139,10.7522~2km        within 2 km of the middle of Oslo
@@ -5906,26 +5339,29 @@ near:60.39,5.32~500m                any column of positions, within 500 m
 -position:59.9139,10.7522~50km      everything further out than 50 km
 ```
 
-The distance is in `m` or `km`, and in metres when it has no unit. Anything else asked of the column
-is text as before: `position:59.91*` still finds the positions whose text starts that way.
+The distance is in `m` or `km`, or metres without a unit. Other terms search the position's text:
+`position:59.91*` finds the positions whose text starts that way.
 
-**Statistics.** Besides *Count* and the counts per value (which count exact positions, useful when
-the positions are a small set of known places — shops, sensors), a column of positions keeps six
-statistics of its own. Two have graphs of their own; four are kept by the statistics above, and drawn
-like them:
+**Statistics.** A column of positions can have *Count* and *Count per value*, which counts exact
+positions and suits a small set of known places such as shops or sensors. It also has six statistics
+of its own:
 
-| Statistic | What it answers | Drawn as | Measured against |
-|---|---|---|---|
-| **Centre and spread** (`GeoSpread`) | where the positions of each interval were: their centre, how far from it they lay, which way they spread, and the box round them | the spread as a line (or one number of several: along or across the spread, how far the centre moved, the count), or the centre of every interval on a map | — |
-| **Heatmap** (`GeoHeatmap`) | how many positions each cell of a grid held | a map: heat, bubbles, countries or rods, over the range | a cell size (`Level`) |
-| **Distance from a point** (`GeoDistance`) | count, total, average, nearest and farthest distance from a point, in metres | like Count, total, average, min, max | a point (`Reference`) |
-| **Distance bands** (`GeoDistanceBands`) | how many fell within each band of distance from a point: under 1 km, 1–5 km, … | like Count per value, nearest band first | a point and the band edges in metres (`Bands`) |
-| **Zones** (`GeoZones`) | how many fell in each of a few named circles — the first a position is in, or `Outside` | like Count per value, in the zones' order | the zones: a name, a centre, a radius in metres (`Zones`) |
-| **Areas covered** (`GeoCoverage`) | how many different cells of a grid had a position in them: how much ground the entries covered | like Unique count, estimated | a cell size (`Level`) |
+| Statistic | What it answers | Measured against |
+|---|---|---|
+| **Centre and spread** (`GeoSpread`) | The centre of each interval's positions, how far and which way they spread, and their bounding box | — |
+| **Heatmap** (`GeoHeatmap`) | How many positions each grid cell held, drawn as a map | A cell size (`Level`) |
+| **Distance from a point** (`GeoDistance`) | Count, total, average, nearest and farthest distance from a point, in metres | A point (`Reference`) |
+| **Distance bands** (`GeoDistanceBands`) | How many fell in each band of distance from a point: under 1 km, 1–5 km, … | A point and the band edges in metres (`Bands`) |
+| **Zones** (`GeoZones`) | How many fell in each named circle (the first that holds them), or `Outside` | Each zone's name, centre and radius in metres (`Zones`) |
+| **Areas covered** (`GeoCoverage`) | How many different grid cells had a position: how much ground was covered, estimated | A cell size (`Level`) |
 
-The editor asks for what a statistic is measured against as it is switched on — one point for both
-distance statistics, the bands in kilometres, the zones as rows, the cell size from about 20 m to
-20 km — and the settings file holds it beside the statistic:
+Centre and spread and the heatmap have graphs of their own. The others are drawn like the general
+statistics: distances like *Count, total, average, min, max*, bands and zones like *Count per value*,
+areas like *Unique count, estimated*.
+
+When you switch one on, the editor asks what it is measured against: a point, the bands in
+kilometres, the zones as rows, or a cell size from about 20 m to 20 km. The definition file keeps it
+beside the statistic:
 
 ```json
 "position": { "Name": "Position", "DataType": "GeoCoordinate", "Statistics": [
@@ -5937,49 +5373,37 @@ distance statistics, the bands in kilometres, the zones as rows, the cell size f
     { "Name": "Oslo", "Center": { "latitude": 59.9139, "longitude": 10.7522 }, "RadiusMeters": 3000 } ] } ] }
 ```
 
-In code the parameters are the optional arguments of `StatisticsInfo`: `new(StatisticsType.GeoDistance,
-reference: depot)`, `new(StatisticsType.GeoZones, zones: [new GeoZone("Oslo", oslo, 3000)])`. A
-statistic without what it needs is refused when the settings are saved. Measured against something
-else — another point, other bands, other zones, cells of another size — a statistic is another
-statistic: it starts empty, and the confirmation says so and offers to rebuild it from the entries.
+In code, these are optional arguments of `StatisticsInfo`:
+`new(StatisticsType.GeoDistance, reference: depot)` or
+`new(StatisticsType.GeoZones, zones: [new GeoZone("Oslo", oslo, 3000)])`. A statistic missing what
+it needs is refused when you save. Measured against something else, a statistic counts as a new one:
+it starts empty, and the confirmation offers to rebuild it from the entries.
 
-How the two with graphs of their own are kept:
+How the two with graphs of their own behave:
 
-- **The centre and spread** is the *spherical* mean: each position a point on the unit sphere, and the
-  centre the direction of their average — right across the date line (the average of the degrees of
-  a cluster round Fiji is in Africa) and near the poles. An interval keeps fifteen numbers — the count,
-  that average, the sums of the squared deviations from it, and the extent — and intervals add up
-  exactly, so the centre and spread of any range are those of every position in it. The spread is the
-  *standard distance* (the root mean square distance from the centre), and the *standard deviational
-  ellipse* is one standard deviation along the direction the positions spread most and across it.
-  The deviations are kept the way a running variance is (Welford, merged the way Chan et al. merge
-  them), so a spread of a metre is still a metre among millions of positions.
-- **The heatmap** counts positions per cell of a grid that is the Morton code of the `GeoCoordinate`
-  itself: 4^level cells of 180/2^level by 360/2^level degrees, square on the ground at 60° north
-  (level 16 is 305 m, 14 about 1.2 km, 12 about 4.9 km). An interval that is over is kept in a budget
-  of cells — 8 a second, 32 a minute, 128 an hour, 512 a day, week or month — by merging cells into
-  their parents where little is in them and keeping them fine where a lot is, **without a count lost**:
-  the budget decides how sharp an old interval is, never how much it holds. A range is drawn in up to
-  4,096 cells. At the default level of detail (3) a heatmap keeps at most about 290,000 cells — 180
-  days of daily maps, three years of weekly ones — which is under 2 MB in the statistics file and
-  about 5 MB in memory; a quiet log keeps far less.
-  A cell's area shrinks with the cosine of the latitude, so the densest cells are found by positions
-  per square kilometre, not per cell.
+- **Centre and spread** uses the *spherical* mean, so it is right across the date line and near the
+  poles, and intervals combine exactly. The spread is the *standard distance*, the root mean square
+  distance from the centre. The *standard deviational ellipse* shows one standard deviation along
+  the main direction of spread and one across it.
+- **Heatmap** cells are about 305 m tall at level 16 (the default), 1.2 km at level 14 and 4.9 km at
+  level 12. Once an interval is over, sparse cells are merged to save space, but no count is lost.
+  Cells shrink toward the poles, so compare positions per square kilometre, not per cell.
 
-**Analyse** reads a column of positions from its entries and says what the statistics cannot:
+**Analyse** reads a column of positions from its entries and shows what the statistics cannot:
 
 | | |
 |---|---|
-| **The median centre** | the geometric median — the place with the least total distance to every position — which a few far-off positions do not pull away the way they pull the mean |
-| **How far from it** | percentiles (half within, nine in ten within) and a histogram of the distances |
-| **Where they crowd** | clusters: the cells of a grid sized to the spread holding at least twice what an occupied cell holds on average, joined where they touch; click one to list its entries |
-| **Tracks** | with *Tracks by* set to the column that says what moved (a vehicle, a device, a courier), each one's positions in time order: the distance covered, time moving, average and top speed, stops (within 100 m of one place for five minutes or more) and jumps (a step faster than 300 m/s, or two places at one moment — a bad fix, left out of the distance); click one to list its entries |
-| **A map** | every position read (up to 250,000, evenly thinned beyond that), coloured by another column when *Colour by* is set, in any of the map's ways of drawing them |
+| **The median centre** | The place with the least total distance to every position. A few far-off positions barely move it. |
+| **How far from it** | Percentiles and a histogram of the distances |
+| **Where they crowd** | Clusters of grid cells holding at least twice the average; click one to list its entries |
+| **Tracks** | With *Tracks by* set to the column naming what moved: each one's route in time order, with distance, time moving, speeds and stops. Bad fixes are left out of the distance. |
+| **A map** | Every position read, up to 250,000, coloured by another column if you choose one |
 
-From code, the two statistics with graphs of their own are read with `AnalyseGeoSpread` /
-`AnalyseCombinedGeoSpread` (a `GeoSpread` per interval, or for the range) and `AnalyseGeoHeatmap` /
-`AnalyseCombinedGeoHeatmap` (a `GeoHeatmap` of `GeoCellCount`s); the others with the reads of the
-statistics that keep them, naming which one is meant:
+From code, read the centre and spread with `AnalyseGeoSpread` (per interval) or
+`AnalyseCombinedGeoSpread` (for the range), and the heatmap with `AnalyseGeoHeatmap` or
+`AnalyseCombinedGeoHeatmap`. Read the other four with the general methods, such as
+`AnalyseCombinedGroupCounts`, naming the statistic. With `from` and `to` as in
+[§32.5](#325-reading-a-log):
 
 ```csharp
 var store = db.CustomLogs.LogStore;
@@ -5990,15 +5414,15 @@ var densest = heat.Cells.MaxBy(c => c.Count / c.Cell.AreaSquareMeters);
 var zones = store.AnalyseCombinedGroupCounts("deliveries", "position", IntervalType.Day, from, to, StatisticsType.GeoZones).Value;
 ```
 
-The same mathematics is in `Relatude.DB.Common` for use anywhere: `GeoMoments` (add positions, merge
-sets, `Summarize()` into a `GeoSpread`), `GeoCell` (a position's cell at a level, its parent,
-neighbours, bounds and area) and `GeoCellCounts.Compress` (counts per cell within a budget of cells,
-every count kept).
+`Relatude.DB.Common` has the same mathematics for use anywhere:
 
-A made-up entry for a log with a position and a text column named like something that moves
-(*vehicle*, *device*, *courier*, *unit*, …) is recorded by a small fleet going about its day round a
-handful of towns — driving by day, stopping now and then, parked at night, with the odd fix hundreds of
-kilometres off — so every one of these has something to show before the application records anything.
+- `GeoMoments` adds positions, merges sets, and turns them into a `GeoSpread` with `Summarize()`.
+- `GeoCell` is a position's cell at a level, with its parent, neighbours, bounds and area.
+- `GeoCellCounts.Compress` fits counts per cell into a budget of cells, keeping every count.
+
+Made-up entries for a log with a position and a column naming what moves (*vehicle*, *device*,
+*courier*, …) come from a simulated fleet, so every view has something to show before the
+application records anything.
 
 ---
 ---
@@ -6007,13 +5431,11 @@ kilometres off — so every one of these has something to show before the applic
 
 ## 33. GraphQL endpoints
 
-A database can answer GraphQL. An endpoint is generated from the datamodel: every node type it
-exposes becomes a GraphQL type with a field per property, one root field that fetches a node by id
-and one that pages through nodes with filters, text search and ordering. Relations become fields a
-query can follow as deep as its selection goes. If you allow mutations, there are also root fields that
-create, update and delete nodes. You write no resolvers and compile nothing: the schema is built
-from the datamodel when the endpoint is first asked, and built again when the datamodel or the
-endpoint changes.
+A database can answer GraphQL, with a schema generated from the datamodel. Each node type you expose
+becomes a GraphQL type with a field per property, and root fields that fetch a node by id or page
+through nodes with filters, text search and ordering. Relations become fields a query can follow,
+and mutations can be switched on. You write no resolvers. The schema follows the datamodel and the
+endpoint as they change.
 
 ```graphql
 {
@@ -6024,77 +5446,83 @@ endpoint changes.
 }
 ```
 
-There are two ways to have one:
+There are two ways to set up an endpoint.
 
-| | |
-|---|---|
-| **Defined in the admin UI** | The database's **API** page. Each database can have any number of endpoints, each on its own url. An endpoint chooses the types and properties it shows and what to call them, and can have views, API keys, mutations, a public explorer page and a facet search. Each endpoint is a JSON file in the database's `graphql` folder, served by a middleware that `UseRelatudeDB` installs, so there is no code to write. See [§33.1](#331-an-endpoint-in-the-admin-ui). |
-| **Code-first** | `app.MapRelatudeDBGraphQL("/graphql")` maps one route over the whole datamodel, configured in `Program.cs`. See [§33.9](#339-code-first-mapping-an-endpoint-in-programcs). |
+**In the admin UI, with no code.** Open the database, choose **API**, then **New endpoint**. In the
+**Types** view, tick the node types to expose and give each a GraphQL name, such as `Event` for
+`IEvent`. Choose **Save**. The endpoint answers on `/graphql` at once, and the **Try it** view runs
+queries against it. See [§33.1](#331-an-endpoint-in-the-admin-ui).
 
-Both use the `Relatude.DB.GraphQL` library, which ships in the `Relatude.DB.Server` package. It has no
-third-party dependency: it does its own parsing, validation, execution and introspection.
+**In code.** Map a route in `Program.cs` that exposes the whole datamodel. See
+[§33.9](#339-code-first-mapping-an-endpoint-in-programcs).
 
-Each root field becomes **one** query against the store. The filter, search, ordering, paging and
-every relation the selection follows are translated into a single query text with `Include` paths,
-in the query language of [§19](#19-query-anatomy)–[§26](#26-sorting-paging-and-result-sets). Every
-value from the request goes in as a parameter, never into the query text. So a page of 25 events
-with their venues and hosts is one query, not 51.
+```csharp
+using Relatude.DB.Datamodels;   // QueryContext
+using Relatude.DB.GraphQL;
+using Relatude.DB.NodeServer;
+
+app.UseRelatudeDB();
+app.MapRelatudeDBGraphQL("/graphql", o => {
+    o.StoreResolver = _ => RelatudeDBRuntime.Database.Datastore;
+    o.QueryContextFactory = _ => QueryContext.Anonymous;   // read as an anonymous visitor
+    o.EnableExplorer = true;                               // open /graphql in a browser to try it
+});
+```
+
+Both are part of the `Relatude.DB.Server` package and need no third-party libraries.
+
+**One query per root field.** Each root field runs as one store query
+([§19](#19-query-anatomy)–[§26](#26-sorting-paging-and-result-sets)), with its filter, search,
+ordering, paging and the relations the selection follows. A page of 25 events with their venues and
+hosts is one query, not 51. Values from the request go in as parameters, never as query text.
 
 ### 33.1 An endpoint in the admin UI
 
-Open a database, choose **API** in the menu, then **New endpoint**. A new endpoint is called
-*GraphQL endpoint* and answers on `/graphql`, with a number added when that name or url is taken.
-It starts in the mode that exposes the types you choose, with none chosen yet. The editor has seven
+Open a database, choose **API**, then **New endpoint**. The new endpoint answers on `/graphql`, or
+`/graphql2` and so on when that is taken, and starts with no types chosen. The editor has seven
 views:
 
 | View | What it is for |
 |---|---|
-| **Settings** | The name, url, description, mode, switches and limits of [§33.2](#332-the-definition-file), and the API keys: **Add key** adds one with a generated key that expires in a year. Give it a name, such as the client that uses it, and change or clear the expiry date. Each key shows how long it has left. |
-| **Types** | The node types and properties to expose, and the names they appear under: the GraphQL type name, the two root field names and a name per field. Mark a type **Read only** to leave it out of the mutations. This view is only used in the *Selected types and properties* mode. |
+| **Settings** | Name, url, description, mode, switches, limits and API keys ([§33.2](#332-the-definition-file)). |
+| **Types** | The node types and properties to expose, and their GraphQL names. **Read only** keeps a type out of the mutations. Used in the *Selected* mode only. |
 | **Views** | Root fields defined by a query ([§33.5](#335-views)). |
-| **Code** | Generated code to copy or download: the schema as SDL, TypeScript types and a TypeScript client, and C# types and a C# client. |
+| **Code** | The schema as SDL, and TypeScript and C# types and clients, to copy or download. |
 | **Try it** | Runs a query. Pick a type and an example query to start from. |
 | **Explorer** | The explorer of [§33.8](#338-the-explorer-and-the-facet-page). |
-| **Json** | The definition file itself, editable as text. |
+| **Json** | The definition file, editable as text. |
 
-Every view works on the **draft**, the unsaved version of the endpoint, so you can see the schema a
-change gives before you save it. Warnings under the bar say what the schema builder left out or
-renamed, for example a type that is no longer in the datamodel, a relation to a type the endpoint
-does not expose, or a name that is already taken. **Save** writes the file, and the next request is
-answered with the new schema; no restart is needed. Some problems are errors that block saving: a
-url that another endpoint on the server already uses, a page size below 1, or a view whose query
-does not parse.
+**Add key**, in **Settings**, adds a generated API key that expires in a year. Name it after the
+client that uses it. You can change or clear the expiry date.
 
-The endpoint list shows each endpoint's url, mode, number of types and views, whether it takes
-mutations, and its file. Buttons on each row open the endpoint's public pages:
+The editor works on a draft, so you see the schema a change gives before you save. Warnings say
+what the schema leaves out or renames. Errors, such as a url another endpoint uses, block saving.
+**Save** writes the file, and the next request gets the new schema, with no restart.
 
-- **Explore** opens the explorer and **Pivot** opens the facet page, when they are switched on
-  ([§33.8](#338-the-explorer-and-the-facet-page)).
-- **SDL** shows the schema as text, when introspection is on and the endpoint has no API keys.
+In the endpoint list, buttons open each endpoint's public pages: **Explore** (the explorer),
+**Pivot** (the facet page) and **SDL** (the schema as text).
 
-The endpoints are served by a middleware that `UseRelatudeDB` installs after its own authorization
-middleware. An endpoint's url can be any path the admin UI does not use. No two endpoints may share
-a url, even across databases. While the endpoint's database is not open, its url answers `503`.
+An endpoint's url can be any path the admin UI does not use, and must be unique on the server,
+across databases. While the database is not open, the url answers `503`.
 
-> **The url is public.** The admin UI's login does not cover an endpoint. Protect it with API keys
-> or a reverse proxy, or expose only what anyone may see ([§33.10](#3310-who-reads-and-the-limits)).
+> **The url is public.** The admin UI's login does not cover an endpoint, and an endpoint made here
+> ignores read access ([§33.10](#3310-who-reads-and-the-limits)). Protect it with API keys or a
+> reverse proxy, or expose only types whose nodes anyone may see.
 
 ### 33.2 The definition file
 
-An endpoint is its file, `<name>.json`, in two places like every definition the admin UI edits.
-SHARED is `relatude.settings/graphql/` (`relatude.settings/<short name>/graphql/` for a database with
-a short name) — deployed, and kept in source control, with the application. THIS SERVER is `overrides/graphql/`
-on the database's `IoDatabase` storage provider, `relatude.data/overrides/graphql/` with the defaults:
-an endpoint created or changed on the API page is saved there, and replaces the SHARED endpoint with
-the same id; deleting a SHARED endpoint writes a marker on THIS SERVER that takes it away on this
-installation. Every `.json` file in either folder is an endpoint, so you can also write a definition by
-hand or copy it from another database. **Move to shared** on the API page lists what THIS SERVER holds and moves it into
-SHARED, or discards it; each endpoint in the list is tagged *shared* or *this server*. **Reload from disk**
-reads both folders again. A file without an `id` gets one derived from its file name, the same in
-either folder.
-A file that cannot be read as a definition stays in the list, marked with what is wrong with it.
-The reader is lenient: comments and trailing commas are allowed, property names can be in any case,
-and enum values are written by name.
+An endpoint is a JSON file, `<name>.json`, kept in one of two places like the other definitions
+the admin UI edits ([§12.2](#122-what-goes-where-source-control-deployment-and-appsettings)):
+
+- **SHARED**: `relatude.settings/graphql/`, or `relatude.settings/<ShortName>/graphql/` for a
+  database with a short name. Commit it and deploy it with the application.
+- **THIS SERVER**: `overrides/graphql/` on the database's storage, which is
+  `relatude.data/overrides/graphql/` by default. The API page saves here, and an endpoint here
+  replaces the SHARED one with the same id.
+
+**Move to shared** on the API page moves endpoints into SHARED. Every `.json` file in either folder
+is an endpoint, so you can also write one by hand and choose **Reload from disk**. Comments and
+trailing commas are allowed, and enum values are written by name.
 
 ```json
 {
@@ -6136,44 +5564,48 @@ and enum values are written by name.
 }
 ```
 
-Types and properties are referenced by their **datamodel ids**, not their names, so renaming a
-property in the model does not break the endpoint. A field that is named in the definition keeps
-that name; a field whose name is derived follows the rename. The Types view of the editor fills
-in the ids, so a file is usually easiest to start there.
+Types and properties are referenced by their **datamodel ids**, so renaming a property in the
+model does not break the endpoint, except that a field without a name of its own follows the
+rename. The **Types** view fills in the ids, so start a file there.
 
 | Field | Default | What it does |
 |---|---|---|
 | `id` | from the file name | Identifies the endpoint. |
 | `name`, `description` | | Shown in the admin UI, the explorer and the generated code. The file is named after `name`. |
 | `url` | `/graphql` | The path the endpoint answers on. Case and a trailing slash do not matter. |
-| `enabled` | `true` | When `false`, the url is not answered and the request passes on to the application. |
-| `mode` | `Selected` | `Selected` exposes only what `types` lists. `WholeDatamodel` exposes every node type and property and follows the datamodel as it changes; `types` is then ignored. |
-| `exactNames` | `false` | Use the datamodel's names verbatim instead of GraphQL-style names ([§33.3](#333-the-schema)). |
+| `enabled` | `true` | When `false`, the url is not answered and requests pass on to the application. |
+| `mode` | `Selected` | `Selected` exposes what `types` lists. `WholeDatamodel` exposes every node type and property, and follows the datamodel as it changes. |
+| `exactNames` | `false` | Use the datamodel's names as they are, not GraphQL-style names ([§33.3](#333-the-schema)). |
 | `allowMutations` | `false` | Adds create, update and delete fields ([§33.6](#336-mutations)). |
-| `enableIntrospection` | `true` | Answers `__schema` and `__type`, serves the schema as text on `?sdl`, and gives the explorer its data. When off, clients cannot read the schema, but queries still work. |
-| `enableGetRequests` | `true` | Accepts `GET ?query=` requests. POST requests are always accepted. |
+| `enableIntrospection` | `true` | Serves the schema: `__schema`, `__type`, `?sdl` and the explorer's data. Queries work either way. |
+| `enableGetRequests` | `true` | Accepts `GET ?query=` requests. POST is always accepted. |
 | `enableExplorer` | `false` | Serves the explorer page on the url ([§33.8](#338-the-explorer-and-the-facet-page)). |
-| `enableFacetSearch` | `false` | Serves the facet search and its visual pivot page on the url ([§33.8](#338-the-explorer-and-the-facet-page)). |
+| `enableFacetSearch` | `false` | Serves the facet search and its pivot page on the url ([§33.8](#338-the-explorer-and-the-facet-page)). |
 | `maxFacetCards` | 200,000 | The most nodes the facet page draws. |
-| `defaultNodeTypeId` | none | The type the explorer and the facet page open on. Without it they choose one themselves. |
-| `includeSystemTypes` | `false` | In whole-datamodel mode only: also expose the built-in users, groups, collections and cultures. |
-| `apiKeys[]` | none | With any keys, every request must carry one that has not expired ([§33.7](#337-over-http)). Each key has a `name`, the `key` itself and `expires`, the moment it stops working in UTC. Leave out `expires` for a key that never expires. A date without a time, such as `"2027-10-07"`, means 00:00 UTC on that day. A file from an earlier version with a single `apiKey` is read as one key named *API key* that never expires, and is written back as `apiKeys`. |
-| `maxQueryDepth` | 16 | How deeply a query's selection may nest, fragments included. |
+| `defaultNodeTypeId` | none | The type the explorer and the facet page open on. |
+| `includeSystemTypes` | `false` | Whole-datamodel mode only: also expose the built-in users, groups, collections and cultures. |
+| `apiKeys[]` | none | With any keys, every request needs one that has not expired ([§33.7](#337-over-http)). Each has a `name`, the `key` and `expires`, in UTC. |
+| `maxQueryDepth` | 16 | How deeply a selection may nest, fragments included. |
 | `maxIncludeDepth` | 8 | How many relations deep a selection may follow. |
-| `defaultPageSize`, `maxPageSize` | 25, 200 | The page size used when a query asks for none, and the largest page size allowed. A larger `pageSize` is cut down to the maximum, not refused. |
-| `types[]` | | Selected mode only. Each entry has `nodeTypeId`; `name`, the GraphQL type name; `singleName` and `listName`, the two root field names; `readOnly`; and `properties`. `null` exposes every property of the type; a list exposes only those properties, each with a `propertyId` and an optional field `name`. |
+| `defaultPageSize`, `maxPageSize` | 25, 200 | The page size when a query gives none, and the largest allowed. A larger `pageSize` is cut down, not refused. |
+| `types[]` | | Selected mode only. Each entry has `nodeTypeId`, and optionally `name` (the GraphQL type name), `singleName` and `listName` (the root field names), `readOnly` and `properties`. |
 | `views[]` | | Each view has `name`, `query` and `description` ([§33.5](#335-views)). |
+
+In `types[]`, `"properties": null` exposes every property of the type, and a list exposes only the
+properties it names, each with a `propertyId` and an optional field `name`. In `apiKeys[]`, leave
+out `expires` for a key that never expires.
 
 ### 33.3 The schema
 
-Every exposed node type gets a GraphQL type, plus two root fields on `Query`:
+Every exposed node type gets a GraphQL type and two root fields on `Query`:
 
-- one that fetches a single node by its id, for example `event(id: ID!)`;
-- one that returns a page of nodes, for example `events(filter, search, orderBy, descending, page, pageSize, ids)`.
+- one that fetches a node by id, such as `event(id: ID!)`;
+- one that returns a page of nodes, such as
+  `events(filter, search, orderBy, descending, page, pageSize, ids)`.
 
-Every node type also has four system fields, from the `Node` interface that all node types
-implement: `id` (the node's public `Guid`), `displayName`, `createdUtc` and `changedUtc`. Here is
-the schema of the endpoint above, trimmed:
+Every node type implements the `Node` interface and its four system fields: `id` (the node's
+`Guid`), `displayName`, `createdUtc` and `changedUtc`. Here is the schema of the endpoint above,
+trimmed:
 
 ```text
 type Query {
@@ -6232,37 +5664,34 @@ input EventFilterInput {
 }
 ```
 
-**Names.** By default the names follow GraphQL conventions. Types keep their datamodel name, and
-fields and root fields are camelCase, with the list field in the plural: type `Article`, field
-`title`, root fields `article` and `articles`, mutation `createArticle`. With `exactNames` on, names
-are copied verbatim: field `Title`, root fields `Article` and `Articles`, mutation `CreateArticle`.
-A system field keeps its name in both modes. A property whose derived name collides with a system
-field gets `Value` added, so a property called `DisplayName` becomes `displayNameValue`.
+**Names.** By default, names follow GraphQL conventions. With `exactNames`, the datamodel's names
+are used as they are:
 
-When a name is already taken, the next free one is used: `_2` is added to the name, and the schema
-builder warns. Names are claimed in a fixed order, so the same model always gives the same schema.
+| | Default | With `exactNames` |
+|---|---|---|
+| Type | `Article` | `Article` |
+| Field | `title` | `Title` |
+| Root fields | `article`, `articles` | `Article`, `Articles` |
+| Mutations | `createArticle`, … | `CreateArticle`, … |
 
-An inherited property keeps the field name of the base type that exposes it, because the base
-type's GraphQL interface is a contract its subtypes must keep. If a subtype renames that field, the
-rename is ignored with a warning.
+- System fields keep their names. A property that would clash with one gets `Value` added:
+  `DisplayName` becomes `displayNameValue`.
+- A name that is taken gets `_2` added, with a warning.
+- An inherited property keeps the field name its base type gives it. A different name set on the
+  subtype is ignored, with a warning.
 
-> **Interface-first models get unusual names unless you rename.** This manual's model is made of
-> interfaces (`IEvent`, `IVenue`, …), and in whole-datamodel mode they show up as such: the GraphQL
-> interface `IEvent` and the root fields `iEvent` and `iEvents`. In the *Selected* mode, name the type
+> **Name your interface types.** In whole-datamodel mode, an interface such as `IEvent` keeps its
+> name, so its root fields are `iEvent` and `iEvents`. In the *Selected* mode, name the type
 > `Event`, as the file above does, to get `event`, `events` and `createEvent`.
 
-**Interfaces and the types of nodes.** A datamodel interface becomes a GraphQL interface. GraphQL
-does not allow a value whose type is an interface, but a node created as an interface
-(`db.Create<IEvent>()`) has exactly that type. So each exposed interface also gets an object type
-for its nodes. The object type drops a leading `I` from the name (`IEvent` gives `Event`) or, when
-it cannot, adds `Node` (`Event` gives `EventNode`), as in the schema above. Queries normally use the
-interface name; `__typename` returns the object type.
+**Interfaces.** A datamodel interface becomes a GraphQL interface, plus an object type for the nodes
+created as that interface (`db.Create<IEvent>()`), since GraphQL values cannot have an interface
+type. The object type drops the leading `I` (`IEvent` gives `Event`), or adds `Node` when it cannot
+(`Event` gives `EventNode`). Queries use the interface name; `__typename` returns the object type.
 
-A class with exposed subclasses gets an interface as well, named `<Class>Interface`, so that a field
-of the class's type can return the subclasses' nodes. Use `... on Subclass { }` in a query to read
-the fields only a subclass has. A node of a subtype the endpoint does not expose is shown as its
-nearest exposed ancestor. A query for `events` therefore never returns `null` items just because
-some events are of a type the endpoint leaves out.
+A class with exposed subclasses also gets an interface, `<Class>Interface`, so a field of the
+class's type can return subclass nodes. Read a subclass's own fields with `... on Subclass { }`. A
+node of a type the endpoint does not expose is shown as its nearest exposed ancestor.
 
 **How properties map:**
 
@@ -6276,7 +5705,7 @@ some events are of a type the endpoint leaves out.
 | `decimal` | `Decimal!` | as `int` | yes | `Decimal` |
 | `string` | `String` | `eq` `ne` `in` `nin` | yes | `String` |
 | `DateTime`, `DateTimeOffset` | `DateTime!`, an ISO-8601 UTC string | `eq` `ne` `gt` `gte` `lt` `lte` | yes | `DateTime` |
-| `TimeSpan` | `String!` | – | – | `String`, for example `"01:30:00"` |
+| `TimeSpan` | `String!` | – | – | `String`, such as `"01:30:00"` |
 | `Guid` | `ID!` | `eq` `ne` `in` `nin` | – | `ID` |
 | `string[]`, `Guid[]`, enum `[]` | `[String!]!`, `[ID!]!`, `[Enum!]!` | – | – | a list |
 | `GeoCoordinate` | `GeoCoordinate { latitude longitude }`, null when unset | – | – | `GeoCoordinateInput` |
@@ -6287,22 +5716,21 @@ some events are of a type the endpoint leaves out.
 | `References<T>` | `[T!]!` with a `top` argument | – | – | `[ID!]` |
 | `Embedded`, `EmbeddedMap`, `byte[]`, `float[]`, `object` | left out | | | |
 
-For a relation or reference to a type the endpoint does not expose, the field is left out, with a
-warning in *Selected* mode. The filter on that relation stays, since it only takes an id.
+A relation or reference to a type the endpoint does not expose is left out, with a warning in the
+*Selected* mode. Its filter stays, since it takes only an id.
 
 ### 33.4 Querying
 
-A list root field returns a result object: the nodes of the page in `items`, the number of matches
-before paging in `totalCount`, the page index and size actually used, and `durationMs`, the time the
-store spent on it. Its arguments are:
+A list root field returns a page: `items`, `totalCount` (the matches before paging), the
+`pageIndex` and `pageSize` used, and `durationMs`. Its arguments:
 
 | Argument | What it does |
 |---|---|
-| `filter` | Conditions on the type's fields. All given conditions must match; `and`, `or` and `not` combine them. |
-| `search` | Free-text search: the same matching as `WhereSearch` ([§21](#21-text-and-semantic-search)). It is a filter, so the result is not ordered by relevance. |
-| `orderBy`, `descending` | Order by one field; only orderable fields are in the enum. Without `orderBy` the nodes come in the store's order. |
-| `page`, `pageSize` | A zero-based page index, and the page size (`defaultPageSize` when not given, capped at `maxPageSize`). |
-| `ids` | Restricts the result to the given node ids. |
+| `filter` | Conditions on the type's fields. All must match; `and`, `or` and `not` combine them. |
+| `search` | Free-text search, matched as `WhereSearch` does ([§21](#21-text-and-semantic-search)). It filters, so the result is not ordered by relevance. |
+| `orderBy`, `descending` | Order by one field. Only orderable fields are in the enum. Without `orderBy`, nodes come in the store's order. |
+| `page`, `pageSize` | A zero-based page index, and the page size: `defaultPageSize` when not given, capped at `maxPageSize`. |
+| `ids` | Only the nodes with these ids. |
 
 ```graphql
 query Upcoming($from: DateTime!) {
@@ -6330,13 +5758,8 @@ query Upcoming($from: DateTime!) {
 }
 ```
 
-The filter is an object with one entry per field, each holding operators. Several operators on one
-field must all match, so `{ price: { gte: 100, lt: 300 } }` is a range. Write enum values by name.
-Relations and references are filtered by the related node's id, with `eq` or `in`.
-`{ venue: { id: { eq: "0b6e…" } } }` means the same as `{ venue: { eq: "0b6e…" } }`, for clients used
-to that form. Only the id can be filtered on: to filter on the venue's name, find the venue ids with
-a `venues` query first. On the "many" side, the condition means that one of the related nodes has
-that id:
+**Filters.** A filter has one entry per field, each holding operators. Several operators on one
+field must all match, so `{ price: { gte: 100, lt: 300 } }` is a range. Write enum values by name:
 
 ```graphql
 {
@@ -6346,13 +5769,14 @@ that id:
 }
 ```
 
-`in: []` matches nothing and `nin: []` excludes nothing. Strings are matched by equality only, so
-there are no `contains`, `startsWith` or case-insensitive operators. Use `search` to match text.
+- Relations and references are filtered by the related node's id only, with `eq` or `in`
+  (`{ venue: { id: { eq: "0b6e…" } } }` works too). To filter on a venue's name, get the venue ids
+  from a `venues` query first.
+- On a "many" relation, the condition matches when one of the related nodes has that id.
+- Strings match by equality only. Use `search` to match text.
 
-**Following relations.** Select a relation field to get the related nodes. The relations a
-selection follows are added to the root field's query as `Include` paths, so they are loaded with
-it rather than by one query per item. A "many" field returns all its related nodes unless `top`
-limits them:
+**Following relations.** A relation field returns the related nodes, loaded with the root field's
+query. A "many" field returns all of them unless `top` limits them:
 
 ```graphql
 {
@@ -6365,17 +5789,15 @@ limits them:
 }
 ```
 
-Nested lists cannot be filtered or ordered. A query that needs that should start from the other
-side, for example `events(filter: { venue: { eq: $venue } }, orderBy: starts)`.
+Nested lists cannot be filtered or ordered. Start from the other side instead, for example
+`events(filter: { venue: { eq: $venue } }, orderBy: starts)`.
 
-**Files.** A file property gives a `FileInfo`: the file's `name`, `size`, `contentType`, `width` and
-`height`, and `url`, where the file is served. That is the URL `db.GetUrl(file)` gives
-([§18.1](#181-asset-urls-files-variants-and-deeplinks)). With any of `width`, `height`, `crop`
-(`Fill`, `Fit`, `Stretch`, `Auto`), `format` (`Jpeg`, `Png`, `Webp`, `Avif`, `Gif`) or `quality`, the
-URL is for an image made from the file instead: resized, cropped or converted, and for a video a
-frame of it, as `db.GetUrl(file, new FileAdjustmentImage { … })` gives it. The query only makes the
-URL; the image is made the first time the URL is requested. With aliases, one query asks for several
-sizes. If `Venue` had a `[FileProperty] FileValue Photo`:
+**Files.** A file property gives a `FileInfo`: `name`, `size`, `contentType`, `width`, `height`,
+and the `url` that `db.GetUrl(file)` gives ([§18.1](#181-asset-urls-files-variants-and-deeplinks)).
+Give `url` a `width`, `height`, `crop` (`Fill`, `Fit`, `Stretch`, `Auto`), `format` (`Jpeg`,
+`Png`, `Webp`, `Avif`, `Gif`) or `quality`, and it points to an image made from the file, or from a
+frame of a video. The image is made when the URL is first requested. Aliases ask for several sizes.
+If `Venue` had a `[FileProperty] FileValue Photo`:
 
 ```graphql
 {
@@ -6392,40 +5814,30 @@ sizes. If `Venue` had a `[FileProperty] FileValue Photo`:
 }
 ```
 
-Files that are neither images nor videos ignore the image arguments and get the plain URL. Without
-`format`, the server picks the format as described in
-[Image variants adapt by default](#image-variants-adapt-by-default). URLs are relative unless the URL
-manager has been given a host (`PrimaryBaseAddress` or `BaseAddressAssets`). For clients on another
-origin, `url(absolute: true)` puts the scheme and host the request came in on in front of a relative
-URL. The endpoint only hands the URL out. Serving it is the web application's job, as for any asset
-URL ([§18](#18-urls-and-the-url-manager)).
+Other files ignore the image arguments. Without `format`, the server picks one
+([Image variants adapt by default](#image-variants-adapt-by-default)). URLs are relative unless the
+URL manager has a host (`PrimaryBaseAddress` or `BaseAddressAssets`). For clients on another
+origin, `url(absolute: true)` adds the scheme and host of the request. Serving the URL is the web
+application's job, as for any asset URL ([§18](#18-urls-and-the-url-manager)).
 
-**The rest of GraphQL** works as the specification says: variables (with defaults), aliases (which
-also let one query ask for the same list twice with different arguments), named and inline
-fragments, `@include` and `@skip`, `__typename`, several root fields in one request, and documents
-with several operations together with `operationName`. Subscriptions are not supported.
+**The rest of GraphQL** works as the specification says: variables with defaults, aliases,
+fragments, `@include` and `@skip`, `__typename`, several root fields in one request, and several
+operations in one document with `operationName`. Subscriptions are not supported.
 
-Errors follow the GraphQL convention. A request that cannot run at all is answered with `errors` and
-no `data`: a syntax error, an unknown field, a wrong variable, or a query deeper than the limits.
-For example:
+**Errors.** A request that cannot run at all gets `errors` and no `data`. That happens for a syntax
+error, an unknown field, a wrong variable, or a depth limit:
 
 ```json
 { "errors": [ { "message": "Field \"nope\" is not defined on type \"Event\".", "locations": [ { "line": 1, "column": 20 } ] } ] }
 ```
 
-A root field that fails while running, such as a malformed id or a rejected mutation, becomes `null`
-with an error that carries its `path`, and the other root fields of the request still answer. When
-an argument value is wrong, the error's location points at that part of the value, and an unknown
-field in an input object is answered with the fields that are valid there:
-
-```json
-{ "message": "Unknown field \"name\" on input type \"RelatedNodeFilterInput\". Valid fields: eq, in, id. A relation or reference filter takes the id of the related node: …" }
-```
+A root field that fails while running, such as one given a malformed id or a rejected mutation,
+becomes `null` with an error that carries its `path`. The other root fields still answer.
 
 ### 33.5 Views
 
 A view is a root field defined by a query. It returns the same result type as the type's list field
-and takes the same arguments, so a client can still filter, search, order and page within it. The
+and takes the same arguments, so clients can still filter, search, order and page within it. The
 view's own query is applied first:
 
 ```json
@@ -6441,17 +5853,17 @@ view's own query is applied first:
 
 The query is written in the text form of the query language ([§20](#20-filtering-with-where)). It
 starts with a type's code name, without its namespace, and uses the datamodel's property names, not
-the endpoint's renames. Enum values are written as their numbers. A view can only use methods that
-keep the result a set of nodes the endpoint can page:
+the endpoint's. Enum values are written as numbers. A view can use only methods that keep the
+result a set of nodes the endpoint can page:
 
 `Where`, `WhereSearch`, `WhereInIds`, `WhereIn`, `WhereTypes`, `Relates`, `RelatesNot`,
 `RelatesAny`, `OrderBy`, `WhereCulture`, `WhereCultureFallback`, `WhereHidden` and `Traverse`.
 
 `Page`, `Include`, `Select` and `Count` are not allowed, because the endpoint adds paging and
-includes itself. The editor checks each view when it is saved. The view's type must be exposed by
-the endpoint, or the view is left out with a warning. A view is a fixed query, so it is the way to
-give clients a selection they cannot build themselves: an `or` across relations, a traversal, or
-a culture.
+includes itself. A view whose type the endpoint does not expose is left out, with a warning.
+
+Use a view to give clients a selection they cannot build with `filter`: an `or` across relations, a
+traversal, or a culture.
 
 ### 33.6 Mutations
 
@@ -6467,10 +5879,9 @@ type Mutation {
 input EventInput { price: Decimal  starts: DateTime  status: EventStatus  title: String  venue: ID }
 ```
 
-Types marked `readOnly` are left out, which is why there is no `createVenue` here. So are interfaces
-that a class implements, because their nodes are created as the classes. The input has the same
-field names as the output type, minus files and anything else from the last rows of the property
-table in [§33.3](#333-the-schema).
+Types marked `readOnly` get none, which is why there is no `createVenue` here, and neither do
+interfaces that a class implements. The input has the fields that the table in
+[§33.3](#333-the-schema) gives a mutation input, so no files.
 
 ```graphql
 mutation NewEvent($venue: ID!) {
@@ -6483,32 +5894,37 @@ mutation NewEvent($venue: ID!) {
 }
 ```
 
-- **create** inserts a node with a new id. A property the input does not set gets the type's default
-  value, as in the admin UI's editor. The new node is read back and returned, so the selection can
-  follow its relations.
-- **update** changes only the fields the input gives. `null` clears a field, which means it gets the
-  type's default value. A relation field replaces the whole set of related nodes, and `null` or `[]`
-  removes them all. If no node has the id, the result is `null` with an error.
+- **create** inserts a node with a new id. Properties the input leaves out get the type's default
+  values. The new node is read back, so the selection can follow its relations.
+- **update** changes only the fields the input gives. `null` sets a field back to its default
+  value. A "many" relation field replaces the whole set of related nodes, and `null` or `[]`
+  removes them all. An id that no node has gives `null` with an error.
 - **delete** returns `true`, or `false` when no node has the id.
 
-Relations and references take the related node's id. Relations are set, not added: giving an event
-a new venue moves it from its old one, and listing an event in a venue's `events` moves it there
-from wherever it was.
+```graphql
+mutation {
+  updateEvent(id: "7e51b1dd-…", input: { price: 300, status: SoldOut }) { title price status }
+  deleteEvent(id: "1459bd5a-…")
+}
+```
 
-Each mutation field is one transaction, and the fields of a request run in the order written. They
-run through the `NodeStore`, so the transaction plugins of [§15](#15-transactions) see them, and the
-datamodel's validation rules ([§3](#3-scalar-properties-and-their-attributes)) apply. A change that
-is rejected becomes an error on its field. There are no file uploads through GraphQL: upload files
-as described in [§17](#17-uploading-files) and keep the id.
+Relations and references take the related node's id. A relation is set, not added to: giving an
+event a new venue moves it from its old one.
 
-An endpoint that allows mutations without API keys lets anyone who can reach its url change
-data. The editor warns about this, and so should you.
+Each mutation field is one transaction, run in the order written. Mutations go through the
+`NodeStore`, so transaction plugins ([§15](#15-transactions)) see them; a code-first endpoint needs
+`TransactionExecutor` for that ([§33.9](#339-code-first-mapping-an-endpoint-in-programcs)). The
+datamodel's validation rules ([§3](#3-scalar-properties-and-their-attributes)) apply, and a
+rejected change becomes an error on its field. Files cannot be set through GraphQL: upload them as
+described in [§17](#17-uploading-files).
+
+An endpoint that allows mutations without API keys lets anyone who can reach its url change data.
 
 ### 33.7 Over HTTP
 
 | Request | Answer |
 |---|---|
-| `POST {url}` with `{"query", "operationName", "variables"}` as `application/json` | The result, as `application/graphql-response+json`. |
+| `POST {url}` with `{ "query", "operationName", "variables" }` as `application/json` | The result, as `application/graphql-response+json`. |
 | `POST {url}` with the query as the body, `Content-Type: application/graphql` | The same. |
 | `GET {url}?query=…&variables=…&operationName=…` | The same, when `enableGetRequests` is on. Otherwise `405`. |
 | `GET {url}?sdl` | The schema as SDL text, when introspection is on. Otherwise `403`. |
@@ -6518,20 +5934,17 @@ data. The editor warns about this, and so should you.
 The status codes are:
 
 - `200` when there is `data`, even if some fields failed;
-- `400` when the request produced no data at all (syntax, validation, variables) or the body is not valid JSON;
+- `400` when the request produced no data at all (syntax, validation, variables), or the body is
+  not valid JSON;
 - `401` when the API key is missing, wrong or expired;
 - `503` while the database is not open.
 
-Every answer carries `extensions.durationMs`, the time the request took on the server.
+Every result carries `extensions.durationMs`, the time the request took on the server.
 
-With `apiKeys`, every request must carry one of them, either in an `X-Api-Key` header or as
-`Authorization: Bearer <key>`. Any key that has not expired is accepted. A key that has expired is
-turned away with a `401` that says so. Expiry never opens an endpoint: when every key has expired,
-every request is turned away until a new key is added or the keys are removed. Give each client a
-key of its own, so that one can be replaced or retired without the others. To replace a key, add the
-new one, move the client over, then remove the old one or let it expire. The key is compared in
-constant time. The explorer and facet pages are themselves served without a key, because the page
-is where the key is typed in; everything the page then reads requires one.
+**API keys.** An endpoint with `apiKeys` needs one of them on every request, in an `X-Api-Key`
+header or as `Authorization: Bearer <key>`. An expired key gets a `401` that says so, and when
+every key has expired, every request is turned away. Give each client its own key. To replace one,
+add the new key, move the client over, then remove the key it replaces or let it expire.
 
 ```bash
 curl -s https://example.com/api/graphql -H "Content-Type: application/json" -H "X-Api-Key: $KEY" \
@@ -6547,60 +5960,47 @@ const response = await fetch("/api/graphql", {
 const { data, errors } = await response.json();
 ```
 
-The editor's **Code** view writes typed clients like this for you, in TypeScript and C#, from the
-endpoint's schema. A browser on another origin needs the application's own `UseCors`, called before
-`UseRelatudeDB`. The CORS middleware answers the browser's preflight request itself, so the
-endpoint never sees it.
+The editor's **Code** view writes typed clients like this for you, in TypeScript and C#.
+
+A browser on another origin needs the application's own `UseCors`, called before `UseRelatudeDB`.
+The CORS middleware answers the browser's preflight request itself, so the endpoint never sees it.
 
 ### 33.8 The explorer and the facet page
 
-Two switches put a page on the endpoint's url for a browser that opens it. When both are on, the
-page has a tab for each, and `?explorer` opens the explorer directly.
+Two switches put a page on the endpoint's url, for a browser that opens it. With both on, the page
+has a tab for each, and `?explorer` opens the explorer directly.
 
-**The explorer** (`enableExplorer`) is a page for building, running and reading about queries,
-similar to GraphiQL. It has:
+**The explorer** (`enableExplorer`) builds, runs and documents queries, much like GraphiQL. It has:
 
-- a tree of the schema to build a query by ticking fields, and documentation for every type and
-  field;
-- an editor with completion and validation that suggests the name you probably meant. **Ctrl+Enter**
-  runs the query and **Shift+Alt+F** formats it;
-- the result as JSON or as a table, with tabs and a history;
-- for any query, the code to run it in curl, PowerShell, JavaScript, TypeScript, C#, Python, Java
-  and Go, either the whole client or only the model or the connection code;
-- a guide of runnable examples, written with the endpoint's own names and, where possible, the ids
-  and values of real nodes: paging, one node by id, each kind of filter, enums, search, ordering,
-  relations and relation filters, files, positions, variables, aliases, fragments, directives,
-  several root fields, the views and the mutations.
+- a schema tree to build a query by ticking fields, and documentation for every type and field;
+- an editor with completion and validation, and results as JSON or as a table;
+- the code to run a query in curl, PowerShell, JavaScript, TypeScript, C#, Python, Java and Go;
+- a guide of runnable examples in the endpoint's own names.
 
-The explorer reads the schema through introspection, so it stays empty when introspection is off.
-If the endpoint has API keys, the page asks for one and keeps it for the browser session. The same
-explorer is the **Explorer** view in the admin UI's editor, where it runs against the draft.
+It reads the schema through introspection, so it stays empty when introspection is off. The page
+loads without an API key and asks for one, which it keeps for the browser session. The admin UI's
+**Explorer** view is the same explorer, run against the draft.
 
 **The facet page** (`enableFacetSearch`) is the admin UI's faceted search
-([§28](#28-faceted-search)) as a public page: a facet rail on one side and a visual pivot of the
-matching nodes in 3D, with a switch to 2D. Clicking a card opens the node, showing the properties
-the endpoint exposes. It only uses what the endpoint exposes. The types are the endpoint's types,
-in the definition's order, and the page opens on `defaultNodeTypeId`, or on the first type when
-that is not set. The facets are those
-the query engine offers for the type, limited to the exposed properties. A selection, grouping or
-sort on anything else is ignored. A facet on a reference or relation needs the target type to be
-exposed as well.
+([§28](#28-faceted-search)) as a public page: a facet rail beside a visual pivot of the matching
+nodes. It uses only what the endpoint exposes, its types and facets on their exposed properties,
+and opens on `defaultNodeTypeId` or the first type. A facet on a relation or reference needs the
+target type exposed too. It differs from the admin UI's faceted search in three ways:
 
-The facet page differs from the admin UI's query section in three ways:
+- it uses the datamodel's names, because the endpoint's renames apply only to its schema;
+- it matches text by words only, since a semantic search would make a paid AI call per keystroke
+  on a page anyone can open;
+- it draws at most `maxFacetCards` nodes, the first ones of a larger result.
 
-- it uses the datamodel's names, because the endpoint's renames only apply to its schema;
-- it matches text by words only. A semantic search embeds the text with the AI provider, which
-  would be a paid call per keystroke on a page anyone can open;
-- it draws at most `maxFacetCards` nodes (200,000 by default); a larger result shows its first ones.
-
-The facet page's requests are `?facets=<action>` on the same url, behind the same API key. They need
-a host that answers them. The Relatude.DB server does this for the endpoints of the API page; a
-code-first endpoint gets it from `RelatudeDBServer.GraphQL.FacetSearch` ([§33.9](#339-code-first-mapping-an-endpoint-in-programcs)).
+The page's requests go to `?facets=…` on the same url, behind the same API key. The server answers
+them for endpoints made on the API page; a code-first endpoint needs `FacetSearch`
+([§33.9](#339-code-first-mapping-an-endpoint-in-programcs)).
 
 ### 33.9 Code-first: mapping an endpoint in Program.cs
 
-`MapRelatudeDBGraphQL` maps one route that reflects the **whole datamodel** in GraphQL-style names,
-with its options set in code:
+`MapRelatudeDBGraphQL` maps one route that exposes the **whole datamodel** in GraphQL-style names,
+with its options set in code. An interface `IEvent` gives the root fields `iEvent` and `iEvents`
+([§33.3](#333-the-schema)).
 
 ```csharp
 using Relatude.DB.Datamodels;    // QueryContext
@@ -6609,11 +6009,13 @@ using Relatude.DB.NodeServer;
 
 app.UseRelatudeDB();
 app.MapRelatudeDBGraphQL("/graphql", o => {
-    // which store answers; the default resolves IDataStore from the request's services
+    // the store to answer from
     o.StoreResolver = _ => RelatudeDBRuntime.Database.Datastore;
-    // run mutations through the NodeStore, so transaction plugins see them
+    // read as an anonymous visitor, in the culture the request names
+    o.QueryContextFactory = http =>
+        QueryContext.Anonymous.Culture(http.Request.Query["culture"].FirstOrDefault());
+    // for mutations: run them through the NodeStore, so transaction plugins see them
     o.TransactionExecutor = (_, transaction, _) => RelatudeDBRuntime.Database.Execute(transaction);
-    o.QueryContextFactory = http => QueryContext.Default.Culture(http.Request.Query["culture"].FirstOrDefault());
     o.TypeFilter = type => type.CodeName != "IAttendee";   // keep a type out of the schema
     o.EnableExplorer = true;
     o.EnableFacetSearch = true;
@@ -6623,25 +6025,27 @@ app.MapRelatudeDBGraphQL("/graphql", o => {
 
 | Option | Default | What it does |
 |---|---|---|
-| `StoreResolver` | `IDataStore` from the request's services | The store to answer from. `AddRelatudeDB` does not register an `IDataStore`, so a Relatude.DB server app sets this, as above. While it returns `null` or throws (for example before the database is open), the route answers `503`. |
-| `QueryContextFactory` | none (the store's default context) | The query context per request: user, culture, unpublished or hidden nodes ([§29](#29-cultures-visibility-and-scoped-stores)). |
-| `TransactionExecutor` | `IDataStore.Execute` | Runs a mutation's transaction. The default goes straight to the data store and skips transaction plugins. |
+| `StoreResolver` | `IDataStore` from the request's services | The store to answer from. `AddRelatudeDB` registers no `IDataStore`, so set this, as above. While it returns `null` or throws, such as before the database opens, the route answers `503`. |
+| `QueryContextFactory` | the store's default context | The query context per request: user, culture, unpublished or hidden nodes ([§29](#29-cultures-visibility-and-scoped-stores)). Set it: the default for a database `UseRelatudeDB` opens is the master admin. |
+| `TransactionExecutor` | `IDataStore.Execute` | Runs a mutation's transaction. The default skips transaction plugins. |
 | `TypeFilter` | none | Return `false` to keep a node type out of the schema. |
+| `FacetSearch` | none | Answers the facet page's requests. |
 | `AllowMutations`, `EnableIntrospection`, `EnableGetRequests`, `EnableExplorer`, `EnableFacetSearch`, `MaxFacetCards`, `IncludeSystemTypes`, `MaxQueryDepth`, `MaxIncludeDepth`, `DefaultPageSize`, `MaxPageSize` | as in [§33.2](#332-the-definition-file) | The same settings as the definition file. |
-| `FacetSearch` | none | What answers the facet page's requests. |
 
-The schema is built once per store and built again when the store is replaced, for example by a
-soft restart.
+An endpoint mapped this way has no API keys. Protect its path with the application's own
+middleware or a reverse proxy. The route builds its schema on the first request, and again when the
+store is replaced, for example by a soft restart.
 
-The library can also be used without HTTP. `RelatudeGraphQL` takes a data store and an options object
-or a definition:
+**Without HTTP.** `RelatudeGraphQL` runs requests from your own code. It takes a data store and
+options, or a definition:
 
 ```csharp
 var gql = new RelatudeGraphQL(db.Datastore, new GraphQLOptions { AllowMutations = true });
-GraphQLResult result = gql.Execute(new GraphQLRequest { Query = "{ iEvents { totalCount } }" });
+var request = new GraphQLRequest { Query = "{ iEvents { totalCount } }" };
+GraphQLResult result = gql.Execute(request, QueryContext.Anonymous);   // the context is optional
 string json = result.ToJson();
 string sdl = gql.ToSDL();
-IReadOnlyList<string> warnings = gql.Warnings;   // what the schema builder left out or renamed
+IReadOnlyList<string> warnings = gql.Warnings;   // what the schema left out or named otherwise
 ```
 
 An instance is immutable and safe to share. Its schema is the one the datamodel had when it was
@@ -6649,19 +6053,22 @@ built.
 
 ### 33.10 Who reads, and the limits
 
-**Who reads.** An endpoint defined in the admin UI queries in the database's default query context:
-no user, and no unpublished or hidden nodes. It sees what anyone may see. A code-first endpoint
-reads in the context its `QueryContextFactory` returns for the request. Either way, the endpoint
-shows a subset of the datamodel, never more than its context can read, and the facet page reads in
-the same context.
+**Who reads.** Every query runs in a query context
+([§29](#29-cultures-visibility-and-scoped-stores)), and an endpoint, its facet page included, shows
+only what that context can read.
+
+- A code-first endpoint reads in the context its `QueryContextFactory` returns, such as
+  `QueryContext.Anonymous` for what anyone may see.
+- An endpoint made in the admin UI, and a code-first endpoint without a `QueryContextFactory`, read
+  in the store's default context. For a database that `UseRelatudeDB` opens, that is the master
+  admin: every published node that is not hidden, whatever its read access.
 
 **Keeping it closed.** The switches that matter:
 
-- `apiKeys` keeps out every request without a key that has not expired, including the facet page's data.
-- With `enableIntrospection` off, the schema is not served: `__schema` and `__type` fail, `?sdl`
-  answers `403`, and the explorer stays empty. Clients that already know the queries are unaffected.
-- With `enableGetRequests` off, queries are only accepted as POST requests, so a query cannot be put
-  in a link.
+- `apiKeys` turns away every request without a valid key, the facet page's data included.
+- With `enableIntrospection` off, the schema is not served (`__schema`, `__type`, `?sdl` and the
+  explorer). Queries themselves are not affected.
+- With `enableGetRequests` off, a query cannot be put in a link.
 - Leave `allowMutations` off unless the endpoint has a key, and mark types that clients must not
   change as `readOnly`.
 
@@ -6671,329 +6078,319 @@ the same context.
 - `maxIncludeDepth` caps how many relations deep it goes;
 - `maxPageSize` caps the page size.
 
-A request over a depth limit is refused as a whole, with an error and no data. A page size over
-the maximum is cut down to it. A "many" relation field without `top` returns all its related nodes, so a model
-where one node has thousands of partners is better served by querying from the other side, or by a
-view.
+A request over a depth limit is refused as a whole, with an error and no data. A page size over the
+maximum is cut down to it. A "many" relation field without `top` returns all its related nodes, so
+where one node has thousands of related nodes, query from the other side or use a view.
 
 ---
 
 ## 34. AI services
 
-The store reaches four kinds of AI through `db.Services`, each through a provider configured for the
-database, so application code calls the account the installation already has rather than holding a
-vendor account of its own:
+`db.Services` gives your code four AI services. Each goes through a provider configured for the
+database, so your code uses the installation's account and needs no vendor keys of its own.
 
-| | Reached through | What it does | Configured by |
+| Service | Reached through | What it does | Settings |
 |---|---|---|---|
-| **Text** | `db.Services.AI` | Embeddings - which semantic search ([§21](#21-text-and-semantic-search)) uses by itself - and completions | `AISettings` ([§12.1](#aisettings--embeddings-completions-and-the-vector-index)) |
-| **Images** | `db.Services.Imaging` | Create images, change them, describe them, turn them upright, answer questions about them | `ImagingSettings` |
-| **Files to text** | `db.Services.FileToText` | The text of documents, spreadsheets, PDFs, e-mails and pictures, the last read by OCR | `FileToTextSettings` |
-| **Translation** | `db.Services.Translation` | Texts translated, and the languages they are in found, many in one call | `TranslationSettings` |
+| **Text** | `db.Services.AI` | Embeddings and completions. Semantic search ([§21](#21-text-and-semantic-search)) uses the embeddings by itself | `AISettings` ([§12.1](#aisettings--embeddings-completions-and-the-vector-index)) |
+| **Images** | `db.Services.Imaging` | Creates and changes images, describes them and answers questions about them | `ImagingSettings` |
+| **Files to text** | `db.Services.FileToText` | The text of documents, PDFs, e-mails and pictures (by OCR), and transcripts of recordings | `FileToTextSettings` |
+| **Translation** | `db.Services.Translation` | Translates texts and detects their language | `TranslationSettings` |
 
-On a server, images, files to text and translation are always there: with no settings they call the
-hosted Relatude Imaging, FileToText and Translation services, and each call is charged to the
-installation's own license, to its `ai_image`, `filetotext` and `translation` credit accounts. Text needs `AISettings`; with `TypeName`
-`RelatudeServices` it calls the hosted Relatude AI service the same way, charged to `ai_embeddings` and
-`ai_completion`, and with another type it calls your own OpenAI, Azure or Anthropic account. A license
-without the credit account a call is charged to is refused before anything is charged.
+On a server, images, files to text and translation work without any settings. They call the hosted
+Relatude services and charge each call to the installation's license, which needs an API key
+([§35.4](#354-connecting-an-installation)). Text needs `AISettings`, either for the hosted service
+or for your own OpenAI, Azure OpenAI or Anthropic account
+([§34.1](#341-text-embeddings-and-completions)). Each service is an interface, so you can swap the
+hosted service for a provider of your own ([§35.2](#352-a-provider-of-your-own)) without changing
+the code that calls it.
 
-None of the four needs Relatude Services. Each is an interface you can implement against a vendor of
-your own; [§35](#35-relatude-services) has the account, what it is for, and how to replace it.
+`ImagingSettings`, `FileToTextSettings` and `TranslationSettings` share four keys. On a server you
+usually set none of them:
 
-`ImagingSettings`, `FileToTextSettings` and `TranslationSettings` take four keys: `TypeName` (empty or
-`RelatudeServices` for the hosted service, otherwise the assembly-qualified name of your own
-`IImagingProvider`, `IFileToTextProvider` or `ITranslationProvider`), `ServiceUrl` (empty for the hosted
-service; set it for a self-hosted one), `ApiKey` (only where there is no license key: a store built from
-code, or your own provider) and `CacheType`, where the answers are kept on the server
-([§34.5](#345-prices-answers-kept-and-errors)): `Native` (the default), `Memory` or `None`.
+| Key | What it does |
+|---|---|
+| `TypeName` | Empty or `RelatudeServices` for the hosted service, otherwise your own provider's type |
+| `ServiceUrl` | Set it only for a self-hosted service |
+| `ApiKey` | Only where there is no license key: a store built from code, or your own provider |
+| `CacheType` | Where answers are kept on the server: `Native` (the default), `Memory` or `None` ([§34.5](#345-prices-answers-kept-and-errors)) |
 
-The **Relatude Services** page of the admin UI has a test panel for text, images and files to text, which
-makes real calls with the installation's key - so they are charged - and shows the answers: every imaging operation with the
-image before and after, a file's text, a completion and an embedding. A store built from code, without
-a server, is given its providers in the constructor:
+`db.Services.HasAI`, `HasImaging`, `HasFileToText`, `HasTranslation`, `HasIPLookup` and `HasSMS` tell
+you whether a service is there; `db.Services.AI` and the others throw when it is not. A store built
+from code, without a server, is given its providers in the `NodeStore` constructor:
 `new NodeStore(datastore, imaging: new RelatudeServicesImagingProvider(settings))`.
-`db.Services.HasImaging`, `HasFileToText`, `HasTranslation`, `HasAI` and `HasSMS` say whether there is
-one; `db.Services.Imaging` and the others throw when there is not.
 
 ### 34.1 Text: embeddings and completions
 
 ```csharp
-// a completion with the configured model, or with one of CompletionModelsByKey
+// a completion with the configured model, or with a model from CompletionModelsByKey
 string summary = await db.Services.AI.GetCompletionAsync("Summarise in one sentence: " + article.Body);
 string careful = await db.Services.AI.GetCompletionAsync(prompt, modelKey: "strong");
 
-// vectors, one per paragraph, in order; ones computed before come from the embedding cache
+// one vector per paragraph, in order
 List<float[]> vectors = await db.Services.AI.GetEmbeddingsAsync(["first paragraph", "second paragraph"]);
 ```
 
-Semantic search calls the embeddings itself as nodes are indexed and as queries are run, so most
-applications never call `GetEmbeddingsAsync`. With `RelatudeServices` the model names are the service's
-own keys, not vendor deployments: `embedding-small` and `embedding-large` for embeddings, `fast` and
-`balanced` for completions, and `CompletionModelsByKey` maps your keys onto them, such as
-`{ "strong": "balanced" }`. Left empty, the service picks its default. The service charges by the
-characters sent and received, so a caller can work out a price before calling.
+To use the hosted Relatude AI service, set `AISettings` for the database
+([§12.1](#aisettings--embeddings-completions-and-the-vector-index) lists every key and provider):
+
+```jsonc
+"AISettings": {
+  "TypeName": "RelatudeServices",
+  "CompletionModel": "fast",
+  "CompletionModelsByKey": { "strong": "balanced" }
+}
+```
+
+- **Model names.** The hosted service has its own model keys: `embedding-small` and
+  `embedding-large` for `EmbeddingModel`, `fast` and `balanced` for `CompletionModel`. Leave them
+  empty for the service's default. `CompletionModelsByKey` maps your own keys onto them.
+- **Semantic search** computes embeddings by itself, so most applications never call
+  `GetEmbeddingsAsync`.
+- **Embeddings are cached** on the server by text and model (`AISettings.CacheType`), so each text
+  is paid for once. Completions are not cached.
 
 ### 34.2 Images
 
-Every image operation takes the image as its bytes - PNG, JPEG or WebP - and gives back a PNG, or
-what the image shows. A stored file goes in and comes back like this:
+Images go in as bytes (PNG, JPEG or WebP) and come back as PNG:
 
 ```csharp
-var photo = await db.FileDownloadAsync(venue, v => v.Photo);
+byte[] photo = await db.FileDownloadAsync(venue, v => v.Photo);
 
+// what the image shows, in Norwegian
+var meta = await db.Services.Imaging.ImageToMetaAsync(photo, "nb");
+string title = meta.Title;              // "Fullsatt konsertsal"
+string[] keywords = meta.Keywords;      // ["konsert", "publikum", "scene", ...]
+
+// change the image and store the result
 var cutout = await db.Services.Imaging.RemoveBackgroundAsync(photo);
-var larger = await db.Services.Imaging.UpscaleAsync(cutout.Png, 2);   // the cutout is named, not sent again
+var larger = await db.Services.Imaging.UpscaleAsync(cutout.Png, 2);
 await db.FileUploadAsync(venue, v => v.Photo, larger.Png, "venue.png");
 ```
 
-| Method | What it gives |
+| Method | What it returns |
 |---|---|
-| `CreateImageAsync(description, inspiration?, width?, height?, transparent?)` | A new image from a description, perhaps in the look of some images. Both sizes or neither; `transparent` asks for the subject on transparency, as for a logo |
-| `ManipulateImageAsync(image, instruction, references?, mask?)` | The image changed as the instruction says - "make it winter" - at its own size; with a mask, only where the mask is white |
-| `RemoveBackgroundAsync(image)` | The subject on transparency |
-| `UpscaleAsync(image, factor)` | The image 2 or 4 times larger each way, with detail rather than blur |
-| `RemoveObjectAsync(image, mask)` | The image without what the mask covers, filled in as if it had never been there |
-| `ExpandImageAsync(image, margins, hint?)` | The image on a larger canvas, the new space filled to match; `hint` says what it should show |
-| `ShrinkImageAsync(image, margins)` | The image on a smaller canvas, with the people and the subject kept whole |
-| `RotateIfNeededAsync(image)` | The image turned the right way up when it is upside down or on its side ([below](#turning-an-image-the-right-way-up)) |
-| `ImageToMetaAsync(image, language?)` | What it shows: a title, a description and keywords in the language asked for, the point it is about, and the things in it with a box round each |
-| `AskAboutImageAsync(image, question)` | The answer to a question about it, in words ([below](#asking-about-an-image)) |
-| `AskAboutImageBoolAsync(image, question)` | Yes or no to a question about it, and how sure, 0 to 100 |
-| `GetOperationsAsync()` | Which operations the service offers, what a call costs and how large a file may be. Free, and needs no license |
+| `CreateImageAsync(description, inspiration?, width?, height?, transparent?)` | A new image from a description, optionally in the style of other images |
+| `ManipulateImageAsync(image, instruction, references?, mask?)` | The image changed as instructed ("make it winter"); with a mask, only where it is white |
+| `RemoveBackgroundAsync(image)` | The subject on a transparent background |
+| `UpscaleAsync(image, factor)` | The image 2 or 4 times larger each way, with added detail |
+| `RemoveObjectAsync(image, mask)` | The image without what the mask covers, filled in to match |
+| `ExpandImageAsync(image, margins, hint?)` | The image on a larger canvas, with the new space filled in |
+| `ShrinkImageAsync(image, margins)` | The image on a smaller canvas, with the subject kept whole |
+| `RotateIfNeededAsync(image)` | The image turned upright if it is upside down or on its side ([below](#turning-an-image-the-right-way-up)) |
+| `ImageToMetaAsync(image, language?)` | A title, a description and keywords, a focus point, and the objects in the image |
+| `AskAboutImageAsync(image, question)` | An answer in words ([below](#asking-about-an-image)) |
+| `AskAboutImageBoolAsync(image, question)` | Yes or no, with a certainty from 0 to 100 |
+| `GetOperationsAsync()` | The operations offered, their price and the largest file allowed. Free |
 
-An image answer is an `ImagingImage`: the `Png`, its `Width` and `Height`, its `Sha256`, and what the
-call cost (`Credits`), what is left (`CreditsLeft`) and whether it was given from before (`Cached`).
+An image answer is an `ImagingImage`: the `Png`, its `Width`, `Height` and `Sha256`, and the price
+fields of [§34.5](#345-prices-answers-kept-and-errors).
 
-- **Sizes** are the image as it is shown: a JPEG whose Exif orientation turns it is taken turned, and
-  so is its answer.
-- **A mask** is an image the size of the image it goes with: white, or opaque, where the change is to
-  be made, and black, or transparent, where the image is to stay as it is.
-- **Margins** are pixels on each side: `new ImageMargins(Top: 100, Left: 50)`, or `ImageMargins.All(64)`.
-- **Passing an answer on is free of uploads.** The service keeps every image it is sent and every image
-  it makes, named by its SHA-256, so the cutout above is upscaled without being sent back. An image is
-  sent once, however many calls use it.
-- **Text in an image** is read by `db.Services.FileToText`, not by `ImageToMetaAsync`, which describes what
-  the image shows and leaves the words out.
-
-#### Describing an image
-
-```csharp
-var meta = await db.Services.Imaging.ImageToMetaAsync(photo, "nb");
-string title = meta.Title;                // "Fullsatt konsertsal"
-string[] keywords = meta.Keywords;        // ["konsert", "publikum", "scene", ...]
-if (meta.Focus is { } focus) { /* the point to crop around, in pixels of the image */ }
-foreach (var thing in meta.Objects) { /* thing.ObjectType, thing.Name, thing.Confidence, thing.X ... */ }
-```
-
-`Focus` is the centre of the most prominent face or head when there is a person or an animal in the
-image, which is the point to keep when an image is cropped to another shape. `Focus` and `Objects`
-are optional: not every provider finds them.
+- **A mask** has the image's size. White or opaque marks what to change; black or transparent marks
+  what to keep.
+- **Margins** are pixels per side: `new ImageMargins(Top: 100, Left: 50)` or `ImageMargins.All(64)`.
+- **`Focus`** is the point to keep when you crop the image, such as the main face. Not every
+  provider finds it, so `Focus` can be null and `Objects` empty.
+- **Chained calls upload nothing again.** The service keeps each image it receives or makes, by its
+  SHA-256, so passing `cutout.Png` on sends only its hash.
+- **Text in an image** is read by `db.Services.FileToText`. `ImageToMetaAsync` leaves the words out.
 
 #### Turning an image the right way up
 
 ```csharp
 var turn = await db.Services.Imaging.RotateIfNeededAsync(photo);
 if (turn.Rotated) await db.FileUploadAsync(venue, v => v.Photo, turn.Image!.Png, "photo.png");
-// turn.Rotation: how far it was turned clockwise - 0, 90, 180 or 270
 ```
 
-What the image shows is looked at - people standing up, the sky at the top, text the right way - so a
-photo taken with the camera turned, or scanned upside down, stands upright again. When it is upright
-already, or which way is up cannot be told - a pattern, a view from straight above - it is left as it
-is: `Rotation` is 0 and `Image` null, and nothing comes back but the answer. Either way the call costs
-the same, since the image was looked at. A quarter turn swaps the width and the height. This is not
-the same as Exif orientation, which the service already applies: it is for images whose pixels are
-the wrong way round.
+The service looks at what the image shows (people standing, sky at the top, text the right way) and
+turns it clockwise by `Rotation`: 90, 180 or 270 degrees. When the image is upright already, or up
+cannot be told, `Rotation` is 0 and `Image` is null. The call costs the same either way. Exif
+orientation is applied already; this is for images whose pixels are the wrong way round.
 
 #### Asking about an image
 
 ```csharp
-var answer = await db.Services.Imaging.AskAboutImageAsync(photo, "Hva står det på skiltet over døra?");
-Console.WriteLine(answer.Answer);   // in the language the question was asked in
+var sign = await db.Services.Imaging.AskAboutImageAsync(photo, "Hva står det på skiltet over døra?");
+Console.WriteLine(sign.Answer);   // in the language of the question
 
 var dog = await db.Services.Imaging.AskAboutImageBoolAsync(photo, "Is there a dog in the picture?");
 bool surelyADog = dog.Answer && dog.Certainty >= 80;
 ```
 
-`AskAboutImageAsync` answers in words, briefly, and says so when the image does not show what was
-asked rather than guess. `AskAboutImageBoolAsync` answers `true` for yes and `false` for no, with
-`Certainty` from 0 - a guess, the image saying nothing either way - to 100, the image plainly showing
-it. So a `false` at 20 says little, while a `false` at 95 says the image shows it is not so: decide on
-both. A question is words someone wrote, so its answer is kept for your license alone, never given to
-another that asks the same.
+`AskAboutImageAsync` answers briefly, and says so when the image does not show what you asked about.
+`AskAboutImageBoolAsync` gives `Answer` and `Certainty`, from 0 (a guess) to 100 (plainly shown).
+Decide on both: a `false` at 20 says little, while a `false` at 95 means the image shows it is not so.
 
 ### 34.3 Files to text
 
 ```csharp
-var bytes = await db.FileDownloadAsync(contract, c => c.Document);
+byte[] bytes = await db.FileDownloadAsync(contract, c => c.Document);
 var result = await db.Services.FileToText.ExtractTextAsync(bytes, "contract.pdf", ["nb", "en"]);
 string text = result.Text;
 ```
 
-A file is judged by what it holds, not by its name: a PDF called `notes.txt` is read as a PDF. The
-languages, most likely first, help OCR. The answer, a `FileToTextResult`, has the `Text` - lines ending
-in `\n`, pages separated by a form feed, and `PageTexts` split at them - the `Format` it was taken to
-be, `Pages`, `Characters`, whether it was `Truncated` at a limit and whether any of it was read from
-pictures (`Ocr`), and the `Title`, `Author` and `Language` the file gives itself. A kind of file
-nothing reads is refused with a 415 before anything is charged; `GetFormatsAsync()` lists the kinds
-the service knows, and which it reads. A stream works as well as bytes.
+The file type is found from the content, not the name. The languages, most likely first, help OCR.
+You can pass a stream instead of bytes. In the `FileToTextResult`, `Text` has lines ending in `\n`
+and pages separated by a form feed (`PageTexts` splits them). `Truncated` says the text was cut at a
+limit, and `Ocr` that some of it was read from pictures. `Title`, `Author` and `Language` are what the
+file says about itself.
 
-**Recordings and videos** are transcribed. Their `Text` has a line for each stretch of speech, which
-begins with when it is spoken, and `Timed` is true. `Duration` is how long the recording plays, in
-seconds:
+A file type nothing can read is refused with a 415 before anything is charged. `GetFormatsAsync()`
+lists the file types the service reads.
+
+**Recordings and videos** are transcribed. `Timed` is then true, `Duration` is the length in
+seconds, and each line of `Text` starts with when it is spoken:
 
 ```text
 [00:01:02.500 --> 00:01:05.250] And that is how it began.
 ```
 
-- **For an index**, take `TextWithoutTimestamps`, which is the same lines without the times.
-- **For a video player**, take `ToWebVtt()` (or `ToSrt()`), and `Cues` for the lines one by one.
-- **The `Transcript` class** does the same for any text in this form.
-- **What is sent.** The service reads sound only, so the provider sends a video's sound. The FFmpeg
-  file converter takes it out on your server, as Ogg Opus, mono, at 24 kbps. Add the plugin
-  (`Relatude.DB.Plugins.FFMpeg`) with `options.FileConverters.Add(new FFMpegVideoConverter())`.
-- **Without the plugin**, a video is refused with a 415, and a recording is sent as it is.
-- **Long recordings.** One longer than the service takes in one call (an hour on the hosted service)
-  is sent in parts. Each part is charged as a file, and the transcript is timed from the start of
-  the whole.
-- **The same file twice** gives the same sound, byte for byte, so asking again is answered from what
-  the service kept.
-
-The FFmpeg plugin converts any video or recording to sound for your own use too: ask for a
-`FileAdjustmentAudio` (MP3, Ogg, AAC, M4A, FLAC or WAV). You can set the channels, the sample rate,
-the bit rate, and a stretch from `StartMs` lasting `DurationMs`.
+- **For an index**, use `TextWithoutTimestamps`. **For a video player**, use `ToWebVtt()` or
+  `ToSrt()`, or `Cues` for the lines one by one.
+- **Videos are sent as sound.** The service reads sound only, so your server takes the sound out of
+  a video first, with the built-in video converter (FFmpeg, downloaded the first time it is
+  needed). A video format the converter cannot read is refused with a 415. A recording is sent as
+  it is.
+- **Long recordings** (over an hour, on the hosted service) are sent in parts. Each part is charged
+  as a file.
 
 ### 34.4 Translation
 
 ```csharp
-// one text: its translation
+// one text
 string norwegian = await db.Services.Translation.TranslateAsync("Good morning", "nb");
 
-// many in one call, each in a language of its own, found when it is not given
+// many texts in one call; a TranslationText can name languages of its own
 var result = await db.Services.Translation.TranslateAsync(
     ["Good morning", new TranslationText("Hej och välkommen", From: "sv"), new TranslationText("Free delivery", To: "de")],
     to: "nb");
 string[] texts = result.Texts;                // in the order they were sent
-string? from = result.Translations[0].From;   // "en", found, so Translations[0].Detected is true
+string? from = result.Translations[0].From;   // "en", detected
 
 // the language of a text
 var found = await db.Services.Translation.DetectLanguageAsync("Hei på deg");   // found.Language is "nb"
 ```
 
-Languages are BCP 47 codes - `en`, `nb`, `de`, `zh-Hans`, `pt-PT` - and an answer names them the way
-`GetLanguagesAsync()` lists them: `nb-NO` and `no` are answered as `nb`. A language the service does
-not translate is refused with a 400 before anything is charged.
-
-- **Many texts go in one call**, cheaper and faster than one at a time: a call costs at least one
-  credit, and a text sent twice in a call is translated and paid for once. A plain string takes the
-  call's `to` and `from`; a `TranslationText` can name languages of its own, and a list may mix the two.
-  Without a `from`, the language of each text is found.
-- **HTML** keeps its markup and has its text translated: pass `format: TranslationFormat.Html`.
-- **The answer** is a `TranslationResult` with a `TranslatedText` for each text: its `Text`, the `From`
-  it was taken to be in, whether that was found (`Detected`, with a `Score` from 0 to 1), the `To`, and
-  whether it was given from before (`Cached`). Then `Characters` sent to be translated now,
-  `CachedCharacters` given from before, `Credits` and `CreditsLeft`.
-- **The price** is by the characters sent, not counting the white space at the ends of a text, which
-  is kept as it was sent. `GetLanguagesAsync()` gives the languages, the price (`CharsPerCredit`,
-  `CachedCharsPerCredit`) and how much one call may carry (`MaxTexts`, `MaxTextChars`,
-  `MaxTotalChars`). It is free and needs no license.
-- **Finding languages** with `DetectLanguagesAsync` gives each text's `Language` and `Score`, whether it
-  can be translated from (`Translatable`), and the other languages it might be in (`Alternatives`). It
-  is priced as a translation is.
+- **Languages** are BCP 47 codes such as `en`, `nb`, `zh-Hans` and `pt-PT`. Answers use the codes
+  `GetLanguagesAsync()` lists, so `nb-NO` and `no` come back as `nb`. A language the service does not
+  translate is refused with a 400 before anything is charged.
+- **Send many texts in one call.** It is cheaper and faster than one call per text. Without a `from`,
+  each text's language is detected.
+- **HTML**: pass `format: TranslationFormat.Html` to keep the markup and translate only the text.
+- **`GetLanguagesAsync()`** gives the languages, the price and the most one call may carry, for free.
+  `DetectLanguagesAsync` costs the same as translating the texts.
 
 ### 34.5 Prices, answers kept, and errors
 
-These hold for images, files to text and translation alike.
+This applies to every hosted Relatude service. Each call is charged to the license's credit account
+for the service, and every answer carries `Credits` (what the call cost) and `CreditsLeft` (what is
+left). `GetOperationsAsync`, `GetFormatsAsync` and `GetLanguagesAsync` give the prices for free.
 
-- **What a call costs** is in every answer: `Credits` for the call and `CreditsLeft` on the account. An
-  image operation or a file costs the same whoever does the work behind the service, and a translation
-  costs by the characters it sends. `GetOperationsAsync`, `GetFormatsAsync` and `GetLanguagesAsync` say
-  the price before you call.
-- **The same call made again** is answered from what the service kept, at a lower price, and the answer
-  says `Cached`. Pass `fresh: true` for a new one - another take on a description, say - which is made
-  and paid for again.
-- **Answers are kept on your server too**, so the same call is not even made: every text translated
-  and every language found, text by text; the text of every file read, by what the file holds and the
-  languages asked for; and what an image shows, the answers to questions about it, and that it stands
-  upright. Only what is not kept is sent - a call of a hundred texts with one new sends one. An answer
-  from your server says `Cached`, costs nothing, and its `CreditsLeft` is what the last answer from the
-  service said. The images the service makes are not kept: your application stores those itself.
-  - **Where:** with `CacheType` `Native` (the default) in a file per service beside the AI embedding
-    cache, `indexes/native.translation.cache.bin`, `native.filetotext.cache.bin` and
-    `native.imaging.cache.bin`; with `Memory` until the database closes; with `None` nowhere. A
-    database without disk storage of its own (memory, blobs) keeps these files in the server's data
-    folder, which it shares with every other such database, so there the names carry its id -
-    `native.translation.{database id}.cache.bin`, and the AI embedding cache's likewise.
-  - **For how long:** 90 days, as long as the hosted services keep theirs, so a translation corrected
-    at the service reaches you in time. `fresh: true` asks again and keeps the new answer.
-  - **Clearing:** `db.MaintenanceAsync(MaintenanceAction.ClearAiCache)` empties these caches with the
-    embedding cache. Losing the files only costs the calls to fill them again.
-  - **Your own provider** is cached the same way. A store built from code wraps its provider itself:
-    `new CachingTranslationProvider(provider, new NativeKvServiceAnswerCache(path))`.
-- **A refusal** is a `RelatudeServiceException` repeating the service's own reason, written to be shown
-  to whoever configured the installation, with its `StatusCode`: 400 the call is wrong, 402 out of
-  credits or no credit account for the service, 403 the key or the license may not be used, 415 a file
-  nothing reads, 422 the image or the text was turned down, 424 the license server did not confirm the
-  charge (it may have been charged all the same, so asking again could pay twice), 501 not offered
-  there, 502 it could not be done right now. `MayHaveBeenCharged` says whether the call may have cost credits: false for the
-  refusals given before anything is charged, true otherwise, since credits taken are never given back.
-- **Retries** are made for you only where nothing can have been charged - the service too busy, or the
-  license server out of reach - so no call is paid for twice. A call that may have been charged is
-  never repeated behind your back.
-- **Your own provider** implements `IImagingProvider`, `IFileToTextProvider` or `ITranslationProvider`, and is named by its
-  assembly-qualified name in `TypeName` ([§35.2](#352-a-provider-of-your-own)); no calling code changes.
+| Service | Charged | Kept on your server |
+|---|---|---|
+| Embeddings | By the characters sent | Every embedding, by text and model |
+| Completions | By the characters sent and received | Nothing |
+| Images | The same price for every operation | Descriptions, answers to questions and "already upright". Not the images the service makes |
+| Files to text | Per file; a long recording per part | The text, by file content and languages |
+| Translation | By the characters sent | Each translation and each detected language, text by text |
+| IP lookup | Free | Nothing |
+| Text messages | Per message part | Nothing |
+
+**Repeated calls.** Your server keeps the answers in the last column, so the same call is not sent
+again. Only what is missing goes to the service: translate a hundred texts with one new, and only
+that one is sent. An answer from your server says `Cached` and costs nothing. The hosted services keep
+answers too, and answer a repeated call at the price they set for that. Pass `fresh: true` for a new
+answer, such as another take on a description; it is charged in full.
+
+- `CacheType` in the image, file and translation settings chooses where your server keeps their
+  answers: `Native` (the default, a file beside the AI embedding cache), `Memory` or `None`. Answers
+  are kept for 90 days.
+- `db.MaintenanceAsync(MaintenanceAction.ClearAiCache)` empties these caches and the embedding cache.
+- A store built from code wraps its provider itself:
+  `new CachingTranslationProvider(provider, new NativeKvServiceAnswerCache(path))`, and likewise
+  `CachingImagingProvider` and `CachingFileToTextProvider`.
+
+**Errors.** A refused call throws a `RelatudeServiceException`. Its message is the service's own
+reason, written for whoever configured the installation, and `StatusCode` says what went wrong:
+
+| Status | Meaning |
+|---|---|
+| 400 | The call is wrong, such as a language the service does not translate |
+| 402 | Out of credits, or the license has no credit account for the service |
+| 403 | The key or the license may not be used |
+| 415 | A file type nothing can read |
+| 422 | The image or the text was turned down |
+| 424 | The license server did not confirm the charge. The call may have been charged all the same |
+| 501 | The operation is not offered |
+| 502 | It could not be done right now |
+
+`MayHaveBeenCharged` is false for refusals made before anything is charged, and true otherwise.
+Credits are never given back. The providers retry by themselves only when nothing can have been
+charged, so no call is paid for twice. Retry a call that may have been charged only if paying twice
+is acceptable.
 
 ## 35. Relatude Services
 
-Relatude Services is a hosted service run by Relatude at <https://services.relatude.com>. It gathers
-the third-party services an application tends to need into one account: language models for
-embeddings and completions, image AI, reading the text of documents and pictures, translating texts,
-looking up who is behind a request, and sending text messages. Relatude holds the agreements with the vendors behind them, their API keys and their
-bills. You hold one account, one license and one API key, and every call is paid for with credits on
-that license.
+Relatude Services is a hosted service run by Relatude at <https://services.relatude.com>. It puts
+the third-party services an application tends to need behind one account: language models, image
+AI, text from files, translation, IP lookup and text messages. Relatude holds the agreements with
+the vendors, their keys and their bills. You hold one license and one API key, and pay for calls
+with credits on the license.
 
-That is all it is for: convenience. Without it, an application that wants semantic search, image
-descriptions, OCR, translation and text messages signs up with a model vendor, an image service, an
-OCR service, a translation service and an SMS gateway, accepts five sets of terms, keeps five keys
-secret on every server and follows five invoices. With it, an installation is given one API key and has all of them, and the admin UI
-has a page to test each one.
+It is a convenience, nothing more: one API key instead of five vendor accounts, five sets of terms
+and five keys to keep secret on every server.
 
 ### 35.1 A license is not needed
 
 **Relatude.DB runs fully without a license.** The engine, the admin UI and everything else in this
-manual work the same with or without one: nothing expires, nothing is held back, and no part of the
-database waits for a key. A license only connects an installation to Relatude Services. The license
-itself is free; what costs money is the credits the hosted services are paid with.
+manual work the same with or without one. Nothing expires and nothing is held back. A license only
+connects an installation to Relatude Services. The license is free; you pay for the credits the
+hosted services use.
 
-Every service Relatude Services offers stands behind an interface in Relatude.DB. Implement the
-interface yourself - against a vendor account of your own, a model on your own hardware, or any code
-you like - name your class in the database's settings, and application code calls it exactly as it
-would call the hosted service. `db.Services.SMS.SendAsync(...)` does not change when the gateway does.
+Without an API key, nothing is charged and the installation does not report in. On a server,
+`db.Services.Imaging`, `FileToText`, `Translation` and `IPLookup` point at the hosted services from
+the start, but a call throws, saying why, before anything leaves the server. `db.Services.AI` and
+`db.Services.SMS` exist only when `AISettings` and `SMSSettings` are set.
 
-| Service | Reached through | Interface | Settings | Paid from, with Relatude Services | Built-in alternatives |
-|---|---|---|---|---|---|
-| Embeddings and completions | `db.Services.AI` | `IAIProvider` | `AISettings` | `ai_embeddings`, `ai_completion` | `AzureAIProvider`, `OpenAIProvider` (any OpenAI-compatible endpoint, a local Ollama included), `AnthropicAIProvider` - see [§12.1](#aisettings--embeddings-completions-and-the-vector-index) |
-| Image AI | `db.Services.Imaging` | `IImagingProvider` | `ImagingSettings` | `ai_image` | none |
-| Files to text, OCR included | `db.Services.FileToText` | `IFileToTextProvider` | `FileToTextSettings` | `filetotext` | none |
-| Translation | `db.Services.Translation` | `ITranslationProvider` | `TranslationSettings` | `translation` | none |
-| Who is behind a request: where an address is, bots, and the bot check | `db.Services.IPLookup` | `IIPLookupProvider` | `IPLookupSettings` | nothing, it is free; the license needs the feature `iplookup` | none |
-| Text messages | `db.Services.SMS` | `ISMSProvider` | `SMSSettings` | `sms` | none |
-| Signing in to the admin UI with a Relatude account | the login page | none | `AllowLicenseeAdminLogin` | nothing, it is free | the master login, `MasterUserName` and `MasterPassword` ([§12](#the-admin-ui)) |
+Every service is an interface. Implement it against your own vendor account, a model on your own
+hardware or any code you like, and name your class in the database's settings
+([§35.2](#352-a-provider-of-your-own)). The code that calls the service does not change.
 
-The interfaces are in the namespaces `Relatude.DB.AI`, `Relatude.DB.Imaging`, `Relatude.DB.FileToText`,
-`Relatude.DB.Translation`, `Relatude.DB.IPLookup` and `Relatude.DB.SMS`, and what each method does is in [§34](#34-ai-services),
-[§35.5](#355-who-is-behind-a-request-ip-lookup) and in their own comments.
+| Service | Reached through | Interface | Settings | Paid from |
+|---|---|---|---|---|
+| Embeddings and completions | `db.Services.AI` | `IAIProvider` | `AISettings` | `ai_embeddings`, `ai_completion` |
+| Image AI | `db.Services.Imaging` | `IImagingProvider` | `ImagingSettings` | `ai_image` |
+| Files to text, OCR included | `db.Services.FileToText` | `IFileToTextProvider` | `FileToTextSettings` | `filetotext` |
+| Translation | `db.Services.Translation` | `ITranslationProvider` | `TranslationSettings` | `translation` |
+| IP lookup and the bot check | `db.Services.IPLookup` | `IIPLookupProvider` | `IPLookupSettings` | free; the license needs the feature `iplookup` |
+| Text messages | `db.Services.SMS` | `ISMSProvider` | `SMSSettings` | `sms` |
+| Admin UI sign-in with a Relatude account | the login page | none | `AllowLicenseeAdminLogin` | free |
 
-Without an API key nothing is charged and the server does not report in. A database on a server has
-`db.Services.Imaging`, `db.Services.FileToText`, `db.Services.Translation` and `db.Services.IPLookup` pointed at the hosted
-services from the start, since they need no settings, but a call throws without a key, saying so, before anything leaves
-the server. `db.Services.AI` and `db.Services.SMS` are only there when `AISettings` and `SMSSettings`
-are set.
+The interfaces are in the namespaces `Relatude.DB.AI`, `Relatude.DB.Imaging`,
+`Relatude.DB.FileToText`, `Relatude.DB.Translation`, `Relatude.DB.IPLookup` and `Relatude.DB.SMS`.
+For embeddings and completions, `AISettings` also offers the built-in providers `AzureAI`, `OpenAI`
+(any OpenAI-compatible endpoint, a local Ollama included) and `Anthropic`
+([§12.1](#aisettings--embeddings-completions-and-the-vector-index)). The admin UI always has the
+master login as well ([§12](#the-admin-ui)).
+
+Text messages go through the hosted service when `SMSSettings` is set:
+
+```jsonc
+"SMSSettings": { "TypeName": "RelatudeServices" }
+```
+
+```csharp
+var quote = await db.Services.SMS.QuoteAsync("+4712345678", text);   // parts and credits; nothing is sent
+var receipt = await db.Services.SMS.SendAsync("+4712345678", text);
+```
+
+Quote a template before you send it to many people. One character outside the GSM alphabet, such as
+a curly quote or an emoji, can double the price. `SendBatchAsync` sends many messages in one call,
+all of them or none.
 
 ### 35.2 A provider of your own
 
-A text message gateway of your own, as an example:
+Implement the service's interface and name your class in the database's settings. A text message
+gateway of your own, as an example:
 
 ```csharp
 using System.Net.Http.Json;
@@ -7037,127 +6434,123 @@ public sealed class MyGatewaySmsProvider(SMSProviderSettings settings) : ISMSPro
 }
 ```
 
-The same holds for all four kinds:
+The same rules apply to every service:
 
-- **`TypeName` is the assembly-qualified name**, `Namespace.Type, Assembly`, since the type lives in
-  your application and is looked up by name when the database opens. In `ImagingSettings`,
-  `FileToTextSettings` and `SMSSettings` an empty `TypeName`, or `RelatudeServices`, is the hosted
-  service; in `AISettings` an empty one is Azure OpenAI, and `RelatudeServices` the hosted service.
-- **A public constructor takes the settings of its kind**: `AIProviderSettings`,
-  `ImagingProviderSettings`, `FileToTextProviderSettings` or `SMSProviderSettings`. So `ServiceUrl`,
-  `ApiKey` and the rest reach your class from the same place, and the same settings page, as they
-  reach the built-in ones. Keep the key in the `RelatudeDB` configuration section
-  ([§12.2](#appsettings-environment-variables-and-secrets)), as for any secret.
-- **One instance serves the whole database.** It is built when the database opens, so a type that
-  cannot be built stops the open with the reason rather than failing at the first call. It is called
-  from many threads at once, and disposed when the database closes.
-- **Offer only what you have.** `ISMSProvider`'s batch methods have defaults that throw
-  `NotSupportedException`. An `IImagingProvider` of your own throws it from the operations it does
-  not do, and leaves them out of what `GetOperationsAsync` lists. The price fields of the answers,
-  `Credits` and `CreditsLeft`, belong to the hosted services; leave them at 0.
-- **A store built from code**, without a server, is given its SMS, imaging and file-to-text providers
-  in the constructor: `new NodeStore(datastore, sms: new MyGatewaySmsProvider(settings))`, with
-  `imaging:` and `fileToText:` beside it.
+- **`TypeName` is the assembly-qualified name**, `Namespace.Type, Assembly`, loaded when the database
+  opens. An empty `TypeName` or `RelatudeServices` means the hosted service, except in `AISettings`,
+  where empty means Azure OpenAI.
+- **A public constructor takes the settings**: `AIProviderSettings`, `ImagingProviderSettings`,
+  `FileToTextProviderSettings`, `TranslationProviderSettings`, `IPLookupProviderSettings` or
+  `SMSProviderSettings`. Your class gets `ServiceUrl`, `ApiKey` and the rest from the same settings,
+  and the same settings page, as the built-in providers. Keep the key in the `RelatudeDB`
+  configuration section ([§12.2](#appsettings-environment-variables-and-secrets)).
+- **One instance serves the whole database.** It is created when the database opens, so a type that
+  cannot be created stops the open with the reason. It must be thread-safe, and it is disposed when
+  the database closes.
+- **Implement only what you offer.** `ISMSProvider`'s batch methods throw `NotSupportedException` by
+  default. An `IImagingProvider` throws it from operations it does not support and leaves them out of
+  `GetOperationsAsync`. Leave `Credits` and `CreditsLeft` at 0.
+- **Answers are cached** for your own imaging, file-to-text and translation providers too
+  ([§34.5](#345-prices-answers-kept-and-errors)).
+- **A store built from code** gets the provider in the `NodeStore` constructor:
+  `new NodeStore(datastore, sms: new MyGatewaySmsProvider(settings))`. The other parameters are
+  `imaging`, `fileToText`, `translation` and `ipLookup`.
 
 ### 35.3 The account at services.relatude.com
 
-The account is made by signing in at <https://services.relatude.com> with a Google or Microsoft
-account, a passkey or a code sent by text message. It holds:
+Create an account by signing in at <https://services.relatude.com> with Google, Microsoft, a passkey
+or a code sent by SMS. In the account you create **licenses**: free, and as many as you need, for
+example one per customer or project. Each license has these pages:
 
 | Page | What it holds |
 |---|---|
-| **Licenses** | Issued by you, free, as many as you need: one per customer or project, say. |
-| **API keys** | Each license has its own, which you create, name and delete. An installation needs one, and nothing else: the license key is looked up from it. Give each server its own, so one can be deleted without stopping the rest. |
-| **Credits** | One credit account per service, named as in the table above, each showing what has been used this month, how much there is, and whether it renews each month or is held once. A call to a service the license has no credit account for, or no credits left on, is refused before anything is charged. |
-| **Access** | Who may see and use a license: its owners, managers who come from an organization, and developers. Everyone with access can sign in to the installations running under the license once they are approved. |
-| **Installations** | Every installation that has reported in under the license, and the addresses each may be signed in from. |
-| **SMS senders** | The names text messages may go out as, asked for and approved one at a time. A message that names its own sender is only sent when that sender is approved; one that names none goes out as the service's own. |
-| **Uptime** | For a license that has it: its installations are watched, and the people you choose are sent a text message when one changes state. |
+| **Keys** | The license's API keys. An installation needs one and nothing else. Give each server its own, so you can delete one without stopping the rest |
+| **Entitlements** | Features, limits and credit accounts: one credit account per service, named as in [§35.1](#351-a-license-is-not-needed) |
+| **SMS senders** | The sender names text messages may use, each approved separately. A message without a sender uses the service's own |
+| **Installations** | The installations that have reported in, and the addresses each may be signed in from |
+| **Uptime** | For licenses that include it: texts the people you choose when an installation changes state |
+| **Access** | Who may see and use the license. They can all sign in to its installations where cloud sign-in is on |
 
-What a call costs, what is kept and given again at a lower price, and which errors may have been
-charged are the same for every hosted service; [§34.5](#345-prices-answers-kept-and-errors) has them.
+What calls cost and which errors may have been charged is the same for every hosted service; see
+[§34.5](#345-prices-answers-kept-and-errors).
 
 ### 35.4 Connecting an installation
 
-The admin UI's **Relatude Services** page, in the server menu, does it:
+Use the **Relatude Services** page of the admin UI, in the server menu:
 
-1. **Create a license** opens the portal on a pairing: sign in, pick a license or make one, and its
-   API key comes back to the installation by itself. Or copy an API key from the license's page in
-   the portal and paste it; the page checks it with the license server before saving it.
-2. The page then shows whether the license is valid and what it carries, and has a test view for each
-   service: SMS, AI, imaging, file to text, translation and IP lookup. The tests make real calls, so
-   they are charged, all but IP lookup, which is free.
-3. The switch **Allow sign-in with Relatude Services** adds *Sign in with Relatude Services* to the
-   login page. Who gets in is decided in the portal: anyone with access to the license. The master
-   login is not affected, and turning the switch off ends those sessions at once.
+1. **Create a free license** opens the portal. Sign in and pick or create a license, and its API key
+   comes back to the installation by itself. If you already have a key, choose **I have an API key**
+   and paste it; the page checks it with the license server before saving it.
+2. The page then shows the license and what it carries, and has a test for each service. The tests
+   make real calls, so they are charged, except IP lookup, which is free.
+3. **Cloud sign-in** adds *Sign in with Relatude Services* to the admin UI's login page, for anyone
+   with access to the license in the portal. The master login is not affected. Turning it off ends
+   those sessions at once.
 
-**Remove license** takes the installation out from under the license again: it clears the keys and
-turns the sign-in off.
+**Remove**, beside the API key, takes the installation out from under the license. It clears the keys
+and turns cloud sign-in off.
 
-The API key lets whoever holds it spend the license's credits, so on a server keep it out of
-`relatude.db.json`, like the other secrets ([§12.2](#122-what-goes-where-source-control-deployment-and-appsettings)):
+Anyone who has the API key can spend the license's credits. On a server, keep it out of
+`relatude.db.json` like other secrets
+([§12.2](#122-what-goes-where-source-control-deployment-and-appsettings)), and set it in
+configuration:
 
 ```bash
 dotnet user-secrets set "RelatudeDB:ApiKey" "…"
 ```
 
 ```text
-# a server: an environment variable, or an application setting on Azure App Service
+# on a server: an environment variable, or an application setting on Azure App Service
 RelatudeDB__ApiKey=…
 ```
 
-A key that configuration sets is locked on the page, and is changed or removed where it is set. The
-settings involved are listed under [Server level](#server-level) in §12.1.
+A key set in configuration is locked on the page; change it where it is set. The settings involved
+are listed under [Server level](#server-level) in §12.1.
 
 #### Reporting in
 
-With an API key, the installation reports in to the license server shortly after it starts and every
-ten minutes after that. A report carries the API key, the installation key, the server and machine
-name, the build version and the total number of nodes in the open databases. It carries no stored
-content, no queries and nothing about the people using the database. The answer says whether the
-license is valid; the server records it and acts on none of it, so a license that lapses, or a
-license server out of reach, never stops a database. `"DisableHeartbeat": true` in `relatude.db.json`
-stops the reports. It is left off the settings pages on purpose.
+With an API key, the installation reports in to the license server shortly after it starts, and then
+every ten minutes. A report holds the API key, the installation's key and name, the server and
+machine names, the build version and the number of nodes in the open databases. It holds no content,
+no queries and nothing about the people who use the database. Nothing acts on the answer, so a lapsed
+license or an unreachable license server never stops a database. To stop the reports, set
+`"DisableHeartbeat": true` in `relatude.db.json`; the setting is not on the settings pages.
 
 ### 35.5 Who is behind a request: IP lookup
 
-`db.Services.IPLookup` says who is behind a request, for code that logs or analyses traffic: where its
-address is, whether the address belongs to a bot, and what its user agent says it is. It also finds the
-icon of a site, to show beside a referrer. The hosted Relatude IP lookup service answers with the
-installation's license, which needs the feature `iplookup`; nothing is charged.
+`db.Services.IPLookup` tells code that logs or analyses traffic who is behind a request: where the
+address is, whether it belongs to a bot, and what the user agent says it is. It also finds a site's
+icon, to show beside a referrer. The hosted service is free, but the license needs the feature
+`iplookup`.
 
 ```csharp
 var visitor = await db.Services.IPLookup.LookUpAsync("195.159.120.66", userAgent);
 string? country = visitor.Ip?.CountryCode;    // "NO"
-bool bot = visitor.IsBot;                      // the user agent, or the address, below
+bool bot = visitor.IsBot;
 string? icon = await db.Services.IPLookup.GetFaviconUrlAsync("https://www.example.com/a/page");
 
-// many at once, from a background queue of logged requests, say
+// many at once, from a queue of logged requests
 var found = await db.Services.IPLookup.LookUpAsync(
     queued.Select(r => new IPLookupRequest(r.Ip, r.UserAgent)).ToArray());
 ```
 
-An `IPLookupResult` has two parts. Each is null when nothing was asked or found:
+An `IPLookupResult` has two parts, each null when nothing was asked or found:
 
 - **`Ip`**: the country, region, city and position of the address, and whether it is a bot's
-  (`IsBot`, `BotName`): in a network a bot's owner publishes ("google", "bing", …), or found to be a
-  bot by the bot check (`ConfirmedFromScript`, "Script"). Values the ranges lack are "-". The
-  locations are IP2Location LITE data, and a page showing them has to say "This site or product
-  includes IP2Location LITE data available from https://lite.ip2location.com".
+  (`IsBot`, `BotName`). An address is a bot's when it is in a network a bot's owner publishes
+  ("google", "bing") or when the bot check found a bot there ("Script"). Missing values are "-".
+  The locations are IP2Location LITE data, and a page that shows them must say "This site or
+  product includes IP2Location LITE data available from https://lite.ip2location.com".
 - **`UserAgent`**: the browser, operating system and device type, or the bot it names itself as.
 
-`IsBot` is true when the user agent names a bot or the address is a bot's, and `BotName` names it by
-the first: "Googlebot", "google", or "Script". `IsHuman` is true when a browser at the address has
-passed the bot check and nothing says bot. An address no browser has run the check from is neither.
+`IsBot` on the result is true when either part says bot. `IsHuman` is true when a browser at the
+address has passed the bot check and nothing says bot. An address where no browser has run the check
+is neither.
 
 #### The bot check
 
-Bots that run no scripts are known by their address or their user agent. Those that drive a real
-browser, headless or not, are known by Fingerprint's BotD, which a page runs in the browser. The
-browser only ever talks to your own server: the server serves the bot check and BotD under its info
-path, `/-info/`, takes the browser's answer there, and passes it on to the IP lookup service for the
-browser's address. The scripts themselves come from the service, which the server asks for them once
-an hour at most, so an update to the check or to BotD reaches your site without a new Relatude.DB.
+Bots that run no scripts are known by their address or user agent. Bots that drive a real browser
+are found by Fingerprint's BotD, which your page runs in the browser:
 
 ```csharp
 // in the page's head, or at the end of its body
@@ -7165,43 +6558,31 @@ string tag = db.Services.IPLookup.GetInlineScriptTag();
 // <script>(function (root) { … })("/-info/");</script>, about 500 bytes
 ```
 
+The browser only talks to your own server. The server serves the scripts and takes the answers under
+its info path, and passes the answers on to the IP lookup service:
+
 | Route | What it is |
 |---|---|
-| `GET /-info/bot.js` | The bot check as a file, for `GetBotScriptTag()`: `<script async src="/-info/bot.js">` |
-| `GET /-info/botd.js?v=…` | Fingerprint's BotD (MIT), which the check imports. The version is in the address, so browsers keep it for a year |
-| `POST /-info/report?isBot=…` | The browser's answer, sent as a beacon so it goes even when the visitor leaves at once |
+| `GET /-info/bot.js` | The bot check as a file, for `GetBotScriptTag()` |
+| `GET /-info/botd.js?v=…` | Fingerprint's BotD (MIT), which the check imports. Browsers cache it for a year |
+| `POST /-info/report?isBot=…` | The browser's answer |
 
-- **The answer is for the address.** A bot's sticks: once one browser at an address is found to be
-  driven by a bot, everyone at that address is taken to be one, and a later report of no bot does not
-  undo it. An address in a bot's published network is a bot's whatever a browser there says. A report
-  also helps every other site that looks the address up.
-- **The tag is the same for every visitor**, so a page with it may be kept in an output cache.
-- **`GetInlineScriptTag` saves the request for `bot.js`.** After the first page, the browser has
-  `botd.js` in its cache, so a page view costs one request: the report. Use `GetBotScriptTag` for a
-  page whose Content-Security-Policy allows no inline script. Both take a `nonce` for a policy that
-  names one.
-- **Few reports reach the service.** The server passes an address's report on once in ten minutes, or
-  again when it turns out a bot, within a second and a thousand to a call. The reports of a visitor's
-  other page views say nothing new and are not sent.
-- **Behind a proxy or a load balancer**, call `app.UseForwardedHeaders()` before `UseRelatudeDB()`, so
-  the address is the browser's and not the proxy's. A report another site's page posts is refused.
-- **Timing.** The report comes a few hundred milliseconds after the page loads, so look a request up
-  a few seconds after it was served. A visitor's first page is "not known" until then.
-- **Where the scripts come from.** The server fetches them from the service, `GET /api/iplookup/botcheck`,
-  the first time a page asks for them, and keeps them in memory. After an hour, the copy it has is still
-  served while a new one is fetched in the background. While the service cannot be reached, the old
-  copy stays, and the service is left alone for a minute between tries.
-- **The first page after a start** has no scripts to write in yet, so `GetInlineScriptTag` gives the
-  `bot.js` tag instead, which works the same with one request more. Before the scripts have come at
-  all, `bot.js` and `botd.js` are answered 503, and the page goes without the check.
-  `GetBotCheckScriptsAsync()` fetches them ahead, for an application that wants them ready at start.
-- **`InfoUrlPath`** in the server's settings (Hosting) moves the routes; the tags follow it.
+- **The answer is for the address, and a bot's answer sticks.** Once a browser at an address is found
+  to be a bot, everyone at that address counts as one.
+- **The tag is the same for every visitor**, so pages with it can be output cached.
+- **`GetInlineScriptTag`** saves the request for `bot.js`, so a page view costs one request: the
+  report. Use `GetBotScriptTag` when the page's Content-Security-Policy allows no inline script. Both
+  take a `nonce`.
+- **Behind a proxy or a load balancer**, call `app.UseForwardedHeaders()` before `UseRelatudeDB()`,
+  so the address is the browser's and not the proxy's.
+- **Timing.** The report arrives a few hundred milliseconds after the page loads, so look requests up
+  a few seconds after they were served.
+- **After a start**, the server fetches the scripts from the service when a page first asks for them,
+  and the first pages may go without the check. `GetBotCheckScriptsAsync()` fetches them ahead.
+- **`InfoUrlPath`** in the server settings (Hosting) moves the routes, and the tags follow it.
 
-The answers are not kept on your server: a lookup costs nothing, and what browsers report about an
-address changes. `IPLookupSettings` takes `TypeName`, `ServiceUrl` and `ApiKey`, as the other services'
-settings do ([§34](#34-ai-services)). Only the server calls `ServiceUrl`, so a self-hosted service may
-be on an address browsers cannot reach. The admin UI's IP lookup test looks up addresses and icons, and
-bot checks the browser it runs in through `/-info/`, inline or from `bot.js`.
+`IPLookupSettings` takes `TypeName`, `ServiceUrl` and `ApiKey`. Lookups are not cached on your
+server: they are free, and what browsers report about an address changes.
 
 ---
 ---
@@ -7210,45 +6591,42 @@ bot checks the browser it runs in through `/-info/`, inline or from `bot.js`.
 
 ## 36. Background tasks and the scheduler
 
-Work that does not belong inside a transaction runs in the database's **task queue**: text
-indexing, embeddings, backups and log rewrites, and anything your own code queues with
-`EnqueueTask`. On top of the queue sits the **scheduler**, which runs *jobs* at set
-intervals — a backup every night, a log truncation every Sunday, a report of your own every
-fifteen minutes on working days.
+Work that does not belong in a transaction runs in the database's **task queue**: text indexing,
+embeddings, backups, log rewrites, and tasks your own code queues with `EnqueueTask`. The
+**scheduler** runs *jobs* through that queue at set times: a backup every night, a log truncation
+every Sunday, a report of your own every fifteen minutes on working days.
 
-Two things make it up:
+- A **job** is work registered under a name. The database brings its own maintenance jobs, and your
+  code can add more.
+- A **schedule** says which job runs when. Schedules are settings, `LocalSettings.Schedules` in
+  `relatude.db.json`, so they are deployed with the application. The admin UI can also set them on
+  one installation, in `relatude.db.overrides.json`
+  ([§12](#changes-made-in-the-admin-ui-relatudedboverridesjson)).
 
-- a **job** is work registered under a name. The database brings its own maintenance, and
-  your code adds more;
-- a **schedule** says which job to run and when. Schedules are settings —
-  `LocalSettings.Schedules` in `relatude.db.json` — so they are deployed with the application, or
-  set on one installation in the admin UI, which saves them in `relatude.db.overrides.json` like any
-  other change made there ([§12](#changes-made-in-the-admin-ui-relatudedboverridesjson)).
-
-Every run, scheduled or started by hand, goes through the task queue as a batch of
-`RunJob`: it waits for its turn, shows on the Tasks page, and never runs beside another run of
-the same job.
+Every run, scheduled or started by hand, is a batch in the task queue and shows on the Tasks page.
+Up to four different jobs run at once, but two runs of the same job never do. A long run takes only
+its own slot, so backups and other jobs run beside it.
 
 ### 36.1 Jobs
 
-The database registers these itself:
+The database registers these jobs itself:
 
 | Job | What it does | Argument |
 |---|---|---|
-| `backup` | Writes a backup of the database to the backup storage: a copy of the log, or of the current state when *Truncate backups* is on. Leaves older backups alone. | `keep` — never deleted by `delete-old-backups` or the automatic backup. `truncate` or `copy` overrides the setting for this backup. Combine them: `keep,truncate`. |
-| `delete-old-backups` | Deletes the backups the retention settings (hourly, daily, weekly, monthly and yearly copies kept) do not keep. A backup marked keep is never deleted. | none |
-| `truncate-log` | Rewrites the transaction log as the current state, giving up the history before it — including reverting into it. Skipped while a revert window is open, or when there is nothing to drop. | `delete-old` deletes the old log file afterwards. |
-| `delete-old-log-files` | Deletes the log files a truncation left behind. | none |
-| `save-state` | Writes the state snapshot and the index states, so the next open reads them instead of replaying the log. | none |
-| `purge-caches` | Halves the node and set caches and gives the memory back. | none |
-| `reindex-text` | Queues every node of the text-indexed types for text indexing again. | none |
-| `delete-unreferenced-files` | Deletes the files no node refers to any more. Files uploaded in the last 15 minutes are left alone. | `count` only counts them. |
+| `backup` | Writes a backup: a copy of the log, or of the current state when *Truncate backups* is on | `keep`: never deleted by `delete-old-backups`. `truncate` or `copy` overrides the setting. Combine: `keep,truncate` |
+| `delete-old-backups` | Deletes the backups the retention settings do not keep. Backups marked keep stay | none |
+| `truncate-log` | Rewrites the log as the current state, giving up the history and the option to revert into it. Skipped while a revert window is open | `delete-old`: deletes the old log file afterwards |
+| `delete-old-log-files` | Deletes the log files that truncations left behind | none |
+| `save-state` | Writes the state snapshot and the index states, so the next open does not replay the log | none |
+| `purge-caches` | Halves the node and set caches and frees the memory | none |
+| `reindex-text` | Queues every node of the text-indexed types for text indexing again | none |
+| `delete-unreferenced-files` | Deletes the files no node refers to, except those uploaded in the last 15 minutes | `count`: only counts them |
 
-A built-in job given a word it does not take fails its run and names the words it takes, rather
-than quietly ignoring a typo in a schedule.
+A built-in job given an argument it does not take fails its run and names the ones it takes, so a
+typo in a schedule does not go unnoticed.
 
-Register your own in `OnStoreInit`. It runs every time the database is set up, before it opens, so
-a schedule naming the job finds it from the first tick:
+Register your own jobs in `OnStoreInit`. It runs every time the database is set up, before it opens,
+so a schedule that names the job finds it from the first tick:
 
 ```csharp
 builder.AddRelatudeDB(options => {
@@ -7261,19 +6639,20 @@ builder.AddRelatudeDB(options => {
 });
 ```
 
-What a job is handed, `JobContext`:
+The last two arguments describe the job and its argument on the Scheduler page. The job is handed a
+`JobContext`:
 
-| Member | |
+| Member | What it is |
 |---|---|
-| `Argument` | The schedule's `Argument`, or what was typed when the job was started by hand. |
-| `CancellationToken` | Cancelled when the database closes or someone stops the run. A closing database waits only a few seconds for the jobs still running, so pass it on to anything that takes time. |
-| `Report(message)` | One line on how it went: shown on the Scheduler page, and in the system log when the job finishes. |
-| `Progress(percentage, text)` | Shown with the database's other activities while the job runs. |
-| `ScheduleId`, `ScheduleName`, `DueUtc`, `Trigger` | Which schedule started it, for which time, and how: `Schedule`, `Missed` (late, after the database was closed) or `Manual`. |
+| `Argument` | The schedule's `Argument`, or the one given when the job was started by hand |
+| `CancellationToken` | Cancelled when the database closes or someone stops the run. Pass it on: a closing database waits only a few seconds |
+| `Report(message)` | One line on how it went, shown on the Scheduler page and written to the system log |
+| `Progress(percentage, text)` | Shown with the database's other activities while the job runs |
+| `ScheduleId`, `ScheduleName`, `DueUtc`, `Trigger` | Which schedule started it, for which time, and how: `Schedule`, `Missed` or `Manual` |
 
-A job that throws fails its run. The error is shown on the Scheduler page and logged, and the
-failed batch stays on the Tasks page for a day, where *Queue again* runs it again. To start a run
-from code, `db.Jobs.Run("send-digest", "staff")` queues one and returns at once.
+A job that throws fails its run. The error is shown on the Scheduler page and logged, and the failed
+batch stays on the Tasks page for a day, where *Queue again* runs it again. To start a run from code,
+call `db.Jobs.Run("send-digest", "staff")`. It queues the run and returns at once.
 
 ### 36.2 Schedules
 
@@ -7292,94 +6671,73 @@ from code, `db.Jobs.Run("send-digest", "staff")` queues one and returns at once.
 
 | Field | Default | What it does |
 |---|---|---|
-| `Id` | — | Identifies the schedule: the overrides file patches the list element by element by it, and the scheduler remembers by it when the schedule last ran. Any new guid. |
-| `Job` | — | The job to run, not case sensitive. A name nobody has registered is not an error: its runs are skipped, with the reason, until one is. |
-| `Name` | the job's | What the schedule is called on the Scheduler page and in the log. |
-| `Argument` | none | Handed to the job. |
-| `Enabled` | `true` | Off keeps the schedule without running it. Turned on again, it waits for its next time. |
-| `Every`, `Unit` | `1`, `Days` | The interval. `Unit` is `Seconds`, `Minutes`, `Hours`, `Days`, `Weeks` or `Months`. |
-| `At` | midnight | `HH:mm`. For days, weeks and months, the time of the run; below a day, the first run of the day, which the rest follow. |
-| `Until` | midnight | Below a day only: the last time of day a run may start. |
-| `Days` | every day | The days of the week, as a list or a range: `Mon,Wed,Fri`, `Mon-Fri`. A weekly schedule without days runs on Mondays. Months do not use it. |
-| `DayOfMonth` | `1` | Months only, 1 to 31. A month without that day runs on its last day, so `31` is the last day of every month. |
-| `TimeZone` | the server's | An IANA id such as `Europe/Oslo`, or `UTC`. The times are laid out on that clock, so 02:00 stays 02:00 across summer time. On a cloud host the server's own zone is usually UTC. |
-| `RunMissed` | `true` | A run that fell due while the database was closed runs once as soon as it is open again, however many were missed. Off, missed runs are skipped. |
+| `Id` | — | Identifies the schedule. Use any new guid |
+| `Job` | — | The job to run, not case sensitive. While no such job is registered, its runs are skipped with the reason |
+| `Name` | the job's name | What the Scheduler page and the log call the schedule |
+| `Argument` | none | Handed to the job |
+| `Enabled` | `true` | Off keeps the schedule without running it |
+| `Every`, `Unit` | `1`, `Days` | The interval. `Unit` is `Seconds`, `Minutes`, `Hours`, `Days`, `Weeks` or `Months` |
+| `At` | midnight | `HH:mm`. For days, weeks and months, the time of the run. Below a day, the first run of the day |
+| `Until` | midnight | Below a day only: the last time of day a run may start |
+| `Days` | every day | Days of the week: `Mon,Wed,Fri` or `Mon-Fri`. A weekly schedule without days runs on Mondays. Not used by months |
+| `DayOfMonth` | `1` | Months only, 1 to 31. A shorter month runs on its last day, so `31` means the last day of every month |
+| `TimeZone` | the server's | An IANA id such as `Europe/Oslo`, or `UTC`. 02:00 stays 02:00 across summer time. A cloud host's own zone is usually UTC |
+| `RunMissed` | `true` | Runs that fell due while the database was closed run once when it opens. Off skips them |
 
-How the times are laid out:
+How the times work:
 
-- **Below a day** the runs follow the interval through the day from `At` until `Until`, and the next
-  day starts over at `At` — cron's way. An interval that does not divide the day, every 7 hours say,
-  therefore has a shorter gap before midnight.
-- **Every other day, week or month** is counted from a fixed point in the calendar, not from when the
-  server started, so the rhythm survives a restart. Every 7 days always lands on the same weekday, a
-  Monday; combined with `Days` naming another day it never runs, and the Scheduler page says so.
-- **Summer time.** A time the clock skips (02:30 on the night it jumps from 02:00 to 03:00) runs at the
-  first minute after the jump; a time it passes twice runs the first time.
-- **A changed schedule starts from now.** Moving a daily run from 14:00 to 08:00 at half past ten does
-  not count this morning's 08:00 as missed: the next run is tomorrow at 08:00.
-- **No overlap.** A schedule whose previous run is still queued or running skips its time and says so.
-  Skips in a row for the same reason are one entry in the history, counted.
+- **Below a day**, runs follow the interval from `At` until `Until`, and the next day starts again at
+  `At`, as in cron. So every 7 hours leaves a shorter gap before midnight.
+- **Intervals of several days, weeks or months** count from a fixed point in the calendar, so a
+  restart does not shift them.
+- **Summer time.** A time the clock skips runs at the first minute after the jump. A time the clock
+  passes twice runs the first time.
+- **A changed schedule starts from the change.** Moving a daily run from 14:00 to 08:00 at 10:30 does
+  not count this morning's 08:00 as missed.
+- **No overlap.** While a schedule's previous run is queued or running, the schedule skips its time
+  and says so.
 
-Nothing runs while `AutoDequeTasks` is off: the runs are queued and nothing takes them. The scheduler
-looks at the schedules once a second while the database is open, and reads them from the settings
-every time, so a change applies without a reopen. What it remembers — when each schedule last came
-due, and the latest 200 runs — is `state/schedules.json` in the database's index storage; losing that
-file costs a missed run its catch-up and empties the history, nothing more.
+The scheduler reads the schedules from the settings at every tick, so a change applies without
+reopening the database. Nothing runs while `AutoDequeTasks` is off: the runs are queued, but nothing
+takes them.
 
 ### 36.3 The Scheduler page
 
-*Tasks › Scheduler* in the admin UI lists the schedules with their next and last run, the jobs
-with what each takes as its argument, and the recent runs. Schedules are added, changed, turned off,
-removed and run from there; any job can be started by hand with an argument, and a run that is
-queued or running can be stopped. The editor shows the next five times as the server works them out,
-so a time zone or a list of days is checked as it is typed.
+*Tasks › Scheduler* in the admin UI lists the schedules with their next and last runs, the jobs with
+the arguments they take, and the recent runs. There you can add, change, turn off, remove and run
+schedules, start any job by hand with an argument, and stop a run. The editor shows the next run
+times as you type, so you can check a time zone or a list of days.
 
-What the page saves goes to `relatude.db.overrides.json`, on THIS SERVER. Each schedule says whether it
-comes from SHARED or THIS SERVER, and *Move to shared* at the top right moves it into
-`relatude.db.json` — so a timetable tried out on one server can become part of the application. A list
-set in appsettings or by `OnStoreSettingsInit` is shown and locked. The same list is also under
-*Settings › Maintenance › Scheduled jobs*.
+The page saves to `relatude.db.overrides.json`, on THIS SERVER, and shows whether each schedule comes
+from SHARED or THIS SERVER. *Move to shared* moves it into `relatude.db.json`, so a timetable tried
+out on one server can become part of the application. A list set in appsettings or by
+`OnStoreSettingsInit` is shown but locked.
 
-A run's batch shows on *Tasks › Queue* under the job's name. Up to four different jobs run at
-once — *Batches at once* in the settings can change that for `Run job` — and two runs of the
-same job never do. A run that takes an hour holds its own slot and nothing more: the queue goes on
-starting backups, log rewrites and other runs beside it.
-
-With the **Tasks** log on, on the Activity page, every run is an entry there under the job's name,
-saying how it was started, how long it took and what it reported, or why it failed. The other kinds
-of task are logged there too, one entry per task, beside the **Task batches** log's entry per batch.
+A run's batch shows on *Tasks › Queue* under the job's name. *Batches at once* in the settings
+changes how many jobs may run at the same time. With the **Tasks** log on (Activity page), every run
+is logged with how it was started, how long it took, and what it reported or why it failed.
 
 ---
 
 ## Where to look when this manual runs out
 
-The public documentation is still thin and the API is pre-1.0. When something here does not match
-your build, read the source — it is small and well commented:
+Relatude.DB is open source, and its code is small and well commented. When this manual does not
+answer a question, or does not match your build, start with these files in the
+[repository](https://github.com/Relatude/Relatude.DB):
 
-| Topic | Source path |
+| Topic | Where |
 |---|---|
 | Attributes | `src/Relatude.DB.NodeStore/Nodes/Attributes.cs` |
-| How types, inheritance and properties are built | `src/Relatude.DB.NodeStore/Datamodels/BuildUtils.cs`, `BuildUtilsProperties.cs` |
-| Proxy / interface generation | `src/Relatude.DB.NodeStore/CodeGeneration/InterfaceGen.cs`, `ModelGen.cs` |
-| Server wiring and the admin UI | `src/Relatude.DB.NodeServer/`, `src/Relatude.DB.UI/` |
-| Relation bases and `One`/`Many` properties | `src/Relatude.DB.NodeStore/Nodes/Relation.cs` |
-| `Reference<T>` / `References<T>` | `src/Relatude.DB.NodeStore/Nodes/Reference.cs`, `References.cs` |
-| Full query surface | `src/Relatude.DB.NodeStore/Query/IQueryOfNodes.cs` |
-| Facets | `src/Relatude.DB.NodeStore/Query/QueryOfFacets.cs`, `ResultSetFacets.cs` |
-| Store & transactions | `src/Relatude.DB.NodeStore/Nodes/NodeStore.cs`, `Transaction.cs` |
-| Reverting (revert window, `DeleteTransactionsAfter`) | `src/Relatude.DB.DataStoreLocal/DataStores/DataStoreLocal.Revert.cs` |
-| `GeoCoordinate` and spatial indexing | `src/Relatude.DB.Common/Common/GeoCoordinate.cs`, `GeoSpatial.cs` |
-| `FileValue` | `src/Relatude.DB.Common/Common/FileValue.cs` |
+| How the datamodel is built from your types | `src/Relatude.DB.NodeStore/Datamodels/BuildUtils.cs` |
+| Relations, `Reference<T>` and `References<T>` | `src/Relatude.DB.NodeStore/Nodes/Relation.cs`, `Reference.cs`, `References.cs` |
+| Every query method | `src/Relatude.DB.NodeStore/Query/IQueryOfNodes.cs` |
+| The store and transactions | `src/Relatude.DB.NodeStore/Nodes/NodeStore.cs`, `Transaction.cs` |
 | A working model | `src/Relatude.DB.NodeStore/Demo/Models/DemoArticle.cs` |
-| The command line tool | `src/Relatude.DB.Console/` — `relatude help all` for its reference |
-| Logs, statistics and HyperLogLog | `src/Relatude.DB.Logger/Logging/` — `ICustomLogs.cs`, `LogSettings.cs`, `LogValues.cs`, `Statistics/HyperLogLog.cs` |
-| GraphQL endpoints | `src/Relatude.DB.GraphQL/` — `Definitions/GraphQLEndpointDefinition.cs`, `GraphQLOptions.cs`, `Schema/SchemaBuilder.cs`, `Endpoints/GraphQLHttpHandler.cs`; the server side in `src/Relatude.DB.NodeServer/NodeServer/GraphQL/` |
-| AI services | `src/Relatude.DB.DataStore/AI/IAIProvider.cs`, `Imaging/IImagingProvider.cs`, `FileToText/IFileToTextProvider.cs`; the hosted services' clients in `src/Relatude.DB.Providers/` |
-| Jobs and the scheduler | `src/Relatude.DB.DataStore/Tasks/Scheduling/` — `Jobs.cs`, `ScheduleTimes.cs`, `ScheduleSettings.cs`; the built-in jobs in `src/Relatude.DB.DataStoreLocal/DataStores/DataStoreLocal.Jobs.cs` |
-| Relatude Services | `src/Relatude.DB.DataStore/SMS/ISMSProvider.cs` and the three above; the keys, the sign-in and reporting in in `src/Relatude.DB.NodeServer/NodeServer/LicenseLogin.cs` |
+| Server wiring and the admin UI | `src/Relatude.DB.NodeServer/`, `src/Relatude.DB.UI/` |
+| The command line tool | `src/Relatude.DB.Console/`, or run `relatude help all` |
+| GraphQL endpoints | `src/Relatude.DB.GraphQL/` |
+| AI and Relatude Services | The interfaces in `src/Relatude.DB.DataStore/` (`AI/`, `Imaging/`, `FileToText/`, `Translation/`, `IPLookup/`, `SMS/`); the hosted services' clients in `src/Relatude.DB.Providers/` |
+| Jobs and the scheduler | `src/Relatude.DB.DataStore/Tasks/Scheduling/`; the built-in jobs in `src/Relatude.DB.DataStoreLocal/DataStores/DataStoreLocal.Jobs.cs` |
 
-For measured numbers rather than API surface, see the
-[vector index benchmarks](vector-matrix.html) — a matrix sweep of the three vector engines over
-corpus size and cache budget, with throughput, recall, restart cost and memory footprint.
-
-Repository: <https://github.com/Relatude/Relatude.DB>
+For measured performance, see the [vector index benchmarks](vector-matrix.html): the three vector
+engines compared by corpus size and cache budget, with throughput, recall, restart cost and memory.
