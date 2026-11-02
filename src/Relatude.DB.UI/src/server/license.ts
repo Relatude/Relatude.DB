@@ -67,6 +67,13 @@ export interface LicenseInfo {
    * server, which means none.
    */
   smsSenders?: string[] | null;
+  /**
+   * The senders Relatude has approved for the license's e-mail, as the license server writes them:
+   * addresses, and whole domains written "@myshop.no", which let any address at the domain send. A
+   * message goes as one of these or as the e-mail service's own sender. Missing from an older license
+   * server, which means none.
+   */
+  emailSenders?: string[] | null;
   /** what the API key the license was asked for with is called; null for a key without a name, missing from an older license server */
   apiKeyName?: string | null;
   /** neither disabled nor expired */
@@ -219,6 +226,19 @@ export interface SmsReceipt {
   reference: string | null;
 }
 
+/** What the e-mail service said about a message it accepted. */
+export interface EmailReceipt {
+  messageId: string;
+  /** the address it went as */
+  from: string;
+  /** every address in to, cc and bcc, counted once: what it is charged by */
+  recipients: number;
+  bytes: number;
+  credits: number;
+  creditsLeft: number;
+  reference: string | null;
+}
+
 /** Whether a key from the license server is the one code refers to: trimmed and ignoring case, as the server matches it. */
 function isKey(key: string | null | undefined, expected: string): boolean {
   return (key ?? "").trim().toLowerCase() === expected;
@@ -230,6 +250,7 @@ function isKey(key: string | null | undefined, expected: string): boolean {
  */
 export const serviceAccounts = {
   sms: "sms",
+  email: "email",
   aiEmbeddings: "ai_embeddings",
   aiCompletion: "ai_completion",
   imaging: "ai_image",
@@ -295,6 +316,39 @@ export function licenseMayUseAnySmsSender(status: LicenseStatus): boolean {
  */
 export function sendTestSms(values: { from: string; to: string; message: string }): Promise<SmsReceipt> {
   return send<SmsReceipt>("license-sms-test", values);
+}
+
+/** Whether the license has the "email" credit account, which the Relatude Email service charges every recipient to; no feature is needed. */
+export function licenseCarriesEmail(status: LicenseStatus): boolean {
+  return licenseCarriesAccount(status, serviceAccounts.email);
+}
+
+/**
+ * The senders an e-mail may go as besides the e-mail service's own: the addresses and "@domain"s
+ * Relatude has approved for the license, while it is valid and active. Empty otherwise, and then only
+ * the service's own is left.
+ */
+export function licenseEmailSenders(status: LicenseStatus): string[] {
+  return status.state === "valid" && status.license?.active ? (status.license.emailSenders ?? []) : [];
+}
+
+/**
+ * Whether the license has the "emailanysender" feature, which lets its e-mail name any sender address
+ * with no approved senders at all: the license server allows any address, so the approved ones are
+ * beside the point and are not shown.
+ */
+export function licenseMayUseAnyEmailSender(status: LicenseStatus): boolean {
+  return status.state === "valid" && !!status.license?.features.some((f) => isKey(f.key, "emailanysender"));
+}
+
+/**
+ * Sends one real e-mail through the hosted Relatude Email service with this installation's API key,
+ * charged to the license. No database's e-mail settings are involved. An empty sender is the service's
+ * own; any other is checked with the license server first, and refused with its reason when it is
+ * neither approved for the license nor at a domain that is.
+ */
+export function sendTestEmail(values: { from: string; to: string; subject: string; text: string }): Promise<EmailReceipt> {
+  return send<EmailReceipt>("license-email-test", values);
 }
 
 /**

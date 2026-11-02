@@ -9,6 +9,7 @@ using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.IO;
 using Relatude.DB.Nodes;
 using Relatude.DB.NodeServer.Settings;
+using Relatude.DB.Email;
 using Relatude.DB.FileToText;
 using Relatude.DB.Imaging;
 using Relatude.DB.IPLookup;
@@ -364,6 +365,7 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
     void initializeCore() {
         AIEngine? ai = null;
         ISMSProvider? sms = null;
+        IEmailProvider? email = null;
         IImagingProvider? imaging = null;
         IFileToTextProvider? fileToText = null;
         ITranslationProvider? translation = null;
@@ -436,6 +438,13 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
                 sms = LateBindings.CreateSmsProvider(settings.SMSSettings, () => server.Settings.ApiKey,
                     (sender, cancellationToken) => server.LicenseLogin.CheckSmsSenderAsync(sender, cancellationToken));
             }
+            // E-mail the same way, for application code alone (NodeStore.Services.Email): resolved when the
+            // database opens, charged to this installation's license read at every send, and a sender of
+            // the caller's own checked with the license server before anything is posted
+            if (settings.EmailSettings != null) {
+                email = LateBindings.CreateEmailProvider(settings.EmailSettings, () => server.Settings.ApiKey,
+                    (sender, cancellationToken) => server.LicenseLogin.CheckEmailSenderAsync(sender, cancellationToken));
+            }
             // Image AI, the text of files and translation, for application code alone as well
             // (NodeStore.Services.Imaging, .FileToText, .Translation). Unlike SMS they are there without settings: there is no sender to
             // choose, the hosted Relatude services need nothing but this installation's license, read
@@ -444,7 +453,7 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
             // so a type that cannot be built says so when the database opens.
             imaging = LateBindings.CreateImagingProvider(settings.ImagingSettings, () => server.Settings.ApiKey);
             // The file-to-text provider takes the sound of a video with this database's file converters
-            // (the FFmpeg plugin), whose engine the store below creates: asked for when a video is read,
+            // (the built-in video converter), whose engine the store below creates: asked for when a video is read,
             // by which time the store is open.
             fileToText = LateBindings.CreateFileToTextProvider(settings.FileToTextSettings, () => server.Settings.ApiKey,
                 () => (datastore as DataStoreLocal)?.FileConversion);
@@ -530,7 +539,7 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
             // is most of an open when there is little to replay
             _openingStep = "Preparing the object mappers";
             // db.Settings: the custom settings the application registers, this database's and the server's
-            Store = new NodeStore(datastore, sms, imaging, fileToText, translation, ipLookup, server?.CustomSettings.SourceFor(settings.Id));
+            Store = new NodeStore(datastore, sms, imaging, fileToText, translation, ipLookup, server?.CustomSettings.SourceFor(settings.Id), email);
             _datastoreBeingBuilt = null;
             server?.RaiseEventStoreInit(this, Store);
         } catch {
@@ -547,6 +556,7 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
             // the store never took ownership, so nothing else will close their http clients
             if (Store == null) {
                 try { sms?.Dispose(); } catch { }
+                try { email?.Dispose(); } catch { }
                 try { imaging?.Dispose(); } catch { }
                 try { fileToText?.Dispose(); } catch { }
                 try { translation?.Dispose(); } catch { }

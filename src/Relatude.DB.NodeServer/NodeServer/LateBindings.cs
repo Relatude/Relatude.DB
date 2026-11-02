@@ -4,6 +4,7 @@ using Relatude.DB.DataStores;
 using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Indexes.KvStore;
 using Relatude.DB.IO;
+using Relatude.DB.Email;
 using Relatude.DB.FileToText;
 using Relatude.DB.Imaging;
 using Relatude.DB.IPLookup;
@@ -136,6 +137,24 @@ public static class LateBindings {
             return new RelatudeServicesSMSProvider(smsSettings, licenseApiKey, senderCheck);
         }
         return create<ISMSProvider>(smsSettings.TypeName, null, null, [smsSettings]);
+    }
+    /// <summary>
+    /// The e-mail provider a database sends messages through. One implementation so far, the hosted
+    /// Relatude service, which is also what an empty type name means, for the same reason as SMS: it is
+    /// the only one that needs no mail account of its own. It sends with <paramref name="licenseApiKey"/>,
+    /// the installation's own key, and asks <paramref name="senderCheck"/> - the license server, through
+    /// <see cref="LicenseLogin.CheckEmailSenderAsync"/> - whether a sender of the caller's own is approved
+    /// for the license before it posts anything. Anything else is taken as the full type name of a custom
+    /// provider and resolved the same way a custom SMS provider is; its mail service decides its senders.
+    /// <para>The names are matched the way <see cref="RelatudeServicesEmailProvider.IsProviderName"/>
+    /// matches them, which is also the rule the settings page hides the service URL and API key by
+    /// (SettingsCatalogTests checks the two agree).</para>
+    /// </summary>
+    internal static IEmailProvider CreateEmailProvider(EmailProviderSettings emailSettings, Func<string?>? licenseApiKey = null, Func<string, CancellationToken, Task<string?>>? senderCheck = null) {
+        if (string.IsNullOrWhiteSpace(emailSettings.TypeName) || RelatudeServicesEmailProvider.IsProviderName(emailSettings.TypeName)) {
+            return new RelatudeServicesEmailProvider(emailSettings, licenseApiKey, senderCheck);
+        }
+        return create<IEmailProvider>(emailSettings.TypeName, null, null, [emailSettings]);
     }
     /// <summary>
     /// The imaging provider a database calls for image AI. One implementation so far, the hosted

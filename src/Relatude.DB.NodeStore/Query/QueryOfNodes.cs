@@ -152,19 +152,19 @@ public class QueryOfNodes<TNode, TInclude> : IQueryOfNodes<TNode, TInclude> {
         return new QueryOfSearch<TNode, TInclude>(fork(q => q.Search(text, semanticRatio, minimumVectorSimilarity, orSearch, maxWordsEvaluatedWhenFuzzy, maxHitsEvaluatedBeforeRanked)));
     }
 
-    IQueryOfNodes<TProperty, TProperty> traverse<TProperty>(Guid propertyId, int maxLevel, int minLevel, GraphDirection direction, int? maxVisited) {
+    internal IQueryOfNodes<TProperty, TProperty> TraverseProperty<TProperty>(Guid propertyId, int maxLevel, int minLevel = 1, GraphDirection direction = GraphDirection.Default, int? maxVisited = null) {
         var q = _q.Clone();
         q.Traverse(propertyId.ToString(), minLevel, maxLevel, direction, maxVisited);
         return new QueryOfNodes<TProperty, TProperty>(q); // the query continues re-typed to the related node type
     }
     public IQueryOfNodes<TProperty, TProperty> Traverse<TProperty>(Expression<Func<TNode, TProperty>> relationProperty, int maxLevel, int minLevel = 1, GraphDirection direction = GraphDirection.Default, int? maxVisited = null)
-        => traverse<TProperty>(Store.Mapper.GetProperty(relationProperty).Id, maxLevel, minLevel, direction, maxVisited);
+        => TraverseProperty<TProperty>(Store.Mapper.GetProperty(relationProperty).Id, maxLevel, minLevel, direction, maxVisited);
     public IQueryOfNodes<TProperty, TProperty> Traverse<TProperty>(Expression<Func<TNode, IEnumerable<TProperty>>> relationProperty, int maxLevel, int minLevel = 1, GraphDirection direction = GraphDirection.Default, int? maxVisited = null)
-        => traverse<TProperty>(Store.Mapper.GetProperty(relationProperty).Id, maxLevel, minLevel, direction, maxVisited);
+        => TraverseProperty<TProperty>(Store.Mapper.GetProperty(relationProperty).Id, maxLevel, minLevel, direction, maxVisited);
     public IQueryOfNodes<TProperty, TProperty> Traverse<TProperty>(Expression<Func<TNode, TProperty[]?>> relationProperty, int maxLevel, int minLevel = 1, GraphDirection direction = GraphDirection.Default, int? maxVisited = null)
-        => traverse<TProperty>(Store.Mapper.GetProperty(relationProperty).Id, maxLevel, minLevel, direction, maxVisited);
+        => TraverseProperty<TProperty>(Store.Mapper.GetProperty(relationProperty).Id, maxLevel, minLevel, direction, maxVisited);
     public IQueryOfNodes<TProperty, TProperty> Traverse<TProperty>(Expression<Func<TNode, ICollection<TProperty>>> relationProperty, int maxLevel, int minLevel = 1, GraphDirection direction = GraphDirection.Default, int? maxVisited = null)
-        => traverse<TProperty>(Store.Mapper.GetProperty(relationProperty).Id, maxLevel, minLevel, direction, maxVisited);
+        => TraverseProperty<TProperty>(Store.Mapper.GetProperty(relationProperty).Id, maxLevel, minLevel, direction, maxVisited);
 
     public QueryOfShortestPath<TNode, TInclude> ShortestPath<TProperty>(Expression<Func<TNode, TProperty>> relationProperty, Guid fromNodeId, Guid toNodeId, int maxLevel = 1000, GraphDirection direction = GraphDirection.Default, int? maxVisited = null) {
         return new QueryOfShortestPath<TNode, TInclude>(fork(q => q.ShortestPath(Store.Mapper.GetProperty(relationProperty).Id.ToString(), fromNodeId, toNodeId, maxLevel, direction, maxVisited)));

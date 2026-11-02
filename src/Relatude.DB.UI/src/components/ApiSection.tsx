@@ -33,12 +33,14 @@ import {
   fetchEndpoints,
   fetchExamples,
   fetchExplorer,
+  fetchKeyUsers,
   newEndpointDefinition,
   normalizeDefinition,
   previewEndpoint,
   reloadEndpoints,
   saveEndpoint,
   type CatalogType,
+  type ApiKeyReader,
   type EndpointApiKey,
   type EndpointDefinition,
   type EndpointExample,
@@ -47,6 +49,7 @@ import {
   type EndpointsInfo,
   type EndpointTypeDef,
   type EndpointViewDef,
+  type KeyUser,
 } from "../server/graphql";
 import type { DatabaseInfo } from "../server/serverInfo";
 import { CodeEditor } from "./CodeEditor";
@@ -463,7 +466,7 @@ function EndpointEditor({
         </div>
       )}
       <div className={"api-editor-body" + (view === "try" || view === "code" || view === "json" || view === "explorer" ? " fill" : "")}>
-        {view === "settings" && <SettingsForm def={current} adminRoot={info.adminRoot} catalog={info.catalog} onChange={update} />}
+        {view === "settings" && <SettingsForm storeId={storeId} open={info.open} def={current} adminRoot={info.adminRoot} catalog={info.catalog} onChange={update} />}
         {view === "types" && <TypesEditor def={current} catalog={info.catalog} onChange={update} />}
         {view === "views" && <ViewsEditor def={current} onChange={update} />}
         {view === "code" && <CodeView def={current} preview={preview} busy={previewBusy} open={info.open} />}
@@ -478,11 +481,15 @@ function EndpointEditor({
 // ---- settings ----
 
 function SettingsForm({
+  storeId,
+  open,
   def,
   adminRoot,
   catalog,
   onChange,
 }: {
+  storeId: string;
+  open: boolean;
   def: EndpointDefinition;
   adminRoot: string;
   catalog: EndpointsInfo["catalog"];
@@ -601,7 +608,7 @@ function SettingsForm({
         )}
       </div>
     </section>
-    <ApiKeysEditor def={def} onChange={onChange} />
+    <ApiKeysEditor storeId={storeId} open={open} def={def} onChange={onChange} />
     </>
   );
 }
@@ -610,8 +617,21 @@ function SettingsForm({
 
 const dayMs = 24 * 60 * 60 * 1000;
 
-/** The endpoint's keys: one per client, each with a name and an expiry date, so one can be replaced or retired alone. */
-function ApiKeysEditor({ def, onChange }: { def: EndpointDefinition; onChange: (patch: Partial<EndpointDefinition>) => void }) {
+/**
+ * The endpoint's keys: one per client, each with a name, who its requests read as and an expiry date, so one can be
+ * replaced or retired alone.
+ */
+function ApiKeysEditor({
+  storeId,
+  open,
+  def,
+  onChange,
+}: {
+  storeId: string;
+  open: boolean;
+  def: EndpointDefinition;
+  onChange: (patch: Partial<EndpointDefinition>) => void;
+}) {
   const keys = def.apiKeys;
   const now = Date.now();
   const live = keys.filter((k) => !k.expires || Date.parse(k.expires) > now).length;
@@ -622,7 +642,7 @@ function ApiKeysEditor({ def, onChange }: { def: EndpointDefinition; onChange: (
     // a year from today; the name is left to be typed, since it is what tells the keys apart
     const expires = new Date(now);
     expires.setUTCFullYear(expires.getUTCFullYear() + 1);
-    onChange({ apiKeys: [...keys, { name: "", key: newKey(), expires: expiryOf(expires.toISOString().slice(0, 10)) }] });
+    onChange({ apiKeys: [...keys, { name: "", key: newKey(), expires: expiryOf(expires.toISOString().slice(0, 10)), readAs: "Anonymous", userId: null }] });
   }
   return (
     <section className="panel">
@@ -637,10 +657,15 @@ function ApiKeysEditor({ def, onChange }: { def: EndpointDefinition; onChange: (
         of its own, so that one can be replaced or retired without the others. A key stops working at 00:00 UTC on its expiry date; once every key has expired, every
         request is turned away.
       </p>
+      <p className="muted api-help">
+        Each key also says who its requests read as: an anonymous visitor, who sees the published nodes everyone may read; a user of the database, with what that
+        user's type and groups may read; or the master admin, who reads every published node whatever its read access.
+      </p>
       {keys.length > 0 && (
         <div className="api-apikey-row api-apikey-head">
           <span>Name</span>
           <span>Key</span>
+          <span>Reads as</span>
           <span>Expires (UTC)</span>
           <span />
           <span />
@@ -657,6 +682,19 @@ function ApiKeysEditor({ def, onChange }: { def: EndpointDefinition; onChange: (
                 <IconWand size={16} stroke={1.8} />
               </button>
               <CopyText text={k.key} title="Copy the key" />
+            </span>
+            <span className="api-key-reader">
+              <select
+                className="select"
+                value={k.readAs ?? "Anonymous"}
+                title={readerHelp[k.readAs ?? "Anonymous"]}
+                onChange={(e) => updateKey(i, { readAs: e.target.value as ApiKeyReader, userId: e.target.value === "User" ? k.userId ?? null : null })}
+              >
+                <option value="Anonymous">Anonymous visitor</option>
+                <option value="User">A user</option>
+                <option value="Admin">Master admin</option>
+              </select>
+              {k.readAs === "User" && <KeyUserPicker storeId={storeId} open={open} value={k.userId ?? null} onChange={(userId) => updateKey(i, { userId })} />}
             </span>
             <span className="api-key-row">
               <input className="text-input" type="date" value={k.expires ? k.expires.slice(0, 10) : ""} onChange={(e) => updateKey(i, { expires: e.target.value ? expiryOf(e.target.value) : null })} />
@@ -680,6 +718,56 @@ function ApiKeysEditor({ def, onChange }: { def: EndpointDefinition; onChange: (
         {keys.length === 0 && def.allowMutations && <span className="clog-field-hint bad">Mutations without a key: anyone who can reach the url can change data.</span>}
       </div>
     </section>
+  );
+}
+
+const readerHelp: Record<ApiKeyReader, string> = {
+  Anonymous: "Reads the published nodes everyone may read.",
+  User: "Reads what the user's type and groups may read.",
+  Admin: "Reads every published node, whatever its read access.",
+};
+
+/** The user a key reads as, chosen from the database's users by name; with many users, typing narrows the list. */
+function KeyUserPicker({ storeId, open, value, onChange }: { storeId: string; open: boolean; value: string | null; onChange: (userId: string | null) => void }) {
+  const [search, setSearch] = useState("");
+  const [answer, setAnswer] = useState<{ users: KeyUser[]; more: boolean } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      fetchKeyUsers(storeId, search, value ? [value] : [], controller.signal).then(
+        (r) => {
+          setAnswer(r);
+          setError(null);
+        },
+        (e) => {
+          if (!controller.signal.aborted) setError(e instanceof Error ? e.message : String(e));
+        },
+      );
+    }, search ? 250 : 0);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [storeId, open, search, value]);
+  if (!open) return <span className="clog-field-hint">The database is closed, so its users cannot be listed.</span>;
+  const users = answer?.users ?? [];
+  const missing = !!value && !!answer && !users.some((u) => u.id === value);
+  return (
+    <>
+      {(search || answer?.more) && <input className="text-input" value={search} placeholder="Find a user by name or id" onChange={(e) => setSearch(e.target.value)} />}
+      <select className={"select" + (missing || !value ? " api-bad" : "")} value={value ?? ""} onChange={(e) => onChange(e.target.value || null)}>
+        <option value="">{answer ? (users.length ? "Choose a user" : "No users found") : "Loading users"}</option>
+        {users.map((u) => (
+          <option key={u.id} value={u.id}>
+            {u.type === "User" ? u.name : `${u.name} (${u.type})`}
+          </option>
+        ))}
+        {missing && <option value={value}>{value} (not in the database)</option>}
+      </select>
+      {error && <span className="clog-field-hint bad">{error}</span>}
+    </>
   );
 }
 

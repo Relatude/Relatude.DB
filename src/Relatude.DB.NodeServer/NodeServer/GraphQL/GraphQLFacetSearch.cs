@@ -65,7 +65,8 @@ public sealed class GraphQLFacetSearch : IGraphQLFacetSearch {
                     return;
                 case "cards": {
                         var request = await read<CardsRequest>(http);
-                        await write(http, UIQuery.CardsOf(store, request.Ids, queryContext, rulesOf(scope)));
+                        var ids = (request.Ids ?? []).Distinct().Take(UIQuery.maxCardsPerLookup).ToArray();
+                        await write(http, UIQuery.CardsOf(store, ids, queryContext, rulesOf(scope, readable(store, ids, queryContext))));
                         return;
                     }
                 case "node": {
@@ -75,9 +76,10 @@ public sealed class GraphQLFacetSearch : IGraphQLFacetSearch {
                     }
                 case "card-images": {
                         var request = await read<CardImagesRequest>(http);
+                        var items = (request.Items ?? []).Take(UIQuery.maxCardImagesPerBatch).ToArray();
                         // no tiles: the page draws its cards as solids, whose faces have no part of a picture "in view"
                         // to cut a sharper one out of - and a tile is the costliest conversion there is
-                        await UIQuery.WriteCardImagesOf(http, store, request.Level, request.Items, queryContext, rulesOf(scope), tiles: false);
+                        await UIQuery.WriteCardImagesOf(http, store, request.Level, items, queryContext, rulesOf(scope, readable(store, items.Select(i => i.Id), queryContext)), tiles: false);
                         return;
                     }
                 default:
@@ -120,11 +122,29 @@ public sealed class GraphQLFacetSearch : IGraphQLFacetSearch {
     static UIQuery.FacetSelection[] selectionsOf(IReadOnlySet<Guid> allowed, UIQuery.FacetSelection[]? selections)
         => [.. (selections ?? []).Where(s => allowed.Contains(s.PropertyId))];
 
-    /// <summary>A card is a node seen through the endpoint; its picture and its name come from what its type shows.</summary>
-    static UIQuery.CardRules rulesOf(GraphQLFacetScope scope) => new(
-        n => scope.ShowsType(n.NodeType),
+    /// <summary>
+    /// A card is a node seen through the endpoint, one of the <paramref name="readable"/> ones; its picture and its
+    /// name come from what its type shows.
+    /// </summary>
+    static UIQuery.CardRules rulesOf(GraphQLFacetScope scope, IReadOnlySet<int> readable) => new(
+        n => scope.ShowsType(n.NodeType) && readable.Contains(n.__Id),
         (n, propertyId) => scope.Shows(n.NodeType, propertyId),
         (dm, n) => UIQuery.nameOf(dm, n, propertyId => scope.Shows(n.NodeType, propertyId)).Name);
+
+    /// <summary>
+    /// Which of these nodes the context reads. The requests that name nodes by id read them by id, and a read by id
+    /// skips read access, so they ask a query first.
+    /// </summary>
+    static HashSet<int> readable(NodeStore s, IEnumerable<int> ids, QueryContext? ctx) {
+        var asked = ids.Distinct().ToArray();
+        if (asked.Length == 0) return [];
+        var read = s.Query(ctx).Where(asked).SelectId().Execute().ToHashSet();
+        return [.. asked.Where(id => s.Datastore.TryGetGuid(id, out var guid) && read.Contains(guid))];
+    }
+    static HashSet<Guid> readable(NodeStore s, IEnumerable<Guid> ids, QueryContext? ctx) {
+        var asked = ids.Where(id => id != Guid.Empty).Distinct().ToArray();
+        return asked.Length == 0 ? [] : s.Query(ctx).Where(asked).SelectId().Execute().ToHashSet();
+    }
 
     // ---- the requests ----
 
@@ -231,12 +251,14 @@ public sealed class GraphQLFacetSearch : IGraphQLFacetSearch {
     /// </summary>
     static object node(NodeStore s, GraphQLFacetScope scope, int id, QueryContext? ctx) {
         var dm = s.Datastore.Datamodel;
-        if (!s.Datastore.TryGet(id, out var n, ctx) || scope.SeenAs(n.NodeType) is not NodeTypeModel seenAs) throw new NotFound("The node is not shown by this endpoint.");
+        if (!readable(s, [id], ctx).Contains(id) || !s.Datastore.TryGet(id, out var n, ctx) || scope.SeenAs(n.NodeType) is not NodeTypeModel seenAs) throw new NotFound("The node is not shown by this endpoint.");
         string nameOf(INodeData node) => UIQuery.nameOf(dm, node, propertyId => scope.Shows(node.NodeType, propertyId)).Name;
         string[] namesOf(IEnumerable<Guid> ids) {
             var names = new List<string>();
-            foreach (var related in ids.Where(g => g != Guid.Empty).Take(maxListedNodes)) {
-                if (s.Datastore.TryGet(related, out var r, ctx) && scope.ShowsType(r.NodeType)) names.Add(nameOf(r));
+            var listed = ids.Where(g => g != Guid.Empty).Take(maxListedNodes).ToArray();
+            var shown = readable(s, listed, ctx);
+            foreach (var related in listed) {
+                if (shown.Contains(related) && s.Datastore.TryGet(related, out var r, ctx) && scope.ShowsType(r.NodeType)) names.Add(nameOf(r));
             }
             return [.. names];
         }
@@ -265,7 +287,7 @@ public sealed class GraphQLFacetSearch : IGraphQLFacetSearch {
                         }
                     case ReferencesPropertyModel: {
                             var ids = n.TryGetValue(p.Id, out var value) && value is Guid[] many ? many : [];
-                            properties.Add(new NodeProperty(p.Id, p.CodeName, kind, null, namesOf(ids), ids.Length));
+                            properties.Add(new NodeProperty(p.Id, p.CodeName, kind, null, namesOf(ids), readable(s, ids, ctx).Count));
                             break;
                         }
                     default: {

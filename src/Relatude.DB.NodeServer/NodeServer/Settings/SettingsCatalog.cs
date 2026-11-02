@@ -1,6 +1,7 @@
 using Relatude.DB.AI;
 using Relatude.DB.DataStores;
 using Relatude.DB.Datamodels;
+using Relatude.DB.Email;
 using Relatude.DB.FileToText;
 using Relatude.DB.Imaging;
 using Relatude.DB.IPLookup;
@@ -266,6 +267,17 @@ public static class SettingsCatalog {
     static SettingVisibility relatudeSmsService() => new() {
         Path = "SMSSettings.TypeName",
         Values = ["", RelatudeServicesSMSProvider.ShortName, nameof(RelatudeServicesSMSProvider)],
+    };
+
+    /// <summary>
+    /// What the e-mail provider type holds when it means the hosted Relatude service, as for SMS: nothing,
+    /// or one of the service's two names - the ones <c>LateBindings.CreateEmailProvider</c> builds the
+    /// service for. The service URL and API key only a custom provider uses are hidden for exactly these;
+    /// SettingsCatalogTests checks the two stay in step.
+    /// </summary>
+    static SettingVisibility relatudeEmailService() => new() {
+        Path = "EmailSettings.TypeName",
+        Values = ["", RelatudeServicesEmailProvider.ShortName, nameof(RelatudeServicesEmailProvider)],
     };
 
     /// <summary>
@@ -1208,6 +1220,37 @@ public static class SettingsCatalog {
                         },
                     ],
                 },
+                new() {
+                    Id = "email",
+                    Title = "E-mail provider",
+                    Help = "How this database sends e-mail. Nothing in the database sends one by itself: this is for your own code, which reaches it as NodeStore.Services.Email. Leave it empty on a database that sends none.",
+                    Settings = [
+                        new() {
+                            Path = "EmailSettings.TypeName", Label = "Provider type", Placeholder = RelatudeServicesEmailProvider.ShortName,
+                            // the names LateBindings.CreateEmailProvider knows; SettingsCatalogTests checks they stay in step
+                            Help = "Selects the provider implementation. The Relatude service is the only one built in, and what an empty value means: it sends through the hosted Relatude Email service and charges every recipient to this installation's license, from its \"email\" credit account, so it needs no service URL or API key here. Anything else is taken as the full type name of a custom provider and resolved when the database opens, so a typo shows up as a start-up error.",
+                            Suggestions = [
+                                new() { Value = RelatudeServicesEmailProvider.ShortName, Hint = "billed to your Relatude license, no mail account" },
+                            ],
+                        },
+                        new() {
+                            Path = "EmailSettings.ServiceUrl", Label = "Service URL", HiddenWhen = relatudeEmailService(),
+                            Help = "The endpoint the custom provider calls.",
+                        },
+                        new() {
+                            Path = "EmailSettings.ApiKey", Label = "API key", Secret = true, HiddenWhen = relatudeEmailService(),
+                            Help = "The key the custom provider sends with. Keep it in appsettings, an environment variable or user secrets rather than the settings file - configuration values are never written back to disk.",
+                        },
+                        new() {
+                            Path = "EmailSettings.From", Label = "Sender address", Placeholder = "the service's own",
+                            Help = "The address a message comes from when the code names none; leave it empty to use the service's own. The Relatude service only sends as an address approved for the license, or any address at a domain approved for it, which are requested on the license's page in Relatude Services and approved by Relatude. Any other is refused before anything is sent. A custom provider's mail service decides its own senders.",
+                        },
+                        new() {
+                            Path = "EmailSettings.FromName", Label = "Sender name",
+                            Help = "The name shown beside the sender address, such as \"My Shop\". Only used with the address above: a message that names a sender of its own gives its own name.",
+                        },
+                    ],
+                },
             ],
         },
         new() {
@@ -1243,7 +1286,7 @@ public static class SettingsCatalog {
                 new() {
                     Id = "filetotext",
                     Title = "File to text",
-                    Help = "The plain text of files - documents, spreadsheets, presentations, e-mails, e-books, PDFs, pictures read by OCR, and recordings and videos transcribed with when each line is spoken - for your own code to index or show, which reaches it as NodeStore.Services.FileToText. It is there without any settings, calling the hosted Relatude FileToText service with this installation's license, and nothing is charged until code calls it. A video's sound is taken out on this server by the FFmpeg file converter (Relatude.DB.Plugins.FFMpeg), which the server must have.",
+                    Help = "The plain text of files - documents, spreadsheets, presentations, e-mails, e-books, PDFs, pictures read by OCR, and recordings and videos transcribed with when each line is spoken - for your own code to index or show, which reaches it as NodeStore.Services.FileToText. It is there without any settings, calling the hosted Relatude FileToText service with this installation's license, and nothing is charged until code calls it. A video's sound is taken out on this server by the built-in video converter, which downloads FFmpeg the first time it is needed.",
                     Settings = [
                         new() {
                             Path = "FileToTextSettings.TypeName", Label = "Provider type", Placeholder = RelatudeServicesFileToTextProvider.ShortName,

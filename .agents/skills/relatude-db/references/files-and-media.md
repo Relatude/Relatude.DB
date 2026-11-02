@@ -304,12 +304,11 @@ So: **define a small set of named presets and reuse them.** Generating adjustmen
 
 ## Conversion is asynchronous
 
-Converters are registered at startup and there is no built-in default — without them every conversion fails with `No converter available from JPEG to WEBP`:
+Conversion works without registering anything: every store converts JPEG, PNG, WebP, GIF and BMP pictures itself, and takes frames and sound from video with FFmpeg, which it downloads beside the application the first time it is needed. Converters you add are tried first, for formats the built-in ones do not read:
 
 ```csharp
 builder.AddRelatudeDB(options => {
-    options.FileConverters.Add(new SkiaImageConverter(1));   // images
-    options.FileConverters.Add(new FFMpegVideoConverter());  // video
+    options.FileConverters.Add(new SkiaImageConverter(1));   // adds AVIF, for example
 });
 ```
 
@@ -428,7 +427,7 @@ This middleware serves whatever the URL points at. Filtering by the caller's per
 - **`FileType` / `Format` come from the file name**, so a wrong extension routes the file to the wrong converter.
 - **Multipart chunks are strictly ordered**, sessions are in-memory and per-instance, and they expire after 10 minutes idle.
 - **Only stores implementing `IFileStoreMultiPartSupport` accept chunked uploads.** Check `FileStoreSupportsMultipartUploads` first.
-- **Register file converters at startup**, or every conversion returns "No converter available".
+- **Conversion is built in.** Every store converts JPEG, PNG, WebP, GIF and BMP pictures, and video with FFmpeg, which it downloads the first time it is needed. Register a converter only for more formats; one no converter reads returns "No converter available".
 - **Put the media middleware before `UseStaticFiles()`** and always fall through when the URL is not a Relatude URL.
 
 ## Where to look in the source

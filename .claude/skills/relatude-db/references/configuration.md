@@ -255,9 +255,8 @@ Everything configurable from `Program.cs`:
 ```csharp
 builder.AddRelatudeDB(options => {
 
-    // File conversion — nothing converts images or video without these
-    options.FileConverters.Add(new SkiaImageConverter(1));
-    options.FileConverters.Add(new FFMpegVideoConverter());
+    // File conversion — optional: tried before the built-in image and video converters
+    options.FileConverters.Add(new SkiaImageConverter(1));   // adds AVIF, for example
 
     // Folders
     options.DefaultDataFolderPath = "data";

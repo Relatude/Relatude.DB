@@ -2350,8 +2350,8 @@ sealed class UIQuery {
     const int maxVisualGroups = 500;
     // What a card shows once it is large enough to be read: its name and its picture. Both are asked
     // for by the browser for the cards on screen only, so neither bound is about the size of the result.
-    const int maxCardsPerLookup = 1000;
-    const int maxCardImagesPerBatch = 128;
+    internal const int maxCardsPerLookup = 1000;
+    internal const int maxCardImagesPerBatch = 128;
     // The widths a card picture is made at, each twice the one before: the browser asks for the
     // smallest that is at least as wide as the card on its screen and scales the rest itself. A
     // picture is three quarters as high as it is wide - the card's strip for the name takes the rest.

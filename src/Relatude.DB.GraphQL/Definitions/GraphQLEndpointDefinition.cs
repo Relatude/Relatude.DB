@@ -1,7 +1,18 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Relatude.DB.Datamodels;
 
 namespace Relatude.DB.GraphQL;
+
+/// <summary>Who a request carrying an API key reads as (<see cref="GraphQLApiKey.ReadAs"/>).</summary>
+public enum GraphQLApiKeyReader {
+    /// <summary>An anonymous visitor: the published nodes that everyone may read.</summary>
+    Anonymous,
+    /// <summary>The user node <see cref="GraphQLApiKey.UserId"/> names: what its user type and its groups may read.</summary>
+    User,
+    /// <summary>The master admin: every published node, whatever its read access.</summary>
+    Admin,
+}
 
 public enum GraphQLEndpointMode {
     /// <summary>Only the node types and properties listed in <see cref="GraphQLEndpointDefinition.Types"/> are exposed.</summary>
@@ -141,8 +152,19 @@ public sealed class GraphQLApiKey {
     public string Key { get; set; } = "";
     /// <summary>The moment the key stops working, in UTC; null for a key that does not expire.</summary>
     public DateTime? Expires { get; set; }
+    /// <summary>Who a request with this key reads as: an anonymous visitor unless set.</summary>
+    public GraphQLApiKeyReader ReadAs { get; set; }
+    /// <summary>The user node a request with this key reads as, when <see cref="ReadAs"/> is <see cref="GraphQLApiKeyReader.User"/>.</summary>
+    public Guid? UserId { get; set; }
 
     public bool IsExpired(DateTime utcNow) => Expires is DateTime e && e <= utcNow;
+
+    /// <summary>The query context a request with this key reads in. A user key that names no user reads as an anonymous visitor.</summary>
+    public QueryContext Context() => ReadAs switch {
+        GraphQLApiKeyReader.Admin => QueryContext.MasterAdmin,
+        GraphQLApiKeyReader.User when UserId is Guid id && id != Guid.Empty => QueryContext.Anonymous.User(id),
+        _ => QueryContext.Anonymous,
+    };
 
     /// <summary>A time read from a file as UTC: one without a zone ("2027-01-01") is taken as UTC, a local one is converted.</summary>
     public static DateTime? AsUtc(DateTime? time) => time switch {

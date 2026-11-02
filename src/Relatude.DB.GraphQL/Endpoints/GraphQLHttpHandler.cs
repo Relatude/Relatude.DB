@@ -29,6 +29,12 @@ public enum ApiKeyCheck {
 public static class GraphQLHttpHandler {
     public const string ApiKeyHeader = "X-Api-Key";
 
+    /// <summary>
+    /// Answers one request to the endpoint's url. <paramref name="queryContext"/> is who the request reads as, the facet
+    /// search and the explorer's samples included. Null reads as the API key the request carries says
+    /// (<see cref="GraphQLApiKey.ReadAs"/>), else as an anonymous visitor; never as the store's default context, which for a
+    /// database the server opens is the master admin, who reads every node whatever its read access.
+    /// </summary>
     public static async Task HandleAsync(HttpContext http, RelatudeGraphQL executor, QueryContext? queryContext) {
         var definition = executor.Definition;
         var facets = executor.FacetSearchAvailable;
@@ -52,6 +58,14 @@ public static class GraphQLHttpHandler {
             });
             return;
         }
+        if (queryContext == null && usedKey != null) {
+            if (usedKey.ReadAs == GraphQLApiKeyReader.User && (usedKey.UserId is not Guid userId || !executor.Store.ExistsAndIsType(userId, NodeConstants.BaseUserId))) {
+                await writeErrors(http, StatusCodes.Status403Forbidden, "The API key reads as a user who is not in the database.");
+                return;
+            }
+            queryContext = usedKey.Context();
+        }
+        queryContext ??= QueryContext.Anonymous;
         if (HttpMethods.IsOptions(http.Request.Method)) {
             http.Response.StatusCode = StatusCodes.Status204NoContent;
             http.Response.Headers.Allow = "GET, POST, OPTIONS";

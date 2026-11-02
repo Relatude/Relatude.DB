@@ -1552,7 +1552,8 @@ hours on a venue, line items on an order, price tiers on an event.</p>
 <p>An embedded class is part of the model, so register it with your node types
 (<a href="#12-registering-the-model-the-admin-ui">§12</a>): <code>AddNamespace</code> picks it up, <code>Add&lt;T&gt;</code> on the parent
 does not. On an interface, declare embedded properties getter-only; the store creates the collection.
-There are two kinds.</p>
+On a class, initialise them: declare an <code>Embedded&lt;T&gt;</code> getter-only, <code>{ get; } = [];</code>, which the store
+fills, and an <code>EmbeddedMap</code> with a setter, <code>{ get; set; } = [];</code>. There are two kinds.</p>
 <h3 id="embedded-a-collection-keyed-by-the-embedded-objects-own-guid-id"><code>Embedded&lt;T&gt;</code> — a collection keyed by the embedded object's own <code>Guid Id</code><a class="anchor" href="#embedded-a-collection-keyed-by-the-embedded-objects-own-guid-id" aria-label="Link to this section">#</a></h3>
 <div class="codehilite"><pre><span></span><code><span class="k">public</span><span class="w"> </span><span class="k">class</span><span class="w"> </span><span class="nc">PriceTier</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="k">public</span><span class="w"> </span><span class="n">Guid</span><span class="w"> </span><span class="n">Id</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
@@ -2682,6 +2683,11 @@ optional: without <code>ApiKey</code>, nothing is charged and nothing is reporte
 <td><code>SMSSettings</code></td>
 <td>null</td>
 <td>The provider behind <code>db.Services.SMS</code> (<a href="#35-relatude-services">§35</a>). Null means no SMS, and <code>db.Services.SMS</code> throws.</td>
+</tr>
+<tr>
+<td><code>EmailSettings</code></td>
+<td>null</td>
+<td>The provider behind <code>db.Services.Email</code> (<a href="#35-relatude-services">§35</a>). Null means no e-mail, and <code>db.Services.Email</code> throws.</td>
 </tr>
 <tr>
 <td><code>LocalSettings</code></td>
@@ -5690,7 +5696,7 @@ the page and the total. Use <code>Page</code> for pagination:</p>
 </tr>
 <tr>
 <td><code>PageIndex</code>, <code>PageSize</code>, <code>PageCount</code></td>
-<td>The page asked for, and how many pages there are</td>
+<td>The page asked for, and how many pages the matches fill: at least one, and one when the query is not paged</td>
 </tr>
 <tr>
 <td><code>IsAll</code></td>
@@ -7161,15 +7167,13 @@ endpoint as they change.</p>
 queries against it. See <a href="#331-an-endpoint-in-the-admin-ui">§33.1</a>.</p>
 <p><strong>In code.</strong> Map a route in <code>Program.cs</code> that exposes the whole datamodel. See
 <a href="#339-code-first-mapping-an-endpoint-in-programcs">§33.9</a>.</p>
-<div class="codehilite"><pre><span></span><code><span class="k">using</span><span class="w"> </span><span class="nn">Relatude.DB.Datamodels</span><span class="p">;</span><span class="w">   </span><span class="c1">// QueryContext</span>
-<span class="k">using</span><span class="w"> </span><span class="nn">Relatude.DB.GraphQL</span><span class="p">;</span>
+<div class="codehilite"><pre><span></span><code><span class="k">using</span><span class="w"> </span><span class="nn">Relatude.DB.GraphQL</span><span class="p">;</span>
 <span class="k">using</span><span class="w"> </span><span class="nn">Relatude.DB.NodeServer</span><span class="p">;</span>
 
 <span class="n">app</span><span class="p">.</span><span class="n">UseRelatudeDB</span><span class="p">();</span>
 <span class="n">app</span><span class="p">.</span><span class="n">MapRelatudeDBGraphQL</span><span class="p">(</span><span class="s">&quot;/graphql&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">o</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="n">o</span><span class="p">.</span><span class="n">StoreResolver</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">RelatudeDBRuntime</span><span class="p">.</span><span class="n">Database</span><span class="p">.</span><span class="n">Datastore</span><span class="p">;</span>
-<span class="w">    </span><span class="n">o</span><span class="p">.</span><span class="n">QueryContextFactory</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">QueryContext</span><span class="p">.</span><span class="n">Anonymous</span><span class="p">;</span><span class="w">   </span><span class="c1">// read as an anonymous visitor</span>
-<span class="w">    </span><span class="n">o</span><span class="p">.</span><span class="n">EnableExplorer</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">true</span><span class="p">;</span><span class="w">                               </span><span class="c1">// open /graphql in a browser to try it</span>
+<span class="w">    </span><span class="n">o</span><span class="p">.</span><span class="n">EnableExplorer</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">true</span><span class="p">;</span><span class="w">   </span><span class="c1">// open /graphql in a browser to try it</span>
 <span class="p">});</span>
 </code></pre></div>
 
@@ -7221,7 +7225,9 @@ views:</p>
 </tbody>
 </table>
 <p><strong>Add key</strong>, in <strong>Settings</strong>, adds a generated API key that expires in a year. Name it after the
-client that uses it. You can change or clear the expiry date.</p>
+client that uses it. You can change or clear the expiry date. <strong>Reads as</strong> says who the key's
+requests read as: an anonymous visitor, a user of the database (chosen from its users by name), or
+the master admin (<a href="#3310-who-reads-and-the-limits">§33.10</a>).</p>
 <p>The editor works on a draft, so you see the schema a change gives before you save. Warnings say
 what the schema leaves out or renames. Errors, such as a url another endpoint uses, block saving.
 <strong>Save</strong> writes the file, and the next request gets the new schema, with no restart.</p>
@@ -7230,9 +7236,10 @@ what the schema leaves out or renames. Errors, such as a url another endpoint us
 <p>An endpoint's url can be any path the admin UI does not use, and must be unique on the server,
 across databases. While the database is not open, the url answers <code>503</code>.</p>
 <blockquote>
-<p><strong>The url is public.</strong> The admin UI's login does not cover an endpoint, and an endpoint made here
-ignores read access (<a href="#3310-who-reads-and-the-limits">§33.10</a>). Protect it with API keys or a
-reverse proxy, or expose only types whose nodes anyone may see.</p>
+<p><strong>The url is public.</strong> The admin UI's login does not cover an endpoint. An endpoint made here
+reads as an anonymous visitor unless the request's API key says otherwise, so without keys it serves
+only the nodes everyone may read (<a href="#3310-who-reads-and-the-limits">§33.10</a>). To decide who may query
+it at all, give it API keys or put it behind a reverse proxy.</p>
 </blockquote>
 <h3 id="332-the-definition-file">33.2 The definition file<a class="anchor" href="#332-the-definition-file" aria-label="Link to this section">#</a></h3>
 <p>An endpoint is a JSON file, <code>&lt;name&gt;.json</code>, kept in one of two places like the other definitions
@@ -7257,7 +7264,8 @@ trailing commas are allowed, and enum values are written by name.</p>
 <span class="w">  </span><span class="nt">&quot;enableFacetSearch&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
 <span class="w">  </span><span class="nt">&quot;apiKeys&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
 <span class="w">    </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Web site&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;key&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;6f1c…&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;expires&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2027-10-07T00:00:00Z&quot;</span><span class="w"> </span><span class="p">},</span>
-<span class="w">    </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Mobile app&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;key&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;a93e…&quot;</span><span class="w"> </span><span class="p">}</span>
+<span class="w">    </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Mobile app&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;key&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;a93e…&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;readAs&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;User&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;userId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;5b0e2c71-8d3f-4a96-b1e4-07c9a6f2d813&quot;</span><span class="w"> </span><span class="p">},</span>
+<span class="w">    </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Backoffice&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;key&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;d27b…&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;readAs&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Admin&quot;</span><span class="w"> </span><span class="p">}</span>
 <span class="w">  </span><span class="p">],</span>
 <span class="w">  </span><span class="nt">&quot;defaultPageSize&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">25</span><span class="p">,</span>
 <span class="w">  </span><span class="nt">&quot;maxPageSize&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">200</span><span class="p">,</span>
@@ -7371,7 +7379,7 @@ rename. The <strong>Types</strong> view fills in the ids, so start a file there.
 <tr>
 <td><code>apiKeys[]</code></td>
 <td>none</td>
-<td>With any keys, every request needs one that has not expired (<a href="#337-over-http">§33.7</a>). Each has a <code>name</code>, the <code>key</code> and <code>expires</code>, in UTC.</td>
+<td>With any keys, every request needs one that has not expired (<a href="#337-over-http">§33.7</a>). Each has a <code>name</code>, the <code>key</code>, <code>expires</code> in UTC, and <code>readAs</code> with <code>userId</code>: who its requests read as (<a href="#3310-who-reads-and-the-limits">§33.10</a>).</td>
 </tr>
 <tr>
 <td><code>maxQueryDepth</code></td>
@@ -7402,7 +7410,9 @@ rename. The <strong>Types</strong> view fills in the ids, so start a file there.
 </table>
 <p>In <code>types[]</code>, <code>"properties": null</code> exposes every property of the type, and a list exposes only the
 properties it names, each with a <code>propertyId</code> and an optional field <code>name</code>. In <code>apiKeys[]</code>, leave
-out <code>expires</code> for a key that never expires.</p>
+out <code>expires</code> for a key that never expires. <code>readAs</code> is <code>Anonymous</code> (the default), <code>User</code> or
+<code>Admin</code>, and a <code>User</code> key names the user node in <code>userId</code>; saving refuses a user key without a user,
+or with one the database does not have.</p>
 <h3 id="333-the-schema">33.3 The schema<a class="anchor" href="#333-the-schema" aria-label="Link to this section">#</a></h3>
 <p>Every exposed node type gets a GraphQL type and two root fields on <code>Query</code>:</p>
 <ul>
@@ -7896,13 +7906,15 @@ described in <a href="#17-uploading-files">§17</a>.</p>
 <li><code>400</code> when the request produced no data at all (syntax, validation, variables), or the body is
   not valid JSON;</li>
 <li><code>401</code> when the API key is missing, wrong or expired;</li>
+<li><code>403</code> when the key reads as a user the database no longer has;</li>
 <li><code>503</code> while the database is not open.</li>
 </ul>
 <p>Every result carries <code>extensions.durationMs</code>, the time the request took on the server.</p>
 <p><strong>API keys.</strong> An endpoint with <code>apiKeys</code> needs one of them on every request, in an <code>X-Api-Key</code>
 header or as <code>Authorization: Bearer &lt;key&gt;</code>. An expired key gets a <code>401</code> that says so, and when
 every key has expired, every request is turned away. Give each client its own key. To replace one,
-add the new key, move the client over, then remove the key it replaces or let it expire.</p>
+add the new key, move the client over, then remove the key it replaces or let it expire. A key also
+says who its requests read as, so two clients of one endpoint can see different nodes.</p>
 <div class="codehilite"><pre><span></span><code>curl<span class="w"> </span>-s<span class="w"> </span>https://example.com/api/graphql<span class="w"> </span>-H<span class="w"> </span><span class="s2">&quot;Content-Type: application/json&quot;</span><span class="w"> </span>-H<span class="w"> </span><span class="s2">&quot;X-Api-Key: </span><span class="nv">$KEY</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>-d<span class="w"> </span><span class="s1">&#39;{&quot;query&quot;:&quot;query($n:Int){ events(pageSize:$n){ totalCount items { title } } }&quot;,&quot;variables&quot;:{&quot;n&quot;:5}}&#39;</span>
 </code></pre></div>
@@ -7985,8 +7997,8 @@ with its options set in code. An interface <code>IEvent</code> gives the root fi
 </tr>
 <tr>
 <td><code>QueryContextFactory</code></td>
-<td>the store's default context</td>
-<td>The query context per request: user, culture, unpublished or hidden nodes (<a href="#29-cultures-visibility-and-scoped-stores">§29</a>). Set it: the default for a database <code>UseRelatudeDB</code> opens is the master admin.</td>
+<td>an anonymous visitor</td>
+<td>The query context per request: user, culture, unpublished or hidden nodes (<a href="#29-cultures-visibility-and-scoped-stores">§29</a>). A request reads as an anonymous visitor when there is no factory or it returns <code>null</code>.</td>
 </tr>
 <tr>
 <td><code>TransactionExecutor</code></td>
@@ -8017,7 +8029,7 @@ store is replaced, for example by a soft restart.</p>
 options, or a definition:</p>
 <div class="codehilite"><pre><span></span><code><span class="kt">var</span><span class="w"> </span><span class="n">gql</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">RelatudeGraphQL</span><span class="p">(</span><span class="n">db</span><span class="p">.</span><span class="n">Datastore</span><span class="p">,</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">GraphQLOptions</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">AllowMutations</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">true</span><span class="w"> </span><span class="p">});</span>
 <span class="kt">var</span><span class="w"> </span><span class="n">request</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">GraphQLRequest</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">Query</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;{ iEvents { totalCount } }&quot;</span><span class="w"> </span><span class="p">};</span>
-<span class="n">GraphQLResult</span><span class="w"> </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">gql</span><span class="p">.</span><span class="n">Execute</span><span class="p">(</span><span class="n">request</span><span class="p">,</span><span class="w"> </span><span class="n">QueryContext</span><span class="p">.</span><span class="n">Anonymous</span><span class="p">);</span><span class="w">   </span><span class="c1">// the context is optional</span>
+<span class="n">GraphQLResult</span><span class="w"> </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">gql</span><span class="p">.</span><span class="n">Execute</span><span class="p">(</span><span class="n">request</span><span class="p">,</span><span class="w"> </span><span class="n">QueryContext</span><span class="p">.</span><span class="n">Anonymous</span><span class="p">);</span><span class="w">   </span><span class="c1">// without one: the store&#39;s default context</span>
 <span class="kt">string</span><span class="w"> </span><span class="n">json</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">result</span><span class="p">.</span><span class="n">ToJson</span><span class="p">();</span>
 <span class="kt">string</span><span class="w"> </span><span class="n">sdl</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">gql</span><span class="p">.</span><span class="n">ToSDL</span><span class="p">();</span>
 <span class="n">IReadOnlyList</span><span class="o">&lt;</span><span class="kt">string</span><span class="o">&gt;</span><span class="w"> </span><span class="n">warnings</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">gql</span><span class="p">.</span><span class="n">Warnings</span><span class="p">;</span><span class="w">   </span><span class="c1">// what the schema left out or named otherwise</span>
@@ -8030,11 +8042,15 @@ built.</p>
 (<a href="#29-cultures-visibility-and-scoped-stores">§29</a>), and an endpoint, its facet page included, shows
 only what that context can read.</p>
 <ul>
-<li>A code-first endpoint reads in the context its <code>QueryContextFactory</code> returns, such as
-  <code>QueryContext.Anonymous</code> for what anyone may see.</li>
-<li>An endpoint made in the admin UI, and a code-first endpoint without a <code>QueryContextFactory</code>, read
-  in the store's default context. For a database that <code>UseRelatudeDB</code> opens, that is the master
-  admin: every published node that is not hidden, whatever its read access.</li>
+<li>An endpoint made in the admin UI reads as its request's API key says (<code>readAs</code>):</li>
+<li><code>Anonymous</code>, the default and what a request reads as on an endpoint without keys: the
+    published nodes that are not hidden and that everyone may read (<code>QueryContext.Anonymous</code>);</li>
+<li><code>User</code>: the user node <code>userId</code> names, with what its user type and its groups may read. If the
+    user is deleted, the key's requests are turned away with a <code>403</code>;</li>
+<li><code>Admin</code>: the master admin, every published node that is not hidden, whatever its read access.
+    Keep such a key on servers you control.</li>
+<li>A code-first endpoint reads in the context its <code>QueryContextFactory</code> returns, such as a signed-in
+  user read from the request, and as an anonymous visitor without one.</li>
 </ul>
 <p><strong>Keeping it closed.</strong> The switches that matter:</p>
 <ul>
@@ -8433,7 +8449,7 @@ is acceptable.</p>
 <h2 id="35-relatude-services">35. Relatude Services<a class="anchor" href="#35-relatude-services" aria-label="Link to this section">#</a></h2>
 <p>Relatude Services is a hosted service run by Relatude at <a href="https://services.relatude.com">https://services.relatude.com</a>. It puts
 the third-party services an application tends to need behind one account: language models, image
-AI, text from files, translation, IP lookup and text messages. Relatude holds the agreements with
+AI, text from files, translation, IP lookup, text messages and e-mail. Relatude holds the agreements with
 the vendors, their keys and their bills. You hold one license and one API key, and pay for calls
 with credits on the license.</p>
 <p>It is a convenience, nothing more: one API key instead of five vendor accounts, five sets of terms
@@ -8445,8 +8461,9 @@ connects an installation to Relatude Services. The license is free; you pay for 
 hosted services use.</p>
 <p>Without an API key, nothing is charged and the installation does not report in. On a server,
 <code>db.Services.Imaging</code>, <code>FileToText</code>, <code>Translation</code> and <code>IPLookup</code> point at the hosted services from
-the start, but a call throws, saying why, before anything leaves the server. <code>db.Services.AI</code> and
-<code>db.Services.SMS</code> exist only when <code>AISettings</code> and <code>SMSSettings</code> are set.</p>
+the start, but a call throws, saying why, before anything leaves the server. <code>db.Services.AI</code>,
+<code>db.Services.SMS</code> and <code>db.Services.Email</code> exist only when <code>AISettings</code>, <code>SMSSettings</code> and
+<code>EmailSettings</code> are set.</p>
 <p>Every service is an interface. Implement it against your own vendor account, a model on your own
 hardware or any code you like, and name your class in the database's settings
 (<a href="#352-a-provider-of-your-own">§35.2</a>). The code that calls the service does not change.</p>
@@ -8504,6 +8521,13 @@ hardware or any code you like, and name your class in the database's settings
 <td><code>sms</code></td>
 </tr>
 <tr>
+<td>E-mail</td>
+<td><code>db.Services.Email</code></td>
+<td><code>IEmailProvider</code></td>
+<td><code>EmailSettings</code></td>
+<td><code>email</code></td>
+</tr>
+<tr>
 <td>Admin UI sign-in with a Relatude account</td>
 <td>the login page</td>
 <td>none</td>
@@ -8513,7 +8537,8 @@ hardware or any code you like, and name your class in the database's settings
 </tbody>
 </table>
 <p>The interfaces are in the namespaces <code>Relatude.DB.AI</code>, <code>Relatude.DB.Imaging</code>,
-<code>Relatude.DB.FileToText</code>, <code>Relatude.DB.Translation</code>, <code>Relatude.DB.IPLookup</code> and <code>Relatude.DB.SMS</code>.
+<code>Relatude.DB.FileToText</code>, <code>Relatude.DB.Translation</code>, <code>Relatude.DB.IPLookup</code>, <code>Relatude.DB.SMS</code> and
+<code>Relatude.DB.Email</code>.
 For embeddings and completions, <code>AISettings</code> also offers the built-in providers <code>AzureAI</code>, <code>OpenAI</code>
 (any OpenAI-compatible endpoint, a local Ollama included) and <code>Anthropic</code>
 (<a href="#aisettings-embeddings-completions-and-the-vector-index">§12.1</a>). The admin UI always has the
@@ -8529,6 +8554,52 @@ master login as well (<a href="#the-admin-ui">§12</a>).</p>
 <p>Quote a template before you send it to many people. One character outside the GSM alphabet, such as
 a curly quote or an emoji, can double the price. <code>SendBatchAsync</code> sends many messages in one call,
 all of them or none.</p>
+<p>E-mail goes through the hosted service when <code>EmailSettings</code> is set:</p>
+<div class="codehilite"><pre><span></span><code><span class="ss">&quot;EmailSettings&quot;</span><span class="err">:</span><span class="w"> </span><span class="err">{</span><span class="w"> </span><span class="ss">&quot;TypeName&quot;</span><span class="err">:</span><span class="w"> </span><span class="ss">&quot;RelatudeServices&quot;</span><span class="p">,</span><span class="w"> </span><span class="ss">&quot;From&quot;</span><span class="err">:</span><span class="w"> </span><span class="ss">&quot;orders@myshop.no&quot;</span><span class="p">,</span><span class="w"> </span><span class="ss">&quot;FromName&quot;</span><span class="err">:</span><span class="w"> </span><span class="ss">&quot;My Shop&quot;</span><span class="w"> </span><span class="err">}</span>
+</code></pre></div>
+
+<div class="codehilite"><pre><span></span><code><span class="k">using</span><span class="w"> </span><span class="nn">Relatude.DB.Email</span><span class="p">;</span>
+
+<span class="k">await</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">Services</span><span class="p">.</span><span class="n">Email</span><span class="p">.</span><span class="n">SendAsync</span><span class="p">(</span><span class="s">&quot;kari@example.com&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;Your order&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;Thank you for your order.&quot;</span><span class="p">);</span>
+
+<span class="k">await</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">Services</span><span class="p">.</span><span class="n">Email</span><span class="p">.</span><span class="n">SendAsync</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">EmailMessage</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">From</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">EmailAddress</span><span class="p">(</span><span class="s">&quot;orders@myshop.no&quot;</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;My Shop&quot;</span><span class="p">),</span>
+<span class="w">    </span><span class="n">To</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s">&quot;kari@example.com&quot;</span><span class="p">],</span>
+<span class="w">    </span><span class="n">Bcc</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s">&quot;archive@myshop.no&quot;</span><span class="p">],</span>
+<span class="w">    </span><span class="n">ReplyTo</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s">&quot;support@myshop.no&quot;</span><span class="p">],</span>
+<span class="w">    </span><span class="n">Subject</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;Your order 1042&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="n">Text</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;Thank you for your order.&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="n">Html</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;&lt;p&gt;Thank you for your order.&lt;/p&gt;&lt;img src=\&quot;cid:logo\&quot;&gt;&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="n">Attachments</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="k">new</span><span class="w"> </span><span class="n">EmailAttachment</span><span class="p">(</span><span class="s">&quot;order-1042.pdf&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">pdf</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;application/pdf&quot;</span><span class="p">),</span><span class="w"> </span><span class="n">EmailAttachment</span><span class="p">.</span><span class="n">Inline</span><span class="p">(</span><span class="s">&quot;logo&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">png</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;image/png&quot;</span><span class="p">)],</span>
+<span class="w">    </span><span class="n">Tags</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s">&quot;orders&quot;</span><span class="p">],</span>
+<span class="w">    </span><span class="n">Reference</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;order-1042&quot;</span><span class="p">,</span>
+<span class="p">});</span>
+</code></pre></div>
+
+<ul>
+<li><strong>The license needs the <code>email</code> credit account.</strong> Every recipient is charged once, whether in
+  <code>To</code>, <code>Cc</code> or <code>Bcc</code>. No feature is needed. <code>QuoteAsync</code> gives the recipients, the size and the
+  credits of a message without sending it or charging for it.</li>
+<li><strong>A message goes as the service's own sender, or as one approved for the license.</strong> An approval is
+  an address, such as <code>orders@myshop.no</code>, or a whole domain, written <code>@myshop.no</code>, which lets any
+  address at it send. Ask for them on the license's <strong>E-mail senders</strong> page at services.relatude.com;
+  Relatude approves them. A license with the feature <code>emailanysender</code> may name any sender. On a server
+  the sender is checked with the license server before anything is sent, so a sender that is not
+  approved is refused with the reason, and nothing is sent or charged.</li>
+<li><strong>Where replies go needs no approval.</strong> <code>ReplyTo</code> takes any address.</li>
+<li><strong><code>From</code> in the settings</strong> is the sender when a message names none, and <code>FromName</code> the name shown
+  beside it. Empty sends as the service's own.</li>
+<li><strong>A message is up to 20 MB, attachments included.</strong> An attachment with a <code>ContentId</code> is
+  shown in the HTML, as <code>&lt;img src="cid:logo"&gt;</code>, rather than listed. The service takes your own
+  headers when they start with <code>X-</code>, and <code>List-Unsubscribe</code>, <code>List-Unsubscribe-Post</code>, <code>List-Id</code>,
+  <code>In-Reply-To</code>, <code>References</code>, <code>Auto-Submitted</code> and <code>Precedence</code>, and at most three <code>Tags</code>.</li>
+<li><strong>A send that may have been charged is not repeated.</strong> Only a 429 or a 503, which the service gives
+  before it charges anything, is tried again. Any other failure, a timeout or a dropped connection
+  included, is thrown, and you decide whether to send again.</li>
+</ul>
+<p><code>EmailSettings</code> takes <code>TypeName</code>, <code>ServiceUrl</code>, <code>ApiKey</code>, <code>From</code> and <code>FromName</code>. The service URL and
+API key are only for a provider of your own: the hosted service sends with the installation's
+license.</p>
 <h3 id="352-a-provider-of-your-own">35.2 A provider of your own<a class="anchor" href="#352-a-provider-of-your-own" aria-label="Link to this section">#</a></h3>
 <p>Implement the service's interface and name your class in the database's settings. A text message
 gateway of your own, as an example:</p>
@@ -8578,8 +8649,8 @@ gateway of your own, as an example:</p>
   opens. An empty <code>TypeName</code> or <code>RelatudeServices</code> means the hosted service, except in <code>AISettings</code>,
   where empty means Azure OpenAI.</li>
 <li><strong>A public constructor takes the settings</strong>: <code>AIProviderSettings</code>, <code>ImagingProviderSettings</code>,
-  <code>FileToTextProviderSettings</code>, <code>TranslationProviderSettings</code>, <code>IPLookupProviderSettings</code> or
-  <code>SMSProviderSettings</code>. Your class gets <code>ServiceUrl</code>, <code>ApiKey</code> and the rest from the same settings,
+  <code>FileToTextProviderSettings</code>, <code>TranslationProviderSettings</code>, <code>IPLookupProviderSettings</code>,
+  <code>SMSProviderSettings</code> or <code>EmailProviderSettings</code>. Your class gets <code>ServiceUrl</code>, <code>ApiKey</code> and the rest from the same settings,
   and the same settings page, as the built-in providers. Keep the key in the <code>RelatudeDB</code>
   configuration section (<a href="#appsettings-environment-variables-and-secrets">§12.2</a>).</li>
 <li><strong>One instance serves the whole database.</strong> It is created when the database opens, so a type that
@@ -8592,7 +8663,7 @@ gateway of your own, as an example:</p>
   (<a href="#345-prices-answers-kept-and-errors">§34.5</a>).</li>
 <li><strong>A store built from code</strong> gets the provider in the <code>NodeStore</code> constructor:
   <code>new NodeStore(datastore, sms: new MyGatewaySmsProvider(settings))</code>. The other parameters are
-  <code>imaging</code>, <code>fileToText</code>, <code>translation</code> and <code>ipLookup</code>.</li>
+  <code>imaging</code>, <code>fileToText</code>, <code>translation</code>, <code>ipLookup</code> and <code>email</code>.</li>
 </ul>
 <h3 id="353-the-account-at-servicesrelatudecom">35.3 The account at services.relatude.com<a class="anchor" href="#353-the-account-at-servicesrelatudecom" aria-label="Link to this section">#</a></h3>
 <p>Create an account by signing in at <a href="https://services.relatude.com">https://services.relatude.com</a> with Google, Microsoft, a passkey
@@ -8617,6 +8688,10 @@ example one per customer or project. Each license has these pages:</p>
 <tr>
 <td><strong>SMS senders</strong></td>
 <td>The sender names text messages may use, each approved separately. A message without a sender uses the service's own</td>
+</tr>
+<tr>
+<td><strong>E-mail senders</strong></td>
+<td>The addresses e-mail may be sent as, and whole domains written <code>@myshop.no</code>, each approved separately. A message without a sender uses the service's own</td>
 </tr>
 <tr>
 <td><strong>Installations</strong></td>

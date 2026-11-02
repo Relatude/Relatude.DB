@@ -17,10 +17,10 @@ public class ResultSet<T> : IEnumerable<T> {
         PageIndex = pageIndex;
         PageSize = pageSize.HasValue ? pageSize.Value : 0;
         IsAll = totalCount == count;
-        PageCount = PageCount > 0 ? (int)Math.Ceiling((double)totalCount / pageSize!.Value) : 1;
+        PageCount = PageSize > 0 ? Math.Max(1, (int)Math.Ceiling((double)totalCount / PageSize)) : 1; // at least one page, empty or not
         DurationMs = durationMs;
         InnerDurationMs = innerDurationMs;
-        IsLastPage = pageIndex + 1 > PageCount;
+        IsLastPage = pageIndex + 1 >= PageCount;
     }
     public IEnumerable<T> Values { get; }
     public bool IsAll { get; }
@@ -54,9 +54,9 @@ public class ResultSetNotEnumerable<T> {
         PageIndex = pageIndex;
         PageSize = pageSize.HasValue ? pageSize.Value : 0;
         IsAll = totalCount == count;
-        PageCount = PageCount > 0 ? (int)Math.Ceiling((double)totalCount / pageSize!.Value) : 1;
+        PageCount = PageSize > 0 ? Math.Max(1, (int)Math.Ceiling((double)totalCount / PageSize)) : 1; // at least one page, empty or not
         DurationMs = durationMs;
-        IsLastPage = pageIndex + 1 > PageCount;
+        IsLastPage = pageIndex + 1 >= PageCount;
     }
     public IEnumerable<T> Values { get; }
     public bool IsAll { get; }

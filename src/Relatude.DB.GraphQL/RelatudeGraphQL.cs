@@ -64,21 +64,20 @@ public sealed class RelatudeGraphQL {
 
     static readonly TimeSpan _explorerDataLifetime = TimeSpan.FromMinutes(1);
     readonly object _explorerLock = new();
-    (GraphQLExplorerData Data, DateTime Made)? _explorerData;
+    (GraphQLExplorerData Data, QueryContext? Context, DateTime Made)? _explorerData;
 
     /// <summary>
     /// What the explorer page needs: the schema described, one stored node per type and the guide's examples, the
-    /// nodes read in the given query context. Without a context the answer is shared for a minute: the samples cost
-    /// one query per type, and a page can be reloaded often.
+    /// nodes read in the given query context (the store's default without one). The last answer is shared for a
+    /// minute with requests in an equal context: the samples cost one query per type, and a page can be reloaded often.
     /// </summary>
     public GraphQLExplorerData GetExplorerData(QueryContext? queryContext = null) {
-        if (queryContext != null) return ExplorerData.Build(Schema, ExplorerData.StoreSampler(_store, queryContext));
         lock (_explorerLock) {
-            if (_explorerData is { } cached && DateTime.UtcNow - cached.Made < _explorerDataLifetime) return cached.Data;
-            var data = ExplorerData.Build(Schema, ExplorerData.StoreSampler(_store, null));
-            _explorerData = (data, DateTime.UtcNow);
-            return data;
+            if (_explorerData is { } cached && Equals(cached.Context, queryContext) && DateTime.UtcNow - cached.Made < _explorerDataLifetime) return cached.Data;
         }
+        var data = ExplorerData.Build(Schema, ExplorerData.StoreSampler(_store, queryContext));
+        lock (_explorerLock) _explorerData = (data, queryContext, DateTime.UtcNow);
+        return data;
     }
 
     internal TransactionResult RunTransaction(TransactionData transaction, QueryContext? queryContext)

@@ -1,4 +1,5 @@
 using Relatude.DB.AI;
+using Relatude.DB.Email;
 using Relatude.DB.NodeServer.Settings;
 using Relatude.DB.SMS;
 
@@ -61,12 +62,14 @@ sealed class UILicense(RelatudeDBServer server) {
             return null;
         });
         commands.Register("license-sms-test", async ctx => await sendTestSms(ctx.Payload<SmsTestPayload>(), ctx.Http.RequestAborted));
+        commands.Register("license-email-test", async ctx => await sendTestEmail(ctx.Payload<EmailTestPayload>(), ctx.Http.RequestAborted));
         commands.Register("license-ai-embed-test", async ctx => await embedTest(ctx.Payload<AiTestPayload>(), ctx.Http.RequestAborted));
         commands.Register("license-ai-complete-test", async ctx => await completeTest(ctx.Payload<AiTestPayload>(), ctx.Http.RequestAborted));
     }
 
     sealed record PairingPayload(string? PairingId);
     sealed record SmsTestPayload(string? From, string? To, string? Message);
+    sealed record EmailTestPayload(string? From, string? To, string? Subject, string? Text);
     sealed record AiTestPayload(string? ServiceUrl, string? Model, string? Text);
     sealed record LookUpPayload(string? ApiKey);
 
@@ -110,6 +113,34 @@ sealed class UILicense(RelatudeDBServer server) {
         var from = string.IsNullOrWhiteSpace(payload.From) ? null : payload.From.Trim();
         using var provider = new RelatudeServicesSMSProvider(new SMSProviderSettings { ApiKey = server.Settings.ApiKey }, null, server.LicenseLogin.CheckSmsSenderAsync);
         return await provider.SendAsync(payload.To.Trim(), payload.Message, from, reference: "admin-ui-test", cancellationToken: cancellationToken);
+    }
+
+    /// <summary>The key of the credit account a license needs for the Relatude Email service to send with its API key: every recipient is charged to it. No feature is needed.</summary>
+    internal const string EmailAccountKey = "email";
+
+    internal static bool CarriesEmail(LicenseLogin.LicenseInfo? license) => CarriesAccount(license, EmailAccountKey);
+
+    /// <summary>
+    /// Sends one real e-mail through the hosted Relatude Email service with this installation's own
+    /// API key, the twin of <see cref="sendTestSms"/>: no database's e-mail settings are read, and the
+    /// message is charged to the license like any other. Asked of the license server first, so a license
+    /// without the "email" account is told so here rather than by a refusal from the service. A sender
+    /// goes through the same check a database's messages do (<see cref="LicenseLogin.CheckEmailSenderAsync"/>),
+    /// so an address that is not approved for the license, nor at a domain that is, is refused with the
+    /// license server's reason, and nothing is sent.
+    /// </summary>
+    async Task<EmailReceipt> sendTestEmail(EmailTestPayload payload, CancellationToken cancellationToken) {
+        if (string.IsNullOrWhiteSpace(payload.To)) throw new Exception("A recipient address is required.");
+        if (string.IsNullOrWhiteSpace(payload.Subject)) throw new Exception("A subject is required.");
+        if (string.IsNullOrWhiteSpace(payload.Text)) throw new Exception("A message is required.");
+        var status = await server.LicenseLogin.DescribeAsync(cancellationToken);
+        if (status.State != "valid" || status.License == null) throw new Exception("There is no valid license to send with. " + status.Reason);
+        if (!status.License.Active) throw new Exception("The license is " + (status.License.Expired ? "expired." : "disabled."));
+        if (!CarriesEmail(status.License)) throw new Exception($"This license has no '{EmailAccountKey}' credit account to charge the message to.");
+        var from = string.IsNullOrWhiteSpace(payload.From) ? null : payload.From.Trim();
+        // as the interface: the one-recipient SendAsync is its default method, which the class does not repeat
+        using IEmailProvider provider = new RelatudeServicesEmailProvider(new EmailProviderSettings { ApiKey = server.Settings.ApiKey }, null, server.LicenseLogin.CheckEmailSenderAsync);
+        return await provider.SendAsync(payload.To.Trim(), payload.Subject.Trim(), payload.Text, from: from, reference: "admin-ui-test", cancellationToken: cancellationToken);
     }
 
     /// <summary>The key of the credit account the Relatude AI service charges embeddings to. It is what licenses them: no feature is needed.</summary>

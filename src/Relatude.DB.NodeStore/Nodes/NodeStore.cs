@@ -4,6 +4,7 @@ using Relatude.DB.CodeGeneration;
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.DataStores;
+using Relatude.DB.Email;
 using Relatude.DB.FileConversion;
 using Relatude.DB.FileToText;
 using Relatude.DB.Imaging;
@@ -109,7 +110,8 @@ public class NodeStore : IDisposable {
     /// <summary>
     /// The services the database offers application code beside its data: <see cref="NodeStoreServices.AI"/>,
     /// <see cref="NodeStoreServices.Imaging"/>, <see cref="NodeStoreServices.FileToText"/>,
-    /// <see cref="NodeStoreServices.Translation"/>, <see cref="NodeStoreServices.IPLookup"/> and <see cref="NodeStoreServices.SMS"/>.
+    /// <see cref="NodeStoreServices.Translation"/>, <see cref="NodeStoreServices.IPLookup"/>, <see cref="NodeStoreServices.SMS"/>
+    /// and <see cref="NodeStoreServices.Email"/>.
     /// <code>var norwegian = await db.Services.Translation.TranslateAsync("Good morning", "nb");</code>
     /// </summary>
     public NodeStoreServices Services { get; }
@@ -193,10 +195,12 @@ public class NodeStore : IDisposable {
     /// <param name="translation">What translates texts for this database, for <see cref="NodeStoreServices.Translation"/>. Null on a database without; disposed with this store.</param>
     /// <param name="ipLookup">What looks up addresses and user agents for this database, for <see cref="NodeStoreServices.IPLookup"/>. Null on a database without; disposed with this store.</param>
     /// <param name="settings">Where <see cref="Settings"/> finds the settings the application registers. Null on a store without a server, which has none.</param>
+    /// <param name="email">How this database sends e-mail, for <see cref="NodeStoreServices.Email"/>. Null on a database that sends none; disposed with this store.
+    /// Last, after <paramref name="settings"/>, so a call that gives the others by position is not changed by it.</param>
     public NodeStore(IDataStore datastore, ISMSProvider? sms = null, IImagingProvider? imaging = null, IFileToTextProvider? fileToText = null, ITranslationProvider? translation = null,
-        IIPLookupProvider? ipLookup = null, ICustomSettingsSource? settings = null) {
+        IIPLookupProvider? ipLookup = null, ICustomSettingsSource? settings = null, IEmailProvider? email = null) {
         Datastore = datastore;
-        Services = new NodeStoreServices(datastore, sms, imaging, fileToText, translation, ipLookup);
+        Services = new NodeStoreServices(datastore, sms, imaging, fileToText, translation, ipLookup, email);
         Settings = new NodeStoreSettings(settings);
         _ownsProviders = true;
         var sw = Stopwatch.StartNew();
@@ -871,8 +875,23 @@ public class NodeStore : IDisposable {
     public IQueryOfNodes<T, T> Query<T>(IEnumerable<Guid> ids, QueryContext? ctx = null) => new QueryOfNodes<T, T>(this, ctx).WhereInIds(ids);
     /// <summary>Starts a query over nodes of type T filtered by a lambda, shorthand for Query&lt;T&gt;().Where(...).</summary>
     public IQueryOfNodes<T, T> Query<T>(Expression<Func<T, bool>> expression, QueryContext? ctx = null) => new QueryOfNodes<T, T>(this, ctx).Where(expression);
-    /// <summary>Starts a query over the nodes related to a given node through a relation property id.</summary>
-    public IQueryOfNodes<T, T> QueryRelated<T>(Guid propertyId, Guid nodeId, QueryContext? ctx = null) => new QueryOfNodes<T, T>(this, ctx).WhereRelates(propertyId, nodeId);
+    /// <summary>
+    /// Starts a query over the nodes related to a given node through a relation property id: the nodes that the end
+    /// <paramref name="propertyId"/> of node <paramref name="nodeId"/> holds, what a many end's Query() starts from.
+    /// </summary>
+    public IQueryOfNodes<T, T> QueryRelated<T>(Guid propertyId, Guid nodeId, QueryContext? ctx = null) {
+        var dm = Datastore.Datamodel;
+        if (dm.Properties[propertyId] is not Datamodels.Properties.RelationPropertyModel end) throw new ArgumentException("The property is not a relation property. ", nameof(propertyId));
+        // WhereRelates names an end of the nodes queried, so it is given the other end of the relation, the one that
+        // reads it the other way. A symmetric relation reads the same both ways.
+        var symmetric = dm.Relations[end.RelationId].RelationType is RelationType.OneOne or RelationType.ManyMany;
+        var other = symmetric ? end : dm.Properties.Values.OfType<Datamodels.Properties.RelationPropertyModel>()
+            .FirstOrDefault(p => p.RelationId == end.RelationId && p.FromTargetToSource != end.FromTargetToSource);
+        if (other != null) return new QueryOfNodes<T, T>(this, ctx).WhereRelates(other.Id, nodeId);
+        // no type declares the other end: one step along this end from the node, which the context must read
+        var from = (QueryOfNodes<object, object>)new QueryOfNodes<object, object>(this, ctx).Where(nodeId);
+        return from.TraverseProperty<T>(propertyId, maxLevel: 1, minLevel: 1);
+    }
 
     /// <summary>Returns true if the two nodes are linked through the given relation property.</summary>
     public bool RelationExists<T>(Guid fromId, Expression<Func<T, object>> expression, Guid toId, QueryContext? ctx = null) => Query<T>(fromId, ctx).WhereRelates<T, object>(expression, toId).Count() > 0;

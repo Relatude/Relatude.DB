@@ -28,6 +28,16 @@ where TValue : notnull {
         _nodeDataMap = nodeDataMap;
         _mapper = mapper;
     }
+    /// <summary>
+    /// Makes this collection hold what the store read. The mappers call it for an <see cref="Embedded{TValue}"/> on a
+    /// class, which is getter-only, so the store fills the collection the class made rather than assigning a new one.
+    /// </summary>
+    public void Initialize(InnerNodeDataMap<TKey> nodeDataMap, NodeMapper mapper) {
+        _nodeDataMap = nodeDataMap;
+        _mapper = mapper;
+        _raw = null;
+        _ownsMap = false;
+    }
     void ensureWritableMap() {
         // copy on first write: the wrapped map comes straight from the store's shared node data and
         // must never be mutated through this wrapper (a background WAL flush may be serializing it)

@@ -44,8 +44,7 @@ The usual case:
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddRelatudeDB(options => {
-    // options.FileConverters.Add(new SkiaImageConverter());
-    // options.FileConverters.Add(new FFMpegVideoConverter());
+    // options.FileConverters.Add(new SkiaImageConverter());   // optional: more image formats, such as AVIF
 });
 
 var app = builder.Build();
@@ -157,12 +156,11 @@ app.MapRelatudeDBAdmin();
 
 ## File converters
 
-Image and video conversion only works if a converter is registered at startup. There is no default — without one, every adjusted URL serves an error placeholder reading "No converter available from JPEG to WEBP":
+Image and video conversion works without registering anything: every store converts JPEG, PNG, WebP, GIF and BMP pictures itself, and takes frames and sound from video with FFmpeg, which it downloads beside the application the first time it is needed (a server that cannot download it needs FFmpeg on its PATH). Register a converter only for more formats; yours are tried before the built-in ones:
 
 ```csharp
 builder.AddRelatudeDB(options => {
-    options.FileConverters.Add(new SkiaImageConverter(1));    // images
-    options.FileConverters.Add(new FFMpegVideoConverter());   // video (needs FFmpeg available)
+    options.FileConverters.Add(new SkiaImageConverter(1));    // adds AVIF, for example
 });
 ```
 

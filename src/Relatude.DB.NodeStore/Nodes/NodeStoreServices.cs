@@ -1,6 +1,7 @@
 using Relatude.DB.AI;
 using Relatude.DB.Common;
 using Relatude.DB.DataStores;
+using Relatude.DB.Email;
 using Relatude.DB.FileToText;
 using Relatude.DB.Imaging;
 using Relatude.DB.IPLookup;
@@ -17,6 +18,7 @@ namespace Relatude.DB.Nodes;
 /// var text = await db.Services.FileToText.ExtractTextAsync(bytes, "contract.pdf", ["nb", "en"]);
 /// var norwegian = await db.Services.Translation.TranslateAsync("Good morning", "nb");
 /// await db.Services.SMS.SendAsync("+4712345678", "Your code is 1234");
+/// await db.Services.Email.SendAsync("kari@example.com", "Your order", "Thank you for your order.");
 /// var visitor = await db.Services.IPLookup.LookUpAsync(request.Ip, request.UserAgent);
 /// </code>
 /// <para>Except for <see cref="AI"/>, which semantic search uses, nothing inside the database calls them:
@@ -33,15 +35,17 @@ public sealed class NodeStoreServices {
     readonly IFileToTextProvider? _fileToText;
     readonly ITranslationProvider? _translation;
     readonly IIPLookupProvider? _ipLookup;
+    readonly IEmailProvider? _email;
 
     internal NodeStoreServices(IDataStore datastore, ISMSProvider? sms, IImagingProvider? imaging, IFileToTextProvider? fileToText, ITranslationProvider? translation,
-        IIPLookupProvider? ipLookup) {
+        IIPLookupProvider? ipLookup, IEmailProvider? email) {
         _datastore = datastore;
         _sms = sms;
         _imaging = imaging;
         _fileToText = fileToText;
         _translation = translation;
         _ipLookup = ipLookup;
+        _email = email;
     }
 
     /// <summary>
@@ -62,6 +66,16 @@ public sealed class NodeStoreServices {
     public ISMSProvider SMS => _sms ?? throw new Exception("No SMS provider is configured for this database. Set one under Messaging in the admin UI, or as SMSSettings in relatude.db.json. ");
     /// <summary>Whether an SMS provider is configured, and <see cref="SMS"/> can therefore be used.</summary>
     public bool HasSMS => _sms != null;
+
+    /// <summary>
+    /// Sends e-mail, as configured for this database: a receipt, a password reset, a newsletter, sent
+    /// through the account the database is already configured with rather than a mail account of its own.
+    /// <para>Throws when no e-mail provider is configured, so check <see cref="HasEmail"/> first on a path that
+    /// has to work either way. The provider is owned by the store, so it is not something to dispose after a message.</para>
+    /// </summary>
+    public IEmailProvider Email => _email ?? throw new Exception("No e-mail provider is configured for this database. Set one under Messaging in the admin UI, or as EmailSettings in relatude.db.json. ");
+    /// <summary>Whether an e-mail provider is configured, and <see cref="Email"/> can therefore be used.</summary>
+    public bool HasEmail => _email != null;
 
     /// <summary>
     /// Image AI - creating images, changing them, saying what they show - as configured for this database.
@@ -127,10 +141,12 @@ public sealed class NodeStoreServices {
     // machine - by a soft restart, say - would wait for files nothing is ever going to release
     internal void DisposeProviders() {
         try { _sms?.Dispose(); } finally {
-            try { _imaging?.Dispose(); } finally {
-                try { _fileToText?.Dispose(); } finally {
-                    try { _translation?.Dispose(); } finally {
-                        _ipLookup?.Dispose();
+            try { _email?.Dispose(); } finally {
+                try { _imaging?.Dispose(); } finally {
+                    try { _fileToText?.Dispose(); } finally {
+                        try { _translation?.Dispose(); } finally {
+                            _ipLookup?.Dispose();
+                        }
                     }
                 }
             }

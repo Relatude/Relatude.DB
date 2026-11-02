@@ -108,10 +108,10 @@ a.api-page-button:hover {
   min-width: 0;
 }
 
-/* api keys: name, key, expiry date, how long it has left */
+/* api keys: name, key, who it reads as, expiry date, how long it has left */
 .api-apikey-row {
   display: grid;
-  grid-template-columns: minmax(140px, 1fr) minmax(240px, 2fr) 190px 130px 30px;
+  grid-template-columns: minmax(140px, 1fr) minmax(240px, 2fr) minmax(160px, 1.2fr) 190px 130px 30px;
   gap: 8px;
   align-items: center;
   margin-bottom: 8px;
@@ -120,6 +120,24 @@ a.api-page-button:hover {
 .api-apikey-row > .text-input {
   width: 100%;
   box-sizing: border-box;
+}
+
+/* who a key reads as, and for a user key the user: stacked in the row's cell */
+.api-key-reader {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.api-key-reader > .select,
+.api-key-reader > .text-input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.api-key-reader > .select.api-bad {
+  border-color: var(--danger);
 }
 
 .api-apikey-head {
@@ -144,6 +162,17 @@ a.api-page-button:hover {
 
 .panel h3 .panel-sub.api-bad {
   color: var(--danger);
+}
+
+/* a key row needs about 930px: on a narrower window its cells go two to a line */
+@media (max-width: 1100px) {
+  .api-apikey-row {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .api-apikey-head {
+    display: none;
+  }
 }
 
 @container (max-width: 760px) {

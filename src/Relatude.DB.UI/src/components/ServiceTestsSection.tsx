@@ -9,6 +9,7 @@ import {
   IconFileText,
   IconInfoCircle,
   IconLanguage,
+  IconMail,
   IconMessage,
   IconPhoto,
   IconRefresh,
@@ -32,12 +33,15 @@ import {
   licenseAccount,
   licenseCarriesAccount,
   licenseCarriesAi,
+  licenseCarriesEmail,
   licenseCarriesFeature,
   licenseCarriesFileToText,
   licenseCarriesImaging,
   licenseCarriesIPLookup,
   licenseCarriesSms,
   licenseCarriesTranslation,
+  licenseEmailSenders,
+  licenseMayUseAnyEmailSender,
   licenseMayUseAnySmsSender,
   licenseSmsSenders,
   runDetectionTest,
@@ -46,6 +50,7 @@ import {
   runIPLookupTest,
   runImagingTest,
   runTranslationTest,
+  sendTestEmail,
   sendTestSms,
   serviceAccounts,
   serviceFeatures,
@@ -54,6 +59,7 @@ import {
   type AiCompletionResult,
   type AiEmbeddingResult,
   type DetectionTestResult,
+  type EmailReceipt,
   type FaviconTestIcon,
   type FileToTextResult,
   type IPLookupBotScript,
@@ -84,7 +90,7 @@ import { Account, Field, headline, portalLinks, useLicenseStatus } from "./Licen
  * page on it, and the switch at the top is nothing more than those ids - picking one there is the
  * same operation as picking it in the rail, as in Storage.
  */
-export type ServiceTestView = "services-sms" | "services-ai" | "services-imaging" | "services-filetotext" | "services-translation" | "services-iplookup";
+export type ServiceTestView = "services-sms" | "services-email" | "services-ai" | "services-imaging" | "services-filetotext" | "services-translation" | "services-iplookup";
 
 interface ServiceTest {
   id: ServiceTestView;
@@ -109,6 +115,14 @@ const serviceTests: ServiceTest[] = [
     sub: "a real message through the Relatude SMS service, charged to the license",
     icon: IconMessage,
     accounts: [{ key: serviceAccounts.sms, pays: "messages" }],
+  },
+  {
+    id: "services-email",
+    label: "E-mail",
+    title: "Test e-mail",
+    sub: "a real e-mail through the Relatude Email service, charged to the license",
+    icon: IconMail,
+    accounts: [{ key: serviceAccounts.email, pays: "e-mail" }],
   },
   {
     id: "services-ai",
@@ -206,6 +220,8 @@ export function ServiceTestsSection({
     switch (test.id) {
       case "services-sms":
         return <SmsTest credit={credit} allowed={licenseCarriesSms(status)} senders={licenseSmsSenders(status)} anySender={licenseMayUseAnySmsSender(status)} />;
+      case "services-email":
+        return <EmailTest credit={credit} allowed={licenseCarriesEmail(status)} senders={licenseEmailSenders(status)} anySender={licenseMayUseAnyEmailSender(status)} />;
       case "services-ai":
         return (
           <AiTests credit={credit} configuredUrl={status.aiServiceUrl ?? ""} embeddings={licenseCarriesAi(status, "embeddings")} completions={licenseCarriesAi(status, "completions")} />
@@ -500,6 +516,130 @@ function SmsTest({ credit, allowed, senders, anySender }: { credit: ReactNode; a
                 <span className="license-muted">
                   {receipt.parts} {receipt.parts === 1 ? "part" : "parts"} · {receipt.credits} {receipt.credits === 1 ? "credit" : "credits"} ·{" "}
                   {receipt.creditsLeft.toLocaleString()} left{receipt.messageId && " · id " + receipt.messageId}
+                </span>
+              </div>
+            </div>
+          )}
+        </section>
+      </TestBody>
+    </>
+  );
+}
+
+/**
+ * A real e-mail through the Relatude Email service, the twin of the SMS test: only sent when the
+ * license has the "email" credit account, and charged like any other message, every recipient once.
+ * The sender is the service's own, an address Relatude has approved for the license, or any address
+ * at a domain approved for it ("@myshop.no") - so with an approved domain, or the "emailanysender"
+ * feature, it is typed rather than picked. The server checks it with the license server again before
+ * anything is sent.
+ */
+function EmailTest({ credit, allowed, senders, anySender }: { credit: ReactNode; allowed: boolean; senders: string[]; anySender: boolean }) {
+  const addresses = senders.filter((s) => !s.startsWith("@"));
+  const domains = senders.filter((s) => s.startsWith("@"));
+  // typed when any address at a domain may go, picked otherwise; a picked sender that is no longer
+  // approved after a reload falls back to the service's own
+  const typed = anySender || domains.length > 0;
+  const [from, setFrom] = useState("");
+  const sender = typed ? from.trim() : addresses.includes(from) ? from : "";
+  const [to, setTo] = useState("");
+  const [subject, setSubject] = useState("Test e-mail from Relatude.DB");
+  const [text, setText] = useState("Test message from Relatude.DB");
+  const [sending, setSending] = useState(false);
+  const [receipt, setReceipt] = useState<EmailReceipt | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const charged = useContext(Charged);
+
+  async function sendIt() {
+    setSending(true);
+    setError(null);
+    setReceipt(null);
+    try {
+      setReceipt(await sendTestEmail({ from: sender, to: to.trim(), subject: subject.trim(), text }));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSending(false);
+      charged();
+    }
+  }
+
+  return (
+    <>
+      <ServiceBar credit={credit} />
+      <TestBody allowed={allowed}>
+        <section className="panel license-sms">
+          <h3>E-mail</h3>
+          <div className="license-sms-fields">
+            {typed ? (
+              <Field
+                label="From"
+                hint={
+                  anySender
+                    ? "Any address. Empty: the service's own sender."
+                    : `An approved address, or any address at ${domains.join(", ")}. Empty: the service's own sender.`
+                }
+                locked={false}
+              >
+                <input
+                  className="text-input"
+                  type="email"
+                  list="license-email-senders"
+                  value={from}
+                  placeholder="The service's own sender"
+                  spellCheck={false}
+                  disabled={sending}
+                  onChange={(e) => setFrom(e.currentTarget.value)}
+                />
+                <datalist id="license-email-senders">
+                  {addresses.map((s) => (
+                    <option key={s} value={s} />
+                  ))}
+                </datalist>
+              </Field>
+            ) : (
+              <Field
+                label="From"
+                hint={addresses.length === 0 ? "Senders are requested on the license's page in Relatude Services and approved by Relatude." : undefined}
+                locked={false}
+              >
+                <select className="select" value={sender} disabled={sending} onChange={(e) => setFrom(e.currentTarget.value)}>
+                  <option value="">The service's own sender</option>
+                  {addresses.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            )}
+            <Field label="To" locked={false}>
+              <input className="text-input" type="email" value={to} placeholder="kari@example.com" spellCheck={false} onChange={(e) => setTo(e.target.value)} />
+            </Field>
+            <Field label="Subject" locked={false}>
+              <input className="text-input" value={subject} onChange={(e) => setSubject(e.target.value)} />
+            </Field>
+            <Field label="Text" hint={text.length + " characters"} locked={false}>
+              <textarea className="text-input license-sms-message" rows={3} value={text} onChange={(e) => setText(e.target.value)} />
+            </Field>
+            <div className="license-save">
+              <button className="action-button primary" onClick={sendIt} disabled={sending || !allowed || !to.trim() || !subject.trim() || !text.trim()}>
+                <IconSend size={15} stroke={1.8} />
+                {sending ? "Sending…" : "Send"}
+              </button>
+            </div>
+          </div>
+          {error && <div className="license-error">{error}</div>}
+          {receipt && (
+            <div className="license-status license-status-ok license-sms-receipt">
+              <span className="license-status-icon">
+                <IconCircleCheck size={20} stroke={1.8} />
+              </span>
+              <div className="license-status-text">
+                <strong>Sent as {receipt.from || "the service's own sender"}</strong>
+                <span className="license-muted">
+                  {receipt.recipients} {receipt.recipients === 1 ? "recipient" : "recipients"} · {formatBytes(receipt.bytes)} · {receipt.credits}{" "}
+                  {receipt.credits === 1 ? "credit" : "credits"} · {receipt.creditsLeft.toLocaleString()} left{receipt.messageId && " · id " + receipt.messageId}
                 </span>
               </div>
             </div>
@@ -1827,7 +1967,7 @@ function FileToTextTest({ credit, configuredUrl, allowed }: { credit: ReactNode;
             <div className="license-bench-fields">
               <FilePick
                 label="File"
-                hint="Judged by what it holds, not by its name. A video's sound is sent, taken by the FFmpeg plugin here."
+                hint="Judged by what it holds, not by its name. A video's sound is sent, taken out here by the built-in video converter."
                 files={file}
                 disabled={busy}
                 onChange={setFile}

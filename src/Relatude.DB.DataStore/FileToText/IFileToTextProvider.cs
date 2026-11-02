@@ -22,9 +22,9 @@ namespace Relatude.DB.FileToText;
 /// <para><b>Recordings and videos.</b> Their text is a transcript (<see cref="FileToTextResult.Timed"/>):
 /// a line for each stretch of speech, beginning with when it is spoken, which <see cref="Transcript"/>
 /// takes the times out of for an index and writes as subtitles. The service reads sound only, so the
-/// Relatude provider sends a video's sound, which the database's FFmpeg file converter
-/// (Relatude.DB.Plugins.FFMpeg) takes out on this machine; without it a video is refused, and a
-/// recording is sent as it is.</para>
+/// Relatude provider sends a video's sound, which the database's built-in video converter takes out on
+/// this machine; a video no converter reads is refused, and a recording no converter reads is sent as
+/// it is.</para>
 ///
 /// <para>An implementation is long lived and shared: it is built once when the database is configured
 /// and disposed with it, so it must be safe to call from several threads at once.</para>

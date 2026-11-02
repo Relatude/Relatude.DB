@@ -43,6 +43,7 @@ public sealed class LicenseLogin(RelatudeDBServer server) : IDisposable {
     sealed record ApprovedAddressesAnswer(string[]? Addresses); // authorities: the host, plus the port when it is not 443
     sealed record Heartbeat(Guid ApiKey, string InstallationKey, string? Name, int Nodes, string? ServerName, string? MachineName, string? BuildVersion);
     sealed record SmsSenderAnswer(bool Allowed, string? Reason);
+    sealed record EmailSenderAnswer(bool Allowed, string? Reason);
     sealed record Refusal(string? Reason);
     /// <summary>The license server's answer to a heartbeat: may this installation keep running, and the soft switches of its license.</summary>
     public sealed record Validity(bool Valid, string? Reason, string MessageToAllEditors = "", string MessageToAllVisitors = "", bool StopEdit = false, bool StopVisit = false);
@@ -67,11 +68,15 @@ public sealed class LicenseLogin(RelatudeDBServer server) : IDisposable {
     /// <param name="ApiKeyName">What the license's people call the API key the license was asked for
     /// with, so the page can say which of its keys this installation holds. Null for a key without a
     /// name, and from a license server older than the names.</param>
+    /// <param name="EmailSenders">The senders Relatude has approved for the license's e-mail, as the license
+    /// server writes them: addresses, and whole domains written "@myshop.no", which let any address at the
+    /// domain send. A message goes as one of these or as the e-mail service's own sender, never as anything
+    /// else. Null from a license server older than e-mail, which means none.</param>
     public sealed record LicenseInfo(
         Guid Id, string Name, bool Disabled, bool Expired, DateTime? ExpiresUtc,
         FeatureInfo[] Features, LimitInfo[] Limits, AccountInfo[] Accounts,
         string MessageToAllEditors, string MessageToAllVisitors, bool StopEdit, bool StopVisit,
-        string[]? SmsSenders = null, string? ApiKeyName = null) {
+        string[]? SmsSenders = null, string? ApiKeyName = null, string[]? EmailSenders = null) {
         /// <summary>Neither disabled nor expired: its features, limits and credits are honoured.</summary>
         public bool Active => !Disabled && !Expired;
     }
@@ -683,20 +688,72 @@ public sealed class LicenseLogin(RelatudeDBServer server) : IDisposable {
                 _allowedSenders.TryRemove(key, out _);
                 return string.IsNullOrWhiteSpace(answer.Reason) ? $"The sender {asked} is not approved for this license." : answer.Reason;
             }
-            rememberAllowed(key);
+            rememberAllowed(_allowedSenders, key);
             return null;
         } catch (Exception err) when ((err is HttpRequestException or TaskCanceledException or JsonException) && !cancellationToken.IsCancellationRequested) {
             return notChecked(err.Message);
         }
     }
 
-    void rememberAllowed((Guid ApiKey, string Sender) key) {
+    static void rememberAllowed(ConcurrentDictionary<(Guid ApiKey, string Sender), DateTime> allowed, (Guid ApiKey, string Sender) key) {
         var now = DateTime.UtcNow;
         // the senders of one license are few, so this only matters to a key that changes often
-        if (_allowedSenders.Count > 256) {
-            foreach (var entry in _allowedSenders) if (entry.Value <= now) _allowedSenders.TryRemove(entry.Key, out _);
+        if (allowed.Count > 256) {
+            foreach (var entry in allowed) if (entry.Value <= now) allowed.TryRemove(entry.Key, out _);
         }
-        _allowedSenders[key] = now + _allowedSenderLifetime;
+        allowed[key] = now + _allowedSenderLifetime;
+    }
+
+    // ------------------------------------------------------------------ e-mail senders
+
+    /// <summary>The e-mail senders found allowed lately, by API key and address, with when each answer runs out.
+    /// Apart from the SMS ones: the two are approved separately, and a name could be both.</summary>
+    readonly ConcurrentDictionary<(Guid ApiKey, string Sender), DateTime> _allowedEmailSenders = new();
+
+    /// <summary>
+    /// Asks the license server whether this installation's license may send e-mail as the address
+    /// <paramref name="sender"/>, before a message goes out as it: null when it may, otherwise why not, in
+    /// words meant for whoever reads the error. Relatude approves senders license by license - an address,
+    /// or a whole domain written "@myshop.no", which lets any address at it send - and the customer asks
+    /// for them on the license's page in Relatude Services. A license with the "emailanysender" feature may
+    /// send as any address. The sender is passed on as given, only trimmed, since the license server writes
+    /// addresses its own way before it compares them. No sender at all is the e-mail service's own, which
+    /// every license may use, and is not asked about.
+    /// <para>The e-mail service asks the license server the same question again before it sends, so this
+    /// is the first of two checks rather than the only one; it is what lets the database refuse a sender
+    /// with the license server's reason before anything is sent or charged. Nothing here allows a sender
+    /// it could not check: without an API key, or with a license server that cannot be reached or answers
+    /// something unexpected, the answer is a refusal saying so.</para>
+    /// <para>A sender found allowed is not asked about again for a minute, per API key, so a busy site
+    /// does not ask before every message; a refusal is never remembered, so a sender approved a moment
+    /// later can be used at once. The same as <see cref="CheckSmsSenderAsync"/>, with answers of its own.</para>
+    /// </summary>
+    public async Task<string?> CheckEmailSenderAsync(string sender, CancellationToken cancellationToken = default) {
+        var asked = sender?.Trim() ?? "";
+        if (asked.Length == 0) return null;
+        if (!tryGetApiKey(out var apiKey)) {
+            return $"The sender {asked} could not be checked with Relatude Services: this installation has no API key. "
+                + "Set one on the Relatude Services page of the admin UI, or leave the sender empty to send as the e-mail service's own.";
+        }
+        var key = (apiKey, asked);
+        if (_allowedEmailSenders.TryGetValue(key, out var until) && until > DateTime.UtcNow) return null;
+        string notChecked(string why) => $"The sender {asked} could not be checked with Relatude Services, so nothing was sent: {why}";
+        if (!await TcpProbe.IsListeningAsync(baseUrl, cancellationToken: cancellationToken)) return notChecked("nothing is listening at " + baseUrl + ".");
+        try {
+            var url = baseUrl + "/api/license/email-sender?apiKey=" + apiKey.ToString("D") + "&sender=" + Uri.EscapeDataString(asked);
+            using var response = await http.GetAsync(url, cancellationToken);
+            if (!response.IsSuccessStatusCode) return notChecked("the license server answered " + (int)response.StatusCode + ".");
+            var answer = await response.Content.ReadFromJsonAsync<EmailSenderAnswer>(_json, cancellationToken);
+            if (answer == null) return notChecked("the license server answered with nothing.");
+            if (!answer.Allowed) {
+                _allowedEmailSenders.TryRemove(key, out _);
+                return string.IsNullOrWhiteSpace(answer.Reason) ? $"The sender {asked} is not approved for this license." : answer.Reason;
+            }
+            rememberAllowed(_allowedEmailSenders, key);
+            return null;
+        } catch (Exception err) when ((err is HttpRequestException or TaskCanceledException or JsonException) && !cancellationToken.IsCancellationRequested) {
+            return notChecked(err.Message);
+        }
     }
 
     // ------------------------------------------------------------------ getting a license at all

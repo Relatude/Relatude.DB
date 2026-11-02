@@ -277,6 +277,16 @@ internal static class MapperGen {
                         sb.Append("obj." + p.CodeName + " = ");
                         sb.Append("store.Get<" + nodeType + ">((" + typeof(INodeDataExternal).Namespace + "." + nameof(INodeDataExternal) + ")v" + CodeUtils.GuidName(p.Id) + ");");
                     }
+                } else if (p is EmbeddedPropertyModel { EmbeddedValueType: EmbeddedValueType.InnerNodeList } list) {
+                    // an Embedded<T> is getter-only (the model builder refuses a setter), so the collection the class
+                    // made is filled rather than replaced
+                    var innerTypeMapName = typeof(InnerNodeDataMap<object>).Namespace + "." + nameof(InnerNodeDataMap<object>) + "<" + CodeUtils.GetInnerPropertyKeyPropertyTypeName(list, dm) + ">";
+                    sb.AppendLine("{");
+                    sb.AppendLine("var target = obj." + p.CodeName + ";");
+                    sb.AppendLine("if(target == null) throw new Exception(\"The embedded property " + nodeDef.CodeName + "." + p.CodeName + " is null. Initialise it where it is declared: { get; } = [];\");");
+                    sb.AppendLine("if(nodeData." + nameof(INodeDataExternal.TryGetValue) + "(" + CodeUtils.GuidName(p.Id) + ", out var v)) target." + nameof(EmbeddedMap<object, object>.Initialize) + "((" + innerTypeMapName + ")v, store.Mapper);");
+                    sb.AppendLine("else target." + nameof(EmbeddedMap<object, object>.Clear) + "();");
+                    sb.AppendLine("}");
                 } else if (p.PropertyType == PropertyType.Embedded) {
                     sb.AppendLine("{");
                     sb.AppendLine("if(nodeData." + nameof(INodeDataExternal.TryGetValue) + "(" + CodeUtils.GuidName(p.Id) + ", out var v)){");

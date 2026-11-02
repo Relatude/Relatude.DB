@@ -102,6 +102,7 @@ public static class GraphQLEndpointValidator {
                     if (secrets.TryGetValue(k.Key.Trim(), out var first)) error($"The API keys {first} and {label} are the same key.");
                     else secrets[k.Key.Trim()] = label;
                 }
+                if (k.ReadAs == GraphQLApiKeyReader.User && (k.UserId is not Guid user || user == Guid.Empty)) error($"The API key {label} reads as a user, but names none.");
                 if (k.IsExpired(utcNow)) expired++;
             }
             if (expired > 0 && expired == def.ApiKeys.Count) warning(expired == 1 ? "The API key has expired, so every request is turned away." : "Every API key has expired, so every request is turned away.");

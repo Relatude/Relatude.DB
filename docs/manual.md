@@ -1050,7 +1050,8 @@ hours on a venue, line items on an order, price tiers on an event.
 An embedded class is part of the model, so register it with your node types
 ([§12](#12-registering-the-model--the-admin-ui)): `AddNamespace` picks it up, `Add<T>` on the parent
 does not. On an interface, declare embedded properties getter-only; the store creates the collection.
-There are two kinds.
+On a class, initialise them: declare an `Embedded<T>` getter-only, `{ get; } = [];`, which the store
+fills, and an `EmbeddedMap` with a setter, `{ get; set; } = [];`. There are two kinds.
 
 ### `Embedded<T>` — a collection keyed by the embedded object's own `Guid Id`
 
@@ -1924,6 +1925,7 @@ optional: without `ApiKey`, nothing is charged and nothing is reported.
 | `AISettings` | null | The AI provider for embeddings and completions. Required for semantic search. See [below](#aisettings--embeddings-completions-and-the-vector-index). |
 | `ImagingSettings`, `FileToTextSettings`, `TranslationSettings`, `IPLookupSettings` | null | The providers behind `db.Services.Imaging`, `FileToText`, `Translation` and `IPLookup`. Null means the hosted Relatude service, used with the installation's license ([§34](#34-ai-services)). |
 | `SMSSettings` | null | The provider behind `db.Services.SMS` ([§35](#35-relatude-services)). Null means no SMS, and `db.Services.SMS` throws. |
+| `EmailSettings` | null | The provider behind `db.Services.Email` ([§35](#35-relatude-services)). Null means no e-mail, and `db.Services.Email` throws. |
 | `LocalSettings` | defaults | The engine settings. See [below](#localsettings--the-engine). |
 
 **`ShortName`.** A database's shared settings files are its log definitions, its GraphQL endpoints
@@ -4260,7 +4262,7 @@ Console.WriteLine($"{page.Count} of {page.TotalCount} events in {page.DurationMs
 |---|---|
 | `Count` | Rows in this result |
 | `TotalCount` | Matches in the whole query, before paging |
-| `PageIndex`, `PageSize`, `PageCount` | The page asked for, and how many pages there are |
+| `PageIndex`, `PageSize`, `PageCount` | The page asked for, and how many pages the matches fill: at least one, and one when the query is not paged |
 | `IsAll` | True when the result holds every match, not a page of them |
 | `IsLastPage` | True when no page comes after this one |
 | `Capped` | True when the engine stopped short of counting everything |
@@ -5457,15 +5459,13 @@ queries against it. See [§33.1](#331-an-endpoint-in-the-admin-ui).
 [§33.9](#339-code-first-mapping-an-endpoint-in-programcs).
 
 ```csharp
-using Relatude.DB.Datamodels;   // QueryContext
 using Relatude.DB.GraphQL;
 using Relatude.DB.NodeServer;
 
 app.UseRelatudeDB();
 app.MapRelatudeDBGraphQL("/graphql", o => {
     o.StoreResolver = _ => RelatudeDBRuntime.Database.Datastore;
-    o.QueryContextFactory = _ => QueryContext.Anonymous;   // read as an anonymous visitor
-    o.EnableExplorer = true;                               // open /graphql in a browser to try it
+    o.EnableExplorer = true;   // open /graphql in a browser to try it
 });
 ```
 
@@ -5493,7 +5493,9 @@ views:
 | **Json** | The definition file, editable as text. |
 
 **Add key**, in **Settings**, adds a generated API key that expires in a year. Name it after the
-client that uses it. You can change or clear the expiry date.
+client that uses it. You can change or clear the expiry date. **Reads as** says who the key's
+requests read as: an anonymous visitor, a user of the database (chosen from its users by name), or
+the master admin ([§33.10](#3310-who-reads-and-the-limits)).
 
 The editor works on a draft, so you see the schema a change gives before you save. Warnings say
 what the schema leaves out or renames. Errors, such as a url another endpoint uses, block saving.
@@ -5505,9 +5507,10 @@ In the endpoint list, buttons open each endpoint's public pages: **Explore** (th
 An endpoint's url can be any path the admin UI does not use, and must be unique on the server,
 across databases. While the database is not open, the url answers `503`.
 
-> **The url is public.** The admin UI's login does not cover an endpoint, and an endpoint made here
-> ignores read access ([§33.10](#3310-who-reads-and-the-limits)). Protect it with API keys or a
-> reverse proxy, or expose only types whose nodes anyone may see.
+> **The url is public.** The admin UI's login does not cover an endpoint. An endpoint made here
+> reads as an anonymous visitor unless the request's API key says otherwise, so without keys it serves
+> only the nodes everyone may read ([§33.10](#3310-who-reads-and-the-limits)). To decide who may query
+> it at all, give it API keys or put it behind a reverse proxy.
 
 ### 33.2 The definition file
 
@@ -5535,7 +5538,8 @@ trailing commas are allowed, and enum values are written by name.
   "enableFacetSearch": true,
   "apiKeys": [
     { "name": "Web site", "key": "6f1c…", "expires": "2027-10-07T00:00:00Z" },
-    { "name": "Mobile app", "key": "a93e…" }
+    { "name": "Mobile app", "key": "a93e…", "readAs": "User", "userId": "5b0e2c71-8d3f-4a96-b1e4-07c9a6f2d813" },
+    { "name": "Backoffice", "key": "d27b…", "readAs": "Admin" }
   ],
   "defaultPageSize": 25,
   "maxPageSize": 200,
@@ -5584,7 +5588,7 @@ rename. The **Types** view fills in the ids, so start a file there.
 | `maxFacetCards` | 200,000 | The most nodes the facet page draws. |
 | `defaultNodeTypeId` | none | The type the explorer and the facet page open on. |
 | `includeSystemTypes` | `false` | Whole-datamodel mode only: also expose the built-in users, groups, collections and cultures. |
-| `apiKeys[]` | none | With any keys, every request needs one that has not expired ([§33.7](#337-over-http)). Each has a `name`, the `key` and `expires`, in UTC. |
+| `apiKeys[]` | none | With any keys, every request needs one that has not expired ([§33.7](#337-over-http)). Each has a `name`, the `key`, `expires` in UTC, and `readAs` with `userId`: who its requests read as ([§33.10](#3310-who-reads-and-the-limits)). |
 | `maxQueryDepth` | 16 | How deeply a selection may nest, fragments included. |
 | `maxIncludeDepth` | 8 | How many relations deep a selection may follow. |
 | `defaultPageSize`, `maxPageSize` | 25, 200 | The page size when a query gives none, and the largest allowed. A larger `pageSize` is cut down, not refused. |
@@ -5593,7 +5597,9 @@ rename. The **Types** view fills in the ids, so start a file there.
 
 In `types[]`, `"properties": null` exposes every property of the type, and a list exposes only the
 properties it names, each with a `propertyId` and an optional field `name`. In `apiKeys[]`, leave
-out `expires` for a key that never expires.
+out `expires` for a key that never expires. `readAs` is `Anonymous` (the default), `User` or
+`Admin`, and a `User` key names the user node in `userId`; saving refuses a user key without a user,
+or with one the database does not have.
 
 ### 33.3 The schema
 
@@ -5937,6 +5943,7 @@ The status codes are:
 - `400` when the request produced no data at all (syntax, validation, variables), or the body is
   not valid JSON;
 - `401` when the API key is missing, wrong or expired;
+- `403` when the key reads as a user the database no longer has;
 - `503` while the database is not open.
 
 Every result carries `extensions.durationMs`, the time the request took on the server.
@@ -5944,7 +5951,8 @@ Every result carries `extensions.durationMs`, the time the request took on the s
 **API keys.** An endpoint with `apiKeys` needs one of them on every request, in an `X-Api-Key`
 header or as `Authorization: Bearer <key>`. An expired key gets a `401` that says so, and when
 every key has expired, every request is turned away. Give each client its own key. To replace one,
-add the new key, move the client over, then remove the key it replaces or let it expire.
+add the new key, move the client over, then remove the key it replaces or let it expire. A key also
+says who its requests read as, so two clients of one endpoint can see different nodes.
 
 ```bash
 curl -s https://example.com/api/graphql -H "Content-Type: application/json" -H "X-Api-Key: $KEY" \
@@ -6026,7 +6034,7 @@ app.MapRelatudeDBGraphQL("/graphql", o => {
 | Option | Default | What it does |
 |---|---|---|
 | `StoreResolver` | `IDataStore` from the request's services | The store to answer from. `AddRelatudeDB` registers no `IDataStore`, so set this, as above. While it returns `null` or throws, such as before the database opens, the route answers `503`. |
-| `QueryContextFactory` | the store's default context | The query context per request: user, culture, unpublished or hidden nodes ([§29](#29-cultures-visibility-and-scoped-stores)). Set it: the default for a database `UseRelatudeDB` opens is the master admin. |
+| `QueryContextFactory` | an anonymous visitor | The query context per request: user, culture, unpublished or hidden nodes ([§29](#29-cultures-visibility-and-scoped-stores)). A request reads as an anonymous visitor when there is no factory or it returns `null`. |
 | `TransactionExecutor` | `IDataStore.Execute` | Runs a mutation's transaction. The default skips transaction plugins. |
 | `TypeFilter` | none | Return `false` to keep a node type out of the schema. |
 | `FacetSearch` | none | Answers the facet page's requests. |
@@ -6042,7 +6050,7 @@ options, or a definition:
 ```csharp
 var gql = new RelatudeGraphQL(db.Datastore, new GraphQLOptions { AllowMutations = true });
 var request = new GraphQLRequest { Query = "{ iEvents { totalCount } }" };
-GraphQLResult result = gql.Execute(request, QueryContext.Anonymous);   // the context is optional
+GraphQLResult result = gql.Execute(request, QueryContext.Anonymous);   // without one: the store's default context
 string json = result.ToJson();
 string sdl = gql.ToSDL();
 IReadOnlyList<string> warnings = gql.Warnings;   // what the schema left out or named otherwise
@@ -6057,11 +6065,15 @@ built.
 ([§29](#29-cultures-visibility-and-scoped-stores)), and an endpoint, its facet page included, shows
 only what that context can read.
 
-- A code-first endpoint reads in the context its `QueryContextFactory` returns, such as
-  `QueryContext.Anonymous` for what anyone may see.
-- An endpoint made in the admin UI, and a code-first endpoint without a `QueryContextFactory`, read
-  in the store's default context. For a database that `UseRelatudeDB` opens, that is the master
-  admin: every published node that is not hidden, whatever its read access.
+- An endpoint made in the admin UI reads as its request's API key says (`readAs`):
+  - `Anonymous`, the default and what a request reads as on an endpoint without keys: the
+    published nodes that are not hidden and that everyone may read (`QueryContext.Anonymous`);
+  - `User`: the user node `userId` names, with what its user type and its groups may read. If the
+    user is deleted, the key's requests are turned away with a `403`;
+  - `Admin`: the master admin, every published node that is not hidden, whatever its read access.
+    Keep such a key on servers you control.
+- A code-first endpoint reads in the context its `QueryContextFactory` returns, such as a signed-in
+  user read from the request, and as an anonymous visitor without one.
 
 **Keeping it closed.** The switches that matter:
 
@@ -6332,7 +6344,7 @@ is acceptable.
 
 Relatude Services is a hosted service run by Relatude at <https://services.relatude.com>. It puts
 the third-party services an application tends to need behind one account: language models, image
-AI, text from files, translation, IP lookup and text messages. Relatude holds the agreements with
+AI, text from files, translation, IP lookup, text messages and e-mail. Relatude holds the agreements with
 the vendors, their keys and their bills. You hold one license and one API key, and pay for calls
 with credits on the license.
 
@@ -6348,8 +6360,9 @@ hosted services use.
 
 Without an API key, nothing is charged and the installation does not report in. On a server,
 `db.Services.Imaging`, `FileToText`, `Translation` and `IPLookup` point at the hosted services from
-the start, but a call throws, saying why, before anything leaves the server. `db.Services.AI` and
-`db.Services.SMS` exist only when `AISettings` and `SMSSettings` are set.
+the start, but a call throws, saying why, before anything leaves the server. `db.Services.AI`,
+`db.Services.SMS` and `db.Services.Email` exist only when `AISettings`, `SMSSettings` and
+`EmailSettings` are set.
 
 Every service is an interface. Implement it against your own vendor account, a model on your own
 hardware or any code you like, and name your class in the database's settings
@@ -6363,10 +6376,12 @@ hardware or any code you like, and name your class in the database's settings
 | Translation | `db.Services.Translation` | `ITranslationProvider` | `TranslationSettings` | `translation` |
 | IP lookup and the bot check | `db.Services.IPLookup` | `IIPLookupProvider` | `IPLookupSettings` | free; the license needs the feature `iplookup` |
 | Text messages | `db.Services.SMS` | `ISMSProvider` | `SMSSettings` | `sms` |
+| E-mail | `db.Services.Email` | `IEmailProvider` | `EmailSettings` | `email` |
 | Admin UI sign-in with a Relatude account | the login page | none | `AllowLicenseeAdminLogin` | free |
 
 The interfaces are in the namespaces `Relatude.DB.AI`, `Relatude.DB.Imaging`,
-`Relatude.DB.FileToText`, `Relatude.DB.Translation`, `Relatude.DB.IPLookup` and `Relatude.DB.SMS`.
+`Relatude.DB.FileToText`, `Relatude.DB.Translation`, `Relatude.DB.IPLookup`, `Relatude.DB.SMS` and
+`Relatude.DB.Email`.
 For embeddings and completions, `AISettings` also offers the built-in providers `AzureAI`, `OpenAI`
 (any OpenAI-compatible endpoint, a local Ollama included) and `Anthropic`
 ([§12.1](#aisettings--embeddings-completions-and-the-vector-index)). The admin UI always has the
@@ -6386,6 +6401,55 @@ var receipt = await db.Services.SMS.SendAsync("+4712345678", text);
 Quote a template before you send it to many people. One character outside the GSM alphabet, such as
 a curly quote or an emoji, can double the price. `SendBatchAsync` sends many messages in one call,
 all of them or none.
+
+E-mail goes through the hosted service when `EmailSettings` is set:
+
+```jsonc
+"EmailSettings": { "TypeName": "RelatudeServices", "From": "orders@myshop.no", "FromName": "My Shop" }
+```
+
+```csharp
+using Relatude.DB.Email;
+
+await db.Services.Email.SendAsync("kari@example.com", "Your order", "Thank you for your order.");
+
+await db.Services.Email.SendAsync(new EmailMessage {
+    From = new EmailAddress("orders@myshop.no", "My Shop"),
+    To = ["kari@example.com"],
+    Bcc = ["archive@myshop.no"],
+    ReplyTo = ["support@myshop.no"],
+    Subject = "Your order 1042",
+    Text = "Thank you for your order.",
+    Html = "<p>Thank you for your order.</p><img src=\"cid:logo\">",
+    Attachments = [new EmailAttachment("order-1042.pdf", pdf, "application/pdf"), EmailAttachment.Inline("logo", png, "image/png")],
+    Tags = ["orders"],
+    Reference = "order-1042",
+});
+```
+
+- **The license needs the `email` credit account.** Every recipient is charged once, whether in
+  `To`, `Cc` or `Bcc`. No feature is needed. `QuoteAsync` gives the recipients, the size and the
+  credits of a message without sending it or charging for it.
+- **A message goes as the service's own sender, or as one approved for the license.** An approval is
+  an address, such as `orders@myshop.no`, or a whole domain, written `@myshop.no`, which lets any
+  address at it send. Ask for them on the license's **E-mail senders** page at services.relatude.com;
+  Relatude approves them. A license with the feature `emailanysender` may name any sender. On a server
+  the sender is checked with the license server before anything is sent, so a sender that is not
+  approved is refused with the reason, and nothing is sent or charged.
+- **Where replies go needs no approval.** `ReplyTo` takes any address.
+- **`From` in the settings** is the sender when a message names none, and `FromName` the name shown
+  beside it. Empty sends as the service's own.
+- **A message is up to 20 MB, attachments included.** An attachment with a `ContentId` is
+  shown in the HTML, as `<img src="cid:logo">`, rather than listed. The service takes your own
+  headers when they start with `X-`, and `List-Unsubscribe`, `List-Unsubscribe-Post`, `List-Id`,
+  `In-Reply-To`, `References`, `Auto-Submitted` and `Precedence`, and at most three `Tags`.
+- **A send that may have been charged is not repeated.** Only a 429 or a 503, which the service gives
+  before it charges anything, is tried again. Any other failure, a timeout or a dropped connection
+  included, is thrown, and you decide whether to send again.
+
+`EmailSettings` takes `TypeName`, `ServiceUrl`, `ApiKey`, `From` and `FromName`. The service URL and
+API key are only for a provider of your own: the hosted service sends with the installation's
+license.
 
 ### 35.2 A provider of your own
 
@@ -6440,8 +6504,8 @@ The same rules apply to every service:
   opens. An empty `TypeName` or `RelatudeServices` means the hosted service, except in `AISettings`,
   where empty means Azure OpenAI.
 - **A public constructor takes the settings**: `AIProviderSettings`, `ImagingProviderSettings`,
-  `FileToTextProviderSettings`, `TranslationProviderSettings`, `IPLookupProviderSettings` or
-  `SMSProviderSettings`. Your class gets `ServiceUrl`, `ApiKey` and the rest from the same settings,
+  `FileToTextProviderSettings`, `TranslationProviderSettings`, `IPLookupProviderSettings`,
+  `SMSProviderSettings` or `EmailProviderSettings`. Your class gets `ServiceUrl`, `ApiKey` and the rest from the same settings,
   and the same settings page, as the built-in providers. Keep the key in the `RelatudeDB`
   configuration section ([§12.2](#appsettings-environment-variables-and-secrets)).
 - **One instance serves the whole database.** It is created when the database opens, so a type that
@@ -6454,7 +6518,7 @@ The same rules apply to every service:
   ([§34.5](#345-prices-answers-kept-and-errors)).
 - **A store built from code** gets the provider in the `NodeStore` constructor:
   `new NodeStore(datastore, sms: new MyGatewaySmsProvider(settings))`. The other parameters are
-  `imaging`, `fileToText`, `translation` and `ipLookup`.
+  `imaging`, `fileToText`, `translation`, `ipLookup` and `email`.
 
 ### 35.3 The account at services.relatude.com
 
@@ -6467,6 +6531,7 @@ example one per customer or project. Each license has these pages:
 | **Keys** | The license's API keys. An installation needs one and nothing else. Give each server its own, so you can delete one without stopping the rest |
 | **Entitlements** | Features, limits and credit accounts: one credit account per service, named as in [§35.1](#351-a-license-is-not-needed) |
 | **SMS senders** | The sender names text messages may use, each approved separately. A message without a sender uses the service's own |
+| **E-mail senders** | The addresses e-mail may be sent as, and whole domains written `@myshop.no`, each approved separately. A message without a sender uses the service's own |
 | **Installations** | The installations that have reported in, and the addresses each may be signed in from |
 | **Uptime** | For licenses that include it: texts the people you choose when an installation changes state |
 | **Access** | Who may see and use the license. They can all sign in to its installations where cloud sign-in is on |

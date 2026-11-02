@@ -31,13 +31,15 @@ namespace Relatude.DB.FileToText;
 /// self-hosted.</para>
 /// <para><b>Recordings and videos</b> are transcribed, with when each line is spoken (see
 /// <see cref="Transcript"/>). The service reads sound only, and this provider sends it: the database's
-/// file converters - the FFmpeg plugin, Relatude.DB.Plugins.FFMpeg - take the sound of a video or a
-/// recording on this machine, as one channel of Ogg Opus at 16 kHz and 24 kbps, about 11 MB an hour
-/// (<see cref="SpeechAdjustment"/>). It comes out the same, byte for byte, every time, so the service
-/// knows the sound of a video it has read before and charges what it sets for a text kept. A recording
-/// longer than the service reads in one call (<see cref="FileToTextFormats.MaxAudioMinutes"/>) is sent
-/// in parts, each charged as a file, and the transcript is put together, timed from the start. Without
-/// a converter a recording is sent as it is, and a video is refused (415) before anything is charged.</para>
+/// file converters take the sound of a video or a recording on this machine - every database has the
+/// built-in video converter, which runs FFmpeg and reads MP4, MOV, AVI, WMV, FLV, MKV and WebM - as one
+/// channel of Ogg Opus at 16 kHz and 24 kbps, about 11 MB an hour (<see cref="SpeechAdjustment"/>). It
+/// comes out the same, byte for byte, every time, so the service knows the sound of a video it has read
+/// before and charges what it sets for a text kept. A recording longer than the service reads in one call
+/// (<see cref="FileToTextFormats.MaxAudioMinutes"/>) is sent in parts, each charged as a file, and the
+/// transcript is put together, timed from the start. A recording no converter reads is sent as it is, and
+/// a video no converter reads is refused (415) before anything is charged; a provider made without the
+/// database's converters reads no video.</para>
 /// </summary>
 public class RelatudeServicesFileToTextProvider : IFileToTextProvider {
     /// <summary>The hosted service, used when the settings name no other.</summary>
@@ -141,15 +143,17 @@ public class RelatudeServicesFileToTextProvider : IFileToTextProvider {
 
     /// <summary>
     /// The engine that takes the sound of this kind of file, when the database has a file converter
-    /// that does: the FFmpeg plugin. Null for a recording without one, which is sent as it is. A video
-    /// without one is refused before anything is sent or charged: the service reads sound only.
+    /// that does: the built-in video converter does for the common formats. Null for a recording no
+    /// converter reads, which is sent as it is. A video no converter reads is refused before anything
+    /// is sent or charged: the service reads sound only.
     /// </summary>
     FileConversionEngine? converterFor(FileFormat media) {
         var engine = _fileConversion?.Invoke();
         if (engine != null && engine.CanConvert(media, FileFormat.Ogg)) return engine;
         if (FileFormatUtil.GetFileType(media) == FileType.Audio) return null;
-        const string reason = "The Relatude FileToText service reads a video by its sound, and no file converter on this server takes the sound out. "
-            + "Add the FFmpeg plugin (Relatude.DB.Plugins.FFMpeg) to the server's file converters: options.FileConverters.Add(new FFMpegVideoConverter()). ";
+        const string reason = "The Relatude FileToText service reads a video by its sound, and none of the file converters this provider was given takes the sound out of this kind of video. "
+            + "A database's own converters do for MP4, MOV, AVI, WMV, FLV, MKV and WebM: read the video through the database (NodeStore.Services.FileToText), "
+            + "or give a provider you make yourself the database's converters (DataStoreLocal.FileConversion). ";
         throw new RelatudeServiceException(415, $"{media.ToString().ToUpper()} video: {reason}", reason);
     }
 

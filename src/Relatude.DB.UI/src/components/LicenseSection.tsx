@@ -15,7 +15,9 @@ import { fetchSecretsInFile, type SecretsInFile } from "../server/settings";
 import {
   cancelPairing,
   fetchLicenseStatus,
+  licenseCarriesEmail,
   licenseCarriesSms,
+  licenseMayUseAnyEmailSender,
   licenseMayUseAnySmsSender,
   lookUpApiKey,
   pollPairing,
@@ -249,7 +251,7 @@ function AccountHero({
           {license
             ? [license.disabled ? "Disabled" : license.expired ? "Expired" : "Active", license.expiresUtc ? "expires " + formatTime(license.expiresUtc) : "never expires"].join(" · ")
             : status.state === "missing"
-              ? "None is needed: the database runs fully without one. A free license adds AI, imaging, file to text and SMS, and sign-in with a Relatude account."
+              ? "None is needed: the database runs fully without one. A free license adds AI, imaging, file to text, SMS and e-mail, and sign-in with a Relatude account."
               : status.reason}
         </p>
       </div>
@@ -454,13 +456,16 @@ function ApiKeyDialog({ status, onClose, onSaved }: { status: LicenseStatus; onC
 
 /**
  * What the license carries: its monthly credits first, a card each, then its features, limits and -
- * when it can send text messages and may not name any sender - the senders Relatude has approved.
+ * when it can send text messages or e-mail and may not name any sender - the senders Relatude has
+ * approved for each.
  */
 function EntitlementsPanel({ status }: { status: LicenseStatus }) {
   const license = status.license!;
-  const { smsSendersPage } = portalLinks(status);
+  const { smsSendersPage, emailSendersPage } = portalLinks(status);
   const senders = license.smsSenders ?? [];
   const showSenders = !licenseMayUseAnySmsSender(status) && (senders.length > 0 || licenseCarriesSms(status));
+  const emailSenders = license.emailSenders ?? [];
+  const showEmailSenders = !licenseMayUseAnyEmailSender(status) && (emailSenders.length > 0 || licenseCarriesEmail(status));
   return (
     <section className="panel account-carries">
       <h3>Monthly credits</h3>
@@ -518,6 +523,26 @@ function EntitlementsPanel({ status }: { status: LicenseStatus }) {
               </div>
             )}
             <a className="license-request" href={smsSendersPage} target="_blank" rel="noreferrer">
+              Request a sender
+              <IconExternalLink size={12} stroke={1.8} />
+            </a>
+          </div>
+        )}
+        {showEmailSenders && (
+          <div>
+            <h4 className="license-sub">E-mail senders</h4>
+            {emailSenders.length === 0 ? (
+              <p className="license-muted">None: e-mail goes as the service's own sender.</p>
+            ) : (
+              <div className="license-chips">
+                {emailSenders.map((s) => (
+                  <span key={s} className="license-chip" title={s.startsWith("@") ? "Any address at " + s.slice(1) : undefined}>
+                    {s}
+                  </span>
+                ))}
+              </div>
+            )}
+            <a className="license-request" href={emailSendersPage} target="_blank" rel="noreferrer">
               Request a sender
               <IconExternalLink size={12} stroke={1.8} />
             </a>
@@ -848,15 +873,16 @@ export function Field({
 }
 
 /**
- * The portal, the license's own page in it, and the page of the license where its SMS senders are
- * asked for. A key that is not a guid names no license, so the portal's front page is the best there
- * is then.
+ * The portal, the license's own page in it, and the pages of the license where its SMS and e-mail
+ * senders are asked for. A key that is not a guid names no license, so the portal's front page is the
+ * best there is then.
  */
-export function portalLinks(status: LicenseStatus): { server: string; licensePage: string; smsSendersPage: string } {
+export function portalLinks(status: LicenseStatus): { server: string; licensePage: string; smsSendersPage: string; emailSendersPage: string } {
   const server = status.servicesServerUrl.replace(/\/$/, "");
   const key = status.licenseKey?.trim() ?? "";
   const licensePage = /^[0-9a-f]{8}-?([0-9a-f]{4}-?){3}[0-9a-f]{12}$/i.test(key) ? `${server}/licenses/${encodeURIComponent(key)}` : server;
-  return { server, licensePage, smsSendersPage: licensePage === server ? server : licensePage + "/sms-senders" };
+  const onLicense = (page: string) => (licensePage === server ? server : licensePage + "/" + page);
+  return { server, licensePage, smsSendersPage: onLicense("sms-senders"), emailSendersPage: onLicense("email-senders") };
 }
 
 function toneOf(status: LicenseStatus): "ok" | "bad" | "info" {

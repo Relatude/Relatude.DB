@@ -42,7 +42,7 @@ public sealed class GraphQLOptions {
     public bool IncludeSystemTypes { get; set; } = false;
     /// <summary>Return false to keep a node type out of the schema. Applied after the built-in exclusions.</summary>
     public Func<NodeTypeModel, bool>? TypeFilter { get; set; }
-    /// <summary>Per-request query context (user, culture, publishing state). Null → the store default.</summary>
+    /// <summary>Per-request query context (user, culture, publishing state). Without one, or when it returns null, a request reads as an anonymous visitor.</summary>
     public Func<HttpContext, QueryContext?>? QueryContextFactory { get; set; }
     /// <summary>Per-request store resolution for the endpoint. Defaults to resolving IDataStore from request services.</summary>
     public Func<HttpContext, IDataStore?>? StoreResolver { get; set; }

@@ -404,7 +404,7 @@ internal static class BuildUtilsProperties {
         if (m is not PropertyInfo pi) throw new Exception("The embedded member \"" + m.DeclaringType?.FullName + "." + m.Name
             + "\" must be a property, not a field. ");
         if (pi.SetMethod != null) throw new Exception("The embedded property \"" + m.DeclaringType?.FullName + "." + m.Name
-            + "\" must not have a setter. Declare it getter-only ({ get; }), the value is initialized automatically. ");
+            + "\" must not have a setter. Declare it getter-only: { get; } on an interface, { get; } = []; on a class. The store fills it. ");
         addCommonEmbeddedProperties(a, p, valueType, false);
         p.EmbeddedValueType = EmbeddedValueType.InnerNodeList;
         return p;

@@ -68,6 +68,26 @@ export interface EndpointApiKey {
   key: string;
   /** when it stops working, an ISO time in UTC; null never */
   expires?: string | null;
+  /** who a request with the key reads as; an anonymous visitor when left out */
+  readAs?: ApiKeyReader;
+  /** the user node it reads as, when readAs is "User" */
+  userId?: string | null;
+}
+
+/** Who a request carrying a key reads as (GraphQLApiKeyReader): an anonymous visitor, a user of the database, or the master admin. */
+export type ApiKeyReader = "Anonymous" | "User" | "Admin";
+
+/** A user an API key can read as. */
+export interface KeyUser {
+  id: string;
+  name: string;
+  /** the user's type: User or Admin, Anonymous for a user node of that type */
+  type: string;
+}
+
+/** The users whose name or id holds the search, the first ones by name, and the selected ones whatever the search; more when the search leaves out some. */
+export function fetchKeyUsers(storeId: string, search: string, selected: string[], signal?: AbortSignal): Promise<{ users: KeyUser[]; more: boolean }> {
+  return send<{ users: KeyUser[]; more: boolean }>("graphql-users", { storeId, search, selected }, signal);
 }
 
 export interface EndpointSummary {

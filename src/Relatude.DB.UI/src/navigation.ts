@@ -18,6 +18,7 @@ import {
   IconAdjustments,
   IconLock,
   IconTransform,
+  IconMail,
   IconMessage,
   IconSparkles,
   IconPhoto,
@@ -106,10 +107,11 @@ export const sections: Section[] = [
   // someone who has just found out it exists), and a test of each service. The id is older than the
   // group, from when the account page was a server page called License.
   { id: "server-license", label: "Account", scope: "services", icon: LogoMarkIcon, tone: "plain" },
-  // one page in six views (ServiceTestsSection), one per service. The entry is not a view itself: it
+  // one page in seven views (ServiceTestsSection), one per service. The entry is not a view itself: it
   // opens the test that was open last, or the first (App's landing views)
   { id: "services-tests", label: "Test services", scope: "services", icon: IconFlask, tone: "plain" },
   { id: "services-sms", label: "SMS test", scope: "services", icon: IconMessage, parentId: "services-tests", tone: "plain" },
+  { id: "services-email", label: "E-mail test", scope: "services", icon: IconMail, parentId: "services-tests", tone: "plain" },
   { id: "services-ai", label: "AI test", scope: "services", icon: IconSparkles, parentId: "services-tests", tone: "plain" },
   { id: "services-imaging", label: "Imaging test", scope: "services", icon: IconPhoto, parentId: "services-tests", tone: "plain" },
   { id: "services-filetotext", label: "File to text test", scope: "services", icon: IconFileText, parentId: "services-tests", tone: "plain" },

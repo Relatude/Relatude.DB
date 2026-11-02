@@ -17,9 +17,15 @@ sealed class UIGraphQL(RelatudeDBServer server) {
     sealed record DefinitionPayload(Guid StoreId, JsonElement Definition);
     sealed record ExecutePayload(Guid StoreId, Guid? Id, JsonElement? Definition, string Query, JsonElement? Variables, string? OperationName);
     sealed record IdsPayload(Guid StoreId, Guid[]? Ids);
+    sealed record UsersPayload(Guid StoreId, string? Search, Guid[]? Selected);
 
     internal void Register(UICommands commands) {
         commands.Register("graphql-endpoints", ctx => (object?)list(ctx.Payload<StorePayload>().StoreId));
+        // the users an API key can read as
+        commands.Register("graphql-users", ctx => {
+            var p = ctx.Payload<UsersPayload>();
+            return (object?)users(container(p.StoreId), p.Search, p.Selected);
+        });
         commands.Register("graphql-endpoint", ctx => {
             var p = ctx.Payload<EndpointPayload>();
             var c = container(p.StoreId);
@@ -40,6 +46,7 @@ sealed class UIGraphQL(RelatudeDBServer server) {
             foreach (var key in def.ApiKeys) {
                 key.Name = key.Name?.Trim() ?? "";
                 key.Key = key.Key?.Trim() ?? "";
+                if (key.ReadAs != GraphQLApiKeyReader.User) key.UserId = null; // only a user key names a user
             }
             var issues = validate(c, def);
             var errors = issues.Where(i => i.IsError).Select(i => i.Message).ToList();
@@ -129,7 +136,44 @@ sealed class UIGraphQL(RelatudeDBServer server) {
                 issues.Add(new GraphQLEndpointIssue { Severity = "error", Message = $"The url is inside the admin API root {root}." });
             }
         }
+        // a key that reads as a user needs the user: a request with it is turned away while the user is missing
+        if (c.IsOpen() && c.Store != null) {
+            foreach (var key in def.ApiKeys.Where(k => k.ReadAs == GraphQLApiKeyReader.User && k.UserId is Guid id && id != Guid.Empty)) {
+                if (!c.Store.Datastore.ExistsAndIsType(key.UserId!.Value, NodeConstants.BaseUserId)) {
+                    var label = string.IsNullOrWhiteSpace(key.Name) ? "(unnamed)" : key.Name.Trim();
+                    issues.Add(new GraphQLEndpointIssue { Severity = "error", Message = $"The API key {label} reads as a user who is not in the database." });
+                }
+            }
+        }
         return issues;
+    }
+
+    /// <summary>The most users <see cref="users"/> answers; the rest are found by typing.</summary>
+    const int maxUsersListed = 100;
+
+    /// <summary>
+    /// The users an API key can read as: every node of the engine's user type (and its subtypes), named as the admin UI
+    /// names nodes, whose name or id contains <paramref name="search"/>, sorted by name, the first ones only; and the
+    /// users named in <paramref name="selected"/> whatever the search, so the keys' own users can always be shown.
+    /// </summary>
+    static object users(NodeStoreContainer c, string? search, Guid[]? selected) {
+        if (!c.IsOpen() || c.Store == null) throw new Exception("The database is not open.");
+        var s = c.Store;
+        var dm = s.Datastore.Datamodel;
+        if (!dm.NodeTypes.TryGetValue(NodeConstants.BaseUserId, out var userType)) return new { users = Array.Empty<object>(), more = false };
+        var all = s.Datastore.Query(userType.CodeName, [], QueryContext.MasterAdmin.Hidden()) as IStoreNodeDataCollection
+            ?? throw new Exception("The users could not be read.");
+        var named = all.NodeValues.Select(n => new {
+            id = n.Id,
+            name = UIQuery.nameOf(dm, n).Name,
+            type = n.TryGetValue(new Guid(NodeConstants.NativeUserPropertyUserTypeString), out var t) && t is int i ? ((Native.SystemUserType)i).ToString() : nameof(Native.SystemUserType.User),
+        }).ToList();
+        var q = search?.Trim() ?? "";
+        var matching = named.Where(u => q.Length == 0 || u.name.Contains(q, StringComparison.OrdinalIgnoreCase) || u.id.ToString().Contains(q, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(u => u.name, StringComparer.OrdinalIgnoreCase).ToList();
+        var wanted = new HashSet<Guid>(selected ?? []);
+        var listed = matching.Take(maxUsersListed).Concat(named.Where(u => wanted.Contains(u.id))).DistinctBy(u => u.id).ToList();
+        return new { users = listed, more = matching.Count > maxUsersListed };
     }
 
     object list(Guid storeId) {
