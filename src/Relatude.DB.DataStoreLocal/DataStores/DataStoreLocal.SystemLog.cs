@@ -13,7 +13,6 @@ public sealed partial class DataStoreLocal : IDataStore {
     public void LogInfo(string text, string? details = null, bool replace = false) => Log(SystemLogEntryType.Info, text, details, replace);
     public void LogWarning(string text, string? details = null) => Log(SystemLogEntryType.Warning, text, details);
     static object _consoleColorLock = new();
-    static object _criticalLogLock = new();
     public void Log(SystemLogEntryType type, string text, string? details = null, bool replace = false) {
         if (text != null && text.StartsWith("WARNING: ")) {
             type = SystemLogEntryType.Warning;
@@ -68,12 +67,22 @@ public sealed partial class DataStoreLocal : IDataStore {
         buildErrorLog(sb, error);
         Log(SystemLogEntryType.Error, description, sb.ToString());
     }
+    public event Action<string, Exception>? CriticalErrorWhileOpen;
     Exception createCriticalErrorAndSetDbToErrorState(string description, Exception error, TransactionData? transaction = null) {
+        var wasOpen = _state == Common.DataStoreState.Open;
         try {
             logError(description, error, transaction, true);
         } catch { }
         _state = Common.DataStoreState.Error;
+        if (wasOpen) raiseCriticalErrorWhileOpen(description, error);
         return new Exception("Critical error occurred. " + description, error);
+    }
+    void raiseCriticalErrorWhileOpen(string description, Exception error) {
+        var handlers = CriticalErrorWhileOpen;
+        if (handlers == null) return;
+        ThreadPool.QueueUserWorkItem(_ => {
+            try { handlers(description, error); } catch { }
+        });
     }
     void logError(string description, Exception? error = null) {
         logError(description, error, null, false);
@@ -109,29 +118,14 @@ public sealed partial class DataStoreLocal : IDataStore {
     }
     void writeCriticalSystemErrorTextFile(string description, string? details = null) {
         var sb = new StringBuilder();
-        sb.AppendLine();
-        sb.AppendLine();
-        sb.AppendLine("#######START CRITICAL ERROR LOG########");
-        sb.AppendLine();
-        sb.AppendLine(DateTime.UtcNow.ToString("o") + " ");
-        sb.AppendLine(description);
         if (details != null) sb.AppendLine(details);
         try {
             var metrics = DequeMetrics();
             sb.AppendLine();
             sb.AppendLine("Metrics: ");
-            sb.AppendLine(JsonSerializer.Serialize(metrics));
+            sb.Append(JsonSerializer.Serialize(metrics));
         } catch { }
-        sb.AppendLine();
-        sb.AppendLine("#######END CRITICAL ERROR LOG########");
-        sb.AppendLine();
-        sb.AppendLine();
-        lock (_criticalLogLock) {
-            var fileKey = FileKeyUtility.CriticalErrorLogFileKey;
-            var io = _ioLog;
-            using var stream = io.OpenAppend(fileKey);
-            stream.WriteUTF8StringNoLengthPrefix(sb.ToString());
-        }
+        CriticalErrorLogFile.Append(_ioLog, DateTime.UtcNow, description, sb.ToString());
     }
     void buildErrorLog(StringBuilder sb, Exception error, int level = 0) {
         sb.AppendLine(error.GetType().FullName + ": " + error.Message);

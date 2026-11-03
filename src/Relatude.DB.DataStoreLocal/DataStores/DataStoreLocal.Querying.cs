@@ -3,6 +3,7 @@ using System.Diagnostics.CodeAnalysis;
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.Datamodels.Properties;
+using Relatude.DB.DataStores.Definitions;
 using Relatude.DB.Query;
 using Relatude.DB.Query.Data;
 using Relatude.DB.Query.Expressions;
@@ -357,15 +358,24 @@ public sealed partial class DataStoreLocal : IDataStore {
     // would. Under the read lock, as the sets are.
     int[] relatedForContext(RelationPropertyModel relProp, Guid from, QueryContext ctx, int max = int.MaxValue) {
         if (!_guids.TryGetId(from, out var fromId)) return [];
-        var related = _definition.Relations[relProp.RelationId].GetRelated(fromId, relProp.FromTargetToSource);
-        var readable = new List<int>();
+        return readableOf(_definition.Relations[relProp.RelationId], fromId, relProp.FromTargetToSource, ctx, max);
+    }
+    // Of the ids related to a node, those the context reads, in the relation's order: each asked about in turn
+    // (NodeTypesByIds.Readable), as an intersection with the context's sets would hand bit sets back in ascending order.
+    int[] readableOf(Relation relation, int from, bool fromTargetToSource, QueryContext ctx, int max = int.MaxValue) {
+        var related = relation.GetRelated(from, fromTargetToSource);
+        if (related.Count == 0) return [];
+        var (endTypes, allEndTypes) = fromTargetToSource ? (relation.Model.SourceTypes, relation.AllSourceTypes) : (relation.Model.TargetTypes, relation.AllTargetTypes);
+        var readable = _definition.NodeTypeIndex.Readable(ctx, endTypes.Count == 1 ? endTypes[0] : default, allEndTypes);
+        if (readable.ReadsAll && related.Count <= max) return [.. related.Enumerate()];
+        var result = new int[Math.Min(related.Count, max)];
+        var count = 0;
         foreach (var id in related.Enumerate()) {
-            if (_definition.NodeTypeIndex.TryGetType(id, out var typeId) && _definition.GetAllIdsForType(typeId, ctx).Has(id)) {
-                readable.Add(id);
-                if (readable.Count == max) break;
-            }
+            if (!readable.Has(id)) continue;
+            result[count++] = id;
+            if (count == result.Length) break;
         }
-        return [.. readable];
+        return count == result.Length ? result : result[..count];
     }
     static RelationPropertyModel relationProperty(Datamodel datamodel, Guid propertyId) =>
         datamodel.Properties[propertyId] as RelationPropertyModel ?? throw new ArgumentException("Property is not a relation property");
@@ -394,6 +404,22 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
     }
     public IEnumerable<Guid> GetRelatedNodeIdsFromRelationId(Guid relationId, Guid from, bool fromTargetToSource, QueryContext? ctx = null) {
+        _lock.EnterReadLock();
+        var activityId = RegisterActvity(DataStoreActivityCategory.Querying);
+        try {
+            validateDatabaseState();
+            _queryActivity.Record();
+            if (!_guids.TryGetId(from, out var fromId)) return [];
+            var readable = readableOf(_definition.Relations[relationId], fromId, fromTargetToSource, ctx ?? _defaultQueryCtx);
+            var guids = new Guid[readable.Length];
+            for (var i = 0; i < readable.Length; i++) guids[i] = _guids.GetGuid(readable[i]);
+            return guids;
+        } finally {
+            DeRegisterActivity(activityId);
+            _lock.ExitReadLock();
+        }
+    }
+    public IEnumerable<Guid> GetAllRelatedNodeIdsFromRelationId(Guid relationId, Guid from, bool fromTargetToSource) {
         _lock.EnterReadLock();
         var activityId = RegisterActvity(DataStoreActivityCategory.Querying);
         try {

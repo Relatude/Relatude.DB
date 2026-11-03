@@ -24,21 +24,10 @@ class idSet {
         _createdUsingNowUtc = nowUtc;
     }
     public DateTime CreatedWithNowUtc => _createdUsingNowUtc;
-    public void Add(int id, DateTime? releaseDate, DateTime? expireDate) {
+    public void Add(int id) {
         _ids.Add(id);
         _state.RegisterAddition(id);
         _lastSet = null;
-        // update time constraints:
-        if (releaseDate.HasValue) {
-            if (!ValidFrom.HasValue || releaseDate.Value > ValidFrom.Value) {
-                ValidFrom = releaseDate.Value;
-            }
-        }
-        if (expireDate.HasValue) {
-            if (!ValidTo.HasValue || expireDate.Value < ValidTo.Value) {
-                ValidTo = expireDate.Value;
-            }
-        }
     }
     public void Remove(int id) {
         _ids.Remove(id);
@@ -46,18 +35,13 @@ class idSet {
         _lastSet = null;
         // cannot update time constraints on removal, so just keep interval the smallest it has been
     }
-    public void RegisterExcludedFutureRelease(DateTime releaseUtc) {
-        // a node excluded because its release is in the future becomes visible at releaseUtc,
-        // so this set is only valid until then:
-        if (!ValidTo.HasValue || releaseUtc < ValidTo.Value) ValidTo = releaseUtc;
-    }
-    public void RegisterExcludedPastExpiry(DateTime expireUtc) {
-        // a node excluded because it has expired was visible before expireUtc, so this set is only valid from then:
-        if (!ValidFrom.HasValue || expireUtc > ValidFrom.Value) ValidFrom = expireUtc;
-    }
-    public void RegisterExcluded(DateTime? pendingReleaseUtc, DateTime? expiredUtc) {
-        if (pendingReleaseUtc.HasValue) RegisterExcludedFutureRelease(pendingReleaseUtc.Value);
-        if (expiredUtc.HasValue) RegisterExcludedPastExpiry(expiredUtc.Value);
+    /// <summary>
+    /// Narrows the time the set is valid for to the time a node's answer holds (isMetaRelevantForContext): from the
+    /// release or expiry it last changed at, to the one it next changes at.
+    /// </summary>
+    public void Bound(DateTime? validFrom, DateTime? validTo) {
+        if (validFrom.HasValue && (!ValidFrom.HasValue || validFrom.Value > ValidFrom.Value)) ValidFrom = validFrom.Value;
+        if (validTo.HasValue && (!ValidTo.HasValue || validTo.Value < ValidTo.Value)) ValidTo = validTo.Value;
     }
     /// <summary>When a reader last took the set, to keep the sets in use (Environment.TickCount64).</summary>
     public long LastUsed;
@@ -99,6 +83,54 @@ class idSets {
             var kept = _sets.Where(s => !(s.ValidTo <= now)).OrderByDescending(s => s.LastUsed).Take(max - 1);
             _sets = [set, .. kept];
         }
+    }
+}
+/// <summary>
+/// See <see cref="NodeTypesByIds.Readable"/>. For one read, under the store's read lock, on one thread: the sets it
+/// takes are the cache's as they were then.
+/// </summary>
+internal sealed class ReadableIds {
+    readonly NodeTypesByIds _index;
+    readonly QueryContextKey _key;
+    readonly DateTime _nowUtc;
+    // the set of the one type a relation end holds, its descendants included, when the end has one: a node of it is
+    // then a single lookup, whatever its own type (the set of a type holds a node exactly when its own type's set does)
+    readonly Guid _endType;
+    readonly HashSet<Guid>? _endTypes;
+    IdSet? _end;
+    Guid _lastType;
+    IdSet? _lastSet;
+    Dictionary<Guid, IdSet>? _byType;
+    internal ReadableIds(NodeTypesByIds index, QueryContextKey key, DateTime nowUtc, Guid endType, HashSet<Guid>? endTypes) {
+        _index = index;
+        _key = key;
+        _nowUtc = nowUtc;
+        // what NodeTypesByIds.isMetaRelevantForContext lets through whatever the meta, so every node is read
+        // (QueryContext.AllIncludingDescendants): the type need not be asked, as a node is tested against its own type's set
+        ReadsAll = key.IncludeDeleted && key.IncludeUnpublished && key.IncludeHidden && key.IncludeCultureFallback && !key.OnlyWithCulture
+            && key.CollectionIds is not { Length: > 0 } && key.UserType == SystemUserType.Admin;
+        if (endType != Guid.Empty && endTypes != null && !key.ExcludeDescendants) { // excluding descendants, a type's set holds that type alone
+            _endType = endType;
+            _endTypes = endTypes;
+        }
+    }
+    /// <summary>Whether the context reads every node, whatever its meta, so nothing need be asked.</summary>
+    public bool ReadsAll { get; }
+    public bool Has(int id) {
+        if (ReadsAll) return true;
+        if (_endTypes != null) {
+            if ((_end ??= setOf(_endType)).Has(id)) return true;
+            // not read, unless it is of a type the end does not hold (related before the datamodel changed)
+            return _index.TryGetType(id, out var other) && !_endTypes.Contains(other) && setOf(other).Has(id);
+        }
+        return _index.TryGetType(id, out var typeId) && setOf(typeId).Has(id);
+    }
+    IdSet setOf(Guid typeId) {
+        if (_lastSet != null && typeId == _lastType) return _lastSet;
+        _byType ??= [];
+        if (!_byType.TryGetValue(typeId, out var ids)) _byType[typeId] = ids = _index.GetAllNodeIdsForTypeFilteredByContext(typeId, _key, _nowUtc);
+        _lastType = typeId;
+        return _lastSet = ids;
     }
 }
 public class metaAndType(IInnerNodeMeta meta, Guid typeId) : IEquatable<metaAndType> {
@@ -258,19 +290,18 @@ internal class NodeTypesByIds {
     idSet evaluateRelevantIds(Guid ctxTypeId, QueryContextKey ctxKey, DateTime nowUtc) {
         var ids = new idSet(nowUtc);
         var relevantMetaIds = new HashSet<uint>();
-        Dictionary<uint, (DateTime? Release, DateTime? Expired)>? timedOutByMetaId = null; // metas excluded only by their release or expiry
+        Dictionary<uint, (DateTime? From, DateTime? To)>? boundsByMetaId = null; // metas whose answer changes at a release or an expiry
         foreach (var kv in _idByMeta) {
-            if (isMetaRelevantForContext(kv.Key, ctxTypeId, ctxKey, nowUtc, out var pendingReleaseUtc, out var expiredUtc)) relevantMetaIds.Add(kv.Value);
-            else if (pendingReleaseUtc.HasValue || expiredUtc.HasValue) (timedOutByMetaId ??= []).TryAdd(kv.Value, (pendingReleaseUtc, expiredUtc));
+            if (isMetaRelevantForContext(kv.Key, ctxTypeId, ctxKey, nowUtc, out var validFrom, out var validTo)) relevantMetaIds.Add(kv.Value);
+            if (validFrom.HasValue || validTo.HasValue) (boundsByMetaId ??= []).TryAdd(kv.Value, (validFrom, validTo));
         }
         _metaIdsByNodeId.ForEach((nodeId, shortMetaId) => {
+            // a node read or left out until a release or an expiry bounds the time the set is valid for:
+            if (boundsByMetaId != null && boundsByMetaId.TryGetValue(shortMetaId, out var bounds)) ids.Bound(bounds.From, bounds.To);
             if (relevantMetaIds.Contains(shortMetaId)) {
-                var meta = _metaById[shortMetaId].Meta;
-                ids.Add(nodeId, meta.ReleaseUtc, meta.ExpireUtc);
+                ids.Add(nodeId);
                 return true; // break inner loop as we found a relevant meta for this node
             }
-            // a node excluded by its release or expiry bounds the time the set is valid for:
-            if (timedOutByMetaId != null && timedOutByMetaId.TryGetValue(shortMetaId, out var timed)) ids.RegisterExcluded(timed.Release, timed.Expired);
             return false;
         });
         return ids;
@@ -278,11 +309,12 @@ internal class NodeTypesByIds {
 
     bool isMetaRelevantForContext(metaAndType mt, Guid ctxTypeId, QueryContextKey ctx, DateTime nowUtc)
         => isMetaRelevantForContext(mt, ctxTypeId, ctx, nowUtc, out _, out _);
-    // pendingReleaseUtc is set when the meta was excluded because its release date has not yet passed, and
-    // expiredUtc when it was excluded because it has expired, so the caller can bound the time a cached set is valid for:
-    bool isMetaRelevantForContext(metaAndType mt, Guid ctxTypeId, QueryContextKey ctx, DateTime nowUtc, out DateTime? pendingReleaseUtc, out DateTime? expiredUtc) {
-        pendingReleaseUtc = null;
-        expiredUtc = null;
+    // validFrom and validTo are the time the answer holds, for a caller bounding the time a cached set is valid for: the
+    // release or expiry the answer last changed at, and the one it next changes at. Only a release or an expiry that
+    // decides the answer bounds it, so none does in a context reading unpublished content, which ignores them:
+    bool isMetaRelevantForContext(metaAndType mt, Guid ctxTypeId, QueryContextKey ctx, DateTime nowUtc, out DateTime? validFrom, out DateTime? validTo) {
+        validFrom = null;
+        validTo = null;
         var meta = mt.Meta;
 
         // Filter based on node type
@@ -305,15 +337,6 @@ internal class NodeTypesByIds {
         // Culture:
         if (ctx.OnlyWithCulture && meta.CultureId == Guid.Empty) return false;
         if (!ctx.IncludeCultureFallback) if (meta.CultureId != ctx.CultureId) return false;
-
-        // Release/expire date:
-        if (!ctx.IncludeUnpublished) {
-            if (!isReleased(nowUtc, meta)) {
-                if (meta.ReleaseUtc.HasValue && nowUtc < meta.ReleaseUtc.Value) pendingReleaseUtc = meta.ReleaseUtc.Value;
-                else if (meta.ExpireUtc.HasValue) expiredUtc = meta.ExpireUtc.Value;
-                return false;
-            }
-        }
 
         // Collection:
         if (ctx.CollectionIds != null && ctx.CollectionIds.Length > 0 && !ctx.CollectionIds.Contains(meta.CollectionId)) return false;
@@ -339,6 +362,18 @@ internal class NodeTypesByIds {
         // Include hidden:
         if (typeDef == null) typeDef = _definition.NodeTypes[typeId].Model;
         if (!ctx.IncludeHidden && typeDef.Hidden) return false;
+
+        // Release/expire date, last, so a date it gives is one the answer changes at, not one of a node left out anyway:
+        if (!ctx.IncludeUnpublished) {
+            if (meta.ReleaseUtc.HasValue) {
+                if (nowUtc < meta.ReleaseUtc.Value) { validTo = meta.ReleaseUtc.Value; return false; } // read from its release
+                validFrom = meta.ReleaseUtc.Value; // not read before it
+            }
+            if (meta.ExpireUtc.HasValue) {
+                if (nowUtc >= meta.ExpireUtc.Value) { validFrom = meta.ExpireUtc.Value; return false; } // read until its expiry
+                validTo = meta.ExpireUtc.Value; // not read from it
+            }
+        }
 
         return true;
     }
@@ -387,8 +422,23 @@ internal class NodeTypesByIds {
     }
     public IdSet GetAllNodeIdsForTypeFilteredByContext(Guid typeId, QueryContext ctx) {
         var key = _nativeModelStore.GetQueryContextKey(ctx, out var nowUtc);
+        return GetAllNodeIdsForTypeFilteredByContext(typeId, key, nowUtc);
+    }
+    /// <summary>The same with the context already resolved, for a caller asking about several types in one context.</summary>
+    public IdSet GetAllNodeIdsForTypeFilteredByContext(Guid typeId, QueryContextKey key, DateTime nowUtc) {
         var ids = getIds(typeId, key, nowUtc).AsUnmutableIdSet();
         return key.SelectedRevisions is { Length: > 0 } && !key.IncludeUnpublished ? withSelectedRevisions(ids, typeId, key, nowUtc) : ids;
+    }
+    /// <summary>
+    /// Which nodes a context reads, asked one node at a time, as a read that walks a relation asks: it takes the related
+    /// ids in the relation's order, which intersecting with a set would not keep. The context is resolved once and each
+    /// set taken from the cache once. Given the one type a relation end holds (<paramref name="endType"/>, and with its
+    /// descendants <paramref name="endTypes"/>), a node costs a lookup in that type's set; otherwise its type and a
+    /// lookup in that type's set.
+    /// </summary>
+    public ReadableIds Readable(QueryContext ctx, Guid endType = default, HashSet<Guid>? endTypes = null) {
+        var key = _nativeModelStore.GetQueryContextKey(ctx, out var nowUtc);
+        return new(this, key, nowUtc, endType, endTypes);
     }
     idSet getIds(Guid typeId, QueryContext ctx) => getIds(typeId, _nativeModelStore.GetQueryContextKey(ctx, out var nowUtc), nowUtc);
     idSet getIds(Guid typeId, QueryContextKey key, DateTime nowUtc) {
@@ -556,12 +606,10 @@ internal class NodeTypesByIds {
         foreach (var kv in _cachedNodeIdsByCtx.AllNotThreadSafe()) {
             var ctx = kv.Key;
             foreach (var ids in kv.Value.All) {
-                if (isMetaRelevantForContext(mt, ctx.TypeId, ctx.CxtKey, ids.CreatedWithNowUtc, out var pendingReleaseUtc, out var expiredUtc)) { // no time constraint
-                    if (addedTo == null || addedTo.Add(ids)) ids.Add(nodeId, mt.Meta.ReleaseUtc, mt.Meta.ExpireUtc);
-                } else {
-                    // excluded only by its release or expiry, so the cached set is valid only while that holds:
-                    ids.RegisterExcluded(pendingReleaseUtc, expiredUtc);
-                }
+                // judged at the time the set was made, so it stays the set of that time, valid only while the answer holds:
+                var relevant = isMetaRelevantForContext(mt, ctx.TypeId, ctx.CxtKey, ids.CreatedWithNowUtc, out var validFrom, out var validTo);
+                ids.Bound(validFrom, validTo);
+                if (relevant && (addedTo == null || addedTo.Add(ids))) ids.Add(nodeId);
             }
         }
         if (_countByType.TryGetValue(nodeTypeId, out var count)) {

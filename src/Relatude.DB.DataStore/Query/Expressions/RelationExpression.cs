@@ -66,7 +66,7 @@ public class RelationExpression : IExpression {
     bool contains(int level, Guid from, IDataStore db, bool[] dirs, Guid[] rels) {
         if (dirs.Length - level == 1) // last level
             return db.ContainsRelation(rels[level], from, GetTo(db), dirs[level]);
-        foreach (var target in db.GetRelatedNodeIdsFromRelationId(rels[level], from, dirs[level])) { // recursive
+        foreach (var target in db.GetAllRelatedNodeIdsFromRelationId(rels[level], from, dirs[level])) { // recursive
             if (contains(level + 1, target, db, dirs, rels)) return true;
         }
         return false;

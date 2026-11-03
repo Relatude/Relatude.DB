@@ -68,10 +68,10 @@ public sealed class LicenseLogin(RelatudeDBServer server) : IDisposable {
     /// <param name="ApiKeyName">What the license's people call the API key the license was asked for
     /// with, so the page can say which of its keys this installation holds. Null for a key without a
     /// name, and from a license server older than the names.</param>
-    /// <param name="EmailSenders">The senders Relatude has approved for the license's e-mail, as the license
-    /// server writes them: addresses, and whole domains written "@myshop.no", which let any address at the
-    /// domain send. A message goes as one of these or as the e-mail service's own sender, never as anything
-    /// else. Null from a license server older than e-mail, which means none.</param>
+    /// <param name="EmailSenders">The domains Relatude has approved for the license's e-mail, as the license
+    /// server writes them, such as "myshop.no": any address at one of them may be the sender. A message goes
+    /// as such an address or as the e-mail service's own sender, never as anything else. Null from a license
+    /// server older than e-mail, which means none.</param>
     public sealed record LicenseInfo(
         Guid Id, string Name, bool Disabled, bool Expired, DateTime? ExpiresUtc,
         FeatureInfo[] Features, LimitInfo[] Limits, AccountInfo[] Accounts,
@@ -713,9 +713,9 @@ public sealed class LicenseLogin(RelatudeDBServer server) : IDisposable {
     /// <summary>
     /// Asks the license server whether this installation's license may send e-mail as the address
     /// <paramref name="sender"/>, before a message goes out as it: null when it may, otherwise why not, in
-    /// words meant for whoever reads the error. Relatude approves senders license by license - an address,
-    /// or a whole domain written "@myshop.no", which lets any address at it send - and the customer asks
-    /// for them on the license's page in Relatude Services. A license with the "emailanysender" feature may
+    /// words meant for whoever reads the error. Relatude approves domains license by license - any address
+    /// at an approved domain may send, and nothing before the @ is asked about - and the customer asks for
+    /// them on the license's page in Relatude Services. A license with the "emailanysender" feature may
     /// send as any address. The sender is passed on as given, only trimmed, since the license server writes
     /// addresses its own way before it compares them. No sender at all is the e-mail service's own, which
     /// every license may use, and is not asked about.

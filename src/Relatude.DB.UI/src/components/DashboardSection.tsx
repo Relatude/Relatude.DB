@@ -27,7 +27,7 @@ import { TypeChart, otherSliceId, shade, type TypeChartShape, type TypeSlice } f
 import { TypeGlyph } from "./TypeIcon";
 import { openInDatamodel, openInQuery } from "../navigate";
 import { showConfirm, showError, showInfo } from "../dialogs";
-import { fetchDashboard, type DashboardInfo, type DashboardLive, type LiveCacheCounters, type TypeCount } from "../server/dashboard";
+import { fetchDashboard, type DashboardInfo, type DashboardLive, type LiveCacheCounters, type ScheduledRecovery, type TypeCount } from "../server/dashboard";
 import { codeSourceGuid, sourceColors } from "../server/datamodel";
 import type { TraceInfo } from "../server/logs";
 import { useLive } from "../live";
@@ -396,19 +396,15 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
 
   return (
     <div className="dashboard">
-      {info.startupError && (
+      {(info.startupError || info.recovery?.dueUtc) && (
         <div className="startup-exception">
           <div className="startup-exception-head">
-            <IconAlertTriangle size={14} stroke={2} /> The database failed to start
-            {info.startupError.timeUtc ? ` · ${formatTime(info.startupError.timeUtc)}` : ""}
+            <IconAlertTriangle size={14} stroke={2} />{" "}
+            {info.startupError ? "The database failed to start" : "The database went into a critical error state"}
+            {info.startupError?.timeUtc ? ` · ${formatTime(info.startupError.timeUtc)}` : ""}
           </div>
-          <div>{info.startupError.message}</div>
-          {info.startupError.restart?.dueUtc && (
-            <div className="startup-exception-restart">
-              Another process held one of its files, so the server restarts itself at {formatTime(info.startupError.restart.dueUtc)} to
-              try again ({info.startupError.restart.attempt} of {info.startupError.restart.attempts}).
-            </div>
-          )}
+          {info.startupError && <div>{info.startupError.message}</div>}
+          {info.recovery?.dueUtc && <div className="startup-exception-restart">{describeRecovery(info.recovery)}</div>}
         </div>
       )}
 
@@ -510,6 +506,19 @@ const inheritedKey = "dashTypeInherited";
  * what they are for; the bars and the donut still show everything. A hidden type in the middle of
  * the sunburst's tree leaves its subtypes standing on their own in the innermost ring.
  */
+function describeRecovery(recovery: ScheduledRecovery): string {
+  const at = recovery.dueUtc ? formatTime(recovery.dueUtc) : "shortly";
+  const count = `incident ${recovery.incident} of ${recovery.incidents} in 24 hours`;
+  switch (recovery.step) {
+    case "RestartDatabase":
+      return `Automatic recovery restarts the database at ${at} (${count}).`;
+    case "RestartServer":
+      return `Restarting the database did not bring it back, so the whole server restarts at ${at} (${count}).`;
+    default:
+      return `Restarting the server did not bring it back either, so the process stops at ${at} for the host to start a new one (${count}).`;
+  }
+}
+
 function ContentPanel({ info, storeId }: { info: DashboardInfo; storeId: string }) {
   const [shape, setShape] = useState<TypeChartShape>(() => (localStorage.getItem(shapeKey) as TypeChartShape | null) ?? "bars");
   const [inherited, setInherited] = useState(() => localStorage.getItem(inheritedKey) === "true");

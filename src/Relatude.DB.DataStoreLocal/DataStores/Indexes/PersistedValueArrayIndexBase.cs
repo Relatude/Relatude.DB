@@ -47,15 +47,19 @@ public abstract class PersistedValueArrayIndexBase<T> : PersistedIndexBase, IVal
         if (_loaded) return;
         lock (_loadLock) {
             if (_loaded) return;
-            foreach (var kv in ReadAllPersisted()) addToMemory(kv.Key, kv.Value);
+            var arrays = new ValueArrayInternTable<T>();
+            var nodeIdByValue = new IdByValue<T>(_sets);
+            foreach (var kv in ReadAllPersisted()) addToMemory(arrays, nodeIdByValue, kv.Key, kv.Value);
+            _arrays = arrays;
+            _nodeIdByValue = nodeIdByValue;
             _loaded = true;
         }
     }
-    void addToMemory(int nodeId, T[] value) {
-        _arrays.Add(nodeId, value);
+    static void addToMemory(ValueArrayInternTable<T> arrays, IdByValue<T> nodeIdByValue, int nodeId, T[] value) {
+        arrays.Add(nodeId, value);
         // dedup: the same element may occur several times in one node's array,
         // but the node must only be indexed once per unique value (and deindexed symmetrically)
-        foreach (var e in value.Distinct()) _nodeIdByValue.Index(e, nodeId);
+        foreach (var e in value.Distinct()) nodeIdByValue.Index(e, nodeId);
     }
     void removeFromMemory(int nodeId, T[] value) {
         _arrays.Remove(nodeId);
@@ -65,7 +69,7 @@ public abstract class PersistedValueArrayIndexBase<T> : PersistedIndexBase, IVal
     public void Add(int nodeId, object value) {
         ensureLoaded();
         var v = (T[])value;
-        addToMemory(nodeId, v);
+        addToMemory(_arrays, _nodeIdByValue, nodeId, v);
         PersistAdd(nodeId, v);
     }
     public void Remove(int nodeId, object value) {

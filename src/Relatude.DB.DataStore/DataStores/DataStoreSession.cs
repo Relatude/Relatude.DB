@@ -142,6 +142,8 @@ public class DataStoreSession : IDataStore {
         => _datastore.GetRelatedCountFromPropertyId(propertyId, from, ctx ?? QueryContext);
     public IEnumerable<Guid> GetRelatedNodeIdsFromRelationId(Guid relationId, Guid from, bool fromTargetToSource, QueryContext? ctx = null)
         => _datastore.GetRelatedNodeIdsFromRelationId(relationId, from, fromTargetToSource, ctx ?? QueryContext);
+    public IEnumerable<Guid> GetAllRelatedNodeIdsFromRelationId(Guid relationId, Guid from, bool fromTargetToSource)
+        => _datastore.GetAllRelatedNodeIdsFromRelationId(relationId, from, fromTargetToSource);
 
     public long GetLastTimestampID() => _datastore.GetLastTimestampID();
     public long PeekLastTimestamp() => _datastore.PeekLastTimestamp();

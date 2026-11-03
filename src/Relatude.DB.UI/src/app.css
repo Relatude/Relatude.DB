@@ -2396,6 +2396,79 @@ a {
   color: var(--text-soft);
 }
 
+.critical-log {
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+}
+
+.critical-log-title {
+  margin-bottom: 6px;
+  font-weight: 600;
+  color: var(--text-soft);
+}
+
+.critical-log-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  padding: 8px 10px;
+  margin-top: 6px;
+  background: var(--danger-soft);
+  border-radius: 7px;
+}
+
+.critical-log-icon {
+  flex: none;
+  color: var(--danger);
+}
+
+.critical-log-text {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+.critical-log-what {
+  font-weight: 600;
+  color: var(--danger);
+}
+
+.critical-log-text .muted {
+  overflow-wrap: anywhere;
+}
+
+.critical-log-actions {
+  display: flex;
+  flex: none;
+  gap: 6px;
+}
+
+.critical-log-actions .action-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+.dialog.critical-log-dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(1100px, calc(100vw - 40px));
+  max-height: calc(100vh - 40px);
+}
+
+.critical-log-content {
+  flex: 1 1 auto;
+  min-height: 120px;
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 /* ---- the drives, in the last squares of the host facts ---- */
 
 .host-disk .fact-k,

@@ -529,19 +529,16 @@ function SmsTest({ credit, allowed, senders, anySender }: { credit: ReactNode; a
 /**
  * A real e-mail through the Relatude Email service, the twin of the SMS test: only sent when the
  * license has the "email" credit account, and charged like any other message, every recipient once.
- * The sender is the service's own, an address Relatude has approved for the license, or any address
- * at a domain approved for it ("@myshop.no") - so with an approved domain, or the "emailanysender"
- * feature, it is typed rather than picked. The server checks it with the license server again before
- * anything is sent.
+ * The sender is the service's own, or any address at a domain Relatude has approved for the license
+ * ("myshop.no"), so it is typed once a domain is approved, or with the "emailanysender" feature. The
+ * server checks it with the license server again before anything is sent.
  */
 function EmailTest({ credit, allowed, senders, anySender }: { credit: ReactNode; allowed: boolean; senders: string[]; anySender: boolean }) {
-  const addresses = senders.filter((s) => !s.startsWith("@"));
-  const domains = senders.filter((s) => s.startsWith("@"));
-  // typed when any address at a domain may go, picked otherwise; a picked sender that is no longer
-  // approved after a reload falls back to the service's own
+  // the approved domains: any address at one of them may be the sender
+  const domains = senders;
   const typed = anySender || domains.length > 0;
   const [from, setFrom] = useState("");
-  const sender = typed ? from.trim() : addresses.includes(from) ? from : "";
+  const sender = typed ? from.trim() : "";
   const [to, setTo] = useState("");
   const [subject, setSubject] = useState("Test e-mail from Relatude.DB");
   const [text, setText] = useState("Test message from Relatude.DB");
@@ -577,39 +574,24 @@ function EmailTest({ credit, allowed, senders, anySender }: { credit: ReactNode;
                 hint={
                   anySender
                     ? "Any address. Empty: the service's own sender."
-                    : `An approved address, or any address at ${domains.join(", ")}. Empty: the service's own sender.`
+                    : `Any address at ${domains.join(", ")}. Empty: the service's own sender.`
                 }
                 locked={false}
               >
                 <input
                   className="text-input"
                   type="email"
-                  list="license-email-senders"
                   value={from}
                   placeholder="The service's own sender"
                   spellCheck={false}
                   disabled={sending}
                   onChange={(e) => setFrom(e.currentTarget.value)}
                 />
-                <datalist id="license-email-senders">
-                  {addresses.map((s) => (
-                    <option key={s} value={s} />
-                  ))}
-                </datalist>
               </Field>
             ) : (
-              <Field
-                label="From"
-                hint={addresses.length === 0 ? "Senders are requested on the license's page in Relatude Services and approved by Relatude." : undefined}
-                locked={false}
-              >
-                <select className="select" value={sender} disabled={sending} onChange={(e) => setFrom(e.currentTarget.value)}>
+              <Field label="From" hint="A domain of your own is requested on the license's page in Relatude Services and approved by Relatude." locked={false}>
+                <select className="select" value="" disabled>
                   <option value="">The service's own sender</option>
-                  {addresses.map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
-                  ))}
                 </select>
               </Field>
             )}

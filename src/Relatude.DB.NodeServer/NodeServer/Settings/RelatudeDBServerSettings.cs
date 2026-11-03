@@ -82,6 +82,8 @@ public class RelatudeDBServerSettings {
     public string? Description { get; set; }
     public string TokenCookieName { get; set; } = "RelatudeDBToken";
     public Guid DefaultStoreId { get; set; }
+    public bool AutoRecovery { get; set; } = true;
+    public bool AutoRecoveryRestartsProcess { get; set; } = false;
 
     // Each database container settings
     public NodeStoreContainerSettings[]? ContainerSettings { get; set; }

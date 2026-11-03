@@ -68,10 +68,9 @@ export interface LicenseInfo {
    */
   smsSenders?: string[] | null;
   /**
-   * The senders Relatude has approved for the license's e-mail, as the license server writes them:
-   * addresses, and whole domains written "@myshop.no", which let any address at the domain send. A
-   * message goes as one of these or as the e-mail service's own sender. Missing from an older license
-   * server, which means none.
+   * The domains Relatude has approved for the license's e-mail, as the license server writes them, such
+   * as "myshop.no": any address at one of them may be the sender, or the e-mail service's own. Missing
+   * from an older license server, which means none.
    */
   emailSenders?: string[] | null;
   /** what the API key the license was asked for with is called; null for a key without a name, missing from an older license server */

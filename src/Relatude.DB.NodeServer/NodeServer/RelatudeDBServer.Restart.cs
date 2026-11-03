@@ -91,7 +91,7 @@ public partial class RelatudeDBServer {
         if (!AllowedRestarts.HasFlag(RestartOptions.Soft)) throw new InvalidOperationException("Soft restart is disabled by ServerOptions.AllowedRestarts. ");
         return softRestartAsync("Soft restart requested.");
     }
-    // AllowedRestarts governs the admin UI; the server's own restarts (see ServerOptions.StartupRestartAttempts) come here directly
+    // AllowedRestarts governs the admin UI; the server's own restarts (see RelatudeDBServer.AutoRecovery.cs) come here directly
     async Task<bool> softRestartAsync(string reason) {
         if (IsShuttingDown) return false;
         if (Interlocked.CompareExchange(ref _restartPhase, 1, 0) != 0) return false; // one at a time

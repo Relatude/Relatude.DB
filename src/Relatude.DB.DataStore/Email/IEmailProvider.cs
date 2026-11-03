@@ -112,8 +112,8 @@ public sealed record EmailAttachment(string FileName, byte[] Content, string? Co
 public sealed class EmailMessage {
     /// <summary>
     /// The sender the recipient sees. Null takes the provider's own. The Relatude service only sends
-    /// as an address Relatude has approved for the license, or as one at a domain approved for it, and
-    /// refuses any other before anything is sent.
+    /// as an address at a domain Relatude has approved for the license - any address at it, since the
+    /// approval is for the domain - and refuses any other before anything is sent.
     /// </summary>
     public EmailAddress? From { get; set; }
     public List<EmailAddress> To { get; set; } = [];
@@ -169,8 +169,8 @@ public class EmailProviderSettings {
     /// server has none - or where the provider is built from code, without a server.</summary>
     public string? ApiKey { get; set; }
 
-    /// <summary>The sender's address when a message names none. The Relatude service only sends as an address approved for the
-    /// license, or one at a domain approved for it, and refuses any other; empty sends as the service's own.</summary>
+    /// <summary>The sender's address when a message names none. The Relatude service only sends as an address at a domain approved
+    /// for the license, and refuses any other; empty sends as the service's own.</summary>
     public string? From { get; set; }
 
     /// <summary>The name shown beside <see cref="From"/>, such as "My Shop". Only used with it.</summary>

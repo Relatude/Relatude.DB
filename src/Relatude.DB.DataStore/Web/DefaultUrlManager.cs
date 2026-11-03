@@ -458,7 +458,7 @@ public class DefaultUrlManager : UrlManagerBase, IUrlManagerBatch {
         var budget = Math.Max(holders.Count, 64);
         var children = new List<Guid>();
         foreach (var parentId in parents) {
-            foreach (var relation in _parents) children.AddRange(_db.GetRelatedNodeIdsFromRelationId(relation.RelationId, parentId, !relation.ParentIsSource));
+            foreach (var relation in _parents) children.AddRange(_db.GetAllRelatedNodeIdsFromRelationId(relation.RelationId, parentId, !relation.ParentIsSource));
             if (children.Count > budget) break;
         }
         if (children.Count <= budget) {
@@ -474,7 +474,7 @@ public class DefaultUrlManager : UrlManagerBase, IUrlManagerBatch {
             if (id == 0 || found.ContainsKey(id)) continue; // held in several cultures
             var nodeId = _db.GetGuid(id);
             foreach (var relation in _parents) {
-                if (_db.GetRelatedNodeIdsFromRelationId(relation.RelationId, nodeId, relation.ParentIsSource).Any(parents.Contains)) {
+                if (_db.GetAllRelatedNodeIdsFromRelationId(relation.RelationId, nodeId, relation.ParentIsSource).Any(parents.Contains)) {
                     found[id] = nodeId;
                     break;
                 }
@@ -733,7 +733,7 @@ public class DefaultUrlManager : UrlManagerBase, IUrlManagerBatch {
         foreach (var parent in _parents) {
             if (!parent.ChildTypes.Contains(meta.NodeTypeId)) continue; // not a relation this node type can hang from
             // when the parent is the relation source, the node is the target and the walk goes target -> source
-            foreach (var parentId in _db.GetRelatedNodeIdsFromRelationId(parent.RelationId, meta.Id, parent.ParentIsSource)) {
+            foreach (var parentId in _db.GetAllRelatedNodeIdsFromRelationId(parent.RelationId, meta.Id, parent.ParentIsSource)) {
                 if (known != Guid.Empty && parentId == known) {
                     isKnown = true;
                     return null;
@@ -748,7 +748,7 @@ public class DefaultUrlManager : UrlManagerBase, IUrlManagerBatch {
     Guid? findParentId(NodeMeta meta) {
         foreach (var parent in _parents) {
             if (!parent.ChildTypes.Contains(meta.NodeTypeId)) continue;
-            foreach (var parentId in _db.GetRelatedNodeIdsFromRelationId(parent.RelationId, meta.Id, parent.ParentIsSource)) {
+            foreach (var parentId in _db.GetAllRelatedNodeIdsFromRelationId(parent.RelationId, meta.Id, parent.ParentIsSource)) {
                 if (tryGetMeta(new NodeKey(parentId), meta.CultureId, out _)) return parentId;
                 break; // the relation has a parent, but it is not readable in this context
             }
@@ -827,7 +827,7 @@ public class DefaultUrlManager : UrlManagerBase, IUrlManagerBatch {
         var holders = holdersOf(address);
         if (holders.Count == 0) return true;
         foreach (var relation in _parents) { // the parent's children, through any relation a child can hang from it by
-            foreach (var siblingId in _db.GetRelatedNodeIdsFromRelationId(relation.RelationId, parentId, !relation.ParentIsSource)) {
+            foreach (var siblingId in _db.GetAllRelatedNodeIdsFromRelationId(relation.RelationId, parentId, !relation.ParentIsSource)) {
                 if (siblingId == meta.Id || !tryGetMeta(new NodeKey(siblingId), cultureId, out var sibling)) continue;
                 if (!holders.Contains((sibling.InternalId, cultureId))) continue;
                 if (getParentMeta(sibling)?.Id == parentId) return false; // the same address under the same parent: the same URL

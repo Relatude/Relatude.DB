@@ -51,9 +51,20 @@ public interface IDataStore : IDisposable {
     INodeDataExternal[] GetRelatedNodesFromPropertyId(Guid propertyId, Guid from, QueryContext? ctx = null);
     bool TryGetRelatedNodeFromPropertyId(Guid propertyId, Guid from, [MaybeNullWhen(false)] out INodeDataExternal node, QueryContext? ctx = null);
     int GetRelatedCountFromPropertyId(Guid propertyId, Guid from, QueryContext? ctx = null);
+    /// <summary>
+    /// The ids of the nodes related to a node that the context reads, in the relation's order: read access, publication,
+    /// deletion, culture and hidden types filter them as they filter a query. <see cref="GetAllRelatedNodeIdsFromRelationId"/>
+    /// reads the relation as it is.
+    /// </summary>
     IEnumerable<Guid> GetRelatedNodeIdsFromRelationId(Guid relationId, Guid from, bool fromTargetToSource, QueryContext? ctx = null);
 
     // Exposed, but not Access Controlled
+    /// <summary>
+    /// The ids of every node related to a node, in the relation's order, whatever their meta says: drafts, nodes marked
+    /// deleted and nodes no reader may read among them. For code that works on the store's structure, as a URL manager
+    /// does, not for what a reader is shown.
+    /// </summary>
+    IEnumerable<Guid> GetAllRelatedNodeIdsFromRelationId(Guid relationId, Guid from, bool fromTargetToSource);
     bool TryGetNodeType(Guid id, out Guid nodeTypeId);
     Guid GetNodeType(Guid id);
     Guid GetNodeType(int id);

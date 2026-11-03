@@ -28,6 +28,7 @@ public sealed class UIServer {
     readonly UIFileTransfer _transfer;
     readonly UIServiceTests _serviceTests;
     readonly UISettings _settings;
+    readonly UICriticalErrorLog _criticalErrorLog;
     string? _lastContainersJson;
     public UIEventStream Events { get; } = new();
     public UICommands Commands { get; }
@@ -40,6 +41,8 @@ public sealed class UIServer {
         Commands = new UICommands(server);
         Shared = new UISharedTasks(server);
         Shared.Register(Commands);
+        _criticalErrorLog = new UICriticalErrorLog(server);
+        _criticalErrorLog.Register(Commands);
         registerBuiltInCommands();
         _settings = new UISettings(server);
         _settings.Register(Commands);
@@ -1023,6 +1026,7 @@ public sealed class UIServer {
                     Message = c.StartUpException!.Message,
                     TimeUtc = c.StartUpExceptionDateTimeUTC,
                 }),
+                CriticalErrorLogs = _criticalErrorLog.List(containers),
             };
         });
         // What the guids inside file and folder names stand for, so the files section can offer to

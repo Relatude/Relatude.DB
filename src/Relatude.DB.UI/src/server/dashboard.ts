@@ -34,6 +34,13 @@ export interface FileSizes {
   secondary: number;
 }
 
+export interface ScheduledRecovery {
+  dueUtc: string | null;
+  step: "RestartDatabase" | "RestartServer" | "RestartProcess";
+  incident: number;
+  incidents: number;
+}
+
 export interface DashboardInfo {
   open: boolean;
   state: string;
@@ -42,9 +49,8 @@ export interface DashboardInfo {
   startupError: {
     timeUtc: string | null;
     message: string;
-    /** the restart the server scheduled for itself, after a locked file stopped the default database opening */
-    restart?: { dueUtc: string | null; attempt: number; attempts: number } | null;
   } | null;
+  recovery?: ScheduledRecovery | null;
   files: FileSizes;
   engines: { textIndex: string; valueIndex: string; queue: string; semanticIndex?: string | null };
   uptimeMs?: number;

@@ -81,7 +81,6 @@ public sealed partial class DataStoreLocal : IDataStore {
                 }
             }
         } catch (Exception err) {
-            _state = DataStoreState.Error;
             throw createCriticalErrorAndSetDbToErrorState("Critical error. Database left in unknown state. Restart required. ", err);
         } finally {
             DeRegisterActivity(activityId);

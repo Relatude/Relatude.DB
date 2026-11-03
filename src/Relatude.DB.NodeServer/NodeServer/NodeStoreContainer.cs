@@ -502,7 +502,7 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
             var urlManager = server?.Options?.CreateUrlManager?.Invoke(settings);
 
             _openingStep = "Starting the store and its indexes";
-            datastore = new DataStoreLocal(
+            var localStore = new DataStoreLocal(
                     Datamodel,
                     local,
                     ioDatabase,
@@ -520,6 +520,8 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
                     createStateStore: createStateStore,
                     customLogDefinitions: server?.LogDefinitionsFor(settings)
                     );
+            if (server != null) localStore.CriticalErrorWhileOpen += (description, error) => server.OnCriticalErrorWhileOpen(this, description, error);
+            datastore = localStore;
             _datastoreBeingBuilt = datastore;
             Interlocked.Increment(ref _initializationCounter);
             //var runners = server.GetRegisteredTaskRunners(this);

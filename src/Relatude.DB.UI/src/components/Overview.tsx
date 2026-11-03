@@ -1,13 +1,17 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ComponentType } from "react";
-import { IconPlayerStop, IconRecycle, IconRefresh } from "@tabler/icons-react";
+import { IconAlertTriangle, IconEye, IconPlayerStop, IconRecycle, IconRefresh, IconTrash } from "@tabler/icons-react";
 import { PanelGrid, type PanelRow } from "./PanelGrid";
-import { showConfirm } from "../dialogs";
+import { showConfirm, showError } from "../dialogs";
 import {
+  clearCriticalErrorLog,
   collectGarbage,
   fetchServerOverview,
+  readCriticalErrorLog,
   softRestart,
   stopHost,
+  type CriticalErrorLog,
+  type CriticalErrorLogContent,
   type DriveInfo,
   type ProcessActionResult,
   type ServerLive,
@@ -18,10 +22,13 @@ import { ProcessChart, currentCpu, currentDisk, currentIo, formatBytesPerSecond,
 import { useLive } from "../live";
 import { formatBytes, formatCount, formatDuration, formatTime } from "../format";
 import { Loading } from "./Loading";
+import { DialogTools } from "./DialogTools";
+import { CopyText } from "./CopyText";
 
 export function Overview() {
   const [data, setData] = useState<ServerOverview | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [shownLog, setShownLog] = useState<CriticalErrorLog | null>(null);
   const apply = useCallback((d: ServerOverview) => {
     setData(d);
     setError(null);
@@ -49,6 +56,7 @@ export function Overview() {
   if (error) return <div className="placeholder">{error}</div>;
   if (!data) return <Loading label="Loading the server overview…" />;
   const open = data.containers.filter((c) => c.state === "Open").length;
+  const criticalLogs = data.criticalErrorLogs ?? [];
   // The machine, then the runtime hosting it, then the process, then where it keeps things: read
   // down the list and it runs from what could not change without moving the server to what a
   // setting decided. A fact the server reported nothing for is left out rather than shown as a dash.
@@ -173,6 +181,13 @@ export function Overview() {
           <div>{e.message}</div>
         </div>
       ))}
+      <div className="critical-log">
+        <div className="critical-log-title">Critical error log</div>
+        {criticalLogs.length === 0 && <div className="muted">No critical errors logged.</div>}
+        {criticalLogs.map((log) => (
+          <CriticalErrorLogRow key={log.storeId} log={log} onShow={() => setShownLog(log)} onCleared={load} />
+        ))}
+      </div>
     </section>
   );
 
@@ -227,6 +242,135 @@ export function Overview() {
   return (
     <div className="overview">
       <PanelGrid id="overview" rows={rows} />
+      {shownLog && (
+        <CriticalErrorLogDialog
+          log={shownLog}
+          onClose={() => setShownLog(null)}
+          onCleared={() => {
+            setShownLog(null);
+            load();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function criticalErrorCount(log: CriticalErrorLog): string {
+  if (log.entries === 0) return "the log is not empty";
+  const errors = log.entries === 1 ? "critical error" : "critical errors";
+  return log.complete ? `${formatCount(log.entries)} ${errors} on record` : `more than ${formatCount(log.entries)} ${errors} on record`;
+}
+
+function criticalErrorWhere(log: CriticalErrorLog): string {
+  return `${formatBytes(log.sizeBytes)} in ${log.fileKey}${log.storage ? ` on ${log.storage}` : ""}`;
+}
+
+async function confirmAndClear(log: CriticalErrorLog): Promise<boolean> {
+  const { ok } = await showConfirm(
+    "Clear the critical error log?",
+    `${log.fileKey} of ${log.databases.join(", ")} is deleted: ${criticalErrorCount(log)}, ${formatBytes(log.sizeBytes)}. What it recorded cannot be read again afterwards.`,
+    { confirmLabel: "Clear", danger: true },
+  );
+  if (!ok) return false;
+  try {
+    await clearCriticalErrorLog(log.storeId);
+    return true;
+  } catch (e) {
+    await showError("Could not clear the critical error log", e instanceof Error ? e.message : String(e));
+    return false;
+  }
+}
+
+function CriticalErrorLogRow({ log, onShow, onCleared }: { log: CriticalErrorLog; onShow: () => void; onCleared: () => void }) {
+  const [busy, setBusy] = useState(false);
+  async function clear() {
+    setBusy(true);
+    try {
+      if (await confirmAndClear(log)) onCleared();
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="critical-log-row">
+      <IconAlertTriangle size={16} stroke={1.8} className="critical-log-icon" />
+      <div className="critical-log-text">
+        <div className="critical-log-what">
+          {log.databases.join(", ")}: {criticalErrorCount(log)}
+        </div>
+        <div className="muted">
+          {log.latestUtc ? `latest ${formatTime(log.latestUtc)} · ` : ""}
+          {criticalErrorWhere(log)}
+        </div>
+      </div>
+      <div className="critical-log-actions">
+        <button className="action-button" onClick={onShow} disabled={busy}>
+          <IconEye size={14} stroke={1.8} /> Show
+        </button>
+        <button className="action-button danger" onClick={clear} disabled={busy}>
+          <IconTrash size={14} stroke={1.8} /> Clear
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function CriticalErrorLogDialog({ log, onClose, onCleared }: { log: CriticalErrorLog; onClose: () => void; onCleared: () => void }) {
+  const [content, setContent] = useState<CriticalErrorLogContent | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    readCriticalErrorLog(log.storeId)
+      .then(setContent)
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
+  }, [log.storeId]);
+  const shown = content?.log ?? log;
+  async function clear() {
+    setBusy(true);
+    try {
+      if (await confirmAndClear(shown)) onCleared();
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="dialog-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div
+        className="dialog critical-log-dialog"
+        role="dialog"
+        aria-label="Critical error log"
+        tabIndex={-1}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") {
+            e.preventDefault();
+            onClose();
+          }
+        }}
+      >
+        <h3>
+          <IconAlertTriangle size={16} stroke={1.9} className="critical-log-icon" /> Critical error log — {shown.databases.join(", ")}
+          <DialogTools onClose={onClose} />
+        </h3>
+        <div className="dialog-body muted">
+          {criticalErrorCount(shown)}
+          {shown.latestUtc ? `, the latest ${formatTime(shown.latestUtc)}` : ""} · {criticalErrorWhere(shown)}
+          {content && content.shownBytes < shown.sizeBytes ? ` · showing the last ${formatBytes(content.shownBytes)}` : ""}
+        </div>
+        {error && <div className="dialog-error">{error}</div>}
+        {!content && !error && <Loading label="Reading the critical error log…" />}
+        {content && <pre className="term critical-log-content">{content.text.trim() || "Empty."}</pre>}
+        <div className="dialog-row">
+          {content && <CopyText text={content.text} title="Copy the log" />}
+          <div className="header-spacer" />
+          <button className="action-button danger" onClick={clear} disabled={busy || !content || shown.sizeBytes === 0}>
+            Clear log
+          </button>
+          <button className="action-button" onClick={onClose}>
+            Close
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

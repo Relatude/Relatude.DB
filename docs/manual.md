@@ -6430,9 +6430,10 @@ await db.Services.Email.SendAsync(new EmailMessage {
 - **The license needs the `email` credit account.** Every recipient is charged once, whether in
   `To`, `Cc` or `Bcc`. No feature is needed. `QuoteAsync` gives the recipients, the size and the
   credits of a message without sending it or charging for it.
-- **A message goes as the service's own sender, or as one approved for the license.** An approval is
-  an address, such as `orders@myshop.no`, or a whole domain, written `@myshop.no`, which lets any
-  address at it send. Ask for them on the license's **E-mail senders** page at services.relatude.com;
+- **A message goes as the service's own sender, or as any address at a domain approved for the
+  license.** The approval is for the domain, such as `myshop.no`, never for what is before the @:
+  `orders@`, `news@` and every other address at exactly that domain may then send, but not those at
+  its subdomains. Ask for domains on the license's **E-mail domains** page at services.relatude.com;
   Relatude approves them. A license with the feature `emailanysender` may name any sender. On a server
   the sender is checked with the license server before anything is sent, so a sender that is not
   approved is refused with the reason, and nothing is sent or charged.
@@ -6531,7 +6532,7 @@ example one per customer or project. Each license has these pages:
 | **Keys** | The license's API keys. An installation needs one and nothing else. Give each server its own, so you can delete one without stopping the rest |
 | **Entitlements** | Features, limits and credit accounts: one credit account per service, named as in [§35.1](#351-a-license-is-not-needed) |
 | **SMS senders** | The sender names text messages may use, each approved separately. A message without a sender uses the service's own |
-| **E-mail senders** | The addresses e-mail may be sent as, and whole domains written `@myshop.no`, each approved separately. A message without a sender uses the service's own |
+| **E-mail domains** | The domains e-mail may be sent from, each approved separately: any address at an approved domain may be the sender. A message without a sender uses the service's own |
 | **Installations** | The installations that have reported in, and the addresses each may be signed in from |
 | **Uptime** | For licenses that include it: texts the people you choose when an installation changes state |
 | **Access** | Who may see and use the license. They can all sign in to its installations where cloud sign-in is on |

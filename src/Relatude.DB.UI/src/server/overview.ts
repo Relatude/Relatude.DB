@@ -55,10 +55,36 @@ export interface ServerOverview {
   containers: OverviewContainer[];
   serverLog: { timeUtc: string; message: string }[];
   startupExceptions: { container: string; message: string; timeUtc?: string | null }[];
+  criticalErrorLogs?: CriticalErrorLog[];
+}
+
+export interface CriticalErrorLog {
+  storeId: string;
+  databases: string[];
+  fileKey: string;
+  storage?: string | null;
+  sizeBytes: number;
+  entries: number;
+  complete: boolean;
+  latestUtc?: string | null;
+}
+
+export interface CriticalErrorLogContent {
+  log: CriticalErrorLog;
+  shownBytes: number;
+  text: string;
 }
 
 export function fetchServerOverview(): Promise<ServerOverview> {
   return send<ServerOverview>("server-overview");
+}
+
+export function readCriticalErrorLog(storeId: string): Promise<CriticalErrorLogContent> {
+  return send<CriticalErrorLogContent>("critical-error-log-read", { storeId });
+}
+
+export function clearCriticalErrorLog(storeId: string): Promise<{ cleared: boolean }> {
+  return send<{ cleared: boolean }>("critical-error-log-clear", { storeId });
 }
 
 /** One reading of the process: what the overview's memory and cpu graph is drawn from. */

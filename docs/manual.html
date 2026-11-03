@@ -8580,9 +8580,10 @@ all of them or none.</p>
 <li><strong>The license needs the <code>email</code> credit account.</strong> Every recipient is charged once, whether in
   <code>To</code>, <code>Cc</code> or <code>Bcc</code>. No feature is needed. <code>QuoteAsync</code> gives the recipients, the size and the
   credits of a message without sending it or charging for it.</li>
-<li><strong>A message goes as the service's own sender, or as one approved for the license.</strong> An approval is
-  an address, such as <code>orders@myshop.no</code>, or a whole domain, written <code>@myshop.no</code>, which lets any
-  address at it send. Ask for them on the license's <strong>E-mail senders</strong> page at services.relatude.com;
+<li><strong>A message goes as the service's own sender, or as any address at a domain approved for the
+  license.</strong> The approval is for the domain, such as <code>myshop.no</code>, never for what is before the @:
+  <code>orders@</code>, <code>news@</code> and every other address at exactly that domain may then send, but not those at
+  its subdomains. Ask for domains on the license's <strong>E-mail domains</strong> page at services.relatude.com;
   Relatude approves them. A license with the feature <code>emailanysender</code> may name any sender. On a server
   the sender is checked with the license server before anything is sent, so a sender that is not
   approved is refused with the reason, and nothing is sent or charged.</li>
@@ -8690,8 +8691,8 @@ example one per customer or project. Each license has these pages:</p>
 <td>The sender names text messages may use, each approved separately. A message without a sender uses the service's own</td>
 </tr>
 <tr>
-<td><strong>E-mail senders</strong></td>
-<td>The addresses e-mail may be sent as, and whole domains written <code>@myshop.no</code>, each approved separately. A message without a sender uses the service's own</td>
+<td><strong>E-mail domains</strong></td>
+<td>The domains e-mail may be sent from, each approved separately: any address at an approved domain may be the sender. A message without a sender uses the service's own</td>
 </tr>
 <tr>
 <td><strong>Installations</strong></td>

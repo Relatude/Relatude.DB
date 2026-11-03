@@ -530,13 +530,13 @@ function EntitlementsPanel({ status }: { status: LicenseStatus }) {
         )}
         {showEmailSenders && (
           <div>
-            <h4 className="license-sub">E-mail senders</h4>
+            <h4 className="license-sub">E-mail domains</h4>
             {emailSenders.length === 0 ? (
               <p className="license-muted">None: e-mail goes as the service's own sender.</p>
             ) : (
               <div className="license-chips">
                 {emailSenders.map((s) => (
-                  <span key={s} className="license-chip" title={s.startsWith("@") ? "Any address at " + s.slice(1) : undefined}>
+                  <span key={s} className="license-chip" title={"Any address at " + s}>
                     {s}
                   </span>
                 ))}

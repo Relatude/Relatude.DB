@@ -129,6 +129,7 @@ public static class FileKeyUtility {
     static readonly string[] loggerDefinitionFilePattern = [LogFolderName, "*" + loggerDefinitionExt];
 
     static readonly string[] criticalErrorLogFilePattern = [LogFolderName, "critical.error.txt"];
+    static readonly string[] autoRecoveryProcessRestartsFilePattern = [LogFolderName, "auto-recovery.process-restarts.txt"];
 
     const string queueFileName = "queue";
     static readonly string[] queueFileKeyPattern = [StateFolderName, "queue.*"];
@@ -248,6 +249,7 @@ public static class FileKeyUtility {
     public static string IndexStoreFolderKey => indexStoreFolderPattern;
 
     public static string[] CriticalErrorLogFileKey => criticalErrorLogFilePattern;
+    public static string[] AutoRecoveryProcessRestartsFileKey => autoRecoveryProcessRestartsFilePattern;
 
     public static DateOnly SystemLog_GetFileDateTimeFromFileKey(string[] fileKey) {
         var parts = fileKey.FileName().Split('.');
@@ -486,6 +488,7 @@ public static class FileKeyUtility {
         if (key.MatchesPattern([indexStoreFolderPattern, "native.ai.*.cache.bin"]) || key.MatchesPattern([indexStoreFolderPattern, "ai.*.cache.bin"])) return "AI Cache";
         if (key.MatchesPattern([indexStoreFolderPattern, "native.*.cache.bin"])) return "Service answer cache";
         if (key.MatchesPattern(criticalErrorLogFilePattern)) return "Critical error log";
+        if (key.MatchesPattern(autoRecoveryProcessRestartsFilePattern)) return "Auto-recovery process restarts";
         if (key.MatchesPattern(mapperDllFilePattern)) return "Mapper DLL";
         if (key.MatchesPattern(fileStorePattern)) return "Filestore";
         if (key.MatchesPattern(stateFilePattern) || key.MatchesPattern(stateFileLegacyPattern)) return "State";

@@ -393,12 +393,15 @@ public sealed partial class DataStoreLocal : IDataStore {
             "Warming indexes", 0);
         try {
             foreach (var mirror in mirrors) {
+                if (cancel.IsCancellationRequested || _state != DataStoreState.Open) return;
+                UpdateActivity(activityId, "Loading index " + mirror.FriendlyName, 100 * completedSteps / totalSteps);
+                if (!tryEnterLockForWarmUp(false, cancel)) return;
                 try {
-                    if (cancel.IsCancellationRequested || _state != DataStoreState.Open) return;
-                    UpdateActivity(activityId, "Loading index " + mirror.FriendlyName, 100 * completedSteps / totalSteps);
-                    mirror.EnsureLoaded();
+                    if (!cancel.IsCancellationRequested && _state == DataStoreState.Open) mirror.EnsureLoaded();
                 } catch (Exception e) {
-                    LogInfo("Background load of index " + mirror.FriendlyName + " failed: " + e.Message);
+                    LogWarning("Background load of index " + mirror.FriendlyName + " failed: " + e.Message, e.ToString());
+                } finally {
+                    _lock.ExitReadLock();
                 }
                 completedSteps++;
             }

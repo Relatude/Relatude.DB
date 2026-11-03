@@ -359,6 +359,21 @@ public static class SettingsCatalog {
                         },
                     ],
                 },
+                new() {
+                    Id = "recovery",
+                    Title = "Automatic recovery",
+                    Help = "What the server does on its own when a database fails to open on start-up, or goes into a critical error state while open. A minute later it restarts that database; if that does not bring it back, it restarts the whole server a minute after that. One such incident counts once, however many steps it takes, and at most three are attempted per 24 hours in one process. Every attempt and its result, with timings, is written to the database's critical error log.",
+                    Settings = [
+                        new() {
+                            Path = "AutoRecovery", Label = "Recover automatically", Applies = SettingApplies.Live,
+                            Help = "Off leaves a database that failed to start, or went into a critical error state, as it is until someone restarts it by hand. A recovery already waiting for its next step stops at that step.",
+                        },
+                        new() {
+                            Path = "AutoRecoveryRestartsProcess", Label = "Restart the process as a last resort", Applies = SettingApplies.Live,
+                            Help = "When restarting the whole server did not help either, stops the process a minute later so the host starts a new one, as App Service, IIS and the container platforms do. Never on a host that would not start it again, such as a plain dotnet run. The stops are recorded with the database's logs, so a new process does not stop again once three have been made in 24 hours.",
+                        },
+                    ],
+                },
             ],
         },
         new() {
@@ -1243,7 +1258,7 @@ public static class SettingsCatalog {
                         },
                         new() {
                             Path = "EmailSettings.From", Label = "Sender address", Placeholder = "the service's own",
-                            Help = "The address a message comes from when the code names none; leave it empty to use the service's own. The Relatude service only sends as an address approved for the license, or any address at a domain approved for it, which are requested on the license's page in Relatude Services and approved by Relatude. Any other is refused before anything is sent. A custom provider's mail service decides its own senders.",
+                            Help = "The address a message comes from when the code names none; leave it empty to use the service's own. The Relatude service only sends as an address at a domain approved for the license - any address at it - which is requested on the license's page in Relatude Services and approved by Relatude. Any other is refused before anything is sent. A custom provider's mail service decides its own senders.",
                         },
                         new() {
                             Path = "EmailSettings.FromName", Label = "Sender name",

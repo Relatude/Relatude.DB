@@ -14,10 +14,10 @@ namespace Relatude.DB.Email;
 /// feature. A refusal comes back as an exception repeating the service's own reason - out of credits,
 /// no "email" account, an address that cannot be one, a message too large - so what the database logs
 /// is what the person configuring it needs to read.</para>
-/// <para>A message goes as the service's own sender, or as a sender Relatude has approved for the
-/// license: an address, or any address at a whole domain approved for it, which the customer asks for
-/// on the license's page in Relatude Services. A license with the "emailanysender" feature may name
-/// any sender; the license server decides. A sender - <see cref="EmailMessage.From"/>, or
+/// <para>A message goes as the service's own sender, or as any address at a domain Relatude has
+/// approved for the license, which the customer asks for on the license's page in Relatude Services:
+/// the approval is for the domain, never for what is before the @. A license with the "emailanysender"
+/// feature may name any sender; the license server decides. A sender - <see cref="EmailMessage.From"/>, or
 /// <see cref="EmailProviderSettings.From"/> - is checked twice. On a server the provider is given
 /// <c>senderCheck</c>, which asks the license server before anything is posted, so a sender that is not
 /// approved is refused with the license server's reason and nothing is sent or charged; the service then

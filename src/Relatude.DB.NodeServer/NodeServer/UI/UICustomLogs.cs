@@ -148,7 +148,7 @@ sealed class UICustomLogs {
         return new { Discarded = discarded, DataEntries = dataEntries(custom) };
     }
 
-    static Guid? logIoId(NodeStoreContainer c) {
+    internal static Guid? logIoId(NodeStoreContainer c) {
         var s = c.Settings;
         if (s.IoLog is Guid log && log != Guid.Empty) return log;
         if (s.IoDatabase is Guid database && database != Guid.Empty) return database;

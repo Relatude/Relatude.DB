@@ -47,6 +47,7 @@ sealed class UIDashboard {
                 Name = string.IsNullOrEmpty(settings.Name) ? settings.Id.ToString() : settings.Name,
                 StoreId = settings.Id,
                 StartupError = startupError(c),
+                Recovery = recovery(c),
                 // a closed database still has files, and their size is the one thing worth showing
                 // before anyone decides whether to open it
                 Files = closedFileSizes(settings),
@@ -63,6 +64,7 @@ sealed class UIDashboard {
             Name = string.IsNullOrEmpty(settings.Name) ? settings.Id.ToString() : settings.Name,
             StoreId = settings.Id,
             StartupError = startupError(c),
+            Recovery = recovery(c),
             // the numbers that do not move on their own: the shape of the database
             UptimeMs = info.UptimeMs,
             StartUpMs = info.StartUpMs,
@@ -308,13 +310,20 @@ sealed class UIDashboard {
 
     object? startupError(NodeStoreContainer c) {
         if (c.StartUpException == null) return null;
-        // a lock on the default database's files at startup makes the server restart itself, and
-        // the page says when, so nobody starts it by hand a minute before it would have
-        var restart = c == _server.DefaultContainer ? _server.ScheduledStartupRestart : null;
         return new {
             TimeUtc = utc(c.StartUpExceptionDateTimeUTC),
             c.StartUpException.Message,
-            Restart = restart == null ? null : new { DueUtc = utc(restart.DueUtc), restart.Attempt, restart.Attempts },
+        };
+    }
+
+    object? recovery(NodeStoreContainer c) {
+        var scheduled = _server.GetScheduledRecovery(c.Settings.Id);
+        if (scheduled == null) return null;
+        return new {
+            DueUtc = utc(scheduled.DueUtc),
+            Step = scheduled.Step.ToString(),
+            scheduled.Incident,
+            scheduled.Incidents,
         };
     }
 
