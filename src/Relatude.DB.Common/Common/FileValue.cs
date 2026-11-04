@@ -92,6 +92,23 @@ public class FileValue {
     public int Height { get; set; }
     public int Width { get; set; }
 
+    public FileValueMeta GetMeta() => FileValueMeta.Parse(MetaJSON, FileType);
+    public T? GetMeta<T>() where T : FileValueMeta => GetMeta() as T;
+    public bool TryGetMeta<T>([System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out T? meta) where T : FileValueMeta {
+        meta = GetMeta<T>();
+        return meta != null;
+    }
+    public void SetMeta(FileValueMeta meta) => MetaJSON = meta.ToJson();
+    public string GetSearchText() {
+        if (IsEmpty) return string.Empty;
+        var meta = FileValueMeta.IsTyped(MetaJSON) ? GetMeta() : null;
+        var parts = new List<string> { Name };
+        var metaText = meta?.GetSearchText();
+        if (!string.IsNullOrEmpty(metaText)) parts.Add(metaText);
+        if (TextExtract.Length > 0) parts.Add(meta?.TextExtraction?.Timed == true ? TranscriptTimestamps.Remove(TextExtract) : TextExtract);
+        return string.Join(Environment.NewLine, parts);
+    }
+
     public Guid FileId { get; private set; }
     public Guid StorageId { get; private set; }
     private byte[] _fileKeyData { get; set; }

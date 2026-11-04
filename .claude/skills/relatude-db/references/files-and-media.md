@@ -53,10 +53,12 @@ public FileValue Brochure { get; set; } = FileValue.Empty;
 | `FileType` | `Image`, `Video`, `Audio`, `Document`, `Meta`, `Unknown` — derived from `Name`. |
 | `Format` | The detailed `FileFormat` (`Jpeg`, `Png`, `Webp`, `Mp4`, `Pdf`, …), also derived from `Name`. |
 | `ContentType` | The MIME type for `Format`. |
-| `TextExtract` | Extracted text, which is what makes document contents searchable. |
-| `MetaJSON` | Extracted metadata as JSON. |
+| `TextExtract` | The file's text from file analysis (a timed transcript for recordings). It goes into the node's search text. |
+| `MetaJSON` | Typed meta as JSON. Read it with `GetMeta()` / `GetMeta<T>()` / `TryGetMeta<T>()`, and write it with `SetMeta(meta)`. |
 | `PropertyPath` | Which node and property this file hangs off. **`null` until the node is stored.** |
 | `FileId` / `StorageId` | The file's own id, and the id of the store holding it. |
+
+**File analysis** (manual §6.1) fills `TextExtract` and the meta in a background task after an upload, using `db.Services.Imaging` and `db.Services.FileToText`. It is off by default. Turn it on with `LocalSettings.EnableAiImageAnalysisByDefault`, `EnableFileTextIndexingByDefault` and `EnableVideoAndAudioFileTextIndexingByDefault`, or per property with `[FileProperty(AiImageAnalysis = BoolValue.True, FileTextIndexing = BoolValue.False, VideoAndAudioFileTextIndexing = …)]`. `GetMeta()` returns the class for the file's kind: `ImageFileMeta` (`FocusPoint`, `Keywords`, `Objects`, `AiAnalysis`), `DocumentFileMeta` (`Pages`), `AudioFileMeta` / `VideoFileMeta` (`Duration`), all deriving from `FileValueMeta` (`Title`, `Description`, `Keywords`, `Author`, `Language`, `TextExtraction`, `Technical`). Files stored before a switch was turned on are analysed by `ReIndexAllText()` (the admin UI's Rebuild text index, or the `reindex-text` job).
 
 `FileType` and `Format` come from the *file name*, not from sniffing the bytes. A file uploaded with the wrong extension is classified wrong, and conversion will then look for a converter that does not fit.
 

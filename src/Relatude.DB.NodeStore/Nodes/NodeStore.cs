@@ -201,6 +201,7 @@ public class NodeStore : IDisposable {
         IIPLookupProvider? ipLookup = null, ICustomSettingsSource? settings = null, IEmailProvider? email = null) {
         Datastore = datastore;
         Services = new NodeStoreServices(datastore, sms, imaging, fileToText, translation, ipLookup, email);
+        datastore.UseFileAnalysisProviders(imaging, fileToText);
         Settings = new NodeStoreSettings(settings);
         _ownsProviders = true;
         var sw = Stopwatch.StartNew();

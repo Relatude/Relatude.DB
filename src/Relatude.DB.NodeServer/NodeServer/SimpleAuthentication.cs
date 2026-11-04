@@ -186,8 +186,9 @@ public class SimpleAuthentication(RelatudeDBServer server) {
         RelatudeDBServer.Trace("Admin access refused: the request did not come from this machine, and"
             + " AllowMasterLoginOutsideLocalhost is false, so no one can log in. If this server is behind a"
             + " reverse proxy, set \"AllowMasterLoginOutsideLocalhost\": true and a master user name and"
-            + " password in " + Defaults.SettingsFileName + ", or set \"AllowLicenseeAdminLogin\": true with the"
-            + " license and API keys from Relatude.License to sign in with a Relatude.License account instead. ");
+            + " password in " + Defaults.SettingsFileName + ", or set \"AllowLicenseeAdminLogin\": true and an \"ApiKey\" from"
+            + " Relatude Services to sign in with a Relatude account instead, once the address the admin UI is opened on is"
+            + " listed under Sign-in addresses on the license's Installations page. ");
     }
     public bool IsLoggedIn(HttpContext context) {
         return authenticationIsValid(context);

@@ -153,6 +153,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         RegisterRunner(new TextIndexTaskRunner(this));
         if (_ai != null) RegisterRunner(new SemanticIndexTaskRunner(this, _ai));
         RegisterRunner(new RewriteTaskRunner(this));
+        RegisterRunner(new Relatude.DB.Tasks.FileAnalysis.FileAnalysisTaskRunner(this));
         initJobs();
         // read at every batch start, off the same settings object the admin UI edits, so a change to
         // how many batches of a type run at once applies without a reopen

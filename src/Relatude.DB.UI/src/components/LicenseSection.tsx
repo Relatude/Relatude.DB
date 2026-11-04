@@ -14,6 +14,7 @@ import { fetchWhoAmI } from "../server/serverInfo";
 import { fetchSecretsInFile, type SecretsInFile } from "../server/settings";
 import {
   cancelPairing,
+  checkSignInAddress,
   fetchLicenseStatus,
   licenseCarriesEmail,
   licenseCarriesSms,
@@ -27,6 +28,7 @@ import {
   type LicenseAccount,
   type LicenseStatus,
   type PairingHandle,
+  type SignInAddressCheck,
 } from "../server/license";
 import { formatTime } from "../format";
 import { Loading } from "./Loading";
@@ -323,6 +325,7 @@ function AccountHero({
           </label>
           <span className="license-muted">Sign in to this admin UI with a Relatude account</span>
           {signInLocked && <span className="license-lock">from appsettings</span>}
+          {status.signInEnabled && license && <SignInAddressNote status={status} />}
         </span>
         <span />
 
@@ -873,16 +876,58 @@ export function Field({
 }
 
 /**
- * The portal, the license's own page in it, and the pages of the license where its SMS and e-mail
- * senders are asked for. A key that is not a guid names no license, so the portal's front page is the
- * best there is then.
+ * Whether Cloud sign-in works on the address this page is open on, under the switch while it is on:
+ * asked when the page opens and again whenever the license's status is read, so adding the address in
+ * the portal shows here after the refresh button. What could not be found out is said quietly - the
+ * sign-in itself says it again, louder, if it comes to that.
  */
-export function portalLinks(status: LicenseStatus): { server: string; licensePage: string; smsSendersPage: string; emailSendersPage: string } {
+function SignInAddressNote({ status }: { status: LicenseStatus }) {
+  const [check, setCheck] = useState<SignInAddressCheck | null>(null);
+  const { installationsPage } = portalLinks(status);
+  useEffect(() => {
+    let current = true;
+    checkSignInAddress()
+      .then((answer) => current && setCheck(answer))
+      .catch(() => current && setCheck(null));
+    return () => {
+      current = false;
+    };
+  }, [status]);
+
+  if (!check) return null;
+  switch (check.state) {
+    case "loopback":
+      return <span className="license-sign-in-note">Works here: localhost is always allowed.</span>;
+    case "listed":
+      return <span className="license-sign-in-note">Works here: {check.address} is one of the license's sign-in addresses.</span>;
+    case "not-listed":
+      return (
+        <span className="license-sign-in-note warn">
+          Not on this address: {check.address} is not one of the license's sign-in addresses.{" "}
+          <a href={installationsPage} target="_blank" rel="noreferrer">
+            Add it on the license's Installations page
+            <IconExternalLink size={12} stroke={1.8} />
+          </a>
+        </span>
+      );
+    case "not-https":
+      return <span className="license-sign-in-note warn">Not on this address: sign-in comes back only to https addresses and to localhost.</span>;
+    default:
+      return check.reason ? <span className="license-sign-in-note">Could not check this address: {check.reason}</span> : null;
+  }
+}
+
+/**
+ * The portal, the license's own page in it, and the pages of the license where its SMS and e-mail
+ * senders are asked for and its sign-in addresses listed. A key that is not a guid names no license,
+ * so the portal's front page is the best there is then.
+ */
+export function portalLinks(status: LicenseStatus): { server: string; licensePage: string; smsSendersPage: string; emailSendersPage: string; installationsPage: string } {
   const server = status.servicesServerUrl.replace(/\/$/, "");
   const key = status.licenseKey?.trim() ?? "";
   const licensePage = /^[0-9a-f]{8}-?([0-9a-f]{4}-?){3}[0-9a-f]{12}$/i.test(key) ? `${server}/licenses/${encodeURIComponent(key)}` : server;
   const onLicense = (page: string) => (licensePage === server ? server : licensePage + "/" + page);
-  return { server, licensePage, smsSendersPage: onLicense("sms-senders"), emailSendersPage: onLicense("email-senders") };
+  return { server, licensePage, smsSendersPage: onLicense("sms-senders"), emailSendersPage: onLicense("email-senders"), installationsPage: onLicense("installations") };
 }
 
 function toneOf(status: LicenseStatus): "ok" | "bad" | "info" {

@@ -32,7 +32,8 @@ public static class DatamodelJson {
     /// with what only says how a type or a property is shown left out as well (<see cref="NodeTypeModel.Icon"/>,
     /// <see cref="NodeTypeModel.NameProperty"/>, <see cref="NodeTypeModel.Title"/>, <see cref="NodeTypeModel.Description"/>,
     /// the <see cref="RelationPropertyModel.Display"/> of the properties holding other nodes, and their overrides), so
-    /// choosing an icon, a name property, a title or a display mode does not rebuild the state and every index.
+    /// choosing an icon, a name property, a title or a display mode does not rebuild the state and every index. The
+    /// file analysis switches of a file property are left out too: they decide background work, not what is indexed.
     /// The editor's checksum (<see cref="Checksum"/>) keeps them: to the editor they are changes of the model.
     /// </summary>
     public static readonly JsonSerializerOptions StateOptions = create(stripProvenance: true, stripPresentation: true);
@@ -65,6 +66,10 @@ public static class DatamodelJson {
         } else if (typeInfo.Type == typeof(RelationPropertyModel) || typeInfo.Type == typeof(ReferencePropertyModel)
             || typeInfo.Type == typeof(ReferencesPropertyModel) || typeInfo.Type == typeof(EmbeddedPropertyModel)) {
             removeProperty(typeInfo, nameof(RelationPropertyModel.Display));
+        } else if (typeInfo.Type == typeof(FilePropertyModel)) {
+            removeProperty(typeInfo, nameof(FilePropertyModel.AiImageAnalysis));
+            removeProperty(typeInfo, nameof(FilePropertyModel.FileTextIndexing));
+            removeProperty(typeInfo, nameof(FilePropertyModel.VideoAndAudioFileTextIndexing));
         } else if (typeInfo.Type == typeof(Datamodel)) {
             // an override of nothing but an icon or a display mode would still leave its entry (and its name) behind
             foreach (var p in typeInfo.Properties) {

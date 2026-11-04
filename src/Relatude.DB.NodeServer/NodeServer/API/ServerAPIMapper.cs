@@ -149,9 +149,6 @@ public partial class ServerAPIMapper(RelatudeDBServer server) {
             var valid = await server.Authentication.AreCredentialsValid(c.UserName, c.Password, requestIP, isLocal);
             if (valid) {
                 server.Authentication.LogIn(context, c.Remember);
-                // whoever knows the password is the admin, so the address they signed in on is this
-                // server's own: sign-in with Relatude Services may come back to it from now on
-                server.LicenseLogin.RememberPublicUrl(context);
                 return new { Success = true };
             }
             return new { Success = false };

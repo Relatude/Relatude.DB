@@ -404,8 +404,8 @@ public static class SettingsCatalog {
                 },
                 new() {
                     Id = "relatude-license",
-                    Title = "Relatude.License",
-                    Help = "The license this installation runs under, from the Relatude.License portal. An API key is what lets it use the Relatude services; the license key is looked up from it. With the sign-in switch on, the owner of the license and the users they grant can sign in here with their Relatude.License account instead of the master password.",
+                    Title = "Relatude Services",
+                    Help = "The license this installation runs under, from services.relatude.com. An API key is what lets it use the Relatude services; the license key is looked up from it. With Cloud sign-in on, everyone with access to the license can sign in here with their Relatude account instead of the master password: on localhost, and on the addresses listed under Sign-in addresses on the license's Installations page.",
                     Settings = [
                         new() {
                             Path = "LicenseKey", Label = "License key", Applies = SettingApplies.Live,
@@ -416,12 +416,8 @@ public static class SettingsCatalog {
                             Help = "One of the license's API keys, from its page in the portal - the one key to copy. It tells the license server which license this is and identifies this installation to it, so keep it in configuration or user secrets rather than in the settings file. The Relatude Services page checks a pasted key with the license server before saving it.",
                         },
                         new() {
-                            Path = "AllowLicenseeAdminLogin", Label = "Allow sign-in with Relatude.License", Applies = SettingApplies.Live,
-                            Help = "Shows \"Sign in with Relatude Services\" on the login page. Who gets in is decided by the license server: anyone with access to the license in the portal. Turning it off ends those sessions at once; the master login is unaffected either way.",
-                        },
-                        new() {
-                            Path = "PublicUrl", Label = "Public addresses", Applies = SettingApplies.Live, Placeholder = "https://db.example.com",
-                            Help = "The addresses this server is reached on, where sign-in with Relatude.License may send the browser back with its code, separated by commas. It fills itself in: every https address a signed-in admin uses the admin UI on is added. A sign-in may also come back to localhost, and to an address approved for this installation on the license's page in Relatude Services. The host name in the request that starts a sign-in is chosen by whoever sends it, so it is never taken at its word: a sign-in started on an address that is neither listed nor approved is refused. Remove an address here that is not this server's.",
+                            Path = "AllowLicenseeAdminLogin", Label = "Cloud sign-in", Applies = SettingApplies.Live,
+                            Help = "Shows \"Sign in with Relatude Services\" on the login page. Who gets in is decided by the license server: anyone with access to the license, on localhost and on the addresses listed under Sign-in addresses on the license's Installations page. Turning it off ends those sessions at once; the master login is unaffected either way.",
                         },
                         // Reporting in (DisableHeartbeat) is deliberately not offered here: it stays a
                         // setting in the json file for whoever has a reason to turn it off, but it is
@@ -1093,6 +1089,25 @@ public static class SettingsCatalog {
                         },
                     ],
                 },
+                new() {
+                    Id = "file-analysis",
+                    Title = "File analysis",
+                    Help = "What the database learns about the files uploaded to file properties, in the background after each upload: a title, a description, keywords, a focus point and the things in a picture from Image AI, and the text of documents, pictures and recordings from File to text. The results are kept in the file value (TextExtract and the typed meta read with FileValue.GetMeta()) and go into the node's search text. A file property can say otherwise for itself, with AiImageAnalysis, FileTextIndexing and VideoAndAudioFileTextIndexing on its [FileProperty] attribute or in the model editor. Each file analysed is charged to this installation's license. Files uploaded before a switch was turned on are analysed when the text index is rebuilt (Storage › Maintenance › Rebuild text index, or the reindex-text job).",
+                    Settings = [
+                        new() {
+                            Path = "LocalSettings.EnableAiImageAnalysisByDefault", Label = "AI image analysis by default", Applies = SettingApplies.Live,
+                            Help = "Sends every uploaded picture to Image AI, which gives it a title, a description, keywords, the point it is about and the things in it. The focus point and the keywords are kept in the file's meta, and the words make the picture findable by search. Costs one Image AI call per picture.",
+                        },
+                        new() {
+                            Path = "LocalSettings.EnableFileTextIndexingByDefault", Label = "File text indexing by default", Applies = SettingApplies.Live,
+                            Help = "Reads the text of every uploaded document - PDFs, Office files, e-mails, e-books, plain text - and of pictures, by OCR, with File to text, and makes the node findable by it. Costs one File to text call per file; a file the service does not read is skipped without charge.",
+                        },
+                        new() {
+                            Path = "LocalSettings.EnableVideoAndAudioFileTextIndexingByDefault", Label = "Video and audio transcripts by default", Applies = SettingApplies.Live,
+                            Help = "Transcribes the speech of every uploaded recording and video with File to text, so what is said makes the node findable. The transcript is kept with when each line is spoken, so it can also be written as subtitles. A long recording is sent in parts, each charged as a file; a video's sound is taken out on this server by the built-in video converter.",
+                        },
+                    ],
+                },
                 indexEngineList("value-index-engines", "Value index engines", "LocalSettings.ValueIndexes",
                     "The disk engines the value indexes can run on. Only the engine chosen as Value index engine above actually runs; the others are ready to be chosen. Two engines of the same kind with different memory budgets are how one database can be tuned differently later.",
                     "No value index engine is configured, so the value indexes can only live in memory.",
@@ -1274,7 +1289,7 @@ public static class SettingsCatalog {
                 new() {
                     Id = "imaging",
                     Title = "Image AI",
-                    Help = "Creating images, changing them and saying what they show. Nothing in the database calls it by itself: this is for your own code, which reaches it as NodeStore.Services.Imaging. It is there without any settings, calling the hosted Relatude Imaging service with this installation's license, and nothing is charged until code calls it.",
+                    Help = "Creating images, changing them and saying what they show. Your own code reaches it as NodeStore.Services.Imaging; the database itself calls it only for AI image analysis, when that is turned on under Search & AI › File analysis. It is there without any settings, calling the hosted Relatude Imaging service with this installation's license, and nothing is charged until it is called.",
                     Settings = [
                         new() {
                             Path = "ImagingSettings.TypeName", Label = "Provider type", Placeholder = RelatudeServicesImagingProvider.ShortName,
@@ -1301,7 +1316,7 @@ public static class SettingsCatalog {
                 new() {
                     Id = "filetotext",
                     Title = "File to text",
-                    Help = "The plain text of files - documents, spreadsheets, presentations, e-mails, e-books, PDFs, pictures read by OCR, and recordings and videos transcribed with when each line is spoken - for your own code to index or show, which reaches it as NodeStore.Services.FileToText. It is there without any settings, calling the hosted Relatude FileToText service with this installation's license, and nothing is charged until code calls it. A video's sound is taken out on this server by the built-in video converter, which downloads FFmpeg the first time it is needed.",
+                    Help = "The plain text of files - documents, spreadsheets, presentations, e-mails, e-books, PDFs, pictures read by OCR, and recordings and videos transcribed with when each line is spoken - for your own code to index or show, which reaches it as NodeStore.Services.FileToText; the database itself calls it only for file text indexing, when that is turned on under Search & AI › File analysis. It is there without any settings, calling the hosted Relatude FileToText service with this installation's license, and nothing is charged until it is called. A video's sound is taken out on this server by the built-in video converter, which downloads FFmpeg the first time it is needed.",
                     Settings = [
                         new() {
                             Path = "FileToTextSettings.TypeName", Label = "Provider type", Placeholder = RelatudeServicesFileToTextProvider.ShortName,

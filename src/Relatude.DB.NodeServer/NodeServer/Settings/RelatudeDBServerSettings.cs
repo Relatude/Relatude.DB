@@ -31,22 +31,10 @@ public class RelatudeDBServerSettings {
     /// or user secrets rather than here.</summary>
     public string? ApiKey { get; set; }
     /// <summary>Offers "Sign in with Relatude.License" on the login page. Who gets in is the license
-    /// server's decision: anyone with access to the license there. The master login stays as the
+    /// server's decision: anyone with access to the license there, and only on the license's sign-in
+    /// addresses, which are listed on its page there, and on localhost. The master login stays as the
     /// fallback. See <see cref="LicenseLogin"/>.</summary>
     public bool AllowLicenseeAdminLogin { get; set; } = false;
-    /// <summary>
-    /// The addresses this server is reached on, such as https://db.example.com: where "Sign in with
-    /// Relatude.License" may send the browser back to, with its one-time code. The sign-in never takes
-    /// that address from the request that starts it, whose host name is whatever its sender chose (see
-    /// <see cref="LicenseLogin.BeginAsync"/>). It fills itself in: every https address a signed-in admin
-    /// uses the admin UI on is added (<see cref="LicenseLogin.RememberPublicUrl"/>). Besides these, a
-    /// sign-in may come back to a loopback address, and to one approved for this installation in
-    /// Relatude Services.
-    /// <para>The addresses are separated by commas, for a server reached on more than one name or
-    /// several sites sharing one settings file: a sign-in returns to the address its login page is open
-    /// on, and one started on an address that is neither listed nor approved is refused.</para>
-    /// </summary>
-    public string? PublicUrl { get; set; }
     /// <summary>
     /// Stops this installation reporting in to the license server. Written as the exception rather
     /// than the rule so that the reporting an installation has always done is what an absent

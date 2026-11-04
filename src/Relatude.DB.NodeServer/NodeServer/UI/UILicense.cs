@@ -41,21 +41,15 @@ sealed class UILicense(RelatudeDBServer server) {
         commands.Register("license-status", async ctx => await describe());
         // Only the API key is pasted in. Before it is saved it is checked with the license server,
         // whose answer names the license - and so the license key, which is saved beside it. A key
-        // the server does not take is refused here with its reason rather than saved. Either way to a
-        // license - this or pairing - also tells the sign-in that the address the page is used on is one
-        // of its public addresses (LicenseLogin.RememberPublicUrl), as opening the admin UI does.
-        commands.Register("license-look-up", async ctx => {
-            var found = await lookUp(ctx.Payload<LookUpPayload>().ApiKey, ctx.Http.RequestAborted);
-            server.LicenseLogin.RememberPublicUrl(ctx.Http);
-            return found;
-        });
+        // the server does not take is refused here with its reason rather than saved.
+        commands.Register("license-look-up", async ctx => await lookUp(ctx.Payload<LookUpPayload>().ApiKey, ctx.Http.RequestAborted));
+        // Whether Cloud sign-in works on the address the page is open on, which only the page knows:
+        // behind a proxy the request's host name may be another.
+        commands.Register("license-sign-in-address", async ctx => await server.LicenseLogin.CheckSignInAddressAsync(ctx.Payload<SignInAddressPayload>().Url, ctx.Http.RequestAborted));
         // Getting a license without copying a key by hand: the page opens the claim url in a tab and
         // asks here every couple of seconds until somebody has answered it. The keys come back to the
         // page, which saves them the way it saves any other setting.
-        commands.Register("license-pair-start", async ctx => {
-            server.LicenseLogin.RememberPublicUrl(ctx.Http);
-            return await server.LicenseLogin.StartPairingAsync(ctx.Http.Request.Host.Value, ctx.Http.RequestAborted);
-        });
+        commands.Register("license-pair-start", async ctx => await server.LicenseLogin.StartPairingAsync(ctx.Http.Request.Host.Value, ctx.Http.RequestAborted));
         commands.Register("license-pair-poll", async ctx => await server.LicenseLogin.PollPairingAsync(ctx.Payload<PairingPayload>().PairingId ?? "", ctx.Http.RequestAborted));
         commands.Register("license-pair-cancel", async ctx => {
             await server.LicenseLogin.CancelPairingAsync(ctx.Payload<PairingPayload>().PairingId ?? "", ctx.Http.RequestAborted);
@@ -72,6 +66,7 @@ sealed class UILicense(RelatudeDBServer server) {
     sealed record EmailTestPayload(string? From, string? To, string? Subject, string? Text);
     sealed record AiTestPayload(string? ServiceUrl, string? Model, string? Text);
     sealed record LookUpPayload(string? ApiKey);
+    sealed record SignInAddressPayload(string? Url);
 
     /// <summary>
     /// The license a pasted API key belongs to, with the key written the one way the settings hold

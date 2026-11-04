@@ -54,6 +54,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             }
         }
         LogInfo("Queued " + count.To1000N() + " nodes for text indexing. ");
+        QueueMissingFileAnalyses();
         return count;
     }
     public int ReIndexText(IEnumerable<Guid> nodeTypeIds) {
@@ -79,6 +80,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             }
         }
         LogInfo("Queued " + count.To1000N() + " text and semantic indexing tasks for " + perType.Count + " node type" + (perType.Count == 1 ? "" : "s") + ". ");
+        QueueMissingFileAnalyses(wanted);
         return count;
     }
     public int ClearIndexedText(IEnumerable<Guid> nodeTypeIds) {

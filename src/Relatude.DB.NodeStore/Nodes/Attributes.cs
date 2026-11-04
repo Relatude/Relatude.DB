@@ -324,7 +324,9 @@ public class HtmlPropertyAttribute : StringPropertyAttribute {
 public class FilePropertyAttribute : PropertyAttribute {
     // Guid is not a legal attribute parameter type, value is given as string:
     public string? FileStorageProviderId { get; set; }
-
+    public BoolValue AiImageAnalysis { get; set; }
+    public BoolValue FileTextIndexing { get; set; }
+    public BoolValue VideoAndAudioFileTextIndexing { get; set; }
 }
 /// <summary>
 /// A <see cref="PasswordValue"/> property: which ways of keeping a password it allows, and what a new password must

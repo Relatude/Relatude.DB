@@ -108,7 +108,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             ctx.Report("Queued " + count.To1000N() + " node" + (count == 1 ? "" : "s") + " for text indexing.");
             return Task.CompletedTask;
         },
-        "Queues every node of the text-indexed types for text indexing again. The indexing itself happens in the task queue afterwards, one task per node.");
+        "Queues every node of the text-indexed types for text indexing again, and every stored file that file analysis (AI image analysis, file text indexing) has not covered yet. The work itself happens in the task queue afterwards, one task per node or file.");
 
         _jobs.AddBuiltIn("delete-unreferenced-files", async ctx => {
             var countOnly = arguments(ctx, "count").Contains("count");

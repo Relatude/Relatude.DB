@@ -24,7 +24,7 @@ each concept builds on the last.
 3. [Scalar properties and their attributes](#3-scalar-properties-and-their-attributes) · [3.1 overriding attributes](#31-overriding-attributes)
 4. [Marker properties](#4-marker-properties)
 5. [Geo coordinates](#5-geo-coordinates)
-6. [Files](#6-files)
+6. [Files](#6-files) · [6.1 file analysis](#61-file-analysis)
 7. [Embedded data](#7-embedded-data)
 8. [References — lightweight pointers](#8-references--lightweight-pointers)
 9. [Relations — the graph edges](#9-relations--the-graph-edges) · [9.1 ordered relation lists](#91-relation-lists-are-ordered)
@@ -1039,6 +1039,81 @@ FileValue Brochure { get; set; }
 ([§12.1](#121-every-setting-in-relatudedbjson)). Uploading and serving files is covered in
 [§17](#17-uploading-files), and the URLs they are served on in [§18](#18-urls-and-the-url-manager).
 
+### 6.1 File analysis
+
+The database can learn what is in the files you upload, in the background after each upload, using
+the Image AI and File to text services ([§34](#34-ai-services)). Three database settings turn it on
+for every file property, all off by default:
+
+| Setting | What is sent | What you get |
+|---|---|---|
+| `EnableAiImageAnalysisByDefault` | Pictures, to Image AI | A title, a description, keywords, the focus point and the things in the picture |
+| `EnableFileTextIndexingByDefault` | Documents, and pictures for OCR, to File to text | The text of the file, its title, author, language and pages |
+| `EnableVideoAndAudioFileTextIndexingByDefault` | Recordings and videos, to File to text | A transcript, timed line by line, and the duration |
+
+They are under **Settings › Search & AI › File analysis** in the admin UI, or in `LocalSettings`
+([§12.1](#121-every-setting-in-relatudedbjson)). A file property can decide for itself. `BoolValue.Default`
+follows the database setting:
+
+```csharp
+[FileProperty(AiImageAnalysis = BoolValue.True)]          // always analysed, whatever the default
+FileValue Photo { get; set; }
+
+[FileProperty(FileTextIndexing = BoolValue.False)]        // never read, even with the default on
+FileValue SignedContract { get; set; }
+
+[FileProperty(VideoAndAudioFileTextIndexing = BoolValue.True)]
+FileValue Recording { get; set; }
+```
+
+**What happens.** An upload or a file copy queues a background task (Settings › Tasks shows it). The
+task sends the file to the service, then writes the result into the file value: the text goes into
+`TextExtract`, and everything else goes into `MetaJSON` as typed meta. That write queues the node for
+text indexing again, so the words, the title, the description and the keywords make the node findable
+with `WhereSearch` ([§21](#21-text-and-semantic-search)). For recordings, the search text has the
+timestamps removed.
+
+Each file analysed is charged to the license. A file is analysed once. Two kinds of failure are
+treated differently:
+
+- **The service refuses the file** (a kind it does not read, or a file that is too large). This is
+  recorded in the meta, and the file is not sent again.
+- **The call fails** (no credits, no answer). Nothing is recorded, and the file is tried again at
+  the next text reindex.
+
+**Files uploaded before a switch was on** are analysed when the text index is rebuilt: **Storage ›
+Maintenance › Rebuild text index** in the admin UI, `db.Datastore.ReIndexAllText()`, or the `reindex-text` job
+([§36](#36-background-tasks-and-the-scheduler)). The rebuild queues every stored file that is still
+missing an analysis.
+
+**Reading the meta.** `FileValue.GetMeta()` returns the meta as a class that matches the kind of file:
+
+| Class | For | Adds |
+|---|---|---|
+| `FileValueMeta` | Every file (the base class) | `Title`, `Description`, `Keywords`, `Author`, `Language`, `TextExtraction`, `Technical` |
+| `ImageFileMeta` | Pictures | `FocusPoint` (pixels from the top left), `Objects` (type, name, confidence, box), `AiAnalysis` |
+| `DocumentFileMeta` | Documents | `Pages` |
+| `AudioFileMeta`, `VideoFileMeta` | Recordings and videos (both derive from `MediaFileMeta`) | `Duration` |
+
+```csharp
+var photo = db.Get<Product>(id).Photo;
+
+if (photo.TryGetMeta<ImageFileMeta>(out var image)) {
+    var focus = image.FocusPoint;        // null if the service found none
+    var tags = image.Keywords ?? [];
+    var faces = image.Objects?.Count(o => o.Type == ImageObjectType.Face) ?? 0;
+}
+
+var meta = photo.GetMeta();              // always a FileValueMeta, of the file's own kind
+bool read = meta.TextExtraction?.Succeeded == true;
+string text = photo.TextExtract;         // the file's text, or a timed transcript
+```
+
+`TextExtraction` and `AiAnalysis` record when the step ran, which provider ran it, and the `Error` if
+the service refused the file. `Technical` holds what the decoder reported when the file was stored:
+the image details, or the probe of a video. You can also write the meta yourself with
+`SetMeta(meta)` and then save the node.
+
 ---
 
 ## 7. Embedded data
@@ -1900,8 +1975,7 @@ optional: without `ApiKey`, nothing is charged and nothing is reported.
 |---|---|---|
 | `ApiKey` | null | An API key from the license's page at services.relatude.com. It is all an installation needs to use the hosted services, which charge each call to that license. A secret: keep it in configuration. |
 | `LicenseKey` | null | The license's id. Not needed: it is looked up from `ApiKey`, whose license wins if the two disagree. |
-| `AllowLicenseeAdminLogin` | `false` | Adds *Sign in with Relatude Services* to the login page, for anyone with access to the license. Turning it off ends those sessions at once. |
-| `PublicUrl` | null | The addresses the server is reached on, separated by commas: where a sign-in may return to. Every https address an admin uses is added automatically, and localhost always works. |
+| `AllowLicenseeAdminLogin` | `false` | Adds *Sign in with Relatude Services* to the login page, for anyone with access to the license. It works on localhost, and on the sign-in addresses listed on the license's Installations page. Turning it off ends those sessions at once. |
 | `DisableHeartbeat` | `false` | Stop the installation reporting in ([Reporting in](#reporting-in)). Applies without a restart. Not on the settings pages. |
 | `ServicesServerUrl` | `https://services.relatude.com` | The license server. Change it only for a self-hosted or test server. |
 
@@ -2112,6 +2186,9 @@ the vectors on disk:
 | `EnableSemanticIndexByDefault` | `false` | The same for the vector index. Every node costs an embedding call, so prefer opting in per property. |
 | `EnableInstantTextIndexingByDefault` | `false` | Index text inside the transaction instead of in the background, so a node is searchable as soon as the write returns. Writes get slower. |
 | `CultureSensitiveTextIndex` | `false` | Keep a text index per culture, so a search in a culture finds the words of the version its readers see ([§29](#29-cultures-visibility-and-scoped-stores)). A change rebuilds the text indexes at the next open. |
+| `EnableAiImageAnalysisByDefault` | `false` | Send every uploaded picture to Image AI for a title, a description, keywords, a focus point and the things in it ([§6.1](#61-file-analysis)). One Image AI call per picture. |
+| `EnableFileTextIndexingByDefault` | `false` | Read the text of every uploaded document, and of pictures by OCR, with File to text, and put it in the node's search text ([§6.1](#61-file-analysis)). One File to text call per file. |
+| `EnableVideoAndAudioFileTextIndexingByDefault` | `false` | Transcribe every uploaded recording and video the same way. A long recording is charged per part. |
 | `ValueIndexes` | null | The engines that value indexes (`Indexed = true`) can run on: `{ "Id", "TypeName", "MaxMemoryUsageInMb" }`. `TypeName` is `Native`, `Sqlite` (needs `Relatude.DB.Plugins.Sqlite`) or the full type name of your own `IValueIndexEngine`. An engine is used only when a default names it. |
 | `TextIndexes` | null | The same for the BM25 indexes: `Native`, `Lucene` (needs `Relatude.DB.Plugins.Lucene`) or `Sqlite`. With `Sqlite` for both value and text indexes, one database holds both and each change commits in one transaction. |
 | `VectorIndexes` | null | The same for semantic indexes: `IVS` (clustered, cheap to build) or `HNSW` (a graph kept in memory, higher recall). Compared in the [vector index benchmarks](vector-matrix.html). |
@@ -6116,6 +6193,10 @@ or for your own OpenAI, Azure OpenAI or Anthropic account
 hosted service for a provider of your own ([§35.2](#352-a-provider-of-your-own)) without changing
 the code that calls it.
 
+The database also calls Images and Files to text itself when file analysis is turned on: it reads
+the text of uploaded files and describes uploaded pictures, so they can be found by search
+([§6.1](#61-file-analysis)).
+
 `ImagingSettings`, `FileToTextSettings` and `TranslationSettings` share four keys. On a server you
 usually set none of them:
 
@@ -6533,9 +6614,9 @@ example one per customer or project. Each license has these pages:
 | **Entitlements** | Features, limits and credit accounts: one credit account per service, named as in [§35.1](#351-a-license-is-not-needed) |
 | **SMS senders** | The sender names text messages may use, each approved separately. A message without a sender uses the service's own |
 | **E-mail domains** | The domains e-mail may be sent from, each approved separately: any address at an approved domain may be the sender. A message without a sender uses the service's own |
-| **Installations** | The installations that have reported in, and the addresses each may be signed in from |
+| **Installations** | The license's sign-in addresses, where its installations may be signed in from, and the installations that have reported in |
 | **Uptime** | For licenses that include it: texts the people you choose when an installation changes state |
-| **Access** | Who may see and use the license. They can all sign in to its installations where cloud sign-in is on |
+| **Access** | Who may see and use the license. They can all sign in to its installations where cloud sign-in is on, from the license's sign-in addresses |
 
 What calls cost and which errors may have been charged is the same for every hosted service; see
 [§34.5](#345-prices-answers-kept-and-errors).
@@ -6550,8 +6631,10 @@ Use the **Relatude Services** page of the admin UI, in the server menu:
 2. The page then shows the license and what it carries, and has a test for each service. The tests
    make real calls, so they are charged, except IP lookup, which is free.
 3. **Cloud sign-in** adds *Sign in with Relatude Services* to the admin UI's login page, for anyone
-   with access to the license in the portal. The master login is not affected. Turning it off ends
-   those sessions at once.
+   with access to the license in the portal. It works on localhost, and on any other address once
+   someone with access to the license adds it under **Sign-in addresses** on the license's
+   Installations page: the host name, with the port if it is not 443. The master login is not
+   affected. Turning it off ends those sessions at once.
 
 **Remove**, beside the API key, takes the installation out from under the license. It clears the keys
 and turns cloud sign-in off.
@@ -6685,7 +6768,7 @@ The database registers these jobs itself:
 | `delete-old-log-files` | Deletes the log files that truncations left behind | none |
 | `save-state` | Writes the state snapshot and the index states, so the next open does not replay the log | none |
 | `purge-caches` | Halves the node and set caches and frees the memory | none |
-| `reindex-text` | Queues every node of the text-indexed types for text indexing again | none |
+| `reindex-text` | Queues every node of the text-indexed types for text indexing again, and every stored file still missing its file analysis ([§6.1](#61-file-analysis)) | none |
 | `delete-unreferenced-files` | Deletes the files no node refers to, except those uploaded in the last 15 minutes | `count`: only counts them |
 
 A built-in job given an argument it does not take fails its run and names the ones it takes, so a

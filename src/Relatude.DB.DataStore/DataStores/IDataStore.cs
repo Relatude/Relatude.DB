@@ -203,6 +203,8 @@ public interface IDataStore : IDisposable {
     Task<bool> FileExistsAsync(FileValue value);
     Task<bool> IsFileUploadedAndAvailableAsync(PropertyPath target, QueryContext? ctx = null);
     FileValue? UpdateFileMetaIfNotSet(PropertyPath propertyPath, Guid fileId, BasicFileMeta meta, QueryContext? ctx = null);
+    void UseFileAnalysisProviders(Relatude.DB.Imaging.IImagingProvider? imaging, Relatude.DB.FileToText.IFileToTextProvider? fileToText);
+    int QueueMissingFileAnalyses(IEnumerable<Guid>? nodeTypeIds = null);
 
     Task<Guid> InitiateMultipartUploadAsync(PropertyPath propertyPath, string fileName, QueryContext? ctx = null);
     Task AppendMultipartUploadAsync(Guid fileId, byte[] data, int length);

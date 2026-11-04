@@ -202,6 +202,24 @@ export interface PairingAnswer {
   reason: string | null;
 }
 
+/**
+ * Whether Cloud sign-in works on the address this page is open on: always on localhost, on any other
+ * address only when it is one of the license's sign-in addresses (listed on the license's
+ * Installations page in the portal), and never on plain http. `unknown` says why in `reason`.
+ */
+export interface SignInAddressCheck {
+  state: "loopback" | "listed" | "not-listed" | "not-https" | "unknown";
+  /** the page's address as the license lists addresses: the host, plus the port when it is not the default */
+  address: string | null;
+  /** the license's sign-in addresses, when it was asked */
+  addresses: string[];
+  reason: string | null;
+}
+
+export function checkSignInAddress(): Promise<SignInAddressCheck> {
+  return send<SignInAddressCheck>("license-sign-in-address", { url: window.location.href });
+}
+
 export function startPairing(): Promise<PairingHandle> {
   return send<PairingHandle>("license-pair-start");
 }

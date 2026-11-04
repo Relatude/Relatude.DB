@@ -930,9 +930,6 @@ public sealed class UIServer {
         // not one, so the UI must not offer to end it
         Commands.Register("whoami", ctx => {
             var (userName, viaLocalhost, via) = _server.Authentication.Describe(ctx.Http);
-            // asked as the admin UI opens: an address a signed-in admin uses it on is one sign-in with
-            // Relatude Services may come back to (the localhost bypass is nobody, so it adds nothing)
-            if (userName != null) _server.LicenseLogin.RememberPublicUrl(ctx.Http);
             return new {
                 UserName = userName,
                 ViaLocalhost = viaLocalhost,

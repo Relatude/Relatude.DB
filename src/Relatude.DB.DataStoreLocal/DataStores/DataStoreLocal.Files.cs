@@ -39,6 +39,7 @@ public sealed partial class DataStoreLocal : IDataStore {
     }
     async Task<FileValue> updateMetaIfRelevant(FileValue fileValue, int? maxWaitForMetaUpdate, QueryContext ctx) {
         if (fileValue.PropertyPath == null) return fileValue;
+        queueFileAnalysisIfMissing(fileValue);
         if (maxWaitForMetaUpdate == null) {
             if (fileValue.FileType == FileType.Image) {
                 maxWaitForMetaUpdate = 500;
@@ -149,6 +150,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                 if (value.FileType == FileType.Image && value.Width == 0 && _fileConversionEngine.CanConvert(value.Format, FileFormat.FileMetaJson)) {
                     enqueueUpdateFileMeta(copy.To, value.FileId, ctx);
                 }
+                queueFileAnalysisIfMissing(now);
             } else if (copy.Stored) {
                 getFileStore(value.StorageId).DeleteAsync(value).GetAwaiter().GetResult(); // the target was not there
             }
@@ -177,14 +179,16 @@ public sealed partial class DataStoreLocal : IDataStore {
             // Console.WriteLine("File meta is not set... " + fileId);
             var t = new TransactionData();
             t.LockExcemptions = [lockId];
+            var metaJson = withTechnicalMeta(fileValue, meta);
             var isDifferent =
-                fileValue.MetaJSON != (meta.AllMetaJson ?? string.Empty) ||
+                fileValue.MetaJSON != metaJson ||
                 fileValue.Width != meta.Width ||
                 fileValue.Height != meta.Height;
             if (isDifferent) {
+                fileValue = fileValue.Copy();
                 fileValue.Width = meta.Width;
                 fileValue.Height = meta.Height;
-                fileValue.MetaJSON = meta.AllMetaJson ?? string.Empty;
+                fileValue.MetaJSON = metaJson;
                 t.ForceUpdateProperty(propertyPath, fileValue);
                 Execute(t, false, false, ctx);
                 // Console.WriteLine("File meta updated for fileId: " + fileId);
@@ -195,6 +199,20 @@ public sealed partial class DataStoreLocal : IDataStore {
         } finally {
             ReleaseLock(lockId);
         }
+    }
+    static string withTechnicalMeta(FileValue fileValue, BasicFileMeta basic) {
+        var meta = fileValue.GetMeta().AsKindFor(fileValue.FileType);
+        meta.Technical = null;
+        if (!string.IsNullOrWhiteSpace(basic.AllMetaJson)) {
+            try {
+                using var document = System.Text.Json.JsonDocument.Parse(basic.AllMetaJson);
+                meta.Technical = document.RootElement.Clone();
+            } catch (System.Text.Json.JsonException) { }
+        }
+        if (meta is MediaFileMeta media && basic.Duration > TimeSpan.Zero) media.Duration = basic.Duration;
+        var nothingButTechnical = !FileValueMeta.IsTyped(fileValue.MetaJSON) && meta is not MediaFileMeta { Duration: not null };
+        if (meta.Technical == null && nothingButTechnical) return string.Empty;
+        return meta.ToJson();
     }
     void enqueueUpdateFileMeta(PropertyPath propertyPath, Guid fileId, QueryContext? ctx = null) {
         ThreadPool.QueueUserWorkItem(async _ => {

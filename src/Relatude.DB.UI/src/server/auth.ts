@@ -67,9 +67,10 @@ export function licenseLoginOptions(): Promise<LicenseLoginOptions> {
   return post<LicenseLoginOptions>("license-login-options");
 }
 
-// Starts the sign-in: tells the server the address this page is open on, which it checks against its
-// own public addresses, keeps a ticket for in memory and in a cookie, and registers with the license
-// server. The answer is where to send the browser - or, with loginUrl null, why not. The browser
+// Starts the sign-in: tells the server the address this page is open on, which the license server
+// checks against the license's sign-in addresses; the server keeps a ticket for it in memory and in a
+// cookie, and registers it with the license server. The answer is where to send the browser - or,
+// with loginUrl null, why not (an address not on the license's list among them). The browser
 // comes back to the callback next to this url, and from there to the UI root.
 export interface LicenseLoginBegin {
   loginUrl: string | null;

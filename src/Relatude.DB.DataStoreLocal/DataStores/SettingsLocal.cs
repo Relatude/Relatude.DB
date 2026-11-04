@@ -113,6 +113,9 @@ public class SettingsLocal {
     public bool EnableTextIndexByDefault { get; set; } = false;
     public bool EnableSemanticIndexByDefault { get; set; } = false;
     public bool EnableInstantTextIndexingByDefault { get; set; } = false;
+    public bool EnableAiImageAnalysisByDefault { get; set; } = false;
+    public bool EnableFileTextIndexingByDefault { get; set; } = false;
+    public bool EnableVideoAndAudioFileTextIndexingByDefault { get; set; } = false;
     /// <summary>
     /// Gives the search index a copy per culture, as a culture-sensitive property has, so a search in a culture
     /// finds the words of the version its readers read. Off, it holds one version's text per node: the one a reader

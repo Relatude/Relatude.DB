@@ -21,9 +21,12 @@ namespace Relatude.DB.Nodes;
 /// await db.Services.Email.SendAsync("kari@example.com", "Your order", "Thank you for your order.");
 /// var visitor = await db.Services.IPLookup.LookUpAsync(request.Ip, request.UserAgent);
 /// </code>
-/// <para>Except for <see cref="AI"/>, which semantic search uses, nothing inside the database calls them:
-/// they are here so application code can use the accounts the database is already configured with - on a
-/// server, the installation's own Relatude license - rather than holding vendor accounts of its own.</para>
+/// <para>They are here so application code can use the accounts the database is already configured with - on a
+/// server, the installation's own Relatude license - rather than holding vendor accounts of its own. Inside the
+/// database, semantic search uses <see cref="AI"/>, and file analysis uses <see cref="Imaging"/> and
+/// <see cref="FileToText"/> when it is turned on (LocalSettings.EnableAiImageAnalysisByDefault,
+/// EnableFileTextIndexingByDefault, EnableVideoAndAudioFileTextIndexingByDefault, or the same switches on a
+/// file property).</para>
 /// <para>Each one throws when the database has none, so check its <c>Has</c> property first on a path that
 /// has to work either way. The providers are owned by the store and disposed with it; a store made by
 /// <see cref="NodeStore.Context"/> shares them.</para>

@@ -22,9 +22,7 @@ public sealed record TranscriptCue(TimeSpan Start, TimeSpan End, string Text);
 /// and seven seconds.</para>
 /// </summary>
 public static class Transcript {
-    // the hours are as many as there are, the rest two digits each and three for the milliseconds
-    const string _time = @"(\d{2,}):([0-5]\d):([0-5]\d)\.(\d{3})";
-    static readonly Regex _timestamps = new(@"^\[" + _time + " --> " + _time + @"\] ?", RegexOptions.Multiline | RegexOptions.CultureInvariant);
+    static readonly Regex _timestamps = Relatude.DB.Common.TranscriptTimestamps.Pattern;
 
     /// <summary>Whether the text is a transcript: its first line that is not empty begins with the time it is spoken.</summary>
     public static bool IsTimed(string? text) {

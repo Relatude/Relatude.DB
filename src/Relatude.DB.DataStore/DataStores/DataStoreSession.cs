@@ -120,6 +120,8 @@ public class DataStoreSession : IDataStore {
     public Task<bool> FileExistsAsync(FileValue value) => _datastore.FileExistsAsync(value);
     public Task<bool> IsFileUploadedAndAvailableAsync(PropertyPath target, QueryContext? ctx = null) => _datastore.IsFileUploadedAndAvailableAsync(target, ctx ?? QueryContext);
     public FileValue? UpdateFileMetaIfNotSet(PropertyPath propertyPath, Guid fileId, BasicFileMeta meta, QueryContext? ctx = null) => _datastore.UpdateFileMetaIfNotSet(propertyPath, fileId, meta, ctx ?? QueryContext);
+    public void UseFileAnalysisProviders(Relatude.DB.Imaging.IImagingProvider? imaging, Relatude.DB.FileToText.IFileToTextProvider? fileToText) => _datastore.UseFileAnalysisProviders(imaging, fileToText);
+    public int QueueMissingFileAnalyses(IEnumerable<Guid>? nodeTypeIds = null) => _datastore.QueueMissingFileAnalyses(nodeTypeIds);
 
     public bool TryGetNodeType(Guid id, out Guid nodeTypeId)
         => _datastore.TryGetNodeType(id, out nodeTypeId);
