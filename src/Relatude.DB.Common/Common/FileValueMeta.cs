@@ -83,6 +83,19 @@ public class DocumentFileMeta : FileValueMeta {
 public class ImageFileMeta : FileValueMeta {
     public ImageAiAnalysis? AiAnalysis { get; set; }
     public ImageFocusPoint? FocusPoint { get; set; }
+    /// <summary>
+    /// How a picture of this file is made to a size of another shape when the adjustment asking for it names no
+    /// crop mode (<c>FileAdjustmentImage.CropMode</c>): the picture's own default, which an adjustment's mode
+    /// overrides. None leaves the engine's default, Fit.
+    /// </summary>
+    public FileConversion.ImageCropMode? CropMode { get; set; }
+    /// <summary>
+    /// What shows behind a picture of this file, where it is see-through and where the canvas asked for is larger
+    /// than the picture, when the adjustment asking for it names no background (<c>FileAdjustmentImage.BackgroundColor</c>):
+    /// "#RRGGBB" or "#RRGGBBAA". None, or one wholly see-through, leaves the background see-through where the
+    /// format asked for can be.
+    /// </summary>
+    public string? BackgroundColor { get; set; }
     public ImageObjectInfo[]? Objects { get; set; }
     public override IEnumerable<string> GetSearchTexts() {
         foreach (var text in base.GetSearchTexts()) yield return text;

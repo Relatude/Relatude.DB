@@ -45,6 +45,10 @@ public static class IImageExt {
                 img = Step(img.Resize(source.Width, source.Height, ImageCropMode.Stretch));
         }
 
+        // a background that shows goes under the whole picture last (step 7), so the canvas is padded see-through here,
+        // and what is see-through in the picture and in the corners of a turn shows the same colour as the padding
+        var underlay = IsVisibleColor(adj.BackgroundColor) ? adj.BackgroundColor : null;
+
         // 3. Resize — proportions are preserved unless CropMode is Stretch
         if (adj.Width.HasValue || adj.Height.HasValue) {
             // the size can come from a URL: refused before a picture of it is allocated. The most a resize
@@ -54,7 +58,9 @@ public static class IImageExt {
                 adj.Height ?? Math.Max(img.Height, (long)Math.Ceiling((double)adj.Width!.Value * img.Height / img.Width)),
                 img.Width, img.Height);
             var cropMode = adj.CropMode ?? ImageCropMode.Fit;
-            img = Step(img.Resize(adj.Width, adj.Height, cropMode, cropped ? CropHints.Background(adj) : CropHints.From(adj)));
+            var hints = cropped ? CropHints.Background(adj) : CropHints.From(adj);
+            if (underlay != null) hints = hints with { BackgroundColor = null };
+            img = Step(img.Resize(adj.Width, adj.Height, cropMode, hints));
         }
 
         // 5. Light/dark adaptation — before the fine-grained colour adjustments below, so that those
@@ -71,7 +77,27 @@ public static class IImageExt {
         if (adj.HueShift is double h && h != 0) img = Step(img.AdjustHue(h));
         if (adj.Sharpness is double sh && sh != 0) img = Step(img.AdjustSharpness(sh));
 
+        // 7. The background, under everything, its colour as asked for: after the colour steps, which would change it
+        if (underlay != null) img = Step(img.Underlay(underlay));
+
         return img;
+    }
+
+    /// <summary>
+    /// Whether a background colour ("#RRGGBB" or "#RRGGBBAA") shows at all: a colour wholly see-through, or one that is
+    /// not a colour, is the same as none.
+    /// </summary>
+    public static bool IsVisibleColor(string? hex) => TryParseHexColor(hex, out _, out _, out _, out var a) && a > 0;
+
+    /// <summary>"#RRGGBB" or "#RRGGBBAA" (the alpha last, as CSS has it), with or without the "#".</summary>
+    public static bool TryParseHexColor(string? hex, out byte r, out byte g, out byte b, out byte a) {
+        r = g = b = a = 0;
+        if (string.IsNullOrWhiteSpace(hex)) return false;
+        var s = hex.Trim().TrimStart('#');
+        if (s.Length != 6 && s.Length != 8 || !uint.TryParse(s, System.Globalization.NumberStyles.HexNumber, null, out var v)) return false;
+        if (s.Length == 6) v = (v << 8) | 0xff;
+        (r, g, b, a) = ((byte)(v >> 24), (byte)(v >> 16), (byte)(v >> 8), (byte)v);
+        return true;
     }
 
     /// <summary>
@@ -182,6 +208,10 @@ public interface IImage : IDisposable {
     /// <summary>Summarize the tone of the image, so a caller can decide whether inverting the
     /// luminance would improve it. See <see cref="AutoLightDarkSwitch"/>.</summary>
     ImageToneAnalysis AnalyzeTone();
+
+    /// <summary>The image over a colour ("#RRGGBB" or "#RRGGBBAA"): what is see-through in it shows the colour, as far
+    /// as the colour is opaque itself.</summary>
+    IImage Underlay(string color);
 
     /// <summary>Encode and return the image in the requested format.</summary>
     byte[] Encode(FileFormat format, int? quality = null);

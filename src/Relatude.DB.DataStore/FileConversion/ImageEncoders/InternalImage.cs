@@ -1,4 +1,4 @@
-using System.Buffers;
+﻿using System.Buffers;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -1133,6 +1133,40 @@ internal sealed unsafe class InternalImage
         for (int row = 0; row < Height; row++)
             Buffer.BlockCopy(_rgba, row * Width * 4, pixels, ((y + row) * width + x) * 4, Width * 4);
         return new InternalImage(width, height, pixels);
+    }
+
+    /// <summary>
+    /// This picture over a colour, as a new picture: what is see-through in it shows the colour, as far as the colour is
+    /// opaque itself (the source over the colour, straight alpha).
+    /// </summary>
+    public InternalImage Underlay(ColorRgba background)
+    {
+        byte[] src = _rgba;
+        byte[] pixels = NewPixels(src.Length);
+        int width = Width;
+        int bgA = background.A;
+        ForRows(Height, width, y =>
+        {
+            int i = y * width * 4;
+            int end = i + width * 4;
+            for (; i < end; i += 4)
+            {
+                int a = src[i + 3];
+                if (a == 255 || bgA == 0)
+                {
+                    pixels[i] = src[i]; pixels[i + 1] = src[i + 1]; pixels[i + 2] = src[i + 2]; pixels[i + 3] = (byte)a;
+                    continue;
+                }
+                // out alpha = a + bgA (1 - a), in 255ths; colours weighted by what each brings
+                int under = bgA * (255 - a); // 255² scale
+                int outA = a * 255 + under; // 255² scale
+                pixels[i] = (byte)((src[i] * a * 255 + background.R * under + outA / 2) / outA);
+                pixels[i + 1] = (byte)((src[i + 1] * a * 255 + background.G * under + outA / 2) / outA);
+                pixels[i + 2] = (byte)((src[i + 2] * a * 255 + background.B * under + outA / 2) / outA);
+                pixels[i + 3] = (byte)((outA + 127) / 255);
+            }
+        });
+        return new InternalImage(Width, Height, pixels);
     }
 
     private static void ForRows(int rows, int width, Action<int> row)

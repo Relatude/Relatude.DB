@@ -58,7 +58,7 @@ public FileValue Brochure { get; set; } = FileValue.Empty;
 | `PropertyPath` | Which node and property this file hangs off. **`null` until the node is stored.** |
 | `FileId` / `StorageId` | The file's own id, and the id of the store holding it. |
 
-**File analysis** (manual §6.1) fills `TextExtract` and the meta in a background task after an upload, using `db.Services.Imaging` and `db.Services.FileToText`. It is off by default. Turn it on with `LocalSettings.EnableAiImageAnalysisByDefault`, `EnableFileTextIndexingByDefault` and `EnableVideoAndAudioFileTextIndexingByDefault`, or per property with `[FileProperty(AiImageAnalysis = BoolValue.True, FileTextIndexing = BoolValue.False, VideoAndAudioFileTextIndexing = …)]`. `GetMeta()` returns the class for the file's kind: `ImageFileMeta` (`FocusPoint`, `Keywords`, `Objects`, `AiAnalysis`), `DocumentFileMeta` (`Pages`), `AudioFileMeta` / `VideoFileMeta` (`Duration`), all deriving from `FileValueMeta` (`Title`, `Description`, `Keywords`, `Author`, `Language`, `TextExtraction`, `Technical`). Files stored before a switch was turned on are analysed by `ReIndexAllText()` (the admin UI's Rebuild text index, or the `reindex-text` job).
+**File analysis** (manual §6.1) fills `TextExtract` and the meta in a background task after an upload, using `db.Services.Imaging` and `db.Services.FileToText`. It is off by default. Turn it on with `LocalSettings.EnableAiImageAnalysisByDefault`, `EnableFileTextIndexingByDefault` and `EnableVideoAndAudioFileTextIndexingByDefault`, or per property with `[FileProperty(AiImageAnalysis = BoolValue.True, FileTextIndexing = BoolValue.False, VideoAndAudioFileTextIndexing = …)]`. `GetMeta()` returns the class for the file's kind: `ImageFileMeta` (`FocusPoint`, `Keywords`, `Objects`, `AiAnalysis`, and the picture's own `CropMode` and `BackgroundColor`, which requests naming none are made with), `DocumentFileMeta` (`Pages`), `AudioFileMeta` / `VideoFileMeta` (`Duration`), all deriving from `FileValueMeta` (`Title`, `Description`, `Keywords`, `Author`, `Language`, `TextExtraction`, `Technical`). Files stored before a switch was turned on are analysed by `ReIndexAllText()` (the admin UI's Rebuild text index, or the `reindex-text` job).
 
 `FileType` and `Format` come from the *file name*, not from sniffing the bytes. A file uploaded with the wrong extension is classified wrong, and conversion will then look for a converter that does not fit.
 
@@ -271,7 +271,7 @@ var thumb = new FileAdjustmentImage {
 | Property | Range / values | Notes |
 |---|---|---|
 | `Width`, `Height` | 1–10 000 | Canvas size. |
-| `CropMode` | `Fill`, `Fit`, `Stretch`, `Auto` | `Fill` crops to fill, `Fit` letterboxes, `Stretch` distorts, `Auto` picks between Fill and Fit from image content. |
+| `CropMode` | `Fill`, `Fit`, `Stretch`, `Auto` | `Fill` crops to fill, `Fit` letterboxes, `Stretch` distorts, `Auto` picks between Fill and Fit from image content. None, with a `Width` and a `Height`: the picture's own (`ImageFileMeta.CropMode`), else `Fit`. |
 | `Zoom` | 0.1–10 000 | Percent. 100 = 1:1, 200 = 2× in. |
 | `FocusX`, `FocusY` | ±10 000 | Focal point, in original-image coordinates. |
 | `OffsetX`, `OffsetY` | ±10 000 | Pan, in original-image coordinates. |
@@ -282,7 +282,7 @@ var thumb = new FileAdjustmentImage {
 | `InvertLuminance` | bool | Inverts all colours and shifts the hue 180° back, so lightness flips but hues survive. Applied before the adjustments above. |
 | `AutoLightDarkMode` | `None`, `AdaptToLightModeIfNeeded`, `AdaptToDarkModeIfNeeded` | Applies `InvertLuminance` only if the image looks made for the opposite surface. Photographs are never inverted. |
 | `Quality` | 0–100 | Lossy formats only. |
-| `BackgroundColor` | `"#RRGGBB"` / `"#RRGGBBAA"` | Used when the canvas is larger than the resized image. |
+| `BackgroundColor` | `"#RRGGBB"` / `"#RRGGBBAA"` | What shows behind the picture: in the padding when the canvas is larger, and where the picture is see-through. None: the picture's own (`ImageFileMeta.BackgroundColor`), else see-through. |
 | `AutoBackgroundColor` | bool | Pick the background from edge analysis instead. |
 | `RequestedFormat` | `Jpeg`, `Png`, `Webp`, `Avif`, `Gif`, `Bmp` | Falls back to `Png` when left `Unknown`. |
 | `TimeOffsetMs` | ms | **Video sources**: which frame to grab as a still. |
@@ -456,7 +456,8 @@ This middleware serves whatever the URL points at. Filtering by the caller's per
 | `FileValue` | `src/Relatude.DB.Common/Common/FileValue.cs` |
 | `FileFormat` / `FileType` / MIME mapping | `src/Relatude.DB.Common/Common/FileFormats.cs` |
 | Adjustment types and their serialisation | `src/Relatude.DB.DataStore/FileConversion/FileAdjustment.cs` |
-| `ImageCropMode`, image metadata | `src/Relatude.DB.DataStore/FileConversion/ImageMeta.cs` |
+| `ImageCropMode` | `src/Relatude.DB.Common/Common/ImageCropMode.cs` |
+| `ImageFileMeta` and the other file meta | `src/Relatude.DB.Common/Common/FileValueMeta.cs` |
 | Conversion queue, status placeholders | `src/Relatude.DB.DataStore/FileConversion/FileConversionEngine.cs`, `FileConversionCache.cs` |
 | URL building and parsing | `src/Relatude.DB.DataStoreLocal/Web/DefaultUrlProvider.cs`, `src/Relatude.DB.DataStore/Web/IUrlProvider.cs` |
 | `UrlContent` / `UrlKeys` | `src/Relatude.DB.DataStore/Web/UrlKeys.cs` |

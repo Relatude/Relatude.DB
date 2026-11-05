@@ -1623,7 +1623,7 @@ missing an analysis.</p>
 <tr>
 <td><code>ImageFileMeta</code></td>
 <td>Pictures</td>
-<td><code>FocusPoint</code> (pixels from the top left), <code>Objects</code> (type, name, confidence, box), <code>AiAnalysis</code></td>
+<td><code>FocusPoint</code> (pixels from the top left), <code>Objects</code> (type, name, confidence, box), <code>AiAnalysis</code>, and the picture's own <code>CropMode</code> and <code>BackgroundColor</code> (<a href="#a-pictures-own-defaults">A picture's own defaults</a>)</td>
 </tr>
 <tr>
 <td><code>DocumentFileMeta</code></td>
@@ -4924,6 +4924,32 @@ the same thing share one conversion.</p>
 </tr>
 </tbody>
 </table>
+<h4 id="a-pictures-own-defaults">A picture's own defaults<a class="anchor" href="#a-pictures-own-defaults" aria-label="Link to this section">#</a></h4>
+<p>A picture can say how it meets a shape other than its own and what shows behind it. Both are kept in
+its meta, <code>ImageFileMeta.CropMode</code> and <code>ImageFileMeta.BackgroundColor</code>, and used by every request that
+does not say:</p>
+<ul>
+<li><strong>Crop mode.</strong> A request with a <code>Width</code> and a <code>Height</code> and no <code>CropMode</code> uses the picture's. With
+  none, it is <code>Fit</code>.</li>
+<li><strong>Background.</strong> A request with no <code>BackgroundColor</code> uses the picture's: <code>#RRGGBB</code>, or <code>#RRGGBBAA</code>
+  with the alpha last. It shows where the picture is see-through and in the padding <code>Fit</code> leaves.
+  With none, both stay see-through where the format can be. A JPEG at its own size is served as it
+  is, since nothing in it is see-through.</li>
+</ul>
+<p>A request that names its own mode or background wins. Changing a default changes the URLs that use
+it, so browsers fetch the new pictures.</p>
+<div class="codehilite"><pre><span></span><code><span class="kt">var</span><span class="w"> </span><span class="n">product</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">Get</span><span class="o">&lt;</span><span class="n">Product</span><span class="o">&gt;</span><span class="p">(</span><span class="n">id</span><span class="p">);</span>
+<span class="kt">var</span><span class="w"> </span><span class="n">logo</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">product</span><span class="p">.</span><span class="n">Logo</span><span class="p">.</span><span class="n">Copy</span><span class="p">();</span>
+<span class="kt">var</span><span class="w"> </span><span class="n">meta</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">logo</span><span class="p">.</span><span class="n">GetMeta</span><span class="o">&lt;</span><span class="n">ImageFileMeta</span><span class="o">&gt;</span><span class="p">()</span><span class="w"> </span><span class="o">??</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">ImageFileMeta</span><span class="p">();</span>
+<span class="n">meta</span><span class="p">.</span><span class="n">CropMode</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ImageCropMode</span><span class="p">.</span><span class="n">Fit</span><span class="p">;</span><span class="w">   </span><span class="c1">// always all of the logo</span>
+<span class="n">meta</span><span class="p">.</span><span class="n">BackgroundColor</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;#ffffff&quot;</span><span class="p">;</span><span class="w">    </span><span class="c1">// on white, behind its see-through parts too</span>
+<span class="n">logo</span><span class="p">.</span><span class="n">SetMeta</span><span class="p">(</span><span class="n">meta</span><span class="p">);</span>
+<span class="n">db</span><span class="p">.</span><span class="n">ForceUpdateProperty</span><span class="o">&lt;</span><span class="n">Product</span><span class="p">,</span><span class="w"> </span><span class="n">FileValue</span><span class="o">&gt;</span><span class="p">(</span><span class="n">id</span><span class="p">,</span><span class="w"> </span><span class="n">p</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">p</span><span class="p">.</span><span class="n">Logo</span><span class="p">,</span><span class="w"> </span><span class="n">logo</span><span class="p">);</span>
+
+<span class="c1">// 200 × 200, fitted, on white: the logo&#39;s defaults, as the request names neither</span>
+<span class="kt">string</span><span class="w"> </span><span class="n">url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">GetUrl</span><span class="p">(</span><span class="n">logo</span><span class="p">,</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">FileAdjustmentImage</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">Width</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">200</span><span class="p">,</span><span class="w"> </span><span class="n">Height</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">200</span><span class="w"> </span><span class="p">});</span>
+</code></pre></div>
+
 <p><code>RequestedFormat</code> is optional for images: left out, you get the original file when nothing is
 adjusted, and otherwise the store's default format
 (<a href="#image-variants-adapt-by-default">Image variants adapt by default</a>). <code>FileAdjustmentVideo</code> converts

@@ -1091,7 +1091,7 @@ missing an analysis.
 | Class | For | Adds |
 |---|---|---|
 | `FileValueMeta` | Every file (the base class) | `Title`, `Description`, `Keywords`, `Author`, `Language`, `TextExtraction`, `Technical` |
-| `ImageFileMeta` | Pictures | `FocusPoint` (pixels from the top left), `Objects` (type, name, confidence, box), `AiAnalysis` |
+| `ImageFileMeta` | Pictures | `FocusPoint` (pixels from the top left), `Objects` (type, name, confidence, box), `AiAnalysis`, and the picture's own `CropMode` and `BackgroundColor` ([A picture's own defaults](#a-pictures-own-defaults)) |
 | `DocumentFileMeta` | Documents | `Pages` |
 | `AudioFileMeta`, `VideoFileMeta` | Recordings and videos (both derive from `MediaFileMeta`) | `Duration` |
 
@@ -3438,6 +3438,35 @@ the same thing share one conversion.
 | Light/dark | `InvertLuminance`, `AutoLightDarkMode` (below) |
 | Output | `RequestedFormat`, `Quality` (0…100, lossy formats only) |
 | From a video | `TimeOffsetMs` or `TimeOffsetPercentage`: the frame to take |
+
+#### A picture's own defaults
+
+A picture can say how it meets a shape other than its own and what shows behind it. Both are kept in
+its meta, `ImageFileMeta.CropMode` and `ImageFileMeta.BackgroundColor`, and used by every request that
+does not say:
+
+- **Crop mode.** A request with a `Width` and a `Height` and no `CropMode` uses the picture's. With
+  none, it is `Fit`.
+- **Background.** A request with no `BackgroundColor` uses the picture's: `#RRGGBB`, or `#RRGGBBAA`
+  with the alpha last. It shows where the picture is see-through and in the padding `Fit` leaves.
+  With none, both stay see-through where the format can be. A JPEG at its own size is served as it
+  is, since nothing in it is see-through.
+
+A request that names its own mode or background wins. Changing a default changes the URLs that use
+it, so browsers fetch the new pictures.
+
+```csharp
+var product = db.Get<Product>(id);
+var logo = product.Logo.Copy();
+var meta = logo.GetMeta<ImageFileMeta>() ?? new ImageFileMeta();
+meta.CropMode = ImageCropMode.Fit;   // always all of the logo
+meta.BackgroundColor = "#ffffff";    // on white, behind its see-through parts too
+logo.SetMeta(meta);
+db.ForceUpdateProperty<Product, FileValue>(id, p => p.Logo, logo);
+
+// 200 × 200, fitted, on white: the logo's defaults, as the request names neither
+string url = db.GetUrl(logo, new FileAdjustmentImage { Width = 200, Height = 200 });
+```
 
 `RequestedFormat` is optional for images: left out, you get the original file when nothing is
 adjusted, and otherwise the store's default format

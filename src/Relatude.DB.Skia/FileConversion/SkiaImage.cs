@@ -305,9 +305,20 @@ internal sealed class SkiaImage : IImage {
         return new SkiaImage(dst);
     }
 
+    // "#RRGGBBAA", the alpha last as CSS and the native images have it (SKColor.TryParse reads eight digits as ARGB)
     static SKColor ParseColor(string? hex) =>
-        string.IsNullOrWhiteSpace(hex) ? SKColors.Transparent
+        IImageExt.TryParseHexColor(hex, out var r, out var g, out var b, out var a) ? new SKColor(r, g, b, a)
+        : string.IsNullOrWhiteSpace(hex) ? SKColors.Transparent
         : SKColor.TryParse(hex, out var c) ? c : SKColors.Transparent;
+
+    public IImage Underlay(string color) {
+        var background = ParseColor(color);
+        var result = new SKBitmap(_bitmap.Width, _bitmap.Height);
+        using var c = new SKCanvas(result);
+        c.Clear(background);
+        c.DrawBitmap(_bitmap, 0, 0);
+        return new SkiaImage(result);
+    }
 
     static (SKEncodedImageFormat format, int quality) ToSkiaFormat(FileFormat fmt, int? quality) => fmt switch {
         FileFormat.Jpeg => (SKEncodedImageFormat.Jpeg, quality ?? 85),

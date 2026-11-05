@@ -39,6 +39,7 @@ public sealed partial class DataStoreLocal : IDataStore {
     FileAdjustmentBase resolveAdaptiveFormat(FileValue fileValue, FileAdjustmentBase adj, out bool serveOriginal) {
         serveOriginal = false;
         adj = adj.Normalized(); // a copy: the caller's instance may be shared (the URL decoders cache theirs)
+        if (adj is FileAdjustmentImage asked) applyPictureDefaults(fileValue, asked);
         if (adj is not FileAdjustmentImage image || image.RequestedFormat != FileFormat.Image) return adj;
         if (image.IsPlainRequest() || image.KeepsOriginalGif(fileValue.Format, fileValue.Width, fileValue.Height)) {
             serveOriginal = true;
@@ -46,6 +47,42 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
         return image.ResolveAdaptiveFormat(fileValue.Format, fileValue.Width, fileValue.Height,
             _settings.ImageDefaultFormat.ToFileFormat(), _settings.ImageDefaultQuality);
+    }
+    /// <summary>
+    /// The picture's own defaults (<see cref="ImageFileMeta.CropMode"/>, <see cref="ImageFileMeta.BackgroundColor"/>) put
+    /// into an adjustment that names none, where they change what is made: the crop mode only for a size of two sides,
+    /// the background only where the picture may be see-through (a format that holds transparency) or the canvas may be
+    /// larger than it (Fit, Auto, or a turn that is no quarter). Part of the key, so a changed default makes new pictures,
+    /// and part of the URL's version (<see cref="pictureDefaultsKey"/>), so browsers fetch them. The caller's instance
+    /// is never changed: this is the normalized copy.
+    /// </summary>
+    static void applyPictureDefaults(FileValue fileValue, FileAdjustmentImage adj) {
+        if (pictureDefaultsOf(fileValue) is not { } meta) return;
+        if (adj.CropMode == null && adj.Width != null && adj.Height != null && meta.CropMode is { } mode) adj.CropMode = mode;
+        if (adj.BackgroundColor == null && adj.AutoBackgroundColor != true && IImageExt.IsVisibleColor(meta.BackgroundColor) && showsBackground(fileValue, adj)) {
+            IImageExt.TryParseHexColor(meta.BackgroundColor, out var r, out var g, out var b, out var a);
+            adj.BackgroundColor = a == 255 ? $"#{r:x2}{g:x2}{b:x2}" : $"#{r:x2}{g:x2}{b:x2}{a:x2}";
+        }
+    }
+    static bool showsBackground(FileValue fileValue, FileAdjustmentImage adj) =>
+        fileValue.Format != FileFormat.Svg // a drawing the browser draws: a background would have it converted
+        && (fileValue.Format != FileFormat.Jpeg // every other picture format can hold transparency
+        || adj.Width != null && adj.Height != null && adj.CropMode is null or ImageCropMode.Fit or ImageCropMode.Auto
+        || adj.Rotation is double turn && turn % 90 != 0);
+    /// <summary>The meta of a picture that has defaults of its own; the JSON is looked at before it is read, as most have none.</summary>
+    static ImageFileMeta? pictureDefaultsOf(FileValue fileValue) {
+        if (fileValue.IsEmpty || fileValue.FileType != FileType.Image) return null;
+        var json = fileValue.MetaJSON;
+        if (string.IsNullOrEmpty(json) || !json.Contains("\"CropMode\"", StringComparison.Ordinal) && !json.Contains("\"BackgroundColor\"", StringComparison.Ordinal)) return null;
+        return fileValue.GetMeta<ImageFileMeta>() is { } meta && (meta.CropMode != null || meta.BackgroundColor != null) ? meta : null;
+    }
+    /// <summary>What the picture's defaults put into an adjustment, for the URL's version: empty when they put in nothing.</summary>
+    static string pictureDefaultsKey(FileValue fileValue, FileAdjustmentBase adj) {
+        if (adj is not FileAdjustmentImage image || pictureDefaultsOf(fileValue) == null) return string.Empty;
+        var resolved = (FileAdjustmentImage)image.Normalized();
+        var (mode, background) = (resolved.CropMode, resolved.BackgroundColor);
+        applyPictureDefaults(fileValue, resolved);
+        return resolved.CropMode == mode && resolved.BackgroundColor == background ? string.Empty : "picture defaults " + resolved.CropMode + " " + resolved.BackgroundColor;
     }
     public async Task<Stream> GetFileStream(PropertyPath propertyPath, QueryContext? ctx = null) {
         var fileValue = GetValue<FileValue>(propertyPath, ctx);

@@ -172,6 +172,12 @@ public sealed class NativeImage : IImage {
     public IImage DrawBox(int x1, int y1, int x2, int y2, int borderWidth, string borderColor, bool filled, string fillColor) =>
         Map(f => f.DrawBox(x1, y1, x2, y2, borderWidth, ParseBackground(borderColor), filled, ParseBackground(fillColor)));
 
+    public IImage Underlay(string color) {
+        if (!IImageExt.TryParseHexColor(color, out var r, out var g, out var b, out var a) || a == 0) return Map(f => f);
+        var background = new ColorRgba(r, g, b, a);
+        return Map(f => f.Underlay(background));
+    }
+
     // ── Encode
 
     // an animation stays one as gif or webp, any other format gets its first frame

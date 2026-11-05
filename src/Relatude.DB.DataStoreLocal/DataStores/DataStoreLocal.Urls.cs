@@ -19,7 +19,10 @@ public sealed partial class DataStoreLocal : IDataStore {
     /// </summary>
     string getFileVersionId(FileValue fileValue, FileAdjustmentBase? adj = null) {
         var content = string.IsNullOrEmpty(fileValue.Hash) ? fileValue.FileId.ToString("N") : fileValue.Hash;
-        return content.GetShortHashForUrl(versionSeed(adj));
+        var seed = versionSeed(adj);
+        // a picture's own crop mode and background, where they change what the URL serves (applyPictureDefaults)
+        if (adj != null && pictureDefaultsKey(fileValue, adj) is { Length: > 0 } defaults) seed = seed.CombineHashGuid(defaults.GenerateHashGuid());
+        return content.GetShortHashForUrl(seed);
     }
     Guid versionSeed(FileAdjustmentBase? adj) {
         var generation = _fileConversionEngine.CacheGeneration;
