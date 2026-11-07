@@ -264,6 +264,18 @@ public sealed class PropertyOverride {
     /// <summary>How an editing interface shows a relation, reference, references or embedded property (<see cref="RelationPropertyModel.Display"/>).</summary>
     [OverrideScope(OverrideScope.WholeProperty), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public DisplayMode? Display { get; set; }
+    /// <summary>Where an editing interface puts the property's title beside its control (<see cref="PropertyModel.TitleLayout"/>).</summary>
+    [OverrideScope(OverrideScope.WholeProperty), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public TitleLayout? TitleLayout { get; set; }
+    /// <summary>The unit an editing interface shows to the right of the property's control (<see cref="PropertyModel.Unit"/>).</summary>
+    [OverrideScope(OverrideScope.WholeProperty), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Unit { get; set; }
+    /// <summary>How tall an editing interface makes the property's control (<see cref="PropertyModel.Height"/>).</summary>
+    [OverrideScope(OverrideScope.WholeProperty), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Height { get; set; }
+    /// <summary>How many lines a text area shows before it is resized (<see cref="StringPropertyModel.TextLines"/>).</summary>
+    [OverrideScope(OverrideScope.WholeProperty), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? TextLines { get; set; }
 
     /// <summary>Members the file holds that are not overridable attributes. Reported, kept when the file is written again.</summary>
     [JsonExtensionData]

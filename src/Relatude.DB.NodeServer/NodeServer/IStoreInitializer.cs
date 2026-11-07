@@ -36,3 +36,22 @@ public interface IDatamodelInitializer {
 public interface IStoreOpenHandler {
     Task OpenedAsync(NodeStore store);
 }
+
+/// <summary>
+/// A link the admin UI shows at the foot of its menu, above the signed-in user, registered as a service as
+/// <see cref="IStoreInitializer"/> is: to an application a library adds beside the database, such as a CMS's interface,
+/// which an administrator of the database may open. Read each time the admin UI asks, so the address may follow settings.
+/// </summary>
+public interface IAdminUILink {
+    /// <summary>What the link says, such as "Open CMS".</summary>
+    string Label { get; }
+    /// <summary>Where it goes: a path on this site or an absolute address, opened in a window of its own.</summary>
+    string Url { get; }
+    /// <summary>A line under the label in the menu, and its tooltip; null for none.</summary>
+    string? Hint => null;
+    /// <summary>
+    /// The name of the window it opens in, so that every click comes to the one window, such as "relatude-cms"; null
+    /// for a new window each time.
+    /// </summary>
+    string? Target => null;
+}

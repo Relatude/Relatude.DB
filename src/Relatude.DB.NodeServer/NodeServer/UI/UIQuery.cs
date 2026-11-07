@@ -1293,16 +1293,20 @@ sealed class UIQuery {
                     break;
                 }
             case StringPropertyModel str: {
-                    var code = str.StringType != StringValueType.AnyString;
+                    var code = str.StringType is not (StringValueType.AnyString or StringValueType.SingleLineText or StringValueType.MultiLineText);
                     var text = value as string ?? "";
                     view.Editor = code ? "code" : "text";
                     view.Language = code ? str.StringType.ToString() : null;
-                    // Nothing in the model says whether a string is a heading or an article, so it is
-                    // read off what the property does: one that is value indexed is sorted, filtered
-                    // and faceted on, which no article body ever is - and off the value itself, since
-                    // a field already holding several lines needs several lines to edit in.
-                    view.Multiline = code || text.Length > 120 || text.Contains('\n')
-                        || (!str.Indexed && str.MaxLength > 255);
+                    // Plain text the model calls one line or several is shown so. For any other, nothing in
+                    // the model says whether a string is a heading or an article, so it is read off what the
+                    // property does: one that is value indexed is sorted, filtered and faceted on, which no
+                    // article body ever is - and off the value itself, since a field already holding several
+                    // lines needs several lines to edit in.
+                    view.Multiline = str.StringType switch {
+                        StringValueType.SingleLineText => text.Contains('\n'),
+                        StringValueType.MultiLineText => true,
+                        _ => code || text.Length > 120 || text.Contains('\n') || (!str.Indexed && str.MaxLength > 255),
+                    };
                     view.MaxLength = str.MaxLength == int.MaxValue ? null : str.MaxLength;
                     view.Pattern = str.RegularExpression;
                     view.Choices = str.LegalValues;
@@ -2761,7 +2765,8 @@ sealed class UIQuery {
     /// read; building one view is a handful of allocations and happens twice per property at most.
     /// </summary>
     static object? shortValue(NodeStore s, Datamodel dm, NodeTypeModel type, INodeDataExternal n, PropertyModel property) {
-        var shown = property is StringPropertyModel { StringType: StringValueType.AnyString } or IntegerPropertyModel or LongPropertyModel
+        var shown = property is StringPropertyModel { StringType: StringValueType.AnyString or StringValueType.SingleLineText or StringValueType.MultiLineText }
+            or IntegerPropertyModel or LongPropertyModel
             or DecimalPropertyModel or DoublePropertyModel or BooleanPropertyModel or GuidPropertyModel
             or DateTimePropertyModel or DateTimeOffsetPropertyModel or TimeSpanPropertyModel;
         if (!shown) return null;

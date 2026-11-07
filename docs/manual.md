@@ -431,7 +431,30 @@ public abstract class PropertyAttribute : Attribute {
     public bool ExcludeFromTextIndex { get; set; }
     public int TextIndexBoost { get; set; }      // extra times the value goes into the text index
     public bool DisplayName { get; set; }        // part of the node's display name
+    public TitleLayout TitleLayout { get; set; } // where an editor puts the title: Default, Left, Above or None
+    public string? Unit { get; set; }            // shown by an editor right of the control: "kg"
+    public string? Height { get; set; }          // how tall an editor makes the control: "300px", "50%"
 }
+```
+
+`TitleLayout`, `Unit` and `Height` only say how an editing interface, such as the Relatude CMS, shows
+the property. `TitleLayout` puts its title to the `Left` of the control on one line, `Above` it, or
+`None` (the control alone). `Default`, which is also what you get when you leave it out, lets the
+editor choose what suits the control: the CMS puts the title above a text area or an HTML field and
+to the left of any other control. `Unit` is shown to the right of the control. `Height` is a CSS
+length for a control that has a height to give, such as a text area or an HTML field; the CMS reads a
+number alone as pixels and a percentage as a share of the height its form has in view. The store
+ignores all three, so changing them rebuilds nothing. Read them from `PropertyModel.TitleLayout`
+(null for `Default`), `PropertyModel.Unit` and `PropertyModel.Height`.
+
+```csharp
+using Relatude.DB.Datamodels.Properties;   // TitleLayout
+
+[DecimalProperty(TitleLayout = TitleLayout.Left, Unit = "kg")]
+decimal Weight { get; set; }
+
+[HtmlProperty(Height = "400px")]
+string Body { get; set; }
 ```
 
 ### Strings
@@ -462,8 +485,22 @@ public string Slug { get; set; } = string.Empty;
 ```
 
 `LegalValues = new[] { "draft", "published" }` limits the value to a list. `StringType` says what the
-text is: `AnyString` (the default), `HTML`, `Markdown`, `JSON`, `JavaScript`, `TypeScript`, `CSharp`
-or `CSS`. `StringValueType` and `CaseTransform` are in `Relatude.DB.Datamodels.Properties`.
+text is: `AnyString` (the default), `SingleLineText`, `MultiLineText`, `HTML`, `Markdown`, `JSON`,
+`JavaScript`, `TypeScript`, `CSharp` or `CSS`. `StringValueType` and `CaseTransform` are in
+`Relatude.DB.Datamodels.Properties`.
+
+`SingleLineText` and `MultiLineText` are plain text that an editing interface shows as a text box or
+as a text area. With `AnyString` the editor chooses; the CMS goes by the property's name. The store
+keeps and indexes all three the same way, so moving between them rebuilds nothing. `TextLines` says
+how many lines a text area shows before the user resizes it:
+
+```csharp
+[StringProperty(StringType = StringValueType.SingleLineText)]
+public string Headline { get; set; } = string.Empty;
+
+[StringProperty(StringType = StringValueType.MultiLineText, TextLines = 6)]
+public string Summary { get; set; } = string.Empty;
+```
 
 Use `[HtmlProperty]` for rich text. It sets `StringType = HTML`, so links to nodes and files inside
 the value keep working when their targets move ([§18.2](#182-links-inside-html-and-markdown)):
@@ -680,7 +717,7 @@ database you can override these:
 | Node type, that type only | `Hidden`, `Title`, `Description`, `DefaultReadAccess`, `DefaultEditViewAccess` |
 | Property, per type | `DefaultValue`, `ExcludeFromTextIndex`, `IndexBoost` (`TextIndexBoost` on the attributes), `DisplayName` |
 | Property, asked for by any type | `Indexed`, `NotFacet` |
-| Property, on the declaring type only | `IndexType`, `IndexedByWords`, `TextIndexType`, `CultureSensitive`, `MinLength`, `MaxLength`, `RegularExpression`, `RegularExpressionMessage`, `LegalCharacters`, `Trim`, `CaseTransform`, `MinValue`, `MaxValue`, `FacetRangePowerBase`, `FacetRangeCount`, `Facet`, `TextIndexRelatedContent`, `TextIndexRelatedDisplayName`, `Display` ([§10](#how-an-editor-shows-them-display)) |
+| Property, on the declaring type only | `IndexType`, `IndexedByWords`, `TextIndexType`, `CultureSensitive`, `MinLength`, `MaxLength`, `RegularExpression`, `RegularExpressionMessage`, `LegalCharacters`, `Trim`, `CaseTransform`, `MinValue`, `MaxValue`, `FacetRangePowerBase`, `FacetRangeCount`, `Facet`, `TextIndexRelatedContent`, `TextIndexRelatedDisplayName`, `Display` ([§10](#how-an-editor-shows-them-display)), `TitleLayout`, `Unit`, `Height`, `TextLines` |
 
 Nothing else can be overridden: not ids or names, the property type, `UniqueValues`, `LegalValues`,
 `CultureSpecific`, enum metadata, or what a relation, reference or embedded property points at.
@@ -740,7 +777,7 @@ Before you change a value on a running installation:
   derived type, changes the model. The database then rebuilds its state and indexes from the log at
   the next open. When text indexing changes for a type, its nodes are queued for text indexing.
   Settings that only change how a type is shown (`Icon`, `Title`, `Description`, `NameProperty`,
-  `Display`) rebuild nothing.
+  `Display`, `TitleLayout`, `Unit`, `Height`, `TextLines`) rebuild nothing.
 
 ### Passwords
 
@@ -2785,6 +2822,9 @@ library registers these services instead (namespace `Relatude.DB.NodeServer`):
 | `IDatamodelInitializer.Initialize(datamodel, database)` | for every datamodel, right after `OnDatamodelInit` | the library's model types |
 | `IStoreInitializer.Initialize(store)` | for every store before it opens, right after `OnStoreInit` | transaction plugins, task runners, jobs |
 | `IStoreOpenHandler.OpenedAsync(store)` | for every store once open, in the background, beside `OnStoreOpenBackground` | seeding, work that needs an open store |
+| `IAdminUILink` (`Label`, `Url`, `Hint`, `Target`) | read each time the admin UI asks | a link at the foot of the admin UI's menu, above the signed-in user, to an application beside the database (the Relatude CMS adds *Open CMS*), opened in a window of its own: the one named by `Target`, so each click comes back to it, else a new one |
+
+An application can also open the admin UI on a type or a property in the datamodel editor: `/relatude.db/#datamodel?store=<database id>&type=<type id>&property=<property id>` (the property left out for the type). The admin UI reads that from its address when it opens and whenever the hash changes, so a window it is open in moves to the next place without loading again; it still asks for its own sign-in. The Relatude CMS's form designer links each field this way.
 
 ```csharp
 public sealed class AuditInitializer : IStoreInitializer {

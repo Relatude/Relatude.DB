@@ -9,6 +9,13 @@ public class StringPropertyModel : PropertyModel, IPropertyModelUniqueContraints
     public int MinLength { get; set; } = 0;
     public int MaxLength { get; set; } = int.MaxValue;
     public StringValueType StringType { get; set; } = StringValueType.AnyString;
+    /// <summary>
+    /// How many lines of text an editing interface's text area shows before it is resized (it can still be resized);
+    /// null for the editor's own. Says nothing of a property shown on one line. Presentation only, as
+    /// <see cref="PropertyModel.TitleLayout"/> is.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public int? TextLines { get; set; }
     public bool PrefixSearch { get; set; }
     public bool InfixSearch { get; set; }
     public bool IndexedByWords { get; set; }

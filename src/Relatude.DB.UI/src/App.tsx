@@ -18,7 +18,7 @@ import { SettingsSection } from "./components/SettingsSection";
 import { Sidebar } from "./components/Sidebar";
 import { TasksModule, type TasksView } from "./components/TasksModule";
 import { customSettingsSectionId, sections, setCustomSettingsSections } from "./navigation";
-import { peekDatamodelTarget, peekQueryTarget, peekSearchTarget, peekSettingsTarget, useNavigationRequest } from "./navigate";
+import { clearAddressTarget, openInDatamodel, peekDatamodelTarget, peekQueryTarget, peekSearchTarget, peekSettingsTarget, readAddressTarget, useNavigationRequest } from "./navigate";
 import { isLoggedIn, logout } from "./server/auth";
 import { disconnect, subscribe, subscribeResync, subscribeUnauthorized } from "./server/channel";
 import { fetchLicenseStatus, type LicenseStatus } from "./server/license";
@@ -160,10 +160,31 @@ export function App() {
     if (auth !== "ready") return;
     // the server broadcasts the container list whenever it changes (state, node count, name)
     return subscribe<DatabaseInfo[]>("containers", (containers) => {
-      setServerInfo((prev) => ({ version: prev?.version ?? "", upTimeMs: prev?.upTimeMs ?? 0, customSettings: prev?.customSettings, containers }));
+      setServerInfo((prev) => ({ version: prev?.version ?? "", upTimeMs: prev?.upTimeMs ?? 0, customSettings: prev?.customSettings, adminLinks: prev?.adminLinks, containers }));
       applyContainers(containers);
     });
   }, [auth]);
+  // a place in the data model the address names (a CMS's form designer links to a property): read at start and as the
+  // hash changes, taken out of the address at once, and opened once signed in and the databases are known, in the
+  // database it names
+  const [linked, setLinked] = useState(readAddressTarget);
+  useEffect(() => {
+    clearAddressTarget();
+    const onHash = () => {
+      const target = readAddressTarget();
+      if (!target) return;
+      clearAddressTarget();
+      setLinked(target);
+    };
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
+  useEffect(() => {
+    if (!linked || auth !== "ready" || !serverInfo) return;
+    if (linked.storeId && serverInfo.containers.some((c) => c.id === linked.storeId)) setActiveDbId(linked.storeId);
+    openInDatamodel(linked.target);
+    setLinked(null);
+  }, [linked, auth, serverInfo]);
   // a tab of custom settings the server no longer has - it restarted without the set - leaves its page
   useEffect(() => {
     if (!sections.some((s) => s.id === activeSectionId)) setActiveSectionId("dashboard");
@@ -245,6 +266,7 @@ export function App() {
           activeSectionId={activeSectionId}
           onSelectSection={selectFromRail}
           onLogout={handleLogout}
+          adminLinks={serverInfo?.adminLinks}
         />
         {/* the page takes the tone of the entry that opened it, so a module carries a trace of its
             menu colour; see --section-tone in app.css for where it is allowed to show */}

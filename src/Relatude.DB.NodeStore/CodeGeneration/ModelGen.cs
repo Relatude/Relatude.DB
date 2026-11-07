@@ -252,6 +252,9 @@ public static class ModelGen {
         if (p.IndexBoost != 0) sb.Append(", " + nameof(PropertyAttribute.TextIndexBoost) + " = " + p.IndexBoost);
         if (p.ReadAccess != Guid.Empty) sb.Append(", " + nameof(PropertyAttribute.ReadAccess) + " = \"" + p.ReadAccess + "\"");
         if (p.WriteAccess != Guid.Empty) sb.Append(", " + nameof(PropertyAttribute.WriteAccess) + " = \"" + p.WriteAccess + "\"");
+        if (p.TitleLayout is { } title && title != TitleLayout.Default) sb.Append(", " + nameof(PropertyAttribute.TitleLayout) + " = " + typeof(TitleLayout).Namespace + "." + nameof(TitleLayout) + "." + title);
+        if (!string.IsNullOrEmpty(p.Unit)) sb.Append(", " + nameof(PropertyAttribute.Unit) + " = " + stringLiteral(p.Unit));
+        if (!string.IsNullOrWhiteSpace(p.Height)) sb.Append(", " + nameof(PropertyAttribute.Height) + " = " + stringLiteral(p.Height.Trim()));
     }
     static string addAttributeBool(BoolValue b) => typeof(BoolValue).Namespace + "." + nameof(BoolValue) + "." + b.ToString();
     static string stringArrayArg(IEnumerable<string> values) => "new string[] {" + string.Join(", ", values) + "}"; // attribute arguments cannot use collection expressions
@@ -439,6 +442,7 @@ public static class ModelGen {
                     if (s.IgnoreDuplicateEmptyValues) sb.Append(", " + nameof(StringPropertyAttribute.IgnoreDuplicateEmptyValues) + " = true");
                     if (s.DefaultValue != null) sb.Append(", " + nameof(StringPropertyAttribute.DefaultValue) + " = " + stringLiteral(s.DefaultValue));
                     if (s.StringType != StringValueType.AnyString) sb.Append(", " + nameof(StringPropertyAttribute.StringType) + " = " + typeof(StringValueType).Namespace + "." + nameof(StringValueType) + "." + s.StringType);
+                    if (s.TextLines is > 0) sb.Append(", " + nameof(StringPropertyAttribute.TextLines) + " = " + s.TextLines.Value.ToString(CultureInfo.InvariantCulture));
                     if (!string.IsNullOrEmpty(s.RegularExpression)) sb.Append(", " + nameof(StringPropertyAttribute.RegularExpression) + " = " + stringLiteral(s.RegularExpression));
                     if (s.LegalValues != null) sb.Append(", " + nameof(StringPropertyAttribute.LegalValues) + " = " + stringArrayArg(s.LegalValues.Select(stringLiteral)));
                     if (!string.IsNullOrEmpty(s.RegularExpressionMessage)) sb.Append(", " + nameof(StringPropertyAttribute.RegularExpressionMessage) + " = " + stringLiteral(s.RegularExpressionMessage));

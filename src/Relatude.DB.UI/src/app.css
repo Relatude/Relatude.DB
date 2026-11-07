@@ -1190,6 +1190,18 @@ a {
 /* flex: none - with overflow hidden its automatic minimum height is zero, so on a screen too short
    for the whole rail it was the item that shrank, and the entries above drew over it; it keeps its
    height and the rail scrolls instead */
+/* the links to applications beside the database (a CMS), at the foot of the rail right above who is signed in */
+.sidebar-apps {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  margin-top: auto;
+  padding-top: 8px;
+}
+.sidebar-apps + .sidebar-footer {
+  margin-top: 0;
+}
+
 .sidebar-footer {
   display: flex;
   flex: none;

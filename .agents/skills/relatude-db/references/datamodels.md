@@ -103,8 +103,13 @@ public abstract class PropertyAttribute : Attribute {
     public bool ExcludeFromTextIndex { get; set; }
     public int TextIndexBoost { get; set; }
     public bool DisplayName { get; set; }
+    public TitleLayout TitleLayout { get; set; } // editor presentation: Default (unset), Left, Above or None
+    public string? Unit { get; set; }            // editor presentation: shown right of the control, "kg"
+    public string? Height { get; set; }          // editor presentation: the control's CSS height, "300px", "50%"
 }
 ```
+
+`TitleLayout`, `Unit` and `Height` (namespace `Relatude.DB.Datamodels.Properties` for the enum) are presentation only, like `Display`: out of the store's checksum, overridable per database, read from `PropertyModel.TitleLayout` (null for `Default`), `PropertyModel.Unit` and `PropertyModel.Height`. `Default` lets the editor choose by the control: the CMS puts the title above a text area or an HTML field and left of any other control. `Height` is for a control with a height to give (a text area, an HTML field); the CMS reads a number alone as pixels and a percentage as a share of the height its form has in view.
 
 **`Indexed` is the flag that matters.** A property must be indexed to be filtered, sorted or faceted efficiently. Without it the engine scans.
 
@@ -116,7 +121,8 @@ public abstract class PropertyAttribute : Attribute {
 [StringProperty(
     MinLength = 0,
     MaxLength = 4000,
-    StringType = StringValueType.AnyString,   // AnyString | HTML | Url | Email | ...
+    StringType = StringValueType.AnyString,   // AnyString | SingleLineText | MultiLineText | HTML | Markdown | JSON | ...
+    TextLines = 6,                             // editor presentation: the lines a text area shows before it is resized
     Indexed = true,                            // value index: equality, range, sort, StartsWith, Contains
     IndexedByWords = true,                     // BM25 full-text index; also what MatchesSearch needs
     IndexedBySemantic = true,                  // vector / semantic index
@@ -139,6 +145,8 @@ public abstract class PropertyAttribute : Attribute {
 )]
 public string Slug { get; set; } = string.Empty;
 ```
+
+`SingleLineText` and `MultiLineText` are plain text an editing interface shows as a text box or a text area (with `AnyString` the editor chooses; the CMS goes by the property's name). The store keeps and indexes all three alike, so moving between them rebuilds nothing; `TextLines` is presentation like `Height`.
 
 `Trim` and `CaseTransform` rewrite the value before the rules are checked and before it is stored;
 queries are not rewritten, so normalise query input the same way. `CaseSensitive` only affects the

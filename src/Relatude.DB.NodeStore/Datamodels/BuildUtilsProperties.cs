@@ -102,6 +102,11 @@ internal static class BuildUtilsProperties {
         p.ExcludeFromTextIndex = a.ExcludeFromTextIndex;
         p.IndexBoost = a.TextIndexBoost;
         p.DisplayName = a.DisplayName;
+        // presentation: where an editor puts the title, the unit beside the control and the control's height; Default (0)
+        // and empty say nothing
+        p.TitleLayout = a.TitleLayout != TitleLayout.Default && Enum.IsDefined(a.TitleLayout) ? a.TitleLayout : null;
+        p.Unit = string.IsNullOrWhiteSpace(a.Unit) ? null : a.Unit.Trim();
+        p.Height = string.IsNullOrWhiteSpace(a.Height) ? null : a.Height.Trim();
         if (a is IAttrScalarProperty asc) {
             if (p is IScalarProperty psc) {
                 psc.FacetRangePowerBase = asc.FacetRangePowerBase;
@@ -263,6 +268,7 @@ internal static class BuildUtilsProperties {
         p.MinWordLength = a.MinWordLength;
         p.PrefixSearch = a.PrefixSearch;
         p.StringType = a.StringType;
+        p.TextLines = a.TextLines > 0 ? a.TextLines : null;
         p.RegularExpression = string.IsNullOrEmpty(a.RegularExpression) ? null : a.RegularExpression;
         p.LegalValues = a.LegalValues;
         p.RegularExpressionMessage = string.IsNullOrEmpty(a.RegularExpressionMessage) ? null : a.RegularExpressionMessage;

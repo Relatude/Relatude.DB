@@ -40,6 +40,25 @@ public abstract class PropertyModel {
     public Guid ReadAccess { get; set; }
     public Guid WriteAccess { get; set; }
     public bool CultureSpecific { get; set; }
+    /// <summary>
+    /// Where an editing interface puts the property's title beside its control; null for <see cref="Properties.TitleLayout.Default"/>.
+    /// Presentation only: out of the store's checksum (<see cref="DatamodelJson.StateOptions"/>), overridable per database.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public TitleLayout? TitleLayout { get; set; }
+    /// <summary>
+    /// The unit of the value, shown by an editing interface to the right of the control ("kg", "px"); null for none.
+    /// Presentation only, as <see cref="TitleLayout"/> is.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? Unit { get; set; }
+    /// <summary>
+    /// How tall an editing interface makes the property's control, where its control has a height to give, as a text
+    /// area or an HTML field has: a CSS length such as "300px", "20rem" or "100%" (how a percentage is read is the
+    /// editor's). Null for the editor's own. Presentation only, as <see cref="TitleLayout"/> is.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? Height { get; set; }
     public abstract object? GetDefaultValue();
     public virtual string? GetDefaultDeclaration() => string.Empty;
     public bool Internal { get; set; }

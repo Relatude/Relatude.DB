@@ -147,6 +147,22 @@ public abstract class PropertyAttribute : Attribute {
     public bool ExcludeFromTextIndex { get; set; }
     public int TextIndexBoost { get; set; }
     public bool DisplayName { get; set; }
+    /// <summary>
+    /// Where an editing interface puts the property's title beside its control: Default (what suits the control: a CMS
+    /// puts it left of most controls and above a text area or an HTML field), Left, Above or None. Left out, Default.
+    /// Presentation only (<see cref="Relatude.DB.Datamodels.Properties.PropertyModel.TitleLayout"/>).
+    /// </summary>
+    public Relatude.DB.Datamodels.Properties.TitleLayout TitleLayout { get; set; }
+    /// <summary>
+    /// The unit of the property's value, which an editing interface shows to the right of its control: "kg", "px",
+    /// "days". Presentation only (<see cref="Relatude.DB.Datamodels.Properties.PropertyModel.Unit"/>).
+    /// </summary>
+    public string? Unit { get; set; }
+    /// <summary>
+    /// How tall an editing interface makes the property's control, where it has a height to give (a text area, an HTML
+    /// field): a CSS length, "300px", "20rem" or "100%". Presentation only (<see cref="Relatude.DB.Datamodels.Properties.PropertyModel.Height"/>).
+    /// </summary>
+    public string? Height { get; set; }
 }
 [AttributeUsage(AttributeTargets.Property)]
 public class BooleanPropertyAttribute : PropertyAttribute, IAttrWithNotFacet {
@@ -271,6 +287,12 @@ public class StringPropertyAttribute : PropertyAttribute, IAttrWithUniqueContrai
     public int MinLength { get; set; } = 0;
     public int MaxLength { get; set; } = int.MaxValue;
     public StringValueType StringType = StringValueType.AnyString;
+    /// <summary>
+    /// How many lines an editing interface's text area shows before it is resized; 0 for the editor's own. Only for a
+    /// property shown as a text area (MultiLineText, the code kinds, or AnyString the editor shows so). Presentation only
+    /// (<see cref="StringPropertyModel.TextLines"/>).
+    /// </summary>
+    public int TextLines { get; set; }
     public bool PrefixSearch { get; set; }
     public bool InfixSearch { get; set; }
     public bool Indexed { get; set; }

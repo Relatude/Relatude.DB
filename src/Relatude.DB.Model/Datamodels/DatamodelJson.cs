@@ -31,8 +31,13 @@ public static class DatamodelJson {
     /// Options for the store's checksum (<see cref="SerializeForChecksum"/>): <see cref="ChecksumOptions"/>
     /// with what only says how a type or a property is shown left out as well (<see cref="NodeTypeModel.Icon"/>,
     /// <see cref="NodeTypeModel.NameProperty"/>, <see cref="NodeTypeModel.Title"/>, <see cref="NodeTypeModel.Description"/>,
-    /// the <see cref="RelationPropertyModel.Display"/> of the properties holding other nodes, and their overrides), so
-    /// choosing an icon, a name property, a title or a display mode does not rebuild the state and every index. The
+    /// the <see cref="RelationPropertyModel.Display"/> of the properties holding other nodes, every property's
+    /// <see cref="PropertyModel.TitleLayout"/>, <see cref="PropertyModel.Unit"/> and <see cref="PropertyModel.Height"/>, a
+    /// string's <see cref="StringPropertyModel.TextLines"/>, and their overrides), so choosing an icon, a name property, a
+    /// title, a display mode, a title layout, a unit, a height or a number of lines does not rebuild the state and every
+    /// index. A string's <see cref="StringPropertyModel.StringType"/> is written as AnyString when it is
+    /// <see cref="StringValueType.SingleLineText"/> or <see cref="StringValueType.MultiLineText"/>, which the store keeps
+    /// and indexes as it does AnyString: moving between the three says how the text is edited, not what is stored. The
     /// file analysis switches of a file property are left out too: they decide background work, not what is indexed.
     /// The editor's checksum (<see cref="Checksum"/>) keeps them: to the editor they are changes of the model.
     /// </summary>
@@ -58,7 +63,21 @@ public static class DatamodelJson {
         return options;
     }
     static void stripPresentationProperties(JsonTypeInfo typeInfo) {
-        if (typeInfo.Type == typeof(NodeTypeModel)) {
+        // every kind of property: where an editor puts its title, the unit beside its control and the control's height
+        if (typeof(PropertyModel).IsAssignableFrom(typeInfo.Type)) {
+            removeProperty(typeInfo, nameof(PropertyModel.TitleLayout));
+            removeProperty(typeInfo, nameof(PropertyModel.Unit));
+            removeProperty(typeInfo, nameof(PropertyModel.Height));
+        }
+        if (typeInfo.Type == typeof(StringPropertyModel)) {
+            // how many lines a text area shows; and one line or several of plain text is stored as any text is
+            removeProperty(typeInfo, nameof(StringPropertyModel.TextLines));
+            foreach (var p in typeInfo.Properties) {
+                if (p.Get == null || !p.Name.Equals(nameof(StringPropertyModel.StringType), StringComparison.OrdinalIgnoreCase)) continue;
+                var get = p.Get;
+                p.Get = model => get(model) is StringValueType.SingleLineText or StringValueType.MultiLineText ? StringValueType.AnyString : get(model);
+            }
+        } else if (typeInfo.Type == typeof(NodeTypeModel)) {
             removeProperty(typeInfo, nameof(NodeTypeModel.Icon));
             removeProperty(typeInfo, nameof(NodeTypeModel.NameProperty));
             removeProperty(typeInfo, nameof(NodeTypeModel.Title));
@@ -82,7 +101,8 @@ public static class DatamodelJson {
     // the overrides as if no icon, name property, title, description and display mode were overridden: the types and
     // properties with nothing else overridden are left out
     static DatamodelOverrides? withoutPresentation(DatamodelOverrides? overrides) {
-        if (overrides == null || !overrides.NodeTypes.Values.Any(t => t.Icon != null || t.NameProperty != null || t.Title != null || t.Description != null || t.Properties?.Values.Any(p => p.Display != null) == true)) return overrides;
+        if (overrides == null || !overrides.NodeTypes.Values.Any(t => t.Icon != null || t.NameProperty != null || t.Title != null || t.Description != null
+            || t.Properties?.Values.Any(p => p.Display != null || p.TitleLayout != null || p.Unit != null || p.Height != null || p.TextLines != null) == true)) return overrides;
         var copy = new DatamodelOverrides();
         foreach (var (id, t) in overrides.NodeTypes) {
             var c = JsonSerializer.Deserialize<NodeTypeOverride>(JsonSerializer.Serialize(t, Options), Options)!;
@@ -90,7 +110,7 @@ public static class DatamodelJson {
             c.NameProperty = null;
             c.Title = null;
             c.Description = null;
-            if (c.Properties != null) foreach (var p in c.Properties.Values) p.Display = null;
+            if (c.Properties != null) foreach (var p in c.Properties.Values) { p.Display = null; p.TitleLayout = null; p.Unit = null; p.Height = null; p.TextLines = null; }
             copy.NodeTypes[id] = c;
         }
         copy.RemoveEmpty();

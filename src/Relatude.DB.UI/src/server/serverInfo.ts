@@ -36,6 +36,17 @@ export interface ServerInfo {
   containers: DatabaseInfo[];
   /** the tabs of custom settings; absent from a server that has none to offer */
   customSettings?: CustomSettingsTab[];
+  /** links a library adds to the menu, above the signed-in user (IAdminUILink): an application beside the database, such as a CMS */
+  adminLinks?: AdminLink[];
+}
+
+/** A link to an application beside the database, at the foot of the menu: opened in a window of its own. */
+export interface AdminLink {
+  label: string;
+  url: string;
+  hint?: string | null;
+  /** the window's name, so every click comes to the one window; none for a new window each time */
+  target?: string | null;
 }
 
 export function fetchServerInfo(): Promise<ServerInfo> {

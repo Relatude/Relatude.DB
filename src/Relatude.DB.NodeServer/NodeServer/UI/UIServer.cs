@@ -925,6 +925,19 @@ public sealed class UIServer {
 
     string? tempFolder() => tryFolder(() => (_server.TempIO as IOProviderDisk)?.BaseFolder);
 
+    /// <summary>Each link as it reads now; one that throws is left out rather than failing the menu.</summary>
+    object[] adminLinks() {
+        var links = new List<object>();
+        foreach (var link in _server.AdminUILinks) {
+            try {
+                if (!string.IsNullOrWhiteSpace(link.Label) && !string.IsNullOrWhiteSpace(link.Url)) links.Add(new { link.Label, link.Url, link.Hint, link.Target });
+            } catch (Exception e) {
+                _server.Log("An admin UI link failed: " + e.Message);
+            }
+        }
+        return [.. links];
+    }
+
     void registerBuiltInCommands() {
         Commands.Register("ping", ctx => new { Pong = true, ServerTimeUtc = DateTime.UtcNow });
         // who is looking at this UI, for the footer of the nav rail. Two ways in, and they differ in
@@ -946,6 +959,8 @@ public sealed class UIServer {
             Containers = buildContainers(),
             // the tabs of the settings the application registers, beside the server's and each database's
             CustomSettings = UISettings.CustomSettingsTabs(_server),
+            // the links libraries add to the menu, above the signed-in user (IAdminUILink): an application beside the database
+            AdminLinks = adminLinks(),
         });
         // the process alone, cheap enough to read at the refresh rate: what the overview graphs.
         // The data drive rides along - it is one stat() call and it belongs on the same picture:

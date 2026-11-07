@@ -31,6 +31,34 @@ function subscribe(listener: () => void): () => void {
   };
 }
 
+/**
+ * A place in the data model named in the page's address by another application, such as a CMS's form designer
+ * linking to a property: `#datamodel?store=<database id>&type=<type id>&property=<property id>` (property left out
+ * for the type). Such an application opens the admin UI in a window it names and moves it to the next place by its
+ * address's hash alone, which loads nothing again: the shell reads it at start and at every hash change, and takes
+ * it out of the address once read (`clearAddressTarget`), so the same link followed again is a change too.
+ */
+export interface AddressTarget {
+  /** the database, by its id, when the address names one */
+  storeId?: string;
+  target: DatamodelTarget;
+}
+
+/** The place the address names, if it names one; reading changes nothing. */
+export function readAddressTarget(): AddressTarget | null {
+  const hash = window.location.hash;
+  if (!hash.startsWith("#datamodel?")) return null;
+  const query = new URLSearchParams(hash.slice("#datamodel?".length));
+  const typeId = query.get("type");
+  if (!typeId) return null;
+  return { storeId: query.get("store") || undefined, target: { typeId, propertyId: query.get("property") || undefined } };
+}
+
+/** The address without the place it named, so following the same link again changes the hash again. */
+export function clearAddressTarget(): void {
+  if (window.location.hash.startsWith("#datamodel")) history.replaceState(history.state, "", window.location.pathname + window.location.search);
+}
+
 /** Asks for the data model page, opened on this. */
 export function openInDatamodel(target: DatamodelTarget): void {
   pending = target;

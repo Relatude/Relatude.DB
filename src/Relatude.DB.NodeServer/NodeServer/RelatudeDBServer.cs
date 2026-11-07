@@ -201,6 +201,7 @@ public partial class RelatudeDBServer {
         _datamodelInitializers = [.. app.Services.GetServices<IDatamodelInitializer>()];
         _storeInitializers = [.. app.Services.GetServices<IStoreInitializer>()];
         _storeOpenHandlers = [.. app.Services.GetServices<IStoreOpenHandler>()];
+        AdminUILinks = [.. app.Services.GetServices<IAdminUILink>()];
 
         var dataFolderPath = options.DefaultDataFolderPath;
         var tempFolderPath = options.DefaultTempFolderPath;
@@ -605,6 +606,9 @@ public partial class RelatudeDBServer {
         }
     }
     IStoreOpenHandler[] _storeOpenHandlers = [];
+
+    /// <summary>The links libraries add to the admin UI's menu (<see cref="IAdminUILink"/> services), read as the server starts.</summary>
+    public IReadOnlyList<IAdminUILink> AdminUILinks { get; private set; } = [];
     internal void RaiseEventStoreClose(NodeStoreContainer nodeStoreContainer, NodeStore store) {
         if (Options?.OnStoreClose == null) return;
         try {

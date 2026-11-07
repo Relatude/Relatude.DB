@@ -856,7 +856,28 @@ efficiently, and to be a facet.</strong> Without an index, the engine scans.</p>
 <span class="w">    </span><span class="k">public</span><span class="w"> </span><span class="kt">bool</span><span class="w"> </span><span class="n">ExcludeFromTextIndex</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
 <span class="w">    </span><span class="k">public</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">TextIndexBoost</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w">      </span><span class="c1">// extra times the value goes into the text index</span>
 <span class="w">    </span><span class="k">public</span><span class="w"> </span><span class="kt">bool</span><span class="w"> </span><span class="n">DisplayName</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w">        </span><span class="c1">// part of the node&#39;s display name</span>
+<span class="w">    </span><span class="k">public</span><span class="w"> </span><span class="n">TitleLayout</span><span class="w"> </span><span class="n">TitleLayout</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="c1">// where an editor puts the title: Default, Left, Above or None</span>
+<span class="w">    </span><span class="k">public</span><span class="w"> </span><span class="kt">string?</span><span class="w"> </span><span class="n">Unit</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w">            </span><span class="c1">// shown by an editor right of the control: &quot;kg&quot;</span>
+<span class="w">    </span><span class="k">public</span><span class="w"> </span><span class="kt">string?</span><span class="w"> </span><span class="n">Height</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w">          </span><span class="c1">// how tall an editor makes the control: &quot;300px&quot;, &quot;50%&quot;</span>
 <span class="p">}</span>
+</code></pre></div>
+
+<p><code>TitleLayout</code>, <code>Unit</code> and <code>Height</code> only say how an editing interface, such as the Relatude CMS, shows
+the property. <code>TitleLayout</code> puts its title to the <code>Left</code> of the control on one line, <code>Above</code> it, or
+<code>None</code> (the control alone). <code>Default</code>, which is also what you get when you leave it out, lets the
+editor choose what suits the control: the CMS puts the title above a text area or an HTML field and
+to the left of any other control. <code>Unit</code> is shown to the right of the control. <code>Height</code> is a CSS
+length for a control that has a height to give, such as a text area or an HTML field; the CMS reads a
+number alone as pixels and a percentage as a share of the height its form has in view. The store
+ignores all three, so changing them rebuilds nothing. Read them from <code>PropertyModel.TitleLayout</code>
+(null for <code>Default</code>), <code>PropertyModel.Unit</code> and <code>PropertyModel.Height</code>.</p>
+<div class="codehilite"><pre><span></span><code><span class="k">using</span><span class="w"> </span><span class="nn">Relatude.DB.Datamodels.Properties</span><span class="p">;</span><span class="w">   </span><span class="c1">// TitleLayout</span>
+
+<span class="na">[DecimalProperty(TitleLayout = TitleLayout.Left, Unit = &quot;kg&quot;)]</span>
+<span class="kt">decimal</span><span class="w"> </span><span class="n">Weight</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+
+<span class="na">[HtmlProperty(Height = &quot;400px&quot;)]</span>
+<span class="kt">string</span><span class="w"> </span><span class="n">Body</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
 </code></pre></div>
 
 <h3 id="strings">Strings<a class="anchor" href="#strings" aria-label="Link to this section">#</a></h3>
@@ -884,8 +905,20 @@ efficiently, and to be a facet.</strong> Without an index, the engine scans.</p>
 </code></pre></div>
 
 <p><code>LegalValues = new[] { "draft", "published" }</code> limits the value to a list. <code>StringType</code> says what the
-text is: <code>AnyString</code> (the default), <code>HTML</code>, <code>Markdown</code>, <code>JSON</code>, <code>JavaScript</code>, <code>TypeScript</code>, <code>CSharp</code>
-or <code>CSS</code>. <code>StringValueType</code> and <code>CaseTransform</code> are in <code>Relatude.DB.Datamodels.Properties</code>.</p>
+text is: <code>AnyString</code> (the default), <code>SingleLineText</code>, <code>MultiLineText</code>, <code>HTML</code>, <code>Markdown</code>, <code>JSON</code>,
+<code>JavaScript</code>, <code>TypeScript</code>, <code>CSharp</code> or <code>CSS</code>. <code>StringValueType</code> and <code>CaseTransform</code> are in
+<code>Relatude.DB.Datamodels.Properties</code>.</p>
+<p><code>SingleLineText</code> and <code>MultiLineText</code> are plain text that an editing interface shows as a text box or
+as a text area. With <code>AnyString</code> the editor chooses; the CMS goes by the property's name. The store
+keeps and indexes all three the same way, so moving between them rebuilds nothing. <code>TextLines</code> says
+how many lines a text area shows before the user resizes it:</p>
+<div class="codehilite"><pre><span></span><code><span class="na">[StringProperty(StringType = StringValueType.SingleLineText)]</span>
+<span class="k">public</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="n">Headline</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kt">string</span><span class="p">.</span><span class="n">Empty</span><span class="p">;</span>
+
+<span class="na">[StringProperty(StringType = StringValueType.MultiLineText, TextLines = 6)]</span>
+<span class="k">public</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="n">Summary</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kt">string</span><span class="p">.</span><span class="n">Empty</span><span class="p">;</span>
+</code></pre></div>
+
 <p>Use <code>[HtmlProperty]</code> for rich text. It sets <code>StringType = HTML</code>, so links to nodes and files inside
 the value keep working when their targets move (<a href="#182-links-inside-html-and-markdown">§18.2</a>):</p>
 <div class="codehilite"><pre><span></span><code><span class="na">[HtmlProperty(IndexedByWords = true, IndexedBySemantic = true)]</span>
@@ -1122,7 +1155,7 @@ database you can override these:</p>
 </tr>
 <tr>
 <td>Property, on the declaring type only</td>
-<td><code>IndexType</code>, <code>IndexedByWords</code>, <code>TextIndexType</code>, <code>CultureSensitive</code>, <code>MinLength</code>, <code>MaxLength</code>, <code>RegularExpression</code>, <code>RegularExpressionMessage</code>, <code>LegalCharacters</code>, <code>Trim</code>, <code>CaseTransform</code>, <code>MinValue</code>, <code>MaxValue</code>, <code>FacetRangePowerBase</code>, <code>FacetRangeCount</code>, <code>Facet</code>, <code>TextIndexRelatedContent</code>, <code>TextIndexRelatedDisplayName</code>, <code>Display</code> (<a href="#how-an-editor-shows-them-display">§10</a>)</td>
+<td><code>IndexType</code>, <code>IndexedByWords</code>, <code>TextIndexType</code>, <code>CultureSensitive</code>, <code>MinLength</code>, <code>MaxLength</code>, <code>RegularExpression</code>, <code>RegularExpressionMessage</code>, <code>LegalCharacters</code>, <code>Trim</code>, <code>CaseTransform</code>, <code>MinValue</code>, <code>MaxValue</code>, <code>FacetRangePowerBase</code>, <code>FacetRangeCount</code>, <code>Facet</code>, <code>TextIndexRelatedContent</code>, <code>TextIndexRelatedDisplayName</code>, <code>Display</code> (<a href="#how-an-editor-shows-them-display">§10</a>), <code>TitleLayout</code>, <code>Unit</code>, <code>Height</code>, <code>TextLines</code></td>
 </tr>
 </tbody>
 </table>
@@ -1193,7 +1226,7 @@ created.</p>
   derived type, changes the model. The database then rebuilds its state and indexes from the log at
   the next open. When text indexing changes for a type, its nodes are queued for text indexing.
   Settings that only change how a type is shown (<code>Icon</code>, <code>Title</code>, <code>Description</code>, <code>NameProperty</code>,
-  <code>Display</code>) rebuild nothing.</li>
+  <code>Display</code>, <code>TitleLayout</code>, <code>Unit</code>, <code>Height</code>, <code>TextLines</code>) rebuild nothing.</li>
 </ul>
 <h3 id="passwords">Passwords<a class="anchor" href="#passwords" aria-label="Link to this section">#</a></h3>
 <p>A <code>PasswordValue</code> property holds a password. By default the store keeps it as an Argon2id hash,
@@ -4200,8 +4233,14 @@ library registers these services instead (namespace <code>Relatude.DB.NodeServer
 <td>for every store once open, in the background, beside <code>OnStoreOpenBackground</code></td>
 <td>seeding, work that needs an open store</td>
 </tr>
+<tr>
+<td><code>IAdminUILink</code> (<code>Label</code>, <code>Url</code>, <code>Hint</code>, <code>Target</code>)</td>
+<td>read each time the admin UI asks</td>
+<td>a link at the foot of the admin UI's menu, above the signed-in user, to an application beside the database (the Relatude CMS adds <em>Open CMS</em>), opened in a window of its own: the one named by <code>Target</code>, so each click comes back to it, else a new one</td>
+</tr>
 </tbody>
 </table>
+<p>An application can also open the admin UI on a type or a property in the datamodel editor: <code>/relatude.db/#datamodel?store=&lt;database id&gt;&amp;type=&lt;type id&gt;&amp;property=&lt;property id&gt;</code> (the property left out for the type). The admin UI reads that from its address when it opens and whenever the hash changes, so a window it is open in moves to the next place without loading again; it still asks for its own sign-in. The Relatude CMS's form designer links each field this way.</p>
 <div class="codehilite"><pre><span></span><code><span class="k">public</span><span class="w"> </span><span class="k">sealed</span><span class="w"> </span><span class="k">class</span><span class="w"> </span><span class="nc">AuditInitializer</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">IStoreInitializer</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="k">public</span><span class="w"> </span><span class="k">void</span><span class="w"> </span><span class="nf">Initialize</span><span class="p">(</span><span class="n">NodeStore</span><span class="w"> </span><span class="n">store</span><span class="p">)</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">store</span><span class="p">.</span><span class="n">RegisterTransactionPlugin</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">AuditPlugin</span><span class="p">());</span>
 <span class="p">}</span>

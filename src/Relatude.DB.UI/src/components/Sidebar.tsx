@@ -1,8 +1,8 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { IconBook, IconChevronLeft, IconChevronRight, IconDeviceDesktop, IconExternalLink, IconLogout, IconUser } from "@tabler/icons-react";
+import { IconArrowUpRight, IconBook, IconChevronLeft, IconChevronRight, IconDeviceDesktop, IconExternalLink, IconLogout, IconUser } from "@tabler/icons-react";
 import { sections, type Section } from "../navigation";
 import { licenseAttention, type LicenseStatus } from "../server/license";
-import { fetchWhoAmI, type DatabaseInfo, type WhoAmI } from "../server/serverInfo";
+import { fetchWhoAmI, type AdminLink, type DatabaseInfo, type WhoAmI } from "../server/serverInfo";
 import { siteUrl } from "../siteLinks";
 
 interface SidebarProps {
@@ -19,6 +19,8 @@ interface SidebarProps {
   activeSectionId: string;
   onSelectSection: (id: string) => void;
   onLogout: () => void;
+  /** links to applications beside the database (a CMS), above the signed-in user */
+  adminLinks?: AdminLink[];
 }
 
 export function Sidebar({
@@ -33,6 +35,7 @@ export function Sidebar({
   activeSectionId,
   onSelectSection,
   onLogout,
+  adminLinks,
 }: SidebarProps) {
   // the drawer closes on escape, like every other thing that hangs over the page
   useEffect(() => {
@@ -93,6 +96,20 @@ export function Sidebar({
               <IconExternalLink className="nav-ext" size={12} stroke={1.8} />
             </a>
           </NavGroup>
+          {/* applications beside the database, such as a CMS, which the administrator signed in here may open */}
+          {adminLinks && adminLinks.length > 0 && (
+            <div className="sidebar-apps">
+              {adminLinks.map((link) => (
+                // in a window of its own, named so that the next click comes back to it; a window opened by a name keeps
+                // its opener, which the browser needs to find it again
+                <a key={link.url} className="nav-item nav-tone-gray sidebar-app" href={link.url} target={link.target || "_blank"} rel={link.target ? undefined : "noopener"}
+                  title={link.hint ? `${link.label} — ${link.hint}` : link.label}>
+                  <IconArrowUpRight size={16} stroke={1.8} />
+                  <span className="label">{link.label}</span>
+                </a>
+              ))}
+            </div>
+          )}
           <SignedIn collapsed={collapsed} onLogout={onLogout} />
         </aside>
         <button className="nav-toggle" onClick={onToggleCollapsed} title={collapsed ? "Expand menu" : "Collapse menu"}>
