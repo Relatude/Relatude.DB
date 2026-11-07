@@ -58,6 +58,9 @@ public enum FileFormat {
     Ogg = 28,
     Webm = 29,
     M4a = 30,
+    // OpenRaster: a zip of layers (PNG, or SVG in the extended format), stack.xml saying how they stack, and the
+    // picture they make (mergedimage.png), which is what is converted and shown; the layers are the editor's
+    Ora = 31,
 }
 public static class FileFormatUtil {
     public static FileType GetFileType(string fileNameWithExtension) {
@@ -74,6 +77,7 @@ public static class FileFormatUtil {
             ".svg" => FileFormat.Svg,
             ".webp" => FileFormat.Webp,
             ".avif" => FileFormat.Avif,
+            ".ora" => FileFormat.Ora,
             ".mp4" => FileFormat.Mp4,
             ".mkv" => FileFormat.Mkv,
             ".avi" => FileFormat.Avi,
@@ -101,7 +105,7 @@ public static class FileFormatUtil {
     }
     public static FileType GetFileType(FileFormat format) {
         return format switch {
-            FileFormat.Jpeg or FileFormat.Png or FileFormat.Gif or FileFormat.Bmp or FileFormat.Svg or FileFormat.Webp or FileFormat.Avif or FileFormat.Image => FileType.Image,
+            FileFormat.Jpeg or FileFormat.Png or FileFormat.Gif or FileFormat.Bmp or FileFormat.Svg or FileFormat.Webp or FileFormat.Avif or FileFormat.Ora or FileFormat.Image => FileType.Image,
             FileFormat.Mp4 or FileFormat.Avi or FileFormat.Mov or FileFormat.Wmv or FileFormat.Flv or FileFormat.Mkv or FileFormat.Webm => FileType.Video,
             FileFormat.Mp3 or FileFormat.Wav or FileFormat.Aac or FileFormat.Flac or FileFormat.Ogg or FileFormat.M4a => FileType.Audio,
             FileFormat.Pdf or FileFormat.Doc or FileFormat.Docx or FileFormat.Xls or FileFormat.Xlsx or FileFormat.Ppt or FileFormat.Pptx or FileFormat.Txt => FileType.Document,
@@ -119,6 +123,7 @@ public static class FileFormatUtil {
         FileFormat.Svg => "image/svg+xml",
         FileFormat.Webp => "image/webp",
         FileFormat.Avif => "image/avif",
+        FileFormat.Ora => "image/openraster",
         FileFormat.Mp4 => "video/mp4",
         FileFormat.Mkv => "video/x-matroska",
         FileFormat.Avi => "video/x-msvideo",
@@ -153,6 +158,7 @@ public static class FileFormatUtil {
             FileFormat.Svg => ".svg",
             FileFormat.Webp => ".webp",
             FileFormat.Avif => ".avif",
+            FileFormat.Ora => ".ora",
             FileFormat.Mp4 => ".mp4",
             FileFormat.Mkv => ".mkv",
             FileFormat.Avi => ".avi",

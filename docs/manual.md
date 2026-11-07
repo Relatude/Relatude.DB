@@ -3493,6 +3493,21 @@ builder.AddRelatudeDB(options => {
 });
 ```
 
+**Pictures of layers.** An OpenRaster file (`.ora`) is a zip of layers, PNG or SVG, with `stack.xml`
+saying how they stack and `mergedimage.png`, the picture they make, which the program that wrote the
+file drew. The store never composes the layers: it converts, measures and shows the merged image,
+so a variant of an `.ora` is made like any other picture's, and the file's own URL serves the merged
+image as a PNG, as no browser shows an `.ora`. Code that reads the file gets the file itself.
+`OpenRaster.Read` unpacks one and `OpenRaster.Write` packs one, writing the mimetype first and
+uncompressed as the format asks, refusing a stack that names an entry it does not hold, and making
+the thumbnail from the merged image when none is given:
+
+```csharp
+var content = OpenRaster.Read(stream);   // content.StackXml, content.Entries["data/layer0.png"], ...
+content.Entries["mergedimage.png"] = merged;
+byte[] ora = OpenRaster.Write(content);
+```
+
 **Size limits.** A small file can declare a huge picture, and asset URLs let anyone ask for any size.
 So the converters refuse a picture larger than `ImageLimits.MaxPixels` (200 megapixels), and an
 adjustment may enlarge a picture to at most `ImageLimits.MaxEnlargedPixels` (4096 × 4096). Lower

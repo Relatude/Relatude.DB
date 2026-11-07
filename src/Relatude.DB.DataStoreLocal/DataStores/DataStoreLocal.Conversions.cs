@@ -34,14 +34,16 @@ public sealed partial class DataStoreLocal : IDataStore {
     /// adaptive FileFormat.Image is resolved against the original file and the store defaults
     /// (SettingsLocal.ImageDefaultFormat / ImageDefaultQuality), so cache keys, converter selection
     /// and content types always see a concrete format. serveOriginal is true for a plain adaptive
-    /// request with no adjustments at all, or for a gif at its own size: the original file is served untouched.
+    /// request with no adjustments at all, or for a gif at its own size: the original file is served untouched. Not
+    /// for an OpenRaster file, which no browser shows: its merged image is converted to the default format.
     /// </summary>
     FileAdjustmentBase resolveAdaptiveFormat(FileValue fileValue, FileAdjustmentBase adj, out bool serveOriginal) {
         serveOriginal = false;
         adj = adj.Normalized(); // a copy: the caller's instance may be shared (the URL decoders cache theirs)
         if (adj is FileAdjustmentImage asked) applyPictureDefaults(fileValue, asked);
         if (adj is not FileAdjustmentImage image || image.RequestedFormat != FileFormat.Image) return adj;
-        if (image.IsPlainRequest() || image.KeepsOriginalGif(fileValue.Format, fileValue.Width, fileValue.Height)) {
+        if (image.IsPlainRequest() && fileValue.Format != FileFormat.Ora // a browser shows no OpenRaster file: its picture is made
+            || image.KeepsOriginalGif(fileValue.Format, fileValue.Width, fileValue.Height)) {
             serveOriginal = true;
             return adj;
         }

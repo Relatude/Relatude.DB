@@ -4972,6 +4972,19 @@ beside the application the first time it is needed. Converters you add are tried
 <span class="p">});</span>
 </code></pre></div>
 
+<p><strong>Pictures of layers.</strong> An OpenRaster file (<code>.ora</code>) is a zip of layers, PNG or SVG, with <code>stack.xml</code>
+saying how they stack and <code>mergedimage.png</code>, the picture they make, which the program that wrote the
+file drew. The store never composes the layers: it converts, measures and shows the merged image,
+so a variant of an <code>.ora</code> is made like any other picture's, and the file's own URL serves the merged
+image as a PNG, as no browser shows an <code>.ora</code>. Code that reads the file gets the file itself.
+<code>OpenRaster.Read</code> unpacks one and <code>OpenRaster.Write</code> packs one, writing the mimetype first and
+uncompressed as the format asks, refusing a stack that names an entry it does not hold, and making
+the thumbnail from the merged image when none is given:</p>
+<div class="codehilite"><pre><span></span><code><span class="kt">var</span><span class="w"> </span><span class="n">content</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">OpenRaster</span><span class="p">.</span><span class="n">Read</span><span class="p">(</span><span class="n">stream</span><span class="p">);</span><span class="w">   </span><span class="c1">// content.StackXml, content.Entries[&quot;data/layer0.png&quot;], ...</span>
+<span class="n">content</span><span class="p">.</span><span class="n">Entries</span><span class="p">[</span><span class="s">&quot;mergedimage.png&quot;</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">merged</span><span class="p">;</span>
+<span class="kt">byte</span><span class="p">[]</span><span class="w"> </span><span class="n">ora</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">OpenRaster</span><span class="p">.</span><span class="n">Write</span><span class="p">(</span><span class="n">content</span><span class="p">);</span>
+</code></pre></div>
+
 <p><strong>Size limits.</strong> A small file can declare a huge picture, and asset URLs let anyone ask for any size.
 So the converters refuse a picture larger than <code>ImageLimits.MaxPixels</code> (200 megapixels), and an
 adjustment may enlarge a picture to at most <code>ImageLimits.MaxEnlargedPixels</code> (4096 × 4096). Lower

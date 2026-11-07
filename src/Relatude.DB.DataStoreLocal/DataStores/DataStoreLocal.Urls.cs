@@ -66,6 +66,12 @@ public sealed partial class DataStoreLocal : IDataStore {
                         r.Stream = await GetFileStream(keys.PropertyPath!, ctx);
                         r.ContentType = fileValue.ContentType;
                         r.FileName = fileValue.Name;
+                        if (fileValue.Format == FileFormat.Ora) { // no browser shows the layers: the URL serves the picture they make
+                            await using var file = r.Stream;
+                            r.Stream = OpenRaster.ReadMergedImage(file);
+                            r.ContentType = FileFormatUtil.GetContentType(FileFormat.Png);
+                            r.FileName = Path.GetFileNameWithoutExtension(fileValue.Name) + ".png";
+                        }
                     }
                 }
                 break;

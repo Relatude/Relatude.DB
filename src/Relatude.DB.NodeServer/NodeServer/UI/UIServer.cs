@@ -300,7 +300,9 @@ public sealed class UIServer {
         try {
             var opened = OpenFileForReading(io, fileKey);
             if (opened == null) return Results.NotFound();
-            using var stream = opened;
+            using var file = opened;
+            using var merged = format == FileFormat.Ora ? OpenRaster.ReadMergedImage(file) : null; // its layers' picture
+            var stream = merged ?? file;
             var adj = new FileAdjustmentImage { Width = width, CropMode = ImageCropMode.Fit };
             using var image = converter.LoadFor(stream, ref adj, out var meta);
             // a picture already smaller than the tile is only re-encoded, never blown up

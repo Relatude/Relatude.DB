@@ -18,8 +18,10 @@ public abstract class ImageConverterBase : IFileConverter {
     public int ThreadCount { get; set; }
     public int CallDelayMs { get; set; }
     public virtual bool SupportsConversion(FileType inBase, FileFormat inDetailed, FileType outBase, FileFormat outDetailed) {
-        return _ins.Contains(inDetailed) && (_outs.Contains(outDetailed) || outDetailed == FileFormat.FileMetaJson);
+        return reads(inDetailed) && (_outs.Contains(outDetailed) || outDetailed == FileFormat.FileMetaJson);
     }
+    // an OpenRaster file is read as the PNG of its merged image
+    bool reads(FileFormat format) => _ins.Contains(format) || format == FileFormat.Ora && _ins.Contains(FileFormat.Png);
     public Task<bool> CancelAsync(Guid key) {
         return Task.FromResult(false);
     }
@@ -31,7 +33,9 @@ public abstract class ImageConverterBase : IFileConverter {
         };
     }
     public async Task<ConversionProgress> DoConvertWork(InputFileSource source, FileConversionInfo info) {
-        await using var input = await source.OpenInputStream();
+        await using var file = await source.OpenInputStream();
+        using var merged = info.FromFormat == FileFormat.Ora ? OpenRaster.ReadMergedImage(file) : null;
+        var input = merged ?? file;
         if (info.ToFormat == FileFormat.FileMetaJson) {
             return new(new(FileConversionStatus.Ready, 100), new MemoryStream(ReadMeta(input).ToBytes()));
         }
