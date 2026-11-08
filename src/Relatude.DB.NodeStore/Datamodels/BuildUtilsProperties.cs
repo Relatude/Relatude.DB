@@ -107,6 +107,8 @@ internal static class BuildUtilsProperties {
         p.TitleLayout = a.TitleLayout != TitleLayout.Default && Enum.IsDefined(a.TitleLayout) ? a.TitleLayout : null;
         p.Unit = string.IsNullOrWhiteSpace(a.Unit) ? null : a.Unit.Trim();
         p.Height = string.IsNullOrWhiteSpace(a.Height) ? null : a.Height.Trim();
+        p.Width = string.IsNullOrWhiteSpace(a.Width) ? null : a.Width.Trim();
+        p.Title = string.IsNullOrWhiteSpace(a.Title) ? null : a.Title.Trim();
         if (a is IAttrScalarProperty asc) {
             if (p is IScalarProperty psc) {
                 psc.FacetRangePowerBase = asc.FacetRangePowerBase;
@@ -466,6 +468,7 @@ internal static class BuildUtilsProperties {
         p.IncludeTypes = a.IncludeTypes;
         p.Indexed = a.Indexed;
         p.Display = a.Display;
+        p.AllowInlineEditing = a.AllowInlineEditing;
         return p;
     }
     static ReferencesPropertyModel getReferencesPropertyModel(ReferencesPropertyAttribute a, MemberInfo m, Type valueType) {
@@ -514,6 +517,7 @@ internal static class BuildUtilsProperties {
         p.IncludeTypes = a.IncludeTypes;
         p.Indexed = a.Indexed;
         p.Display = a.Display;
+        p.AllowInlineEditing = a.AllowInlineEditing;
         return p;
     }
     static BooleanPropertyModel getBooleanPropertyModel(BooleanPropertyAttribute a) {
@@ -594,6 +598,7 @@ internal static class BuildUtilsProperties {
         r.TextIndexRecursiveLevelLimit = attr.TextIndexRecursiveLevelLimit;
         r.Facet = attr.Facet;
         r.Display = attr.Display;
+        r.AllowInlineEditing = attr.AllowInlineEditing;
         Type? typeOfRelated = null;
         Type? relationType = null;
         if (m is PropertyInfo pi && pi.PropertyType.InheritsFromOrImplements<IRelationProperty>()) {

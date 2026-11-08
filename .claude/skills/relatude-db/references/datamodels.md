@@ -106,10 +106,12 @@ public abstract class PropertyAttribute : Attribute {
     public TitleLayout TitleLayout { get; set; } // editor presentation: Default (unset), Left, Above or None
     public string? Unit { get; set; }            // editor presentation: shown right of the control, "kg"
     public string? Height { get; set; }          // editor presentation: the control's CSS height, "300px", "50%"
+    public string? Width { get; set; }           // editor presentation: the field's width, "50%" of the row or "300px"
+    public string? Title { get; set; }           // editor presentation: the field's label, "Main picture"
 }
 ```
 
-`TitleLayout`, `Unit` and `Height` (namespace `Relatude.DB.Datamodels.Properties` for the enum) are presentation only, like `Display`: out of the store's checksum, overridable per database, read from `PropertyModel.TitleLayout` (null for `Default`), `PropertyModel.Unit` and `PropertyModel.Height`. `Default` lets the editor choose by the control: the CMS puts the title above a text area or an HTML field and left of any other control. `Height` is for a control with a height to give (a text area, an HTML field); the CMS reads a number alone as pixels and a percentage as a share of the height its form has in view.
+`TitleLayout`, `Unit`, `Height`, `Width` and `Title` (namespace `Relatude.DB.Datamodels.Properties` for the enum) are presentation only, like `Display`: out of the store's checksum, overridable per database, read from `PropertyModel.TitleLayout` (null for `Default`), `PropertyModel.Unit`, `.Height`, `.Width` and `.Title`; each may be left empty. `Default` lets the editor choose by the control: the CMS puts the title above a text area, a code editor, an HTML field, embedded nodes and a list of related or referenced nodes, and left of any other control (a single related or referenced node among them). `Height` is for a control with a height to give (a text area, an HTML field); the CMS reads a number alone as pixels and a percentage as a share of the height its form has in view. `Width` is a share of the form's row as a percentage (fields share a row while they fit, so two of `50%` sit side by side) or a CSS length (`300px`, at most the row); left out, the whole row. `Title` left out, the editor makes a label from the member's name.
 
 **`Indexed` is the flag that matters.** A property must be indexed to be filtered, sorted or faceted efficiently. Without it the engine scans.
 
@@ -121,7 +123,7 @@ public abstract class PropertyAttribute : Attribute {
 [StringProperty(
     MinLength = 0,
     MaxLength = 4000,
-    StringType = StringValueType.AnyString,   // AnyString | SingleLineText | MultiLineText | HTML | Markdown | JSON | ...
+    StringType = StringValueType.AnyString,   // AnyString | SingleLineText | MultiLineText | Code | HTML | Markdown | JSON | ...
     TextLines = 6,                             // editor presentation: the lines a text area shows before it is resized
     Indexed = true,                            // value index: equality, range, sort, StartsWith, Contains
     IndexedByWords = true,                     // BM25 full-text index; also what MatchesSearch needs
@@ -146,7 +148,7 @@ public abstract class PropertyAttribute : Attribute {
 public string Slug { get; set; } = string.Empty;
 ```
 
-`SingleLineText` and `MultiLineText` are plain text an editing interface shows as a text box or a text area (with `AnyString` the editor chooses; the CMS goes by the property's name). The store keeps and indexes all three alike, so moving between them rebuilds nothing; `TextLines` is presentation like `Height`.
+`SingleLineText` and `MultiLineText` are plain text an editing interface shows as a text box or a text area, and `Code` is source code in any language, shown in a code editor (with `AnyString` the editor chooses; the CMS goes by the property's name, and highlights `Code` in the language a string property beside it, `Language`, names). The store keeps and indexes all four alike, so moving between them rebuilds nothing; `TextLines` is presentation like `Height`.
 
 `Trim` and `CaseTransform` rewrite the value before the rules are checked and before it is stored;
 queries are not rewritten, so normalise query input the same way. `CaseSensitive` only affects the
@@ -268,7 +270,7 @@ Every node carries system metadata. **Never construct or assign one** — defaul
 | `RevisionId`, `RevisionType` | Revision tracking — `Draft`, `Published`, `Archived`, … |
 | `CollectionId` | Logical grouping. |
 | `ReadAccess`, `EditAccess`, `EditViewAccess`, `PublishAccess` | Guid-based ACL slots. |
-| `CreatedBy`, `ChangedBy` | User Guids. |
+| `CreatedBy`, `ChangedBy` | Who made it and who last wrote it: the writing context's user, stamped by the store (`Guid.Empty` for none, `NodeConstants.MasterAdminUserId` for `Admin()`). |
 | `ReleaseUtc`, `ExpireUtc` | Scheduled publishing. |
 | `Deleted` | Soft-delete flag. |
 
@@ -299,7 +301,7 @@ db.CreateTransaction()
 | `CollectionId` | `Guid` | `Guid.Empty` for none. A query whose context names collections reads only nodes in them. |
 | `ReleaseUtc`, `ExpireUtc` | `DateTime?`, UTC | `null` for none. Queries leave the node out before its release and from its expiry on, unless their context reads unpublished nodes (`Unpublished`). |
 | `Deleted` | `bool` | Soft delete: queries leave the node out unless their context includes deleted nodes; the data stays. |
-| `CreatedBy`, `ChangedBy` | `Guid`, a user's id | The store does not fill them in; the application writes them if it wants them. |
+| `CreatedBy`, `ChangedBy` | `Guid`, a user's id | The store stamps them with every write of values (an insert, a new revision, publishing and culture moves too; an insert keeps writers it is given); written here, they say otherwise until the next write. |
 
 `CultureId` and `RevisionKey` cannot be written this way (the call throws), nor can the revision type, which the revision methods change; an unknown name throws too. On a node with revisions, the overloads taking a `revisionId` write that revision's meta and copy the access groups, collection and deleted flag to its other revisions; without one every revision is written. Every overload also takes the internal `int` id, and `Transaction` has the same methods.
 
@@ -682,6 +684,8 @@ References<IOrganizer> Sponsors { get; }
 ```
 
 `DisplayMode` (in `Relatude.DB.Datamodels.Properties`, beside `IncludeTypeOptions`) is `List` (the default: what an editor shows when nothing is said), `Table` (rows with columns, paged), `Inline` (each node as a form of its own that opens in place), `Cards` (a card of information for each node) or `Thumbnail` (the type's icon and the node's first picture). It says nothing to the store: like a type's icon it is left out of the store's checksum, so changing it rebuilds no state and no index. Applications read it as `Display` on `RelationPropertyModel`, `ReferencePropertyModel`, `ReferencesPropertyModel` and `EmbeddedPropertyModel`; the datamodel editor offers it as a choice, and a database can override it on the type that declares the property.
+
+Nodes of their own, a relation's or a reference's, are shown `Inline` only where the property says `AllowInlineEditing = true` (`[RelationProperty]`, `[ReferenceProperty]`, `[ReferencesProperty]`; `AllowInlineEditing` on their models, presentation like `Display`); without it an editor edits each in an editor of its own and does not offer `Inline`. Embedded nodes are the node's own values and can always be shown inline.
 
 ## Validation the model builder enforces
 

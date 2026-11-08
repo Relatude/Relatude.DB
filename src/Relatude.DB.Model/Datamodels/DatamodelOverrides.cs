@@ -9,8 +9,9 @@ namespace Relatude.DB.Datamodels;
 /// <summary>
 /// How far an overridden attribute reaches. Every attribute that can be overridden is a member of
 /// <see cref="NodeTypeOverride"/> or <see cref="PropertyOverride"/> carrying one of these through
-/// <see cref="OverrideScopeAttribute"/>; an attribute that is not there cannot be overridden (an id,
-/// a name, the type of a property, whether its values are unique...).
+/// <see cref="OverrideScopeAttribute"/>; an attribute that is not there cannot be overridden: what the
+/// compiled code depends on (an id, a name, the type of a property, what it inherits, the shape of its member,
+/// the relation it is an end of, the node types a reference may point at, an enum).
 /// </summary>
 public enum OverrideScope {
     /// <summary>
@@ -155,6 +156,19 @@ public sealed class NodeTypeOverride {
     public Guid? DefaultReadAccess { get; set; }
     [OverrideScope(OverrideScope.ThisType), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public Guid? DefaultEditViewAccess { get; set; }
+    [OverrideScope(OverrideScope.ThisType), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Guid? DefaultEditAccess { get; set; }
+    [OverrideScope(OverrideScope.ThisType), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Guid? DefaultPublishAccess { get; set; }
+    /// <summary>How text search weights hits on nodes of this type (<see cref="NodeTypeModel.TextIndexBoost"/>).</summary>
+    [OverrideScope(OverrideScope.ThisType), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public double? TextIndexBoost { get; set; }
+    /// <summary>How few nodes of the type there may be (<see cref="NodeTypeModel.MinNoInstances"/>).</summary>
+    [OverrideScope(OverrideScope.ThisType), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? MinNoInstances { get; set; }
+    /// <summary>How many nodes of the type there may be (<see cref="NodeTypeModel.MaxNoInstances"/>).</summary>
+    [OverrideScope(OverrideScope.ThisType), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? MaxNoInstances { get; set; }
     /// <summary>
     /// Overrides of properties, by property id: the type's own properties, and the ones it inherits. An
     /// inherited property only takes the attributes that may differ between types
@@ -276,6 +290,75 @@ public sealed class PropertyOverride {
     /// <summary>How many lines a text area shows before it is resized (<see cref="StringPropertyModel.TextLines"/>).</summary>
     [OverrideScope(OverrideScope.WholeProperty), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public int? TextLines { get; set; }
+    /// <summary>Whether no two nodes may hold the same value (<see cref="PropertyModel.UniqueValues"/>). Checked as values are written: values held already are left as they are.</summary>
+    [OverrideScope(OverrideScope.WholeProperty), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? UniqueValues { get; set; }
+    [OverrideScope(OverrideScope.WholeProperty), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Guid? ReadAccess { get; set; }
+    [OverrideScope(OverrideScope.WholeProperty), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Guid? WriteAccess { get; set; }
+    /// <summary>What kind of text a string holds (<see cref="StringPropertyModel.StringType"/>), which decides its editor.</summary>
+    [OverrideScope(OverrideScope.WholeProperty), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public StringValueType? StringType { get; set; }
+    [OverrideScope(OverrideScope.WholeProperty), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? PrefixSearch { get; set; }
+    [OverrideScope(OverrideScope.WholeProperty), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? InfixSearch { get; set; }
+    [OverrideScope(OverrideScope.WholeProperty), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? IndexedBySemantic { get; set; }
+    [OverrideScope(OverrideScope.WholeProperty), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Guid? PropertyIdForEmbeddings { get; set; }
+    [OverrideScope(OverrideScope.WholeProperty), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? MinWordLength { get; set; }
+    [OverrideScope(OverrideScope.WholeProperty), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? MaxWordLength { get; set; }
+    [OverrideScope(OverrideScope.WholeProperty), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? IgnoreDuplicateEmptyValues { get; set; }
+    [OverrideScope(OverrideScope.WholeProperty), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? CaseSensitive { get; set; }
+    /// <summary>The values allowed: text for a string property, integers for an integer or an enum list.</summary>
+    [OverrideScope(OverrideScope.WholeProperty), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public object? LegalValues { get; set; }
+    [OverrideScope(OverrideScope.WholeProperty), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string[]? LegalValueNames { get; set; }
+    [OverrideScope(OverrideScope.WholeProperty), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Guid? FileStorageProviderId { get; set; }
+    [OverrideScope(OverrideScope.WholeProperty), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? AiImageAnalysis { get; set; }
+    [OverrideScope(OverrideScope.WholeProperty), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? FileTextIndexing { get; set; }
+    [OverrideScope(OverrideScope.WholeProperty), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? VideoAndAudioFileTextIndexing { get; set; }
+    [OverrideScope(OverrideScope.WholeProperty), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? AllowHashed { get; set; }
+    [OverrideScope(OverrideScope.WholeProperty), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? AllowEncrypted { get; set; }
+    [OverrideScope(OverrideScope.WholeProperty), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? AllowPlainText { get; set; }
+    [OverrideScope(OverrideScope.WholeProperty), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? RequireUppercase { get; set; }
+    [OverrideScope(OverrideScope.WholeProperty), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? RequireLowercase { get; set; }
+    [OverrideScope(OverrideScope.WholeProperty), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? RequireDigit { get; set; }
+    [OverrideScope(OverrideScope.WholeProperty), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? RequireSymbol { get; set; }
+    /// <summary>Whether a reference or an embedded property takes the types it names alone or those inheriting them too.</summary>
+    [OverrideScope(OverrideScope.WholeProperty), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IncludeTypeOptions? IncludeTypes { get; set; }
+    [OverrideScope(OverrideScope.WholeProperty), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? PrependOnAdd { get; set; }
+    [OverrideScope(OverrideScope.WholeProperty), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? TextIndexRecursiveLevelLimit { get; set; }
+    /// <summary>Whether an editing interface may show the nodes a relation, reference or references property holds as forms in place (<see cref="RelationPropertyModel.AllowInlineEditing"/>).</summary>
+    [OverrideScope(OverrideScope.WholeProperty), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? AllowInlineEditing { get; set; }
+    /// <summary>How wide an editing interface makes the property's field (<see cref="PropertyModel.Width"/>).</summary>
+    [OverrideScope(OverrideScope.WholeProperty), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Width { get; set; }
+    /// <summary>What an editing interface labels the property's field (<see cref="PropertyModel.Title"/>).</summary>
+    [OverrideScope(OverrideScope.WholeProperty), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Title { get; set; }
 
     /// <summary>Members the file holds that are not overridable attributes. Reported, kept when the file is written again.</summary>
     [JsonExtensionData]

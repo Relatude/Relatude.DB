@@ -175,6 +175,28 @@ public interface IInnerNodeMeta : IEquatable<IInnerNodeMeta> { // Without revisi
             expireUtc: meta.ExpireUtc
         ));
     }
+    /// <summary>
+    /// The meta with who wrote the version (changedBy) and who made it (createdBy). The database stamps them as it
+    /// writes the values: Guid.Empty for a write with no user.
+    /// </summary>
+    public static IInnerNodeMeta? ChangeWriter(IInnerNodeMeta? meta, Guid changedBy, Guid createdBy) {
+        var m = meta ?? Empty;
+        if (m.ChangedBy == changedBy && m.CreatedBy == createdBy) return meta;
+        return MinimizeIfPossible(new InnerNodeMetaFull(
+            revisionKey: m.RevisionKey,
+            collectionId: m.CollectionId,
+            readAccess: m.ReadAccess,
+            editAccess: m.EditAccess,
+            editViewAccess: m.EditViewAccess,
+            publishAccess: m.PublishAccess,
+            deleted: m.Deleted,
+            createdBy: createdBy,
+            changedBy: changedBy,
+            cultureId: m.CultureId,
+            releaseUtc: m.ReleaseUtc,
+            expireUtc: m.ExpireUtc
+        ));
+    }
     public static InnerNodeMetaFull CopyToFull(IInnerNodeMeta? meta) {
         if (meta == null) meta = Empty;
         return new InnerNodeMetaFull(

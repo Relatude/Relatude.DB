@@ -20,4 +20,10 @@ public enum StringValueType:int {
     /// <see cref="StringPropertyModel.TextLines"/> says. Stored and indexed as <see cref="AnyString"/>.
     /// </summary>
     MultiLineText,
+    /// <summary>
+    /// Source code in any language: an editing interface shows a code editor. Which language it is the value does not
+    /// say; the Relatude CMS highlights it in the one a string property beside it names (Language). Stored and indexed
+    /// as <see cref="AnyString"/>.
+    /// </summary>
+    Code,
 }

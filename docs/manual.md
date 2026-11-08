@@ -434,18 +434,26 @@ public abstract class PropertyAttribute : Attribute {
     public TitleLayout TitleLayout { get; set; } // where an editor puts the title: Default, Left, Above or None
     public string? Unit { get; set; }            // shown by an editor right of the control: "kg"
     public string? Height { get; set; }          // how tall an editor makes the control: "300px", "50%"
+    public string? Width { get; set; }           // how wide an editor makes the field: "50%", "300px"
+    public string? Title { get; set; }           // what an editor labels the field: "Main picture"
 }
 ```
 
-`TitleLayout`, `Unit` and `Height` only say how an editing interface, such as the Relatude CMS, shows
-the property. `TitleLayout` puts its title to the `Left` of the control on one line, `Above` it, or
-`None` (the control alone). `Default`, which is also what you get when you leave it out, lets the
-editor choose what suits the control: the CMS puts the title above a text area or an HTML field and
-to the left of any other control. `Unit` is shown to the right of the control. `Height` is a CSS
-length for a control that has a height to give, such as a text area or an HTML field; the CMS reads a
-number alone as pixels and a percentage as a share of the height its form has in view. The store
-ignores all three, so changing them rebuilds nothing. Read them from `PropertyModel.TitleLayout`
-(null for `Default`), `PropertyModel.Unit` and `PropertyModel.Height`.
+`TitleLayout`, `Unit`, `Height`, `Width` and `Title` only say how an editing interface, such as the
+Relatude CMS, shows the property. `TitleLayout` puts its title to the `Left` of the control on one
+line, `Above` it, or `None` (the control alone). `Default`, which is also what you get when you leave
+it out, lets the editor choose what suits the control: the CMS puts the title above a text area, a
+code editor, an HTML field, embedded nodes and a list of related or referenced nodes, and to the left
+of any other control, a single related or referenced node among them. `Unit` is shown to the right of
+the control. `Height` is a CSS length for a control that has a height to give, such as a text area or
+an HTML field; the CMS reads a number alone as pixels and a percentage as a share of the height its
+form has in view. `Width` is how wide the field is: a percentage is a share of the form's row, which
+fields share while they fit, so two fields of `50%` sit side by side; a CSS length such as `300px` is a
+field of that width, at most the row's. Left out, the field takes the whole row. `Title` is the label;
+left out, the editor makes one from the member's name. Each may be left empty. The store ignores them
+all, so changing them rebuilds nothing. Read them from `PropertyModel.TitleLayout` (null for
+`Default`), `PropertyModel.Unit`, `PropertyModel.Height`, `PropertyModel.Width` and
+`PropertyModel.Title`.
 
 ```csharp
 using Relatude.DB.Datamodels.Properties;   // TitleLayout
@@ -455,6 +463,12 @@ decimal Weight { get; set; }
 
 [HtmlProperty(Height = "400px")]
 string Body { get; set; }
+
+[StringProperty(Title = "First name", Width = "50%")]
+string FirstName { get; set; }
+
+[StringProperty(Title = "Last name", Width = "50%")]
+string LastName { get; set; }
 ```
 
 ### Strings
@@ -485,14 +499,17 @@ public string Slug { get; set; } = string.Empty;
 ```
 
 `LegalValues = new[] { "draft", "published" }` limits the value to a list. `StringType` says what the
-text is: `AnyString` (the default), `SingleLineText`, `MultiLineText`, `HTML`, `Markdown`, `JSON`,
-`JavaScript`, `TypeScript`, `CSharp` or `CSS`. `StringValueType` and `CaseTransform` are in
+text is: `AnyString` (the default), `SingleLineText`, `MultiLineText`, `Code`, `HTML`, `Markdown`,
+`JSON`, `JavaScript`, `TypeScript`, `CSharp` or `CSS`. `StringValueType` and `CaseTransform` are in
 `Relatude.DB.Datamodels.Properties`.
 
 `SingleLineText` and `MultiLineText` are plain text that an editing interface shows as a text box or
-as a text area. With `AnyString` the editor chooses; the CMS goes by the property's name. The store
-keeps and indexes all three the same way, so moving between them rebuilds nothing. `TextLines` says
-how many lines a text area shows before the user resizes it:
+as a text area. `Code` is source code in any language, shown in a code editor; `JSON`, `JavaScript`,
+`TypeScript`, `CSharp` and `CSS` are code in one language. With `AnyString` the editor chooses; the
+CMS goes by the property's name. The store keeps and indexes `AnyString`, `SingleLineText`,
+`MultiLineText` and `Code` the same way, so moving between them rebuilds nothing. The datamodel
+editor shows `StringType` as **Content**, right under the property's name. `TextLines` says how many
+lines a text area or a code editor shows:
 
 ```csharp
 [StringProperty(StringType = StringValueType.SingleLineText)]
@@ -500,6 +517,11 @@ public string Headline { get; set; } = string.Empty;
 
 [StringProperty(StringType = StringValueType.MultiLineText, TextLines = 6)]
 public string Summary { get; set; } = string.Empty;
+
+[StringProperty(StringType = StringValueType.Code, TextLines = 8)]
+public string Sample { get; set; } = string.Empty;
+
+public string Language { get; set; } = "csharp";   // the CMS highlights Sample in this language
 ```
 
 Use `[HtmlProperty]` for rich text. It sets `StringType = HTML`, so links to nodes and files inside
@@ -714,13 +736,16 @@ database you can override these:
 | What | Attributes |
 |---|---|
 | Node type, inherited by derived types | `TextIndex`, `SemanticIndex`, `InstantTextIndexing`, `Icon`, `NameProperty` |
-| Node type, that type only | `Hidden`, `Title`, `Description`, `DefaultReadAccess`, `DefaultEditViewAccess` |
+| Node type, that type only | `Hidden`, `Title`, `Description`, `DefaultReadAccess`, `DefaultEditViewAccess`, `DefaultEditAccess`, `DefaultPublishAccess`, `MinNoInstances`, `MaxNoInstances`, `TextIndexBoost` |
 | Property, per type | `DefaultValue`, `ExcludeFromTextIndex`, `IndexBoost` (`TextIndexBoost` on the attributes), `DisplayName` |
 | Property, asked for by any type | `Indexed`, `NotFacet` |
-| Property, on the declaring type only | `IndexType`, `IndexedByWords`, `TextIndexType`, `CultureSensitive`, `MinLength`, `MaxLength`, `RegularExpression`, `RegularExpressionMessage`, `LegalCharacters`, `Trim`, `CaseTransform`, `MinValue`, `MaxValue`, `FacetRangePowerBase`, `FacetRangeCount`, `Facet`, `TextIndexRelatedContent`, `TextIndexRelatedDisplayName`, `Display` ([§10](#how-an-editor-shows-them-display)), `TitleLayout`, `Unit`, `Height`, `TextLines` |
+| Property, on the declaring type only | `IndexType`, `IndexedByWords`, `TextIndexType`, `CultureSensitive`, `MinLength`, `MaxLength`, `RegularExpression`, `RegularExpressionMessage`, `LegalCharacters`, `Trim`, `CaseTransform`, `MinValue`, `MaxValue`, `FacetRangePowerBase`, `FacetRangeCount`, `Facet`, `TextIndexRelatedContent`, `TextIndexRelatedDisplayName`, `TextIndexRecursiveLevelLimit`, `Display` and `AllowInlineEditing` ([§10](#how-an-editor-shows-them-display)), `TitleLayout`, `Unit`, `Height`, `Width`, `Title`, `TextLines`, `StringType`, `UniqueValues`, `CaseSensitive`, `IgnoreDuplicateEmptyValues`, `PrefixSearch`, `InfixSearch`, `IndexedBySemantic`, `PropertyIdForEmbeddings`, `MinWordLength`, `MaxWordLength`, `LegalValues`, `LegalValueNames`, `ReadAccess`, `WriteAccess`, `IncludeTypes`, `PrependOnAdd`, `FileStorageProviderId`, `AiImageAnalysis`, `FileTextIndexing`, `VideoAndAudioFileTextIndexing`, and a password's `AllowHashed`, `AllowEncrypted`, `AllowPlainText`, `RequireUppercase`, `RequireLowercase`, `RequireDigit`, `RequireSymbol` |
 
-Nothing else can be overridden: not ids or names, the property type, `UniqueValues`, `LegalValues`,
-`CultureSpecific`, enum metadata, or what a relation, reference or embedded property points at.
+What the compiled code depends on cannot be overridden: ids and names, the property type, what a type
+inherits, the shape of a member (`ReferenceValueType`, `RelationValueType`, `EmbeddedValueType`), the
+relation a property is an end of, the types a reference or an embedded property points at, an
+embedded map's key, and enum metadata. `CultureSpecific` cannot be overridden either. A rule such as
+`UniqueValues` is checked as values are written; values already stored are left as they are.
 `[Node]` also has a `TextIndexBoost`, which the engine does not use yet.
 
 **In the database: the datamodel editor.** The admin UI's **Models** page writes a change into the
@@ -920,12 +945,18 @@ assign a `NodeMeta` yourself. Change the writable fields with `UpdateMeta`
 | `RevisionId`, `RevisionType` | The revision read, and its type: `Published`, `Preliminary` (a draft), `Archived`, … |
 | `CollectionId` | The collection the node is in. |
 | `ReadAccess`, `EditAccess`, `EditViewAccess`, `PublishAccess` | The user group given each kind of access. |
-| `CreatedBy`, `ChangedBy` | User ids, when the application writes them. |
+| `CreatedBy`, `ChangedBy` | Who made the node (or the revision) and who last wrote it: the user of the context that wrote. |
 | `ReleaseUtc`, `ExpireUtc` | Scheduled publishing. |
 | `Deleted` | The soft-delete flag. |
 
 `ChangedUtc` moves with every write that changes the node's values. A meta write, or a write that
 changes nothing, leaves it alone. An insert keeps a change time it is given, as an import needs.
+
+`ChangedBy` is stamped with it: the user of the context the write runs in (`db.Context.User(id)`),
+`Guid.Empty` for a context with no user, and `NodeConstants.MasterAdminUserId` for `Admin()`. An
+insert sets `CreatedBy` too, and so does a new revision. Publishing a revision or moving it to another
+culture also names its writer. An insert keeps writers it is given. The log keeps every version with
+its meta, so `FindOlderVersions` tells who wrote each one.
 
 ### Writing meta: `UpdateMeta`
 
@@ -959,7 +990,7 @@ db.CreateTransaction()
 | `CollectionId` | `Guid` | `Guid.Empty` for none. A query whose context names collections reads only nodes in them. |
 | `ReleaseUtc`, `ExpireUtc` | `DateTime?`, in UTC | `null` for none. Queries skip the node outside this window, unless their context reads unpublished nodes ([§29](#29-cultures-visibility-and-scoped-stores)). |
 | `Deleted` | `bool` | Soft delete: queries skip the node unless their context includes deleted nodes. |
-| `CreatedBy`, `ChangedBy` | `Guid`, a user's id | The store does not fill these in. |
+| `CreatedBy`, `ChangedBy` | `Guid`, a user's id | The store stamps them as it writes values; written here, they say otherwise until the next write. |
 
 `CultureId` and the revision type cannot be written this way, and neither can an unknown name: the
 call throws. The revision methods change culture and type ([§29](#revisions-in-several-cultures)).
@@ -1254,6 +1285,9 @@ public interface IEvent {
 
 On a class, initialise them: `public Reference<IMediaAsset> Cover { get; set; } = new();`.
 
+`Display` and `AllowInlineEditing` say how an editing interface shows the nodes referred to
+([§10](#how-an-editor-shows-them-display)).
+
 ### Reading and writing a `Reference<T>`
 
 ```csharp
@@ -1497,6 +1531,9 @@ found by the names of its events, and makes the relation a facet:
 EventsAtVenue.Events Events { get; }
 ```
 
+`Display` and `AllowInlineEditing` on `[RelationProperty]` say how an editing interface shows the
+related nodes ([§10](#how-an-editor-shows-them-display)).
+
 ---
 
 ## 10. Choosing between relation, reference and embedded
@@ -1562,9 +1599,20 @@ EmbeddedMap<string, OpeningHours> Hours { get; }
 | `Pills` | a pill with each node's name |
 | `Dropdown` | a drop-down to choose nodes from; not for embedded nodes |
 
-The store ignores `Display`, so changing it rebuilds nothing. An application reads it from the
-property's model (`RelationPropertyModel.Display` and the like). The admin UI's datamodel editor can
-change it; for a type from compiled code, the change is saved as an override in the database
+Nodes of their own, those of a relation, reference or references property, are shown `Inline` only
+when the property says `AllowInlineEditing = true`; without it they are edited in editors of their own,
+and an editor does not offer `Inline`. Embedded nodes are the node's own values, so they can always be
+shown inline.
+
+```csharp
+[ReferencesProperty(Display = DisplayMode.Inline, AllowInlineEditing = true)]
+References<IArticle> Featured { get; }
+```
+
+The store ignores `Display` and `AllowInlineEditing`, so changing them rebuilds nothing. An application
+reads them from the property's model (`RelationPropertyModel.Display`, `.AllowInlineEditing` and the
+like). The admin UI's datamodel editor can change both (*Display* and *Allow inline editing*); for a
+type from compiled code, the change is saved as an override in the database
 ([§3.1](#31-overriding-attributes)).
 
 ---
@@ -2992,6 +3040,9 @@ Two habits worth forming:
 - **Check the Datamodel page after a modelling change.** It shows each type's parents, so it is the
   quickest way to confirm that your facet interfaces ([§2](#2-your-first-node-type)) became parent
   node types, and that a property you expected to be indexed is.
+- **Change what code does not decide in the datamodel editor.** A property's form starts with its
+  name and, for text, its **Content**, then its title, width and the rest. For a type from compiled
+  code, what you change there is kept as an override ([§3.1](#31-overriding-attributes)).
 - **Mind the middleware order.** `UseRelatudeDB` adds the engine's startup-progress and auth
   middleware, so call it *after* your own `UseCors`, `UseHttpsRedirection` and `UseAuthentication`.
 

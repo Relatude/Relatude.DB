@@ -859,18 +859,26 @@ efficiently, and to be a facet.</strong> Without an index, the engine scans.</p>
 <span class="w">    </span><span class="k">public</span><span class="w"> </span><span class="n">TitleLayout</span><span class="w"> </span><span class="n">TitleLayout</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="c1">// where an editor puts the title: Default, Left, Above or None</span>
 <span class="w">    </span><span class="k">public</span><span class="w"> </span><span class="kt">string?</span><span class="w"> </span><span class="n">Unit</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w">            </span><span class="c1">// shown by an editor right of the control: &quot;kg&quot;</span>
 <span class="w">    </span><span class="k">public</span><span class="w"> </span><span class="kt">string?</span><span class="w"> </span><span class="n">Height</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w">          </span><span class="c1">// how tall an editor makes the control: &quot;300px&quot;, &quot;50%&quot;</span>
+<span class="w">    </span><span class="k">public</span><span class="w"> </span><span class="kt">string?</span><span class="w"> </span><span class="n">Width</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w">           </span><span class="c1">// how wide an editor makes the field: &quot;50%&quot;, &quot;300px&quot;</span>
+<span class="w">    </span><span class="k">public</span><span class="w"> </span><span class="kt">string?</span><span class="w"> </span><span class="n">Title</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w">           </span><span class="c1">// what an editor labels the field: &quot;Main picture&quot;</span>
 <span class="p">}</span>
 </code></pre></div>
 
-<p><code>TitleLayout</code>, <code>Unit</code> and <code>Height</code> only say how an editing interface, such as the Relatude CMS, shows
-the property. <code>TitleLayout</code> puts its title to the <code>Left</code> of the control on one line, <code>Above</code> it, or
-<code>None</code> (the control alone). <code>Default</code>, which is also what you get when you leave it out, lets the
-editor choose what suits the control: the CMS puts the title above a text area or an HTML field and
-to the left of any other control. <code>Unit</code> is shown to the right of the control. <code>Height</code> is a CSS
-length for a control that has a height to give, such as a text area or an HTML field; the CMS reads a
-number alone as pixels and a percentage as a share of the height its form has in view. The store
-ignores all three, so changing them rebuilds nothing. Read them from <code>PropertyModel.TitleLayout</code>
-(null for <code>Default</code>), <code>PropertyModel.Unit</code> and <code>PropertyModel.Height</code>.</p>
+<p><code>TitleLayout</code>, <code>Unit</code>, <code>Height</code>, <code>Width</code> and <code>Title</code> only say how an editing interface, such as the
+Relatude CMS, shows the property. <code>TitleLayout</code> puts its title to the <code>Left</code> of the control on one
+line, <code>Above</code> it, or <code>None</code> (the control alone). <code>Default</code>, which is also what you get when you leave
+it out, lets the editor choose what suits the control: the CMS puts the title above a text area, a
+code editor, an HTML field, embedded nodes and a list of related or referenced nodes, and to the left
+of any other control, a single related or referenced node among them. <code>Unit</code> is shown to the right of
+the control. <code>Height</code> is a CSS length for a control that has a height to give, such as a text area or
+an HTML field; the CMS reads a number alone as pixels and a percentage as a share of the height its
+form has in view. <code>Width</code> is how wide the field is: a percentage is a share of the form's row, which
+fields share while they fit, so two fields of <code>50%</code> sit side by side; a CSS length such as <code>300px</code> is a
+field of that width, at most the row's. Left out, the field takes the whole row. <code>Title</code> is the label;
+left out, the editor makes one from the member's name. Each may be left empty. The store ignores them
+all, so changing them rebuilds nothing. Read them from <code>PropertyModel.TitleLayout</code> (null for
+<code>Default</code>), <code>PropertyModel.Unit</code>, <code>PropertyModel.Height</code>, <code>PropertyModel.Width</code> and
+<code>PropertyModel.Title</code>.</p>
 <div class="codehilite"><pre><span></span><code><span class="k">using</span><span class="w"> </span><span class="nn">Relatude.DB.Datamodels.Properties</span><span class="p">;</span><span class="w">   </span><span class="c1">// TitleLayout</span>
 
 <span class="na">[DecimalProperty(TitleLayout = TitleLayout.Left, Unit = &quot;kg&quot;)]</span>
@@ -878,6 +886,12 @@ ignores all three, so changing them rebuilds nothing. Read them from <code>Prope
 
 <span class="na">[HtmlProperty(Height = &quot;400px&quot;)]</span>
 <span class="kt">string</span><span class="w"> </span><span class="n">Body</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+
+<span class="na">[StringProperty(Title = &quot;First name&quot;, Width = &quot;50%&quot;)]</span>
+<span class="kt">string</span><span class="w"> </span><span class="n">FirstName</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+
+<span class="na">[StringProperty(Title = &quot;Last name&quot;, Width = &quot;50%&quot;)]</span>
+<span class="kt">string</span><span class="w"> </span><span class="n">LastName</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
 </code></pre></div>
 
 <h3 id="strings">Strings<a class="anchor" href="#strings" aria-label="Link to this section">#</a></h3>
@@ -905,18 +919,26 @@ ignores all three, so changing them rebuilds nothing. Read them from <code>Prope
 </code></pre></div>
 
 <p><code>LegalValues = new[] { "draft", "published" }</code> limits the value to a list. <code>StringType</code> says what the
-text is: <code>AnyString</code> (the default), <code>SingleLineText</code>, <code>MultiLineText</code>, <code>HTML</code>, <code>Markdown</code>, <code>JSON</code>,
-<code>JavaScript</code>, <code>TypeScript</code>, <code>CSharp</code> or <code>CSS</code>. <code>StringValueType</code> and <code>CaseTransform</code> are in
+text is: <code>AnyString</code> (the default), <code>SingleLineText</code>, <code>MultiLineText</code>, <code>Code</code>, <code>HTML</code>, <code>Markdown</code>,
+<code>JSON</code>, <code>JavaScript</code>, <code>TypeScript</code>, <code>CSharp</code> or <code>CSS</code>. <code>StringValueType</code> and <code>CaseTransform</code> are in
 <code>Relatude.DB.Datamodels.Properties</code>.</p>
 <p><code>SingleLineText</code> and <code>MultiLineText</code> are plain text that an editing interface shows as a text box or
-as a text area. With <code>AnyString</code> the editor chooses; the CMS goes by the property's name. The store
-keeps and indexes all three the same way, so moving between them rebuilds nothing. <code>TextLines</code> says
-how many lines a text area shows before the user resizes it:</p>
+as a text area. <code>Code</code> is source code in any language, shown in a code editor; <code>JSON</code>, <code>JavaScript</code>,
+<code>TypeScript</code>, <code>CSharp</code> and <code>CSS</code> are code in one language. With <code>AnyString</code> the editor chooses; the
+CMS goes by the property's name. The store keeps and indexes <code>AnyString</code>, <code>SingleLineText</code>,
+<code>MultiLineText</code> and <code>Code</code> the same way, so moving between them rebuilds nothing. The datamodel
+editor shows <code>StringType</code> as <strong>Content</strong>, right under the property's name. <code>TextLines</code> says how many
+lines a text area or a code editor shows:</p>
 <div class="codehilite"><pre><span></span><code><span class="na">[StringProperty(StringType = StringValueType.SingleLineText)]</span>
 <span class="k">public</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="n">Headline</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kt">string</span><span class="p">.</span><span class="n">Empty</span><span class="p">;</span>
 
 <span class="na">[StringProperty(StringType = StringValueType.MultiLineText, TextLines = 6)]</span>
 <span class="k">public</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="n">Summary</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kt">string</span><span class="p">.</span><span class="n">Empty</span><span class="p">;</span>
+
+<span class="na">[StringProperty(StringType = StringValueType.Code, TextLines = 8)]</span>
+<span class="k">public</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="n">Sample</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kt">string</span><span class="p">.</span><span class="n">Empty</span><span class="p">;</span>
+
+<span class="k">public</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="n">Language</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;csharp&quot;</span><span class="p">;</span><span class="w">   </span><span class="c1">// the CMS highlights Sample in this language</span>
 </code></pre></div>
 
 <p>Use <code>[HtmlProperty]</code> for rich text. It sets <code>StringType = HTML</code>, so links to nodes and files inside
@@ -1143,7 +1165,7 @@ database you can override these:</p>
 </tr>
 <tr>
 <td>Node type, that type only</td>
-<td><code>Hidden</code>, <code>Title</code>, <code>Description</code>, <code>DefaultReadAccess</code>, <code>DefaultEditViewAccess</code></td>
+<td><code>Hidden</code>, <code>Title</code>, <code>Description</code>, <code>DefaultReadAccess</code>, <code>DefaultEditViewAccess</code>, <code>DefaultEditAccess</code>, <code>DefaultPublishAccess</code>, <code>MinNoInstances</code>, <code>MaxNoInstances</code>, <code>TextIndexBoost</code></td>
 </tr>
 <tr>
 <td>Property, per type</td>
@@ -1155,12 +1177,15 @@ database you can override these:</p>
 </tr>
 <tr>
 <td>Property, on the declaring type only</td>
-<td><code>IndexType</code>, <code>IndexedByWords</code>, <code>TextIndexType</code>, <code>CultureSensitive</code>, <code>MinLength</code>, <code>MaxLength</code>, <code>RegularExpression</code>, <code>RegularExpressionMessage</code>, <code>LegalCharacters</code>, <code>Trim</code>, <code>CaseTransform</code>, <code>MinValue</code>, <code>MaxValue</code>, <code>FacetRangePowerBase</code>, <code>FacetRangeCount</code>, <code>Facet</code>, <code>TextIndexRelatedContent</code>, <code>TextIndexRelatedDisplayName</code>, <code>Display</code> (<a href="#how-an-editor-shows-them-display">§10</a>), <code>TitleLayout</code>, <code>Unit</code>, <code>Height</code>, <code>TextLines</code></td>
+<td><code>IndexType</code>, <code>IndexedByWords</code>, <code>TextIndexType</code>, <code>CultureSensitive</code>, <code>MinLength</code>, <code>MaxLength</code>, <code>RegularExpression</code>, <code>RegularExpressionMessage</code>, <code>LegalCharacters</code>, <code>Trim</code>, <code>CaseTransform</code>, <code>MinValue</code>, <code>MaxValue</code>, <code>FacetRangePowerBase</code>, <code>FacetRangeCount</code>, <code>Facet</code>, <code>TextIndexRelatedContent</code>, <code>TextIndexRelatedDisplayName</code>, <code>TextIndexRecursiveLevelLimit</code>, <code>Display</code> and <code>AllowInlineEditing</code> (<a href="#how-an-editor-shows-them-display">§10</a>), <code>TitleLayout</code>, <code>Unit</code>, <code>Height</code>, <code>Width</code>, <code>Title</code>, <code>TextLines</code>, <code>StringType</code>, <code>UniqueValues</code>, <code>CaseSensitive</code>, <code>IgnoreDuplicateEmptyValues</code>, <code>PrefixSearch</code>, <code>InfixSearch</code>, <code>IndexedBySemantic</code>, <code>PropertyIdForEmbeddings</code>, <code>MinWordLength</code>, <code>MaxWordLength</code>, <code>LegalValues</code>, <code>LegalValueNames</code>, <code>ReadAccess</code>, <code>WriteAccess</code>, <code>IncludeTypes</code>, <code>PrependOnAdd</code>, <code>FileStorageProviderId</code>, <code>AiImageAnalysis</code>, <code>FileTextIndexing</code>, <code>VideoAndAudioFileTextIndexing</code>, and a password's <code>AllowHashed</code>, <code>AllowEncrypted</code>, <code>AllowPlainText</code>, <code>RequireUppercase</code>, <code>RequireLowercase</code>, <code>RequireDigit</code>, <code>RequireSymbol</code></td>
 </tr>
 </tbody>
 </table>
-<p>Nothing else can be overridden: not ids or names, the property type, <code>UniqueValues</code>, <code>LegalValues</code>,
-<code>CultureSpecific</code>, enum metadata, or what a relation, reference or embedded property points at.
+<p>What the compiled code depends on cannot be overridden: ids and names, the property type, what a type
+inherits, the shape of a member (<code>ReferenceValueType</code>, <code>RelationValueType</code>, <code>EmbeddedValueType</code>), the
+relation a property is an end of, the types a reference or an embedded property points at, an
+embedded map's key, and enum metadata. <code>CultureSpecific</code> cannot be overridden either. A rule such as
+<code>UniqueValues</code> is checked as values are written; values already stored are left as they are.
 <code>[Node]</code> also has a <code>TextIndexBoost</code>, which the engine does not use yet.</p>
 <p><strong>In the database: the datamodel editor.</strong> The admin UI's <strong>Models</strong> page writes a change into the
 source that defines the type when it can. Where it cannot, as for compiled classes or types added in
@@ -1419,7 +1444,7 @@ assign a <code>NodeMeta</code> yourself. Change the writable fields with <code>U
 </tr>
 <tr>
 <td><code>CreatedBy</code>, <code>ChangedBy</code></td>
-<td>User ids, when the application writes them.</td>
+<td>Who made the node (or the revision) and who last wrote it: the user of the context that wrote.</td>
 </tr>
 <tr>
 <td><code>ReleaseUtc</code>, <code>ExpireUtc</code></td>
@@ -1433,6 +1458,11 @@ assign a <code>NodeMeta</code> yourself. Change the writable fields with <code>U
 </table>
 <p><code>ChangedUtc</code> moves with every write that changes the node's values. A meta write, or a write that
 changes nothing, leaves it alone. An insert keeps a change time it is given, as an import needs.</p>
+<p><code>ChangedBy</code> is stamped with it: the user of the context the write runs in (<code>db.Context.User(id)</code>),
+<code>Guid.Empty</code> for a context with no user, and <code>NodeConstants.MasterAdminUserId</code> for <code>Admin()</code>. An
+insert sets <code>CreatedBy</code> too, and so does a new revision. Publishing a revision or moving it to another
+culture also names its writer. An insert keeps writers it is given. The log keeps every version with
+its meta, so <code>FindOlderVersions</code> tells who wrote each one.</p>
 <h3 id="writing-meta-updatemeta">Writing meta: <code>UpdateMeta</code><a class="anchor" href="#writing-meta-updatemeta" aria-label="Link to this section">#</a></h3>
 <p><code>UpdateMeta</code> writes meta fields by name: one name and value, or several pairs in one write. The
 names are the property names of <code>IInnerNodeMeta</code>, so write them with <code>nameof</code>. Each value must have
@@ -1488,7 +1518,7 @@ the field's own type (<code>Guid</code>, <code>bool</code>, <code>DateTime?</cod
 <tr>
 <td><code>CreatedBy</code>, <code>ChangedBy</code></td>
 <td><code>Guid</code>, a user's id</td>
-<td>The store does not fill these in.</td>
+<td>The store stamps them as it writes values; written here, they say otherwise until the next write.</td>
 </tr>
 </tbody>
 </table>
@@ -1790,6 +1820,8 @@ to set, and the target does not know about it.</p>
 </code></pre></div>
 
 <p>On a class, initialise them: <code>public Reference&lt;IMediaAsset&gt; Cover { get; set; } = new();</code>.</p>
+<p><code>Display</code> and <code>AllowInlineEditing</code> say how an editing interface shows the nodes referred to
+(<a href="#how-an-editor-shows-them-display">§10</a>).</p>
 <h3 id="reading-and-writing-a-reference">Reading and writing a <code>Reference&lt;T&gt;</code><a class="anchor" href="#reading-and-writing-a-reference" aria-label="Link to this section">#</a></h3>
 <div class="codehilite"><pre><span></span><code><span class="kt">var</span><span class="w"> </span><span class="n">ev</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">Get</span><span class="o">&lt;</span><span class="n">IEvent</span><span class="o">&gt;</span><span class="p">(</span><span class="n">eventId</span><span class="p">);</span>
 
@@ -2059,6 +2091,8 @@ found by the names of its events, and makes the relation a facet:</p>
 <span class="n">EventsAtVenue</span><span class="p">.</span><span class="n">Events</span><span class="w"> </span><span class="n">Events</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
 </code></pre></div>
 
+<p><code>Display</code> and <code>AllowInlineEditing</code> on <code>[RelationProperty]</code> say how an editing interface shows the
+related nodes (<a href="#how-an-editor-shows-them-display">§10</a>).</p>
 <hr />
 <h2 id="10-choosing-between-relation-reference-and-embedded">10. Choosing between relation, reference and embedded<a class="anchor" href="#10-choosing-between-relation-reference-and-embedded" aria-label="Link to this section">#</a></h2>
 <p>This is the modelling choice you make most often.</p>
@@ -2200,9 +2234,18 @@ and <code>[EmbeddedMapProperty]</code>:</p>
 </tr>
 </tbody>
 </table>
-<p>The store ignores <code>Display</code>, so changing it rebuilds nothing. An application reads it from the
-property's model (<code>RelationPropertyModel.Display</code> and the like). The admin UI's datamodel editor can
-change it; for a type from compiled code, the change is saved as an override in the database
+<p>Nodes of their own, those of a relation, reference or references property, are shown <code>Inline</code> only
+when the property says <code>AllowInlineEditing = true</code>; without it they are edited in editors of their own,
+and an editor does not offer <code>Inline</code>. Embedded nodes are the node's own values, so they can always be
+shown inline.</p>
+<div class="codehilite"><pre><span></span><code><span class="na">[ReferencesProperty(Display = DisplayMode.Inline, AllowInlineEditing = true)]</span>
+<span class="n">References</span><span class="o">&lt;</span><span class="n">IArticle</span><span class="o">&gt;</span><span class="w"> </span><span class="n">Featured</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+</code></pre></div>
+
+<p>The store ignores <code>Display</code> and <code>AllowInlineEditing</code>, so changing them rebuilds nothing. An application
+reads them from the property's model (<code>RelationPropertyModel.Display</code>, <code>.AllowInlineEditing</code> and the
+like). The admin UI's datamodel editor can change both (<em>Display</em> and <em>Allow inline editing</em>); for a
+type from compiled code, the change is saved as an override in the database
 (<a href="#31-overriding-attributes">§3.1</a>).</p>
 <hr />
 <h2 id="11-the-complete-example-model">11. The complete example model<a class="anchor" href="#11-the-complete-example-model" aria-label="Link to this section">#</a></h2>
@@ -4476,6 +4519,9 @@ these settings.</p>
 <li><strong>Check the Datamodel page after a modelling change.</strong> It shows each type's parents, so it is the
   quickest way to confirm that your facet interfaces (<a href="#2-your-first-node-type">§2</a>) became parent
   node types, and that a property you expected to be indexed is.</li>
+<li><strong>Change what code does not decide in the datamodel editor.</strong> A property's form starts with its
+  name and, for text, its <strong>Content</strong>, then its title, width and the rest. For a type from compiled
+  code, what you change there is kept as an override (<a href="#31-overriding-attributes">§3.1</a>).</li>
 <li><strong>Mind the middleware order.</strong> <code>UseRelatudeDB</code> adds the engine's startup-progress and auth
   middleware, so call it <em>after</em> your own <code>UseCors</code>, <code>UseHttpsRedirection</code> and <code>UseAuthentication</code>.</li>
 </ul>

@@ -255,6 +255,8 @@ public static class ModelGen {
         if (p.TitleLayout is { } title && title != TitleLayout.Default) sb.Append(", " + nameof(PropertyAttribute.TitleLayout) + " = " + typeof(TitleLayout).Namespace + "." + nameof(TitleLayout) + "." + title);
         if (!string.IsNullOrEmpty(p.Unit)) sb.Append(", " + nameof(PropertyAttribute.Unit) + " = " + stringLiteral(p.Unit));
         if (!string.IsNullOrWhiteSpace(p.Height)) sb.Append(", " + nameof(PropertyAttribute.Height) + " = " + stringLiteral(p.Height.Trim()));
+        if (!string.IsNullOrWhiteSpace(p.Width)) sb.Append(", " + nameof(PropertyAttribute.Width) + " = " + stringLiteral(p.Width.Trim()));
+        if (!string.IsNullOrWhiteSpace(p.Title)) sb.Append(", " + nameof(PropertyAttribute.Title) + " = " + stringLiteral(p.Title.Trim()));
     }
     static string addAttributeBool(BoolValue b) => typeof(BoolValue).Namespace + "." + nameof(BoolValue) + "." + b.ToString();
     static string stringArrayArg(IEnumerable<string> values) => "new string[] {" + string.Join(", ", values) + "}"; // attribute arguments cannot use collection expressions
@@ -508,6 +510,7 @@ public static class ModelGen {
                     if (r.TextIndexRecursiveLevelLimit != 1) sb.Append(", " + nameof(RelationPropertyAttribute.TextIndexRecursiveLevelLimit) + " = " + r.TextIndexRecursiveLevelLimit);
                     if (r.Facet) sb.Append(", " + nameof(RelationPropertyAttribute.Facet) + " = true");
                     appendDisplay(r.Display, sb);
+                    appendAllowInline(r.AllowInlineEditing, sb);
                     sb.AppendLine(")]");
                 }
                 break;
@@ -571,6 +574,7 @@ public static class ModelGen {
                     if (r.NotFacet) sb.Append(", " + nameof(ReferencePropertyAttribute.NotFacet) + " = true");
                     if (r.IncludeTypes != IncludeTypeOptions.ThisTypeAndDescending) sb.Append(", " + nameof(ReferencePropertyAttribute.IncludeTypes) + " = " + typeof(IncludeTypeOptions).Namespace + "." + nameof(IncludeTypeOptions) + "." + r.IncludeTypes);
                     appendDisplay(r.Display, sb);
+                    appendAllowInline(r.AllowInlineEditing, sb);
                     sb.AppendLine(")]");
                 } break;
                 case PropertyType.References: {
@@ -585,6 +589,7 @@ public static class ModelGen {
                     if (r.UniqueValues) sb.Append(", " + nameof(ReferencesPropertyAttribute.UniqueValues) + " = true");
                     if (r.IncludeTypes != IncludeTypeOptions.ThisTypeAndDescending) sb.Append(", " + nameof(ReferencesPropertyAttribute.IncludeTypes) + " = " + typeof(IncludeTypeOptions).Namespace + "." + nameof(IncludeTypeOptions) + "." + r.IncludeTypes);
                     appendDisplay(r.Display, sb);
+                    appendAllowInline(r.AllowInlineEditing, sb);
                     sb.AppendLine(")]");
                 } break;
             default:
@@ -595,6 +600,9 @@ public static class ModelGen {
     // the attributes of every property holding other nodes name it the same
     static void appendDisplay(DisplayMode display, StringBuilder sb) {
         if (display != DisplayMode.List) sb.Append(", " + nameof(RelationPropertyAttribute.Display) + " = " + typeof(DisplayMode).Namespace + "." + nameof(DisplayMode) + "." + display);
+    }
+    static void appendAllowInline(bool allow, StringBuilder sb) {
+        if (allow) sb.Append(", " + nameof(RelationPropertyAttribute.AllowInlineEditing) + " = true");
     }
     static void appendRelationCode(RelationModel relation, Datamodel dm, StringBuilder sb, bool addAttributes) {
         if (addAttributes) {

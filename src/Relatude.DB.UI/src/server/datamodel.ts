@@ -313,10 +313,15 @@ export interface Schema {
   groups: string[];
 }
 
-/** The fields of a property of the given type: the common ones it has, then its own. */
+/**
+ * The fields of a property of the given type: the common ones it has and its own, in each group by the catalog's order,
+ * so a field of the type's own can come first (a text's Content, right under its name).
+ */
 export function propertyFields(schema: Schema, propertyType: string): FieldDef[] {
   const hidden = schema.propertyCommonHidden?.[propertyType] ?? [];
-  return [...schema.propertyCommon.filter((f) => !hidden.includes(f.path)), ...(schema.propertyByType[propertyType] ?? [])];
+  const fields = [...schema.propertyCommon.filter((f) => !hidden.includes(f.path)), ...(schema.propertyByType[propertyType] ?? [])];
+  const at = new Map(fields.map((f, i) => [f, i]));
+  return fields.sort((a, b) => a.order - b.order || at.get(a)! - at.get(b)!);
 }
 
 // ---- validation and activation ----

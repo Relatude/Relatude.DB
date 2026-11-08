@@ -46,6 +46,13 @@ public class RelationPropertyModel : PropertyModel {
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public DisplayMode Display { get; set; }
+    /// <summary>
+    /// Whether an editing interface may show the related nodes as forms that open in place (<see cref="DisplayMode.Inline"/>),
+    /// edited and saved with the node holding the relation. Off, as it is when nothing is said, each related node is
+    /// edited in an editor of its own. Presentation only, as <see cref="Display"/> is.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool AllowInlineEditing { get; set; }
 
     public override object GetDefaultValue() => throw new NotSupportedException();
     public override string GetDefaultValueAsCode() => throw new NotSupportedException();

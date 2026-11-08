@@ -16,6 +16,9 @@ public class ReferencesPropertyModel : GuidArrayPropertyModel {
     /// <summary>How an editing interface shows the nodes referred to; see <see cref="RelationPropertyModel.Display"/>.</summary>
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
     public DisplayMode Display { get; set; }
+    /// <summary>Whether an editing interface may show the nodes referred to as forms that open in place; see <see cref="ReferencePropertyModel.AllowInlineEditing"/>.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public bool AllowInlineEditing { get; set; }
 
     // wrapper needs an initialized instance (the mapper calls Initialize on it); plain
     // collection shapes must stay null until preloaded: null means "leave stored value

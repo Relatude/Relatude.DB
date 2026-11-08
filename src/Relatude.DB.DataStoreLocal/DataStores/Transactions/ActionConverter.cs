@@ -9,8 +9,11 @@ namespace Relatude.DB.DataStores.Transactions;
 internal class ActionConverter {
     ResultingOperation? _lastResultingOperation = null; // only possible as there is only one thread per transaction
     public ResultingOperation LastResultingOperation => _lastResultingOperation ?? ResultingOperation.None; // NB: only valid after the primitives returned by Convert have been enumerated
+    // who writes: the transaction's user, stamped on what a write changes with its change time (none for a write with no user)
+    Guid _writer;
     public IEnumerable<PrimitiveActionBase> Convert(DataStoreLocal db, ActionBase complexAction, bool transformValues, List<KeyValuePair<TaskData, string?>> newTasks, QueryContext ctx) {
         _lastResultingOperation = null; // reset for each action, set during enumeration of the returned primitives
+        _writer = ctx.UserId;
         var src = complexAction switch {
             RelationAction relationAction => toPrimitiveActions(db, relationAction, newTasks),
             NodeAction nodeAction => toPrimitiveActions(db, nodeAction, transformValues, newTasks),
@@ -87,6 +90,7 @@ internal class ActionConverter {
                     db._urls.RegisterAddressAtCommit(node, node);
                     if (node.CreatedUtc == DateTime.MinValue) node.CreatedUtc = DateTime.UtcNow;
                     stampIfNotGiven(node);
+                    stampInserted(node);
                     Utils.ForceTypeValidateValuesAndCopyMissing(db._definition, node, null, transformValues);
                     Utils.EnsureOrQueueIndex(db, node, doNotRegenTheseProps, newTasks);
                     if (!_lastResultingOperation.HasValue) _lastResultingOperation = ResultingOperation.CreateNode;
@@ -165,7 +169,10 @@ internal class ActionConverter {
                             if (!_lastResultingOperation.HasValue) _lastResultingOperation = ResultingOperation.UpdateNode;
                             // its values written: changed now, whatever time the node it came as has (the one it was read
                             // with), unless it was only indexed or its files moved to another store (writesBack)
-                            if (!writesBack && node is NodeDataAbstract written) written.SetChangedUtc(DateTime.UtcNow);
+                            if (!writesBack && node is NodeDataAbstract written) {
+                                written.SetChangedUtc(DateTime.UtcNow);
+                                written.SetWriter(_writer, createdByOf(oldNode, written));
+                            }
                             // NB: the new node is prepared, and the address registered, BEFORE the remove primitive
                             // is yielded: primitives execute as they are enumerated, and the uniqueness probe of the
                             // url manager must still be able to see the node (its parents, its current address).
@@ -201,6 +208,7 @@ internal class ActionConverter {
                         db._urls.RegisterAddressAtCommit(node, node); // registration was missing on this path before the multi-owner registry
                         if (node.CreatedUtc == DateTime.MinValue) node.CreatedUtc = DateTime.UtcNow;
                         stampIfNotGiven(node);
+                        stampInserted(node);
                         Utils.ForceTypeValidateValuesAndCopyMissing(db._definition, node, null, transformValues);
                         Utils.EnsureOrQueueIndex(db, node, doNotRegenTheseProps, newTasks);
                         if (!_lastResultingOperation.HasValue) _lastResultingOperation = ResultingOperation.CreateNode;
@@ -260,6 +268,29 @@ internal class ActionConverter {
     /// <summary>A node inserted without a change time is changed when it was made; one given (an import) keeps it.</summary>
     static void stampIfNotGiven(INodeData node) {
         if (node.ChangedUtc == DateTime.MinValue && node is NodeDataAbstract made) made.SetChangedUtc(node.CreatedUtc);
+    }
+    /// <summary>
+    /// An insert's writers: the transaction's user made it and changed it. An insert given writers (an import) keeps
+    /// them, as it keeps a change time given.
+    /// </summary>
+    void stampInserted(INodeData node) {
+        if (node is NodeDataRevisions revisions) {
+            foreach (var revision in revisions.Revisions) stampInserted(revision);
+        } else if (node is NodeDataAbstract written) {
+            if (written.Meta is { } given && (given.CreatedBy != Guid.Empty || given.ChangedBy != Guid.Empty)) return;
+            written.SetWriter(_writer, _writer);
+        }
+    }
+    /// <summary>
+    /// Who made the version an update writes, as the store holds it: an update stores the meta its node carries, which a
+    /// node made from an object (an update after an insert in one transaction, say) has none of.
+    /// </summary>
+    static Guid createdByOf(INodeData stored, INodeData written) {
+        if (stored is NodeDataRevisions revisions) {
+            var key = (written.Meta ?? IInnerNodeMeta.Empty).RevisionKey;
+            return revisions.Revisions.FirstOrDefault(r => r.RevisionKey == key)?.Meta?.CreatedBy ?? Guid.Empty;
+        }
+        return stored.Meta?.CreatedBy ?? Guid.Empty;
     }
     // the common case, both ends given as guids, resolves both under one guid store lock
     static void resolveEnds(DataStoreLocal db, RelationAction a, out int source, out int target) {
@@ -538,17 +569,17 @@ internal class ActionConverter {
     // put in a culture takes the node's neutral ones with it when the node had no culture (the node is given its first),
     // and a version made neutral is refused while the node has others in cultures: the whole node moves to no culture
     // (ChangeRevisionCulture without a revision id). Nodes stored with both before the rule are read as they are.
-    static NodeDataRevision[] withVersionIn(DataStoreLocal db, Guid nodeId, NodeDataRevision[] others, Guid cultureId, List<KeyValuePair<TaskData, string?>> newTasks) {
+    static NodeDataRevision[] withVersionIn(DataStoreLocal db, Guid nodeId, NodeDataRevision[] others, Guid cultureId, List<KeyValuePair<TaskData, string?>> newTasks, Guid writer) {
         if (cultureId == Guid.Empty) {
             if (others.Any(r => r.CultureId != Guid.Empty)) throw new Exception("Node " + nodeId + " has versions in cultures, so none of its versions can be neutral: a node's versions are all neutral or all in cultures. Move the whole node to no culture instead. ");
             return others;
         }
         if (others.Any(r => r.CultureId != Guid.Empty)) return others;
-        return [.. others.Select(r => inCulture(db, r, cultureId, newTasks))];
+        return [.. others.Select(r => inCulture(db, r, cultureId, newTasks, writer))];
     }
-    static NodeDataRevision inCulture(DataStoreLocal db, NodeDataRevision rev, Guid cultureId, List<KeyValuePair<TaskData, string?>> newTasks) {
+    static NodeDataRevision inCulture(DataStoreLocal db, NodeDataRevision rev, Guid cultureId, List<KeyValuePair<TaskData, string?>> newTasks, Guid writer) {
         if (rev.CultureId == cultureId) return rev;
-        var moved = rev.CopyAndChangeMeta(IInnerNodeMeta.ChangeCulture(rev.Meta, cultureId));
+        var moved = rev.CopyAndChangeMeta(IInnerNodeMeta.ChangeWriter(IInnerNodeMeta.ChangeCulture(rev.Meta, cultureId), writer, rev.Meta?.CreatedBy ?? Guid.Empty));
         // the text of related nodes is taken in the revision's culture (UtilsText)
         if (moved.RevisionType == RevisionType.Published) Utils.EnsureOrQueueIndex(db, moved, null, newTasks);
         return moved;
@@ -639,7 +670,7 @@ internal class ActionConverter {
                     var cultureGiven = a.CultureId != null || a.CultureCode != null;
                     if (!cultureGiven) cultureId = sourceRevision.CultureId; // none given: the source's culture
                     // the node's first culture: its neutral versions go into it too, its published one with them
-                    var existing = withVersionIn(db, revs.Id, revs.Revisions, cultureId, newTasks);
+                    var existing = withVersionIn(db, revs.Id, revs.Revisions, cultureId, newTasks, _writer);
                     if (a.RevisionType == RevisionType.Published && existing != revs.Revisions && existing.Any(r => r.RevisionType == RevisionType.Published)) {
                         throw new Exception("Node " + revs.Id + " has a published neutral version, which goes into the culture with its other versions, as a node's versions are all neutral or all in cultures: make the new version a draft and publish it over that one. ");
                     }
@@ -648,6 +679,7 @@ internal class ActionConverter {
                     if (cultureGiven && (newMeta?.CultureId ?? Guid.Empty) != cultureId) newMeta = IInnerNodeMeta.ChangeCulture(newMeta, cultureId);
                     NodeDataRevision newRev = sourceRevision.CopyAndChangeMetaAndRevisionId(newMeta, a.RevisionId.Value);
                     newRev.SetChangedUtc(DateTime.UtcNow); // made now, of the source's values
+                    newRev.SetWriter(_writer, _writer);
                     if (a.RevisionType == RevisionType.Published) Utils.EnsureOrQueueIndex(db, newRev, null, newTasks); // published now
                     NodeDataRevision[] newRevs = [.. existing, newRev];
                     var newNode = new NodeDataRevisions(revs.Id, revs.__Id, revs.NodeType, newRevs);
@@ -678,7 +710,8 @@ internal class ActionConverter {
                     Guid cultureId = Guid.Empty;
                     if (revToChange.Meta != null) cultureId = revToChange.Meta.CultureId;
                     var newKey = RevisionUtil.CreateNewRevisionKey(a.RevisionType.Value, cultureId, revs.Revisions); // validate that the new revision type can be used with the existing revisions, will throw if not valid
-                    var newMeta = IInnerNodeMeta.ChangeRevision(revToChange.Meta, newKey);
+                    // published or unpublished by the writer: the history shows it as a step of its own
+                    var newMeta = IInnerNodeMeta.ChangeWriter(IInnerNodeMeta.ChangeRevision(revToChange.Meta, newKey), _writer, revToChange.Meta?.CreatedBy ?? Guid.Empty);
                     var newRev = revToChange.CopyAndChangeMeta(newMeta);
                     if (a.RevisionType == RevisionType.Published) Utils.EnsureOrQueueIndex(db, newRev, null, newTasks); // published now
                     var newRevs = revs.Revisions.ToArray();
@@ -698,10 +731,10 @@ internal class ActionConverter {
                             if (all.Revisions.Count(r => r.RevisionType == RevisionType.Published) > 1) {
                                 throw new Exception("Node " + all.Id + " is published in more than one culture, and a culture has one published version: unpublish all but one before moving the node. ");
                             }
-                            newNode = new NodeDataRevisions(all.Id, all.__Id, all.NodeType, [.. all.Revisions.Select(r => inCulture(db, r, cultureId, newTasks))]);
+                            newNode = new NodeDataRevisions(all.Id, all.__Id, all.NodeType, [.. all.Revisions.Select(r => inCulture(db, r, cultureId, newTasks, _writer))]);
                         } else if (existingNode is NodeData plain) {
                             if ((plain.Meta?.CultureId ?? Guid.Empty) == cultureId) yield break;
-                            newNode = plain.CopyAndChangeMeta(IInnerNodeMeta.ChangeCulture(plain.Meta, cultureId));
+                            newNode = plain.CopyAndChangeMeta(IInnerNodeMeta.ChangeWriter(IInnerNodeMeta.ChangeCulture(plain.Meta, cultureId), _writer, plain.Meta?.CreatedBy ?? Guid.Empty));
                             Utils.EnsureOrQueueIndex(db, newNode, null, newTasks);
                         } else {
                             throw new Exception("Unexpected node data type for node with id " + a.NodeIdKey + " when changing its culture. ");
@@ -715,9 +748,9 @@ internal class ActionConverter {
                     if (posOfRevToChange == -1) throw new Exception("Revision with id " + a.RevisionId + " does not exist, cannot change revision culture. ");
                     var revToChange = revs.Revisions[posOfRevToChange];
                     if (revToChange.CultureId == cultureId) yield break; // nothing to do if culture is the same
-                    var newRev = inCulture(db, revToChange, cultureId, newTasks);
+                    var newRev = inCulture(db, revToChange, cultureId, newTasks, _writer);
                     // the node's first culture: its other versions go into it too
-                    var others = withVersionIn(db, revs.Id, [.. revs.Revisions.Where((_, i) => i != posOfRevToChange)], cultureId, newTasks);
+                    var others = withVersionIn(db, revs.Id, [.. revs.Revisions.Where((_, i) => i != posOfRevToChange)], cultureId, newTasks, _writer);
                     NodeDataRevision[] newRevs = [.. others[..posOfRevToChange], newRev, .. others[posOfRevToChange..]];
                     var newRevsNode = new NodeDataRevisions(revs.Id, revs.__Id, revs.NodeType, newRevs);
                     yield return new PrimitiveNodeAction(PrimitiveOperation.Remove, existingNode);

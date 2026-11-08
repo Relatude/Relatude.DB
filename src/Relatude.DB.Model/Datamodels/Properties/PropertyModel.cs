@@ -59,6 +59,19 @@ public abstract class PropertyModel {
     /// </summary>
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public string? Height { get; set; }
+    /// <summary>
+    /// How wide an editing interface makes the property's field: a percentage, a share of the form's row that fields
+    /// share while they fit ("50%"), or a CSS length for a field of that width ("300px", "20rem"; a number alone is
+    /// pixels). Null for the editor's own: the whole row. Presentation only, as <see cref="TitleLayout"/> is.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? Width { get; set; }
+    /// <summary>
+    /// What people call the property, where an editing interface labels its field: "Main picture". Null leaves the
+    /// interface to make one from the code name. Presentation only, as <see cref="TitleLayout"/> is.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? Title { get; set; }
     public abstract object? GetDefaultValue();
     public virtual string? GetDefaultDeclaration() => string.Empty;
     public bool Internal { get; set; }

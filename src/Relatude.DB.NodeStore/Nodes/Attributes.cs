@@ -163,6 +163,17 @@ public abstract class PropertyAttribute : Attribute {
     /// field): a CSS length, "300px", "20rem" or "100%". Presentation only (<see cref="Relatude.DB.Datamodels.Properties.PropertyModel.Height"/>).
     /// </summary>
     public string? Height { get; set; }
+    /// <summary>
+    /// How wide an editing interface makes the property's field: a percentage, a share of the form's row that fields share
+    /// while they fit ("50%"), or a CSS length ("300px", "20rem"). Left out, the whole row. Presentation only
+    /// (<see cref="Relatude.DB.Datamodels.Properties.PropertyModel.Width"/>).
+    /// </summary>
+    public string? Width { get; set; }
+    /// <summary>
+    /// What people call the property, where an editing interface labels its field: "Main picture". Left out, the interface
+    /// makes one from the member's name. Presentation only (<see cref="Relatude.DB.Datamodels.Properties.PropertyModel.Title"/>).
+    /// </summary>
+    public string? Title { get; set; }
 }
 [AttributeUsage(AttributeTargets.Property)]
 public class BooleanPropertyAttribute : PropertyAttribute, IAttrWithNotFacet {
@@ -289,7 +300,7 @@ public class StringPropertyAttribute : PropertyAttribute, IAttrWithUniqueContrai
     public StringValueType StringType = StringValueType.AnyString;
     /// <summary>
     /// How many lines an editing interface's text area shows before it is resized; 0 for the editor's own. Only for a
-    /// property shown as a text area (MultiLineText, the code kinds, or AnyString the editor shows so). Presentation only
+    /// property shown as a text area (MultiLineText, Code and the other code kinds, or AnyString the editor shows so). Presentation only
     /// (<see cref="StringPropertyModel.TextLines"/>).
     /// </summary>
     public int TextLines { get; set; }
@@ -391,6 +402,7 @@ public class ReferencePropertyAttribute : PropertyAttribute, IAttrWithNotFacet {
     public bool Indexed { get; set; } // required for filtering and faceting on the reference
     public bool NotFacet { get; set; } // excluded from faceting even when indexed
     public DisplayMode Display { get; set; } // how an editing interface shows the node referred to
+    public bool AllowInlineEditing { get; set; } // whether an editing interface may show it as a form in place (Display Inline)
 }
 [AttributeUsage(AttributeTargets.Property)]
 public class ReferencesPropertyAttribute : PropertyAttribute, IAttrWithUniqueContraints, IAttrWithNotFacet {
@@ -400,6 +412,7 @@ public class ReferencesPropertyAttribute : PropertyAttribute, IAttrWithUniqueCon
     public bool NotFacet { get; set; } // excluded from faceting even when indexed
     public bool UniqueValues { get; set; }
     public DisplayMode Display { get; set; } // how an editing interface shows the nodes referred to
+    public bool AllowInlineEditing { get; set; } // whether an editing interface may show them as forms in place (Display Inline)
 }
 [AttributeUsage(AttributeTargets.Property)]
 public class RelationPropertyAttribute : PropertyAttribute {
@@ -416,6 +429,11 @@ public class RelationPropertyAttribute : PropertyAttribute {
     /// embedded properties take it too.
     /// </summary>
     public DisplayMode Display { get; set; }
+    /// <summary>
+    /// Whether an editing interface may show the related nodes as forms that open in place (Display Inline), edited and
+    /// saved with this node. Off, each is edited in an editor of its own. It says nothing to the store.
+    /// </summary>
+    public bool AllowInlineEditing { get; set; }
 
 }
 [AttributeUsage(AttributeTargets.Property)]

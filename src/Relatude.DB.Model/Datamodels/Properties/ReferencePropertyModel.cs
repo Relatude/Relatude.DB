@@ -24,6 +24,13 @@ public class ReferencePropertyModel : PropertyModel {
     /// <summary>How an editing interface shows the node referred to; see <see cref="RelationPropertyModel.Display"/>.</summary>
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
     public DisplayMode Display { get; set; }
+    /// <summary>
+    /// Whether an editing interface may show the node referred to as a form that opens in place
+    /// (<see cref="DisplayMode.Inline"/>), where it is edited and saved with the node holding the reference. Off, as it
+    /// is when nothing is said, the node is edited in an editor of its own. Presentation only, as Display is.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public bool AllowInlineEditing { get; set; }
 
     public Guid DefaultValue { get; set; }
     public override PropertyType PropertyType { get => PropertyType.Reference; }
