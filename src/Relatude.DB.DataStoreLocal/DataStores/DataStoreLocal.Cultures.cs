@@ -21,6 +21,8 @@ public sealed partial class DataStoreLocal {
     sealed class IndexRecord {
         public int Version { get; set; }
         public Guid[] Cultures { get; set; } = [];
+        /// <summary>The embedding model the stored vectors were made with (DataStoreLocal.Embeddings.cs).</summary>
+        public string? EmbeddingModel { get; set; }
     }
     // set up with the store, before Definition.Initialize makes the indexes (initialize)
     bool _indexesFromOlderVersion;
@@ -34,9 +36,10 @@ public sealed partial class DataStoreLocal {
         }
         _definition.IndexedCultures = record?.Cultures ?? [];
         _indexesFromOlderVersion = (record?.Version ?? 1) < _indexRecordVersion;
+        _embeddingModelOfVectors = record?.EmbeddingModel;
     }
     void writeIndexRecord() {
-        var record = new IndexRecord { Version = _indexRecordVersion, Cultures = _definition.IndexedCultures };
+        var record = new IndexRecord { Version = _indexRecordVersion, Cultures = _definition.IndexedCultures, EmbeddingModel = _embeddingModelOfVectors };
         IOIndex.WriteAllBytes(FileKeyUtility.State_IndexRecordFileKey, JsonSerializer.SerializeToUtf8Bytes(record));
         _indexesFromOlderVersion = false;
     }

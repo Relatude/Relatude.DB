@@ -139,11 +139,12 @@ public class VectorIndex : ISemanticIndex, IDisposable {
 
     public void Add(int nodeId, object value) => Add(nodeId, (float[])value);
     public void Add(int nodeId, float[] value) {
-        value = this.EnsureCorrectDimensions(value);    
         ensureOpened();
         _lock.EnterWriteLock();
         try {
             drainLoadBufferLocked(); // buffered replay ops precede this one
+            startOverIfEmpty(value);
+            value = this.EnsureCorrectDimensions(value);
             validateAdd(value);
             if (value.Length == 0) { // an empty embedding (empty source text) means nothing searchable
                 _graph?.Remove(nodeId);
@@ -206,6 +207,10 @@ public class VectorIndex : ISemanticIndex, IDisposable {
         ensureOpened();
         _lock.EnterWriteLock();
         try {
+            if (vector.Length != 0 && _dims != 0 && vector.Length != _dims) {
+                drainLoadBufferLocked(); // whether the index is empty depends on what is buffered
+                startOverIfEmpty(vector);
+            }
             validateAdd(vector); // fail at the offending op, exactly like an unbuffered add
             _loadPending[nodeId] = vector;
             _loadPendingBytes += vector.Length * 4L + 32;
@@ -229,6 +234,18 @@ public class VectorIndex : ISemanticIndex, IDisposable {
         if (value.Length == 0) return;
         if (_dims == 0) _dims = value.Length; // the first vector locks the dimensions
         else if (value.Length != _dims) throw new ArgumentException($"All vectors must have the same length. The index holds {_dims}-dimensional vectors, got {value.Length}. ");
+    }
+    /// <summary>An index holding no vectors takes the length of the next, as after the store has emptied the vectors of
+    /// another embedding model; unless the length is configured.</summary>
+    void startOverIfEmpty(float[] value) {
+        if (value.Length == 0 || _dims == 0 || value.Length == _dims || _configuredDims != 0) return;
+        if (_graph != null) {
+            if (_graph.LiveCount > 0) return;
+            _pendingRetire.AddRange(_graph.Paths); // deleted once the manifest stops naming them
+            _graph.Dispose();
+            _graph = null;
+        }
+        _dims = 0;
     }
     void spillIfNeeded(Graph graph) {
         if (graph.DirtyBytes >= _options.ResolvedMemTableFlushThresholdBytes) {

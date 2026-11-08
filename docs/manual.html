@@ -3123,7 +3123,7 @@ embeddings and <code>ai_completion</code> for completions.</p>
 <tr>
 <td><code>EmbeddingModel</code></td>
 <td>–</td>
-<td>The embedding model (on Azure, the deployment name).</td>
+<td>The embedding model (on Azure, the deployment name). The database records which model made its vectors. Opened with another, it empties them and embeds every node again in the background, which costs what the first embedding did; meanwhile vector search finds the nodes embedded so far.</td>
 </tr>
 <tr>
 <td><code>EmbeddingServiceUrl</code>, <code>EmbeddingApiKey</code></td>
@@ -8491,14 +8491,15 @@ from code, without a server, is given its providers in the <code>NodeStore</code
 <div class="codehilite"><pre><span></span><code>&quot;AISettings&quot;: {
   &quot;TypeName&quot;: &quot;RelatudeServices&quot;,
   &quot;CompletionModel&quot;: &quot;fast&quot;,
-  &quot;CompletionModelsByKey&quot;: { &quot;strong&quot;: &quot;balanced&quot; }
+  &quot;CompletionModelsByKey&quot;: { &quot;strong&quot;: &quot;thorough&quot; }
 }
 </code></pre></div>
 
 <ul>
 <li><strong>Model names.</strong> The hosted service has its own model keys: <code>embedding-small</code> and
-  <code>embedding-large</code> for <code>EmbeddingModel</code>, <code>fast</code> and <code>balanced</code> for <code>CompletionModel</code>. Leave them
-  empty for the service's default. <code>CompletionModelsByKey</code> maps your own keys onto them.</li>
+  <code>embedding-large</code> for <code>EmbeddingModel</code>; <code>fast</code> (the default), <code>balanced</code> and <code>thorough</code> (smarter
+  but slower) for <code>CompletionModel</code>. Leave them empty for the service's default.
+  <code>CompletionModelsByKey</code> maps your own keys onto them.</li>
 <li><strong>Semantic search</strong> computes embeddings by itself, so most applications never call
   <code>GetEmbeddingsAsync</code>.</li>
 <li><strong>Embeddings are cached</strong> on the server by text and model (<code>AISettings.CacheType</code>), so each text

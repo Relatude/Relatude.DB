@@ -1266,6 +1266,15 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
                     <IconLock size={11} stroke={2.2} /> Read only
                   </span>
                 )}
+                <button
+                  className={"icon-button labelled" +(showHelp ? " active" : "")}
+                  aria-pressed={showHelp}
+                  onClick={() => setShowHelp(!showHelp)}
+                  title={showHelp ? "Hide the help text under the fields" : "Show the help text under the fields"}
+                >
+                  {showHelp ? <IconMessage size={15} stroke={1.9} /> : <IconMessageOff size={15} stroke={1.9} />}
+                  <span className="dm-help-toggle-label">Help text</span>
+                </button>
                 <button className="icon-button" onClick={() => setSelection(null)} title="Close">
                   <IconX size={16} stroke={2} />
                 </button>

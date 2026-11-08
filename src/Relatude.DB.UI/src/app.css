@@ -4400,6 +4400,13 @@ a.action-button {
   min-width: 0;
 }
 
+.secrets-warning-close {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  margin: -4px -8px 0 0;
+}
+
 .secrets-warning-head {
   font-size: 13px;
   font-weight: 600;

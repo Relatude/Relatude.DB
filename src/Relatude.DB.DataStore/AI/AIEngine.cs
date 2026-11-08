@@ -18,6 +18,10 @@ public class AIEngine {
     static readonly ulong _ownerKey = "relatude.db/embedding-cache/owner-of-text-only-keys".XXH64Hash();
     public Action<string>? LogCallback { get; set; }
     public AIProviderSettings Settings { get; }
+    /// <summary>What decides the embeddings this engine makes (<see cref="EmbeddingModelKey"/>).</summary>
+    public string ModelKey => _modelKey;
+    /// <summary>The cache was first used, since it is keyed by the model, by another model than this one.</summary>
+    public bool CacheFirstUsedByAnotherModel => !_legacyIsOurs;
     public AIEngine(IAIProvider provider, AIProviderSettings settings, IEmbeddingCache? cache = null) {
         _provider = provider;
         Settings = settings;

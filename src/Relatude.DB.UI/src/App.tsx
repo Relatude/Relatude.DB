@@ -13,6 +13,7 @@ import { LogsSection } from "./components/LogsSection";
 import { CustomLogsSection } from "./components/CustomLogsSection";
 import { Overview } from "./components/Overview";
 import { QuerySection } from "./components/QuerySection";
+import { reopenSecretsWarning } from "./components/SecretsWarning";
 import { isServiceTestView, ServiceTestsSection } from "./components/ServiceTestsSection";
 import { SettingsSection } from "./components/SettingsSection";
 import { Sidebar } from "./components/Sidebar";
@@ -109,6 +110,9 @@ export function App() {
       .then((loggedIn) => setAuth(loggedIn ? "ready" : "login"))
       .catch(() => setAuth("login"));
   }, []);
+  useEffect(() => {
+    if (auth === "login") reopenSecretsWarning();
+  }, [auth]);
   useEffect(
     () =>
       // a 401 from the channel means the session expired: back to the login screen

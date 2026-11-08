@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { IconAlertTriangle, IconChevronDown, IconChevronRight } from "@tabler/icons-react";
+import { IconAlertTriangle, IconChevronDown, IconChevronRight, IconX } from "@tabler/icons-react";
 import { openInSettings } from "../navigate";
+import { fetchWhoAmI } from "../server/serverInfo";
 import type { SecretInFile, SecretsElsewhere, SecretsInFile } from "../server/settings";
 import { CopyText } from "./CopyText";
 
@@ -20,7 +21,8 @@ type Form = "user-secrets" | "environment";
  *
  * Nothing on the page can fix this: the admin UI never edits relatude.db.json, which is the developer's
  * file. So the warning stays until the file no longer holds them; the server reads the file afresh for
- * every page, so a reload after editing it is enough.
+ * every page, so a reload after editing it is enough. It can be closed, on every page at once, until the
+ * next login; the line under each field stays.
  */
 export function SecretsWarning({
   secrets,
@@ -37,7 +39,8 @@ export function SecretsWarning({
 }) {
   const [showHow, setShowHow] = useState(false);
   const [form, setForm] = useState<Form>("user-secrets");
-  if (!secrets) return null;
+  const [closed, setClosed] = useState(readClosed);
+  if (!secrets || closed) return null;
   const { items, elsewhere, file, configSection } = secrets;
   const toMove = items.filter((i) => !i.unused && i.configKey);
   const count = items.length;
@@ -109,8 +112,48 @@ export function SecretsWarning({
           </>
         )}
       </div>
+      <button
+        className="icon-button secrets-warning-close"
+        onClick={() => {
+          setClosed(true);
+          rememberClosed();
+        }}
+        title="Close until the next login"
+      >
+        <IconX size={16} stroke={1.8} />
+      </button>
     </div>
   );
+}
+
+const closedKey = "secretsWarningClosed";
+
+function readClosed(): boolean {
+  try {
+    return localStorage.getItem(closedKey) === "1" || sessionStorage.getItem(closedKey) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function rememberClosed(): void {
+  const keep = (storage: Storage) => {
+    try {
+      storage.setItem(closedKey, "1");
+    } catch {}
+  };
+  // the localhost bypass never logs in again, so there it only lasts as long as the browser tab
+  fetchWhoAmI()
+    .then((who) => keep(who.canLogOut ? localStorage : sessionStorage))
+    .catch(() => keep(sessionStorage));
+}
+
+/** The login page calls this: a closed warning comes back with the next login. */
+export function reopenSecretsWarning(): void {
+  try {
+    localStorage.removeItem(closedKey);
+    sessionStorage.removeItem(closedKey);
+  } catch {}
 }
 
 function HowToMove({ items, form, onForm, file }: { items: SecretInFile[]; form: Form; onForm: (form: Form) => void; file: string }) {

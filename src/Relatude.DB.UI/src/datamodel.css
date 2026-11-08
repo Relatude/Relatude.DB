@@ -524,6 +524,13 @@
   padding: 8px 8px 8px 14px;
   border-bottom: 1px solid var(--border);
   flex: none;
+  container: dm-side-head / inline-size;
+}
+
+@container dm-side-head (max-width: 340px) {
+  .dm-help-toggle-label {
+    display: none;
+  }
 }
 
 .dm-side-body {

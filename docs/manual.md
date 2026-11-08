@@ -2227,7 +2227,7 @@ embeddings and `ai_completion` for completions.
 | `ServiceUrl` | per provider | The endpoint. Required for Azure. OpenAI defaults to `https://api.openai.com/v1`. |
 | `ApiKey` | null | The vendor's key. Keep it in the `RelatudeDB` configuration section, not in this file. |
 | `ApiVersion` | per provider | Overrides the `api-version` query parameter, for Azure OpenAI. |
-| `EmbeddingModel` | – | The embedding model (on Azure, the deployment name). |
+| `EmbeddingModel` | – | The embedding model (on Azure, the deployment name). The database records which model made its vectors. Opened with another, it empties them and embeds every node again in the background, which costs what the first embedding did; meanwhile vector search finds the nodes embedded so far. |
 | `EmbeddingServiceUrl`, `EmbeddingApiKey` | `ServiceUrl`, `ApiKey` | A separate endpoint for embeddings. Required for Anthropic. |
 | `CompletionModel` | – | The completion model (on Azure, the deployment name). Anthropic and `RelatudeServices` have a default. |
 | `CompletionModelsByKey` | null | Named alternatives for `GetCompletionAsync(prompt, modelKey)`, such as a cheap model and a strong one. |
@@ -6427,13 +6427,14 @@ To use the hosted Relatude AI service, set `AISettings` for the database
 "AISettings": {
   "TypeName": "RelatudeServices",
   "CompletionModel": "fast",
-  "CompletionModelsByKey": { "strong": "balanced" }
+  "CompletionModelsByKey": { "strong": "thorough" }
 }
 ```
 
 - **Model names.** The hosted service has its own model keys: `embedding-small` and
-  `embedding-large` for `EmbeddingModel`, `fast` and `balanced` for `CompletionModel`. Leave them
-  empty for the service's default. `CompletionModelsByKey` maps your own keys onto them.
+  `embedding-large` for `EmbeddingModel`; `fast` (the default), `balanced` and `thorough` (smarter
+  but slower) for `CompletionModel`. Leave them empty for the service's default.
+  `CompletionModelsByKey` maps your own keys onto them.
 - **Semantic search** computes embeddings by itself, so most applications never call
   `GetEmbeddingsAsync`.
 - **Embeddings are cached** on the server by text and model (`AISettings.CacheType`), so each text

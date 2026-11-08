@@ -51,6 +51,7 @@ public class IVSVectorIndex : ISemanticIndex, IDisposable {
     readonly List<string> _pendingRetire = [];       // files merged away, deletable after the next manifest write
     CentroidSet? _centroids;
     long _centroidGeneration;
+    long _retiredCentroidGeneration; // the highest dropped by startOverIfEmpty since the open
     int _trainedAtCount;
     int _dims;
     long _memBytes;
@@ -113,6 +114,7 @@ public class IVSVectorIndex : ISemanticIndex, IDisposable {
         ensureOpened();
         _lock.EnterWriteLock();
         try {
+            startOverIfEmpty(value);
             value = this.EnsureCorrectDimensions(value);
             if (value.Length == 0) { // an empty embedding (empty source text) means nothing searchable
                 removeInner(nodeId);
@@ -146,6 +148,26 @@ public class IVSVectorIndex : ISemanticIndex, IDisposable {
         } finally {
             _lock.ExitWriteLock();
         }
+    }
+    /// <summary>An index holding no vectors takes the length of the next, as after the store has emptied the vectors of
+    /// another embedding model; unless the length is configured.</summary>
+    void startOverIfEmpty(float[] value) {
+        if (value.Length == 0 || _dims == 0 || value.Length == _dims || _configuredDims != 0 || _live.Count > 0) return;
+        foreach (var s in _segments) {
+            _pendingRetire.Add(s.Path); // deleted once the manifest stops naming them
+            s.Dispose();
+        }
+        _segments.Clear();
+        if (_centroidGeneration != 0) _pendingRetire.Add(centroidsPath(_centroidGeneration));
+        _retiredCentroidGeneration = Math.Max(_retiredCentroidGeneration, _centroidGeneration); // never written again before it is deleted
+        _centroids = null;
+        _centroidGeneration = 0;
+        _trainedAtCount = 0;
+        _memAdds.Clear();
+        _memDels.Clear();
+        _memBytes = 0;
+        _cache.Clear();
+        _dims = 0;
     }
     void removeInner(int nodeId) {
         if (_live.Remove(nodeId)) {
@@ -531,7 +553,7 @@ public class IVSVectorIndex : ISemanticIndex, IDisposable {
         foreach (var kv in _memAdds) {
             if (cursor++ % stride == 0) samples.Add(kv.Value);
         }
-        var generation = _centroidGeneration + 1;
+        var generation = Math.Max(_centroidGeneration, _retiredCentroidGeneration) + 1;
         var centroids = CentroidSet.Train(generation, samples, k, _options.KMeansIterations, _log);
         centroids.Write(centroidsPath(generation));
         // assign every live vector to its new cluster, block by block
@@ -803,6 +825,7 @@ public class IVSVectorIndex : ISemanticIndex, IDisposable {
         _cache.Clear();
         _centroids = null;
         _centroidGeneration = 0;
+        _retiredCentroidGeneration = 0;
         _trainedAtCount = 0;
         _nextSegmentId = 1;
         _persistedTimestamp = 0;

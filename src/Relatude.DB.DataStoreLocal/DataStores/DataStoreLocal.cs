@@ -485,6 +485,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             TaskQueue?.ReOpen();
             TaskQueuePersisted?.ReOpen();
             _state = DataStoreState.Open;
+            embedAgainIfTheModelChanged(activityId);
             _startUpTimeMs = sw.ElapsedMilliseconds;
             LogInfo("Database ready in " + _startUpTimeMs.To1000N() + "ms.");
         } catch (StateFileReadException e) {
@@ -507,6 +508,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                     TaskQueue?.ReOpen();
                     TaskQueuePersisted?.ReOpen();
                     _state = DataStoreState.Open;
+                    embedAgainIfTheModelChanged(activityId);
                     _startUpTimeMs = sw.ElapsedMilliseconds;
                     LogInfo("Database ready in " + _startUpTimeMs.To1000N() + "ms.");
                 } catch (Exception reloadError) {
