@@ -72,6 +72,9 @@ public interface IKeySerializable<T> : IKeySerializable where T : IKeySerializab
     static abstract T FromBytes(byte[] bytes);
 }
 
+/// <summary>
+/// Reference to a node by either its Guid or its integer ID, or both. This struct is immutable and can be used as a key in dictionaries or hash sets.
+/// </summary>
 public readonly struct NodeKey : IEquatable<NodeKey>, IKeySerializable<NodeKey> {
     public NodeKey(Guid guid, int integer) { Guid = guid; Int = integer; }
     public NodeKey(Guid guid) => Guid = guid;
@@ -119,7 +122,8 @@ public readonly struct InnerProperty(Guid parentPropertyId, Guid innerNodeId) : 
 }
 
 /// <summary>
-/// Reference to a property on a node or an inner node
+/// Reference to a node or an inner node
+/// This struct is immutable and can be used as a key in dictionaries or hash sets.
 /// </summary>
 public class NodePath : IKeySerializable<NodePath> {
     public NodePath(Guid nodeId) {
@@ -187,7 +191,7 @@ public class NodePath : IKeySerializable<NodePath> {
 }
 
 /// <summary>
-/// Reference to the property on a node or an inner node
+/// Reference to a property on a node or an inner node
 /// </summary>
 public class PropertyPath : IKeySerializable<PropertyPath> {
     public PropertyPath(NodePath nodePath, Guid propertyId) {
@@ -283,6 +287,10 @@ public readonly struct NodeKeyWithCulture : IEquatable<NodeKeyWithCulture> {
     public static bool operator !=(NodeKeyWithCulture a, NodeKeyWithCulture b) => !a.Equals(b);
 }
 
+/// <summary>
+/// Represents a culture-specific node path by pairing a <see cref="NodePath"/> with a culture identifier.
+/// </summary>
+/// <remarks>Use as a value object key when addressing culture-specific nodes.</remarks>
 public readonly struct NodePathWithCulture : IEquatable<NodePathWithCulture> {
     public NodePathWithCulture(NodePath nodePath, Guid cultureId) { NodePath = nodePath; CultureId = cultureId; }
     public NodePath NodePath { get; }
@@ -294,6 +302,10 @@ public readonly struct NodePathWithCulture : IEquatable<NodePathWithCulture> {
     public static bool operator !=(NodePathWithCulture a, NodePathWithCulture b) => !a.Equals(b);
 }
 
+/// <summary>
+///Represents a property path paired with a culture identifier.
+/// </summary>
+/// <remarks>Use as a value object key when addressing culture-specific property values.</remarks>
 public readonly struct PropertyPathWithCulture : IEquatable<PropertyPathWithCulture> {
     public PropertyPathWithCulture(PropertyPath propertyPath, Guid cultureId) { PropertyPath = propertyPath; CultureId = cultureId; }
     public PropertyPath PropertyPath { get; }

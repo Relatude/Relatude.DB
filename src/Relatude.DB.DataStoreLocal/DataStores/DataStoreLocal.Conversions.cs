@@ -51,12 +51,14 @@ public sealed partial class DataStoreLocal : IDataStore {
             _settings.ImageDefaultFormat.ToFileFormat(), _settings.ImageDefaultQuality);
     }
     /// <summary>
-    /// The picture's own defaults (<see cref="ImageFileMeta.CropMode"/>, <see cref="ImageFileMeta.BackgroundColor"/>) put
-    /// into an adjustment that names none, where they change what is made: the crop mode only for a size of two sides,
-    /// the background only where the picture may be see-through (a format that holds transparency) or the canvas may be
-    /// larger than it (Fit, Auto, or a turn that is no quarter). Part of the key, so a changed default makes new pictures,
-    /// and part of the URL's version (<see cref="pictureDefaultsKey"/>), so browsers fetch them. The caller's instance
-    /// is never changed: this is the normalized copy.
+    /// The picture's own defaults (<see cref="ImageFileMeta.CropMode"/>, <see cref="ImageFileMeta.BackgroundColor"/>,
+    /// <see cref="ImageFileMeta.FocusPoint"/>) put into an adjustment that names none, where they change what is made: the
+    /// crop mode only for a size of two sides, the background only where the picture may be see-through (a format that
+    /// holds transparency) or the canvas may be larger than it (Fit, Auto, or a turn that is no quarter), the focus point
+    /// only where it places a crop (<see cref="usesFocus"/>), turned with the picture, as the engine reads a focus on the
+    /// turned canvas. Part of the key, so a changed default makes new pictures, and part of the URL's version
+    /// (<see cref="pictureDefaultsKey"/>), so browsers fetch them. The caller's instance is never changed: this is the
+    /// normalized copy.
     /// </summary>
     static void applyPictureDefaults(FileValue fileValue, FileAdjustmentImage adj) {
         if (pictureDefaultsOf(fileValue) is not { } meta) return;
@@ -65,6 +67,31 @@ public sealed partial class DataStoreLocal : IDataStore {
             IImageExt.TryParseHexColor(meta.BackgroundColor, out var r, out var g, out var b, out var a);
             adj.BackgroundColor = a == 255 ? $"#{r:x2}{g:x2}{b:x2}" : $"#{r:x2}{g:x2}{b:x2}{a:x2}";
         }
+        // after the crop mode, which decides whether the focus is used; each side the adjustment leaves out, as the engine reads them
+        if (meta.FocusPoint is { } focus && (adj.FocusX == null || adj.FocusY == null) && usesFocus(fileValue, adj)
+            && IImageExt.TurnedPoint(focus.X, focus.Y, fileValue.Width, fileValue.Height, adj.Rotation ?? 0) is { } turned) {
+            adj.FocusX ??= (int)Math.Round(turned.X);
+            adj.FocusY ??= (int)Math.Round(turned.Y);
+        }
+    }
+    /// <summary>
+    /// Whether an adjustment's focus places what is made (IImageExt.Adjust): the window of a zoom, or a crop to a size of two
+    /// sides by Fill, or by Auto where it fills, that cuts more than a pixel of rounding. Not once a source rectangle is
+    /// named, which the engine takes the focus from no more. So a picture made in its own shape, as the CMS's previews
+    /// are, keeps its key when the focus point moves.
+    /// </summary>
+    static bool usesFocus(FileValue fileValue, FileAdjustmentImage adj) {
+        if (adj.SourceWidth != null || adj.SourceHeight != null) return false;
+        if (adj.Zoom is double zoom && zoom > 100) return true;
+        if (adj.Width is not int width || adj.Height is not int height) return false;
+        var mode = adj.CropMode ?? ImageCropMode.Fit;
+        if (mode is not (ImageCropMode.Fill or ImageCropMode.Auto)) return false;
+        if (fileValue.Width <= 0 || fileValue.Height <= 0) return true; // the picture's size not known: it may be cut
+        var (w, h) = IImageExt.TurnedSize(fileValue.Width, fileValue.Height, adj.Rotation ?? 0);
+        double pictureShape = (double)w / h, canvasShape = (double)width / height;
+        if (mode == ImageCropMode.Auto && Math.Abs(pictureShape - canvasShape) / canvasShape < 0.05) return false; // fitted, as NativeImage.ResizeAuto
+        var scale = Math.Max((double)width / w, (double)height / h);
+        return Math.Round(w * scale) - width > 1 || Math.Round(h * scale) - height > 1;
     }
     static bool showsBackground(FileValue fileValue, FileAdjustmentImage adj) =>
         fileValue.Format != FileFormat.Svg // a drawing the browser draws: a background would have it converted
@@ -75,16 +102,20 @@ public sealed partial class DataStoreLocal : IDataStore {
     static ImageFileMeta? pictureDefaultsOf(FileValue fileValue) {
         if (fileValue.IsEmpty || fileValue.FileType != FileType.Image) return null;
         var json = fileValue.MetaJSON;
-        if (string.IsNullOrEmpty(json) || !json.Contains("\"CropMode\"", StringComparison.Ordinal) && !json.Contains("\"BackgroundColor\"", StringComparison.Ordinal)) return null;
-        return fileValue.GetMeta<ImageFileMeta>() is { } meta && (meta.CropMode != null || meta.BackgroundColor != null) ? meta : null;
+        if (string.IsNullOrEmpty(json) || !json.Contains("\"CropMode\"", StringComparison.Ordinal) && !json.Contains("\"BackgroundColor\"", StringComparison.Ordinal)
+            && !json.Contains("\"FocusPoint\"", StringComparison.Ordinal)) return null;
+        return fileValue.GetMeta<ImageFileMeta>() is { } meta && (meta.CropMode != null || meta.BackgroundColor != null || meta.FocusPoint != null) ? meta : null;
     }
     /// <summary>What the picture's defaults put into an adjustment, for the URL's version: empty when they put in nothing.</summary>
     static string pictureDefaultsKey(FileValue fileValue, FileAdjustmentBase adj) {
         if (adj is not FileAdjustmentImage image || pictureDefaultsOf(fileValue) == null) return string.Empty;
         var resolved = (FileAdjustmentImage)image.Normalized();
-        var (mode, background) = (resolved.CropMode, resolved.BackgroundColor);
+        var (mode, background, focusX, focusY) = (resolved.CropMode, resolved.BackgroundColor, resolved.FocusX, resolved.FocusY);
         applyPictureDefaults(fileValue, resolved);
-        return resolved.CropMode == mode && resolved.BackgroundColor == background ? string.Empty : "picture defaults " + resolved.CropMode + " " + resolved.BackgroundColor;
+        if (resolved.CropMode == mode && resolved.BackgroundColor == background && resolved.FocusX == focusX && resolved.FocusY == focusY) return string.Empty;
+        var defaults = "picture defaults " + resolved.CropMode + " " + resolved.BackgroundColor;
+        // the focus only when it was put in: the version of a URL the focus does not change stays what it was
+        return resolved.FocusX == focusX && resolved.FocusY == focusY ? defaults : defaults + " focus " + resolved.FocusX + "," + resolved.FocusY;
     }
     public async Task<Stream> GetFileStream(PropertyPath propertyPath, QueryContext? ctx = null) {
         var fileValue = GetValue<FileValue>(propertyPath, ctx);

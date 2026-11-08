@@ -84,6 +84,34 @@ public static class IImageExt {
     }
 
     /// <summary>
+    /// The canvas a turn of a picture of this size makes (<see cref="IImage.Rotate"/>, clockwise in degrees): a quarter turn
+    /// swaps the sides, any other grows the canvas to hold the corners.
+    /// </summary>
+    public static (int Width, int Height) TurnedSize(int width, int height, double degrees) {
+        var turn = normalizedTurn(degrees);
+        if (isQuarter(turn)) return Math.Round(turn / 90) % 2 == 1 ? (height, width) : (width, height);
+        var radians = turn * Math.PI / 180;
+        double cos = Math.Abs(Math.Cos(radians)), sin = Math.Abs(Math.Sin(radians));
+        return (Math.Max(1, (int)Math.Ceiling(width * cos + height * sin)), Math.Max(1, (int)Math.Ceiling(width * sin + height * cos)));
+    }
+
+    /// <summary>
+    /// Where a turn about the middle puts a point of a picture of this size, in the pixels of the canvas it makes
+    /// (<see cref="TurnedSize"/>). Null when there is a turn and the size is not known.
+    /// </summary>
+    public static (double X, double Y)? TurnedPoint(double x, double y, int width, int height, double degrees) {
+        var turn = normalizedTurn(degrees);
+        if (turn == 0) return (x, y);
+        if (width <= 0 || height <= 0) return null;
+        var (turnedWidth, turnedHeight) = TurnedSize(width, height, turn);
+        var radians = turn * Math.PI / 180;
+        double cos = Math.Cos(radians), sin = Math.Sin(radians), dx = x - width / 2.0, dy = y - height / 2.0;
+        return (turnedWidth / 2.0 + dx * cos - dy * sin, turnedHeight / 2.0 + dx * sin + dy * cos);
+    }
+    static double normalizedTurn(double degrees) => (degrees % 360 + 360) % 360;
+    static bool isQuarter(double turn) => Math.Abs(turn / 90 - Math.Round(turn / 90)) < 1e-9;
+
+    /// <summary>
     /// Whether a background colour ("#RRGGBB" or "#RRGGBBAA") shows at all: a colour wholly see-through, or one that is
     /// not a colour, is the same as none.
     /// </summary>

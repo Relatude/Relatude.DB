@@ -440,6 +440,8 @@ var adj = new FileAdjustmentImage {
 var url = db.GetUrl(article.Photo, adj);       // throws if the file slot is empty
 ```
 
+For a picture whose shape changes with the layout (a card 4:3 on desktop, square on a phone), a URL with a size is the right crop for one shape only. `file.GetDynamicImageHtml(db, maxWidthPx, maxHeightPx, options)` (namespace `Relatude.DB.Common`, returns `HtmlString`) writes a `<span class="relatude-image">` box that fills the element it is put in, holding the whole picture fitted inside the maximum (a limit on the file, not the display); pure CSS (a size container, the store's Fill/Fit/Stretch/Auto arithmetic in `cqw`/`cqh`) crops it to the box by the picture's `ImageFileMeta.CropMode`, `FocusPoint` and `BackgroundColor`. `DynamicImageOptions.Adjustment` carries format, quality and tone to the server, and its crop mode, focus and background override the picture's; `DefaultCropMode` is for pictures naming none (else `Fit`). Give the parent element its size (`aspect-ratio`, a height, a grid cell); with none, the box takes the picture's proportions.
+
 `FileAdjustmentVideo` transcodes video; `FileAdjustmentMeta` returns conversion status and metadata as JSON. An *image* adjustment on a *video* file extracts a still frame — that is what `TimeOffsetMs` is for.
 
 **3. Conversion runs in the background.** The URL is not servable the moment you build it. Check `db.IsFileReady(path, adj, requestIfNot: true)`, and expect a generated status placeholder — not an error — while it runs. Converters must be registered at startup (`options.FileConverters.Add(new SkiaImageConverter(1))`), or every conversion fails.

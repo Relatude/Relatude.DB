@@ -1128,7 +1128,7 @@ missing an analysis.
 | Class | For | Adds |
 |---|---|---|
 | `FileValueMeta` | Every file (the base class) | `Title`, `Description`, `Keywords`, `Author`, `Language`, `TextExtraction`, `Technical` |
-| `ImageFileMeta` | Pictures | `FocusPoint` (pixels from the top left), `Objects` (type, name, confidence, box), `AiAnalysis`, and the picture's own `CropMode` and `BackgroundColor` ([A picture's own defaults](#a-pictures-own-defaults)) |
+| `ImageFileMeta` | Pictures | `FocusPoint` (pixels from the top left; where crops are placed), `Objects` (type, name, confidence, box), `AiAnalysis`, and the picture's own `CropMode` and `BackgroundColor` ([A picture's own defaults](#a-pictures-own-defaults)) |
 | `DocumentFileMeta` | Documents | `Pages` |
 | `AudioFileMeta`, `VideoFileMeta` | Recordings and videos (both derive from `MediaFileMeta`) | `Duration` |
 
@@ -3481,9 +3481,10 @@ the same thing share one conversion.
 
 #### A picture's own defaults
 
-A picture can say how it meets a shape other than its own and what shows behind it. Both are kept in
-its meta, `ImageFileMeta.CropMode` and `ImageFileMeta.BackgroundColor`, and used by every request that
-does not say:
+A picture can say how it meets a shape other than its own, what shows behind it, and which point of it
+to keep when it is cropped. They are kept in its meta, `ImageFileMeta.CropMode`,
+`ImageFileMeta.BackgroundColor` and `ImageFileMeta.FocusPoint`, and used by every request that does
+not say:
 
 - **Crop mode.** A request with a `Width` and a `Height` and no `CropMode` uses the picture's. With
   none, it is `Fit`.
@@ -3491,9 +3492,14 @@ does not say:
   with the alpha last. It shows where the picture is see-through and in the padding `Fit` leaves.
   With none, both stay see-through where the format can be. A JPEG at its own size is served as it
   is, since nothing in it is see-through.
+- **Focus point.** A request with no `FocusX` and `FocusY` uses the picture's, in its pixels from the
+  top left, where the point places what is made: a `Fill` (or an `Auto` that fills) that cuts the
+  picture, and the window of a `Zoom`. With a `Rotation`, the point turns with the picture. With
+  none, the crop is about the middle. A request in the picture's own shape, or with a source
+  rectangle, is not affected, so moving the point leaves those URLs as they were.
 
-A request that names its own mode or background wins. Changing a default changes the URLs that use
-it, so browsers fetch the new pictures.
+A request that names its own mode, background or focus wins. Changing a default changes the URLs that
+use it, so browsers fetch the new pictures.
 
 ```csharp
 var product = db.Get<Product>(id);
@@ -3501,6 +3507,7 @@ var logo = product.Logo.Copy();
 var meta = logo.GetMeta<ImageFileMeta>() ?? new ImageFileMeta();
 meta.CropMode = ImageCropMode.Fit;   // always all of the logo
 meta.BackgroundColor = "#ffffff";    // on white, behind its see-through parts too
+meta.FocusPoint = new ImageFocusPoint(420, 160);   // kept in view when a crop cuts it
 logo.SetMeta(meta);
 db.ForceUpdateProperty<Product, FileValue>(id, p => p.Logo, logo);
 
@@ -3599,6 +3606,61 @@ are two URLs, so a `<picture>` element can let the browser choose:
     <img src="@db.GetUrl(asset.File)" alt="Seating plan">
 </picture>
 ```
+
+### Pictures cropped in the browser
+
+A URL with a `Width` and a `Height` is the right crop for one shape. When a page gives a picture a
+shape that changes with the window, such as a card that is 4:3 on a desktop and square on a phone,
+`GetDynamicImageHtml` writes it so that the browser crops it to whatever box it gets, as the store
+would crop it to that size: by its crop mode, about its focus point, over its background.
+
+```cshtml
+@using Relatude.DB.Common
+<div class="card-picture">
+    @venue.Photo.GetDynamicImageHtml(db, 1200, 1200)
+</div>
+```
+
+```css
+.card-picture { aspect-ratio: 4 / 3; border-radius: 8px; overflow: hidden; }
+@media (max-width: 600px) { .card-picture { aspect-ratio: 1 / 1; } }
+```
+
+The HTML is a box, `<span class="relatude-image">`, holding an `<img>`:
+
+- **The box fills the element it is in**, which gives it its size: a width and a height, an aspect
+  ratio, a grid cell. In an element with no height of its own the picture keeps its own proportions,
+  and nothing is cut. `Style` sizes the box itself instead, as in `Style = "max-height:360px"`.
+- **The two numbers limit the file, not what is shown.** The file sent is the whole picture, fitted
+  inside 1200 × 1200 and never enlarged. Choose them for the largest the picture is shown at, times
+  the screen's pixel density.
+- **The crop is made once, in the browser**, from the picture's proportions and its focus point as a
+  share of its width and height, so it is the same whatever size the file is.
+- **No script.** The box is a CSS size container, and the picture is placed with the store's own
+  arithmetic in container query units. Chrome 105, Safari 16, Firefox 110 and later support it;
+  older browsers fill the box with `object-fit` about the focus point.
+- **A picture that may be see-through is sent as WebP**, unless its background is opaque, since the
+  store's default format may be JPEG.
+
+| `DynamicImageOptions` | |
+| --- | --- |
+| `Adjustment` | What the store does to the file first: format, quality, the tone options, a turn, a zoom. Its size is not used. Its crop mode, focus point and background override the picture's own, as in a URL. |
+| `DefaultCropMode` | The crop mode of a picture that names none. `Fit` when not set, as for a URL. |
+| `Alt` | The alternative text. When not set, the file's description, else its title. |
+| `CssClass`, `Style`, `Attributes` | Of the box. `Style` comes last, so it can override the box's size. |
+| `Lazy` | `loading="lazy"`, on by default. |
+| `Absolute` | An absolute URL. |
+
+```cshtml
+@venue.Photo.GetDynamicImageHtml(db, 1600, 1600, new() {
+    Adjustment = new() { Brightness = 10, RequestedFormat = FileFormat.Webp },
+    DefaultCropMode = ImageCropMode.Fill,
+    Alt = venue.Name,
+})
+```
+
+The store passed in makes the URL, so pass the one the page reads with. A file that is not a picture,
+or an empty value, gives no HTML.
 
 ---
 

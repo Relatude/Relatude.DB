@@ -82,6 +82,11 @@ public class DocumentFileMeta : FileValueMeta {
 
 public class ImageFileMeta : FileValueMeta {
     public ImageAiAnalysis? AiAnalysis { get; set; }
+    /// <summary>
+    /// The point of the picture to keep, in its pixels from the top left: where a crop is placed when the adjustment asking
+    /// for a picture of this file names no focus (<c>FileAdjustmentImage.FocusX</c>, <c>FocusY</c>): a Fill, or an Auto that
+    /// fills, that cuts the picture, and the window of a zoom. Set by image analysis or an editor. None crops about the middle.
+    /// </summary>
     public ImageFocusPoint? FocusPoint { get; set; }
     /// <summary>
     /// How a picture of this file is made to a size of another shape when the adjustment asking for it names no
