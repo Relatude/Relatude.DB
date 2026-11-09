@@ -81,10 +81,20 @@ internal class ActionConverter {
     // from the node's values, so the write changes neither its address nor its content links
     static bool writesOnlyIndexes(Guid[]? written) => written is { Length: > 0 }
         && written.All(p => p == NodeConstants.SystemTextIndexPropertyId || p == NodeConstants.SystemVectorIndexPropertyId);
+    // A node of its own may not be of an abstract type, which no node is of, nor of an inner node type, whose nodes live
+    // inside other nodes' embedded properties (NodeTypeModel.IsAbstract, IsInnerNode). Checked where a node of the type
+    // is made - an insert, or a change to the type - so nodes stored before the type was marked can still be updated.
+    static void ensureCanBeNode(DataStoreLocal db, Guid typeId) {
+        if (!db._definition.NodeTypes.TryGetValue(typeId, out var type)) return; // an unknown type: the value check says so
+        var model = type.Model;
+        if (model.IsAbstract) throw new NodeTypeConstraintException(model.FullName + " is abstract: no node is of the type itself, only of the types inheriting from it. ", typeId);
+        if (model.IsInnerNode) throw new NodeTypeConstraintException(model.FullName + " is an inner node type: its nodes only live inside another node's embedded property, never on their own. ", typeId);
+    }
     IEnumerable<PrimitiveActionBase> toPrimitiveActions(DataStoreLocal db, NodeAction nodeAction, bool transformValues, List<KeyValuePair<TaskData, string?>> newTasks, Guid[]? doNotRegenTheseProps = null) {
         switch (nodeAction.Operation) {
             case NodeOperation.InsertOrFail: {
                     if (nodeAction.Node is not INodeDataInternal node) throw new Exception("NodeAction with operation InsertOrFail requires node to be of type INodeDataInner. ");
+                    ensureCanBeNode(db, node.NodeType);
                     ensureIdsAndCreateIdIfMissing(db, node);
                     db._urls.InternalizeContentValues(node, QueryContext.MasterAdmin);
                     db._urls.RegisterAddressAtCommit(node, node);
@@ -204,6 +214,7 @@ internal class ActionConverter {
                     if (nodeAction.Node is not INodeDataInternal node) throw new Exception("NodeAction with operation InsertOrFail requires node to be of type INodeDataInner. ");
                     ensureIdsAndCreateIdIfMissing(db, node);
                     if (!db._nodes.TryGet(node.__Id, out var oldNode, out _)) { // is new
+                        ensureCanBeNode(db, node.NodeType);
                         db._urls.InternalizeContentValues(node, QueryContext.MasterAdmin);
                         db._urls.RegisterAddressAtCommit(node, node); // registration was missing on this path before the multi-owner registry
                         if (node.CreatedUtc == DateTime.MinValue) node.CreatedUtc = DateTime.UtcNow;
@@ -246,6 +257,7 @@ internal class ActionConverter {
                     if (!db._nodes.TryGet(uid, out var oldNode, out _)) {
                         throw new Exception("Node with id " + idNode.Id + " does not exist, cannot change type. ");
                     } else {
+                        if (idNode.NodeType != oldNode.NodeType) ensureCanBeNode(db, idNode.NodeType);
                         var newNode = ((NodeData)oldNode).CopyAndChangeNodeType(idNode.NodeType);
                         if (!_lastResultingOperation.HasValue) _lastResultingOperation = ResultingOperation.UpdateNode;
                         yield return new PrimitiveNodeAction(PrimitiveOperation.Remove, oldNode);

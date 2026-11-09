@@ -179,6 +179,12 @@ internal static class MapperGen {
         } else { // if not interface, no need to create shell or set properties, except relations
             var nsp = nodeDef.Namespace ?? string.Empty;
             var classTypeName = string.IsNullOrEmpty(nsp) ? nodeDef.CodeName : nsp + "." + nodeDef.CodeName;
+            if (DatamodelSourceLoader.FindBackingClrType(nodeDef.FullName) is { IsAbstract: true }) {
+                // an abstract class has no objects, and no node is of its type: the store refuses to make one (IsAbstract)
+                sb.AppendLine("throw new System.InvalidOperationException(\"" + nodeDef.FullName + " is an abstract class: no node is of its type, only of the types inheriting from it. \");");
+                sb.AppendLine("}");
+                return;
+            }
             sb.AppendLine("var obj = new " + classTypeName + "();");
             if (!string.IsNullOrEmpty(nodeDef.NameOfPublicIdProperty)) {
                 sb.Append("obj." + nodeDef.NameOfPublicIdProperty + " = ");

@@ -140,6 +140,12 @@ public sealed class NodeTypeOverride {
     public bool? InstantTextIndexing { get; set; }
     [OverrideScope(OverrideScope.ThisType), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public bool? Hidden { get; set; }
+    /// <summary>Whether no node is ever of the type itself, only of the types inheriting from it (<see cref="NodeTypeModel.IsAbstract"/>): this type's alone.</summary>
+    [OverrideScope(OverrideScope.ThisType), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? IsAbstract { get; set; }
+    /// <summary>Whether a node of the type only lives inside another node's embedded property (<see cref="NodeTypeModel.IsInnerNode"/>): this type's alone.</summary>
+    [OverrideScope(OverrideScope.ThisType), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? IsInnerNode { get; set; }
     /// <summary>The icon the type is shown with (<see cref="NodeTypeModel.Icon"/>), which the types inheriting from it without one of their own show too.</summary>
     [OverrideScope(OverrideScope.Inherited), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Icon { get; set; }

@@ -63,6 +63,23 @@ public class NodeAttribute : Attribute {
     /// create: <c>Description = "A story with a picture, for the news pages"</c>.
     /// </summary>
     public string? Description { get; set; }
+    /// <summary>
+    /// No node is ever of this type itself, only of the types inheriting from it: a base that gathers what they share,
+    /// such as a page's SEO fields, as an abstract class does in C#. Inserting a node of the type, as a node of its own
+    /// or inside another node's embedded property, or changing a node to it, fails; the types inheriting from it are
+    /// not abstract unless they say so. Nodes stored before the type was marked stay as they are. An abstract class is
+    /// abstract without saying so. Interfaces built on the model, such as a CMS, never offer to create one. Changing it
+    /// rebuilds nothing.
+    /// </summary>
+    public bool Abstract { get; set; }
+    /// <summary>
+    /// A node of this type only lives inside another node, in one of its embedded properties (<c>Embedded&lt;T&gt;</c>):
+    /// a block of a page, a line of a specification. Inserting one as a node of its own, or changing a node to the type,
+    /// fails, and the admin UI's queries and GraphQL leave the type out. The type's own: the types inheriting from it
+    /// say it themselves. Interfaces built on the model, such as a CMS, offer to create one only inside an embedded
+    /// property. Changing it rebuilds nothing.
+    /// </summary>
+    public bool InnerNode { get; set; }
 }
 /// <summary>
 /// Overrides attributes of a property this type inherits, for this type and the types inheriting from

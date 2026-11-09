@@ -39,6 +39,7 @@ public static class WriteCommands {
         var dm = host.Datamodel;
         var nodeType = resolveNodeType(dm, typeName);
         if (nodeType.IsInnerNode) throw new CliException(nodeType.CodeName + " is an embedded type: it only exists inside another node.");
+        if (nodeType.IsAbstract) throw new CliException(nodeType.CodeName + " is abstract: no node is of the type itself. Write one of the types inheriting from it.");
         var clrType = findClrType(host.Store, nodeType);
 
         var transaction = host.Store.CreateTransaction();

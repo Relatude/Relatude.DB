@@ -124,6 +124,9 @@ internal static class BuildUtils {
         if (!string.IsNullOrWhiteSpace(nodeAttr.Icon)) c.Icon = nodeAttr.Icon.Trim();
         if (!string.IsNullOrWhiteSpace(nodeAttr.Title)) c.Title = nodeAttr.Title.Trim();
         if (!string.IsNullOrWhiteSpace(nodeAttr.Description)) c.Description = nodeAttr.Description.Trim();
+        // what may be made: an abstract class is abstract whatever the attribute says (an interface is abstract to .NET too)
+        c.IsAbstract = nodeAttr.Abstract || (type.IsClass && type.IsAbstract);
+        c.IsInnerNode = nodeAttr.InnerNode;
         if (nodeAttr.InstantTextIndexing != BoolValue.Default) c.InstantTextIndexing = nodeAttr.InstantTextIndexing == BoolValue.True;
         if (nodeAttr.SemanticIndex != BoolValue.Default) c.SemanticIndex = nodeAttr.SemanticIndex == BoolValue.True;
         // no limit stays at the model's int.MinValue/int.MaxValue (a count is never negative, so a minimum

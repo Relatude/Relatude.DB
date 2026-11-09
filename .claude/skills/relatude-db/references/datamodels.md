@@ -45,6 +45,7 @@ public interface IOrganizer { /* ... */ }
 
 - `BoolValue` is tri-state: `Default` (engine decides), `True`, `False`.
 - Also accepts `MinNoInstances` / `MaxNoInstances`, enforced at write time on the count of nodes of the type *and its descendants* (see "Validation happens on write").
+- `Abstract = true`: no node is ever of the type itself, only of the types inheriting from it (a base such as a CMS's `IPage`). An `abstract class` is abstract without saying so and needs no public constructor. `InnerNode = true`: a node of the type only lives inside another node's embedded property (a page's block). The store refuses an insert of either on its own, a new inner node of an abstract type, and a change of a node to either (`NodeTypeConstraintException`; `ValueConstraintException` for the inner node); nodes stored before the type was marked stay and can be updated. Each is the type's own, not inherited; read as `NodeTypeModel.IsAbstract` / `IsInnerNode`, overridable per database, out of the store's checksum (changing them rebuilds nothing). The admin UI and GraphQL leave inner node types out of queries, and GraphQL has no create mutation for an abstract type.
 - **Without `Id`, the type id is a hash of the full type name.** Rename the type or move its namespace and the engine sees a brand-new type with no data. Pin ids at project start.
 
 ### `[Relation]`

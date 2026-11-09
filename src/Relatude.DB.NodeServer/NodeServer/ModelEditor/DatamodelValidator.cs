@@ -130,6 +130,8 @@ public sealed class DatamodelValidator {
             list.Add(t);
             if (t.MaxNoInstances < 0 || t.MaxNoInstances < t.MinNoInstances) issues.Add(DatamodelIssue.Error("bad-range", t.FullName + ": the maximum number of instances cannot be negative or below the minimum.", nodeType: t.Id));
             if (!string.IsNullOrWhiteSpace(t.Icon) && !Icons.IconLibrary.IsValid(t.Icon, out var iconProblem)) issues.Add(DatamodelIssue.Error("bad-icon", t.FullName + ": " + iconProblem, nodeType: t.Id));
+            if (t.IsAbstract && !types.Any(o => o.Parents.Contains(t.Id))) issues.Add(DatamodelIssue.Warning("abstract-without-descendants", t.FullName
+                + " is abstract, and no type inherits from it, so no node can be made of it. Give it a type that inherits from it, or make it concrete.", nodeType: t.Id));
         }
         foreach (var (name, list) in byFullName.Where(kv => kv.Value.Count > 1)) {
             foreach (var t in list) issues.Add(DatamodelIssue.Error("duplicate-type", "Two node types have the full name " + name + ". Rename one of them or give them different namespaces.", nodeType: t.Id));
@@ -318,6 +320,11 @@ public sealed class DatamodelValidator {
             }
             if (!string.Equals(a.FullName, d.FullName, StringComparison.Ordinal)) issues.Add(DatamodelIssue.Info("type-renamed", a.FullName + " is renamed to " + d.FullName + ". The id is kept, so its nodes follow.", nodeType: a.Id));
             if (a.ModelType != d.ModelType) issues.Add(DatamodelIssue.Warning("type-kind-changed", d.FullName + " changes from " + a.ModelType.ToString().ToLower() + " to " + d.ModelType.ToString().ToLower() + "; application code that uses the type has to follow.", nodeType: a.Id));
+            // what may be made is checked when a node is made, never on the nodes already there
+            if (d.IsAbstract && !a.IsAbstract) issues.Add(DatamodelIssue.Info("type-abstract", d.FullName + " becomes abstract: no new node can be made of the type itself, only of the types inheriting from it. "
+                + "Nodes of it already there stay as they are.", nodeType: a.Id));
+            if (d.IsInnerNode && !a.IsInnerNode) issues.Add(DatamodelIssue.Info("type-inner-node", d.FullName + " becomes an inner node type: a new node of it can only be made inside an embedded property, "
+                + "and the query page no longer lists the type. Nodes of it already there stay as they are.", nodeType: a.Id));
             long typeCount = -2; // counted on first need
             // instance limits are checked when a transaction moves the count, never on the nodes already there
             if (d.MaxNoInstances < a.MaxNoInstances || d.MinNoInstances > a.MinNoInstances) {

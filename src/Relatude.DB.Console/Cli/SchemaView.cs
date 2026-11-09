@@ -129,6 +129,7 @@ public static class SchemaView {
             SemanticIndex = t.SemanticIndex == true,
             t.Hidden,
             t.IsInnerNode,
+            t.IsAbstract,
             IdMember = t.NameOfPublicIdProperty,
             DisplayNameMember = t.NameOfDisplayNameProperty,
             AddressMember = t.NameOfAddressProperty,
@@ -310,6 +311,7 @@ public static class SchemaView {
         if (t.TextIndex == true) yield return "text index";
         if (t.SemanticIndex == true) yield return "semantic index";
         if (t.Hidden) yield return "hidden";
+        if (t.IsAbstract) yield return "abstract";
         if (t.IsInnerNode) yield return "embedded only";
         if (t.MinNoInstances != int.MinValue) yield return "min " + t.MinNoInstances + " instances";
         if (t.MaxNoInstances != int.MaxValue) yield return "max " + t.MaxNoInstances + " instances";

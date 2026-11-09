@@ -799,7 +799,8 @@ internal sealed class SchemaBuilder {
             // the node updated may be a sub-interface's instance, so an interface's update answers with the interface
             var updatedType = e.Type.IsInterface ? (GqlNamedType)_interfaceTypes[e.Type.Id] : objectType;
             string name(string verb) => rootNames.Claim((_exact ? char.ToUpperInvariant(verb[0]) + verb[1..] : verb) + e.Name);
-            mutation.Fields.Add(new GqlField {
+            // no node is of an abstract type: its nodes, of the types inheriting from it, are updated and deleted through it
+            if (!e.Type.IsAbstract) mutation.Fields.Add(new GqlField {
                 Name = name("create"), Type = objectType, Source = FieldSource.MutationCreate, TargetNodeType = e.Type,
                 Description = $"Creates a {e.Name} and returns it.",
                 Arguments = { new GqlArgument { Name = "input", Type = nn(input) } },

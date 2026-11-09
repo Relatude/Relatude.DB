@@ -141,7 +141,7 @@ public class Organizer : IOrganizer {
 }
 ```
 
-1. A **parameterless constructor is mandatory** — the model builder throws without one.
+1. A **parameterless constructor is mandatory** — the model builder throws without one. An `abstract class` is the exception: it is an abstract node type (below), which no node is ever made of.
 2. **Initialise every reference-typed member**: `string.Empty`, `FileValue.Empty`, `NodeMeta.Empty`, `[]` for embedded maps, `new()` for relation and reference properties. Interfaces need none of this.
 3. `Meta` becomes get/set — still never build one, use `NodeMeta.Empty`.
 4. Attributes belong on the interface when the class implements one.
@@ -162,7 +162,7 @@ Without an explicit id the engine hashes the type's full name, so renaming a typ
 public interface IOrganizer { /* ... */ }
 ```
 
-`BoolValue` is tri-state: `Default` (engine decides), `True`, `False`. `[Node]` also takes `MinNoInstances` / `MaxNoInstances`.
+`BoolValue` is tri-state: `Default` (engine decides), `True`, `False`. `[Node]` also takes `MinNoInstances` / `MaxNoInstances`, and what may be made of the type: `Abstract = true` (no node is of the type itself, only of the types inheriting from it; an `abstract class` is abstract without saying so) and `InnerNode = true` (a node of it only lives inside another node's embedded property). The store refuses an insert that breaks either; nodes stored before stay. Each is the type's own, not inherited, and changing it rebuilds nothing.
 
 ## Properties: `Indexed` is the flag that matters
 

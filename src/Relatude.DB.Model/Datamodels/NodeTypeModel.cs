@@ -33,7 +33,21 @@ public partial class NodeTypeModel { // with default values
     public string? DatamodelSourceFilename { get; set; }
     public bool IsInterface { get { return ModelType == ModelType.Interface; } }
     public bool CanInherit { get { return ModelType != ModelType.Struct; } }
+    /// <summary>
+    /// A node of the type only lives inside another node, in one of its embedded properties: inserting one as a node of
+    /// its own, or changing a node to the type, fails, and listings of what can be queried (the admin UI, GraphQL) leave
+    /// it out. The type's own, not inherited. [Node(InnerNode = true)] in code. What nodes may be made, not how they are
+    /// stored, so the store's checksum reads it as false: changing it rebuilds nothing.
+    /// </summary>
     public bool IsInnerNode { get; set; } = false;
+    /// <summary>
+    /// No node is ever of the type itself, only of the types inheriting from it: inserting one, as a node of its own or
+    /// inside an embedded property, or changing a node to it, fails. Nodes stored before stay as they are. The type's
+    /// own, not inherited. [Node(Abstract = true)] in code, and an abstract class is abstract without saying so. Left out
+    /// of the store's checksum, so changing it rebuilds nothing, and out of the JSON when false.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool IsAbstract { get; set; } = false;
 
     public bool Hidden { get; set; } = false;
 

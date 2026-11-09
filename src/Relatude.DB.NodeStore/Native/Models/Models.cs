@@ -6,16 +6,17 @@ namespace Relatude.DB.Native.Models;
 // the member name, so renaming a property would silently give it a new id and orphan the values already
 // stored - and the engine looks some of these ids up by constant (NativeModelStore).
 
+// IId, IMeta and IName are what other types are made of, never a node's type: abstract
 
-[Node(Id = "38796991-1c9b-4718-bc95-33281ab1beae")]
+[Node(Id = "38796991-1c9b-4718-bc95-33281ab1beae", Abstract = true)]
 public interface IId {
     public Guid Id { get; set; }
 }
-[Node(Id = "43d71b39-09e7-497c-9095-60e9623806ea")]
+[Node(Id = "43d71b39-09e7-497c-9095-60e9623806ea", Abstract = true)]
 public interface IMeta {
     public NodeMeta Meta { get; }
 }
-[Node(Id = "643071df-8b38-4ad2-9940-aae8282f032e", NameProperty = nameof(Name))]
+[Node(Id = "643071df-8b38-4ad2-9940-aae8282f032e", NameProperty = nameof(Name), Abstract = true)]
 public interface IName{
     [StringProperty(Id = NodeConstants.NativeCollectionPropertyNameString, Indexed = true)]
     public string Name { get; set; }

@@ -386,6 +386,41 @@ that holds a node's name, which an editor such as the CMS shows at the top of a 
 without one takes its base type's. Like an icon, these only change how a type is shown, and the
 datamodel editor saves them as overrides on a type from compiled code.
 
+### Optional: abstract types and inner node types
+
+Two switches say what nodes may be made of a type. `Abstract = true` says no node is ever of the type
+itself, only of the types inheriting from it: a base that gathers what they share, as an abstract
+class does in C#. `InnerNode = true` says a node of the type only lives inside another node, in one of
+its embedded properties (`Embedded<T>`): a block of a page, a line of a specification.
+
+```csharp
+[Node(Abstract = true)]
+public interface IPage : INamedNode { string MetaTitle { get; set; } }   // pages are articles or sections
+
+[Node]
+public interface IArticle : IPage { Embedded<Block> Blocks { get; } }
+
+public abstract class Block { public Guid Id { get; set; } }             // abstract without saying so
+
+[Node(InnerNode = true)]
+public class TextBlock : Block { public string Text { get; set; } = ""; }
+```
+
+The store refuses what they rule out where a node is made: inserting a node of an abstract type, on
+its own or as a new inner node of an embedded property; inserting a node of an inner node type on its
+own; and changing a node to either kind of type. An insert fails with a `NodeTypeConstraintException`,
+a new inner node of an abstract type with a `ValueConstraintException`. Nodes stored before a type was
+marked stay as they are and can still be updated, inner nodes included. An abstract class is abstract
+without the attribute, and needs no public constructor, as no node is ever made of it.
+
+Both belong to the type alone and are not inherited: a type inheriting from an abstract one is concrete
+unless it says otherwise, and each inner node type says so itself. The admin UI's query page and
+GraphQL leave inner node types out, as they cannot be queried on their own; GraphQL has no create
+mutation for an abstract type. Applications built on the model never offer to create a node of an
+abstract type, and offer an inner node type only inside an embedded property. Neither changes how
+nodes are stored, so changing either rebuilds no state and no index, and the datamodel editor can set
+them as overrides on a type from compiled code (`IsAbstract`, `IsInnerNode`).
+
 ---
 
 ## 3. Scalar properties and their attributes

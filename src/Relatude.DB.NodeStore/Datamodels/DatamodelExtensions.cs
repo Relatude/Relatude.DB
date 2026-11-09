@@ -56,7 +56,8 @@ public static class DatamodelExtensions {
             datamodel.Relations.Add(r.Id, r);
         } else {
             bool noZeroArgConstructor = t.GetConstructors().All(c => c.GetParameters().Length > 0);
-            if (!t.IsInterface && noZeroArgConstructor) {
+            // an abstract class is a node type no node is of (NodeTypeModel.IsAbstract), so none is ever made of it
+            if (!t.IsInterface && !t.IsAbstract && noZeroArgConstructor) {
                 throw new Exception("The node type " + t.FullName + " must have a public parameterless constructor, "
                     + "so instances can be created when reading nodes from the store. ");
             }

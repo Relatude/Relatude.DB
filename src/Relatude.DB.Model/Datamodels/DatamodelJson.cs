@@ -40,6 +40,8 @@ public static class DatamodelJson {
     /// <see cref="StringValueType.Code"/>, which the store keeps and indexes as it does AnyString: moving between the four
     /// says how the text is edited, not what is stored. The
     /// file analysis switches of a file property are left out too: they decide background work, not what is indexed.
+    /// So is what nodes may be made of a type (<see cref="NodeTypeModel.IsAbstract"/>, and <see cref="NodeTypeModel.IsInnerNode"/>,
+    /// written as false, as every state file before it held it), and their overrides.
     /// The editor's checksum (<see cref="Checksum"/>) keeps them: to the editor they are changes of the model.
     /// </summary>
     public static readonly JsonSerializerOptions StateOptions = create(stripProvenance: true, stripPresentation: true);
@@ -85,6 +87,12 @@ public static class DatamodelJson {
             removeProperty(typeInfo, nameof(NodeTypeModel.NameProperty));
             removeProperty(typeInfo, nameof(NodeTypeModel.Title));
             removeProperty(typeInfo, nameof(NodeTypeModel.Description));
+            // what nodes may be made, not how they are stored: IsAbstract is new and left out, and IsInnerNode, which
+            // every state file has held as false, is written as false, so a model that sets either rebuilds nothing
+            removeProperty(typeInfo, nameof(NodeTypeModel.IsAbstract));
+            foreach (var p in typeInfo.Properties) {
+                if (p.Get != null && p.Name.Equals(nameof(NodeTypeModel.IsInnerNode), StringComparison.OrdinalIgnoreCase)) p.Get = _ => false;
+            }
         } else if (typeInfo.Type == typeof(RelationPropertyModel) || typeInfo.Type == typeof(ReferencePropertyModel)
             || typeInfo.Type == typeof(ReferencesPropertyModel) || typeInfo.Type == typeof(EmbeddedPropertyModel)) {
             removeProperty(typeInfo, nameof(RelationPropertyModel.Display));
@@ -110,7 +118,7 @@ public static class DatamodelJson {
         || p.Height != null || p.Width != null || p.Title != null || p.TextLines != null || p.StringType is StringValueType.SingleLineText or StringValueType.MultiLineText or StringValueType.Code;
     static DatamodelOverrides? withoutPresentation(DatamodelOverrides? overrides) {
         if (overrides == null || !overrides.NodeTypes.Values.Any(t => t.Icon != null || t.NameProperty != null || t.Title != null || t.Description != null
-            || t.Properties?.Values.Any(hasPresentation) == true)) return overrides;
+            || t.IsAbstract != null || t.IsInnerNode != null || t.Properties?.Values.Any(hasPresentation) == true)) return overrides;
         var copy = new DatamodelOverrides();
         foreach (var (id, t) in overrides.NodeTypes) {
             var c = JsonSerializer.Deserialize<NodeTypeOverride>(JsonSerializer.Serialize(t, Options), Options)!;
@@ -118,6 +126,8 @@ public static class DatamodelJson {
             c.NameProperty = null;
             c.Title = null;
             c.Description = null;
+            c.IsAbstract = null; // what may be made, which the state does not hold
+            c.IsInnerNode = null;
             if (c.Properties != null) foreach (var p in c.Properties.Values) {
                     p.Display = null; p.AllowInlineEditing = null; p.TitleLayout = null; p.Unit = null; p.Height = null; p.Width = null; p.Title = null; p.TextLines = null;
                     if (p.StringType is StringValueType.SingleLineText or StringValueType.MultiLineText or StringValueType.Code) p.StringType = null;

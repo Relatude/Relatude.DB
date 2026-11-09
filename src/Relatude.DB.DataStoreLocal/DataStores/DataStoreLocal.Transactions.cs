@@ -223,6 +223,8 @@ public sealed partial class DataStoreLocal : IDataStore {
                         if (!enumerator.MoveNext()) break;
                     } catch (ValueConstraintException) {
                         throw;
+                    } catch (NodeTypeConstraintException) { // a node of a type none may be made of: said as it is
+                        throw;
                     } catch (Exception err) {
                         throw new ExceptionWithoutIntegrityLoss("Failed to convert action. " + err.Message, err);
                     }

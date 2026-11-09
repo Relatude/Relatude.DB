@@ -92,6 +92,8 @@ public static class ModelGen {
             if (!string.IsNullOrWhiteSpace(nodeDef.Icon)) sb.Append(", " + nameof(NodeAttribute.Icon) + " = " + stringLiteral(nodeDef.Icon));
             if (!string.IsNullOrWhiteSpace(nodeDef.Title)) sb.Append(", " + nameof(NodeAttribute.Title) + " = " + stringLiteral(nodeDef.Title));
             if (!string.IsNullOrWhiteSpace(nodeDef.Description)) sb.Append(", " + nameof(NodeAttribute.Description) + " = " + stringLiteral(nodeDef.Description));
+            if (nodeDef.IsAbstract) sb.Append(", " + nameof(NodeAttribute.Abstract) + " = true");
+            if (nodeDef.IsInnerNode) sb.Append(", " + nameof(NodeAttribute.InnerNode) + " = true");
             // by the member's name, as the attribute takes it: a property of the type's own or one it inherits
             if (nodeDef.NameProperty is { } nameId && datamodel.NodeTypes.Values.SelectMany(t => t.Properties.Values).FirstOrDefault(p => p.Id == nameId) is { } nameProperty) {
                 sb.Append(", " + nameof(NodeAttribute.NameProperty) + " = " + stringLiteral(nameProperty.CodeName));

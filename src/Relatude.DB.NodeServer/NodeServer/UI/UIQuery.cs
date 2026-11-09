@@ -143,9 +143,9 @@ sealed class UIQuery {
                 // library or SVG source, which the page draws (see IconLibrary)
                 Icon = dm.GetIcon(t),
                 SourceId = t.DatamodelSourceId,
-                // whether "New node" can make one: the base type stands for all types at once, and a
-                // type the model knows but no loaded assembly implements has nothing to instantiate
-                CanCreate = t.Id != NodeConstants.BaseNodeTypeId && findClrType(s, t) != null,
+                // whether "New node" can make one: the base type stands for all types at once, no node is of an
+                // abstract type, and a type the model knows but no loaded assembly implements has nothing to instantiate
+                CanCreate = t.Id != NodeConstants.BaseNodeTypeId && !t.IsAbstract && findClrType(s, t) != null,
                 Count = counts.TryGetValue(t.Id, out var n) ? n : complete ? 0 : (long?)null,
             })
             .ToArray();
@@ -1473,10 +1473,10 @@ sealed class UIQuery {
             }
         }
     }
-    /// <summary>The concrete types an embedded property accepts: the ones it names, and what inherits them.</summary>
+    /// <summary>The concrete types an embedded property accepts: the ones it names, and what inherits them, but none that is abstract.</summary>
     static IEnumerable<NodeTypeModel> innerTypes(Datamodel dm, EmbeddedPropertyModel embedded) {
         return dm.NodeTypes.Values
-            .Where(t => t.ModelType is not ModelType.Interface && embedded.InnerNodeTypes.Any(id => t.ThisAndAllInheritedTypes.ContainsKey(id)))
+            .Where(t => t.ModelType is not ModelType.Interface && !t.IsAbstract && embedded.InnerNodeTypes.Any(id => t.ThisAndAllInheritedTypes.ContainsKey(id)))
             .OrderBy(t => t.CodeName, StringComparer.OrdinalIgnoreCase);
     }
 
@@ -1725,6 +1725,7 @@ sealed class UIQuery {
         if (!dm.NodeTypes.TryGetValue(p.TypeId, out var type)) throw new Exception("No node type with id " + p.TypeId + " in the data model. ");
         if (p.TypeId == NodeConstants.BaseNodeTypeId) throw new Exception("Pick a type: the base type stands for every node at once. ");
         if (type.IsInnerNode) throw new Exception(type.CodeName + " is an embedded type: it only exists inside another node's property. ");
+        if (type.IsAbstract) throw new Exception(type.CodeName + " is abstract: no node is of the type itself. Pick one of the types inheriting from it. ");
         var clr = findClrType(s, type) ?? throw new Exception("The type " + type.FullName + " is in the data model, but no assembly loaded here implements it. ");
         var node = newNode(s, clr);
         var transaction = s.CreateTransaction();
