@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { IconArrowUpRight, IconBook, IconChevronLeft, IconChevronRight, IconDeviceDesktop, IconExternalLink, IconLogout, IconUser } from "@tabler/icons-react";
+import { IconArrowUpRight, IconBook, IconDeviceDesktop, IconExternalLink, IconLogout, IconUser } from "@tabler/icons-react";
 import { sections, type Section } from "../navigation";
 import { licenseAttention, type LicenseStatus } from "../server/license";
 import { fetchWhoAmI, type AdminLink, type DatabaseInfo, type WhoAmI } from "../server/serverInfo";
@@ -7,7 +7,6 @@ import { siteUrl } from "../siteLinks";
 
 interface SidebarProps {
   collapsed: boolean;
-  onToggleCollapsed: () => void;
   /** laid out for a phone: the rail is a drawer over the page rather than a column beside it */
   drawer: boolean;
   drawerOpen: boolean;
@@ -25,7 +24,6 @@ interface SidebarProps {
 
 export function Sidebar({
   collapsed,
-  onToggleCollapsed,
   drawer,
   drawerOpen,
   onCloseDrawer,
@@ -112,9 +110,6 @@ export function Sidebar({
           )}
           <SignedIn collapsed={collapsed} onLogout={onLogout} />
         </aside>
-        <button className="nav-toggle" onClick={onToggleCollapsed} title={collapsed ? "Expand menu" : "Collapse menu"}>
-          {collapsed ? <IconChevronRight size={14} stroke={2} /> : <IconChevronLeft size={14} stroke={2} />}
-        </button>
       </div>
     </>
   );

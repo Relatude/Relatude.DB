@@ -87,7 +87,7 @@
   margin: 12vh auto 0;
   padding: 20px 22px;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius);
   background: var(--panel);
 }
 

@@ -66,7 +66,7 @@
   align-items: center;
   max-width: 230px;
   border: 1px solid var(--border);
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   background: var(--button-bg);
 }
 
@@ -131,7 +131,7 @@
   display: flex;
   flex-direction: column;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius);
   background: var(--panel);
   overflow: hidden;
 }
@@ -187,10 +187,8 @@
 
 .gx-pane-title {
   flex: none;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
+  font-size: 12px;
+  font-weight: 600;
   color: var(--text-muted);
 }
 
@@ -363,10 +361,8 @@ button.gx-status:hover span {
 
 .gx-section-head {
   margin: 12px 0 4px;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
+  font-size: 12px;
+  font-weight: 600;
   color: var(--section-tone);
 }
 
@@ -383,7 +379,7 @@ button.gx-status:hover span {
   align-items: center;
   gap: 3px;
   min-height: 24px;
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   white-space: nowrap;
 }
 
@@ -673,7 +669,7 @@ button.gx-status:hover span {
 .gx-list-item {
   padding: 4px 6px;
   border: 1px dashed var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
 }
 
 .gx-list-head {
@@ -691,7 +687,7 @@ button.gx-status:hover span {
 .gx-var-chip {
   flex: none;
   padding: 1px 6px;
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   font: var(--code-font);
   font-size: 12px;
   color: var(--tok-v);
@@ -702,7 +698,7 @@ button.gx-status:hover span {
   flex: none;
   padding: 2px 6px;
   border: 1px solid var(--border);
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   font-size: 11px;
   font-weight: 600;
   color: var(--accent);
@@ -781,10 +777,8 @@ button.gx-status:hover span {
 
 .gx-docs-group-head {
   margin: 10px 0 4px;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
+  font-size: 12px;
+  font-weight: 600;
   color: var(--section-tone);
 }
 
@@ -827,7 +821,7 @@ button.gx-status:hover span {
 .gx-docs-field.focus {
   margin: 0 -6px;
   padding: 7px 6px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: var(--section-tone-soft);
 }
 
@@ -876,7 +870,7 @@ button.gx-status:hover span {
   gap: 8px;
   width: 100%;
   padding: 4px 6px;
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   font-size: 12px;
   text-align: left;
 }
@@ -946,10 +940,8 @@ button.gx-status:hover span {
 
 .gx-guide-section-head {
   margin: 14px 0 2px;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
+  font-size: 12px;
+  font-weight: 600;
   color: var(--section-tone);
 }
 
@@ -1000,7 +992,7 @@ button.gx-status:hover span {
   margin: 0;
   padding: 8px 10px;
   overflow-x: auto;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   font: var(--code-font);
   font-size: 11.5px;
   line-height: 17px;
@@ -1039,7 +1031,7 @@ button.gx-status:hover span {
   align-items: center;
   gap: 6px;
   padding: 3px 4px 3px 6px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   font-size: 12.5px;
 }
@@ -1111,7 +1103,7 @@ button.gx-status:hover span {
   align-items: flex-start;
   gap: 6px;
   padding: 6px 8px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   font-size: 12px;
   line-height: 1.45;
   color: var(--danger);

@@ -263,7 +263,6 @@ export function App() {
           drawer={phone}
           drawerOpen={drawerOpen}
           onCloseDrawer={() => setDrawerOpen(false)}
-          onToggleCollapsed={() => setNavOpen(!navOpen)}
           databases={databases}
           activeDb={activeDb}
           license={license}
