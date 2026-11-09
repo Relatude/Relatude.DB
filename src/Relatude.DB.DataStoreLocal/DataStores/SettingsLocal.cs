@@ -113,7 +113,8 @@ public class SettingsLocal {
     public bool EnableTextIndexByDefault { get; set; } = false;
     public bool EnableSemanticIndexByDefault { get; set; } = false;
     public bool EnableInstantTextIndexingByDefault { get; set; } = false;
-    public bool EnableAiImageAnalysisByDefault { get; set; } = false;
+    public bool EnableImageMetaAnalysisByDefault { get; set; } = false;
+    public bool EnableImageCropModeAnalysisByDefault { get; set; } = false;
     public bool EnableFileTextIndexingByDefault { get; set; } = false;
     public bool EnableVideoAndAudioFileTextIndexingByDefault { get; set; } = false;
     /// <summary>

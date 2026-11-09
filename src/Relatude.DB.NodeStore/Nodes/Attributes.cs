@@ -357,7 +357,8 @@ public class HtmlPropertyAttribute : StringPropertyAttribute {
 public class FilePropertyAttribute : PropertyAttribute {
     // Guid is not a legal attribute parameter type, value is given as string:
     public string? FileStorageProviderId { get; set; }
-    public BoolValue AiImageAnalysis { get; set; }
+    public BoolValue ImageMetaAnalysis { get; set; }
+    public BoolValue ImageCropModeAnalysis { get; set; }
     public BoolValue FileTextIndexing { get; set; }
     public BoolValue VideoAndAudioFileTextIndexing { get; set; }
 }

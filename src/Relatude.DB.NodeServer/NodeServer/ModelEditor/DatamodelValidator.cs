@@ -475,7 +475,7 @@ public sealed class DatamodelValidator {
     static string textSignature(NodeTypeModel t) => (t.TextIndex == true) + "|" + (t.SemanticIndex == true) + "|"
         + string.Join(",", t.TextIndexProperties.Select(p => p.Id + ":" + t.GetIndexBoost(p)
             + (p is RelationPropertyModel r ? ":" + r.TextIndexRelatedContent + ":" + r.TextIndexRelatedDisplayName : "")
-            + (p is FilePropertyModel f ? ":" + f.AiImageAnalysis + ":" + f.FileTextIndexing + ":" + f.VideoAndAudioFileTextIndexing : "")))
+            + (p is FilePropertyModel f ? ":" + f.ImageMetaAnalysis + ":" + f.ImageCropModeAnalysis + ":" + f.FileTextIndexing + ":" + f.VideoAndAudioFileTextIndexing : "")))
         + "|" + string.Join(",", t.DisplayProperties.Select(p => p.Id));
     // A default is late bound: a node with no value stored for a property reads whatever the default is
     // now. That is the point of changing it, but it reaches nodes that already exist.

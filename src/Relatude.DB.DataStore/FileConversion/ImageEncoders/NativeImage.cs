@@ -161,6 +161,15 @@ public sealed class NativeImage : IImage {
         });
     }
 
+    /// <summary>The colour of the picture's edges (its first frame's), see <see cref="ImageEdges"/>.</summary>
+    public string? EdgeColor() {
+        var image = _image;
+        return ImageEdges.ColorOf(Width, Height, (int x, int y, out byte r, out byte g, out byte b, out byte a) => {
+            var c = image[x, y];
+            r = c.R; g = c.G; b = c.B; a = c.A;
+        });
+    }
+
     // ── Drawing ─────────────────────────────────────────────────────────────
 
     public IImage DrawLine(int x1, int y1, int x2, int y2, int width, string color) =>

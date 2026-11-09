@@ -5,7 +5,8 @@ public class FilePropertyModel : PropertyModel {
     public override PropertyType PropertyType { get => PropertyType.File; }
     public override string? GetDefaultDeclaration() => typeof(FileValue).Namespace + "." + nameof(FileValue) + "." + nameof(FileValue.Empty);
     public Guid FileStorageProviderId { get; set; }
-    public bool? AiImageAnalysis { get; set; }
+    public bool? ImageMetaAnalysis { get; set; }
+    public bool? ImageCropModeAnalysis { get; set; }
     public bool? FileTextIndexing { get; set; }
     public bool? VideoAndAudioFileTextIndexing { get; set; }
     public override object GetDefaultValue() => FileValue.Empty;

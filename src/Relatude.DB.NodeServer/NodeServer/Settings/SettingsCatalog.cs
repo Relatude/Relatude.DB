@@ -1092,11 +1092,15 @@ public static class SettingsCatalog {
                 new() {
                     Id = "file-analysis",
                     Title = "File analysis",
-                    Help = "What the database learns about the files uploaded to file properties, in the background after each upload: a title, a description, keywords, a focus point and the things in a picture from Image AI, and the text of documents, pictures and recordings from File to text. The results are kept in the file value (TextExtract and the typed meta read with FileValue.GetMeta()) and go into the node's search text. A file property can say otherwise for itself, with AiImageAnalysis, FileTextIndexing and VideoAndAudioFileTextIndexing on its [FileProperty] attribute or in the model editor. Each file analysed is charged to this installation's license. Files uploaded before a switch was turned on are analysed when the text index is rebuilt (Storage › Maintenance › Rebuild text index, or the reindex-text job).",
+                    Help = "What the database learns about the files uploaded to file properties, in the background after each upload: a title, a description, keywords, a focus point and the things in a picture from Image AI, a picture's crop mode and background, and the text of documents, pictures and recordings from File to text. The results are kept in the file value (TextExtract and the typed meta read with FileValue.GetMeta()) and go into the node's search text. A file property can say otherwise for itself, with ImageMetaAnalysis, ImageCropModeAnalysis, FileTextIndexing and VideoAndAudioFileTextIndexing on its [FileProperty] attribute or in the model editor. Each file analysed is charged to this installation's license. Files uploaded before a switch was turned on are analysed when the text index is rebuilt (Storage › Maintenance › Rebuild text index, or the reindex-text job).",
                     Settings = [
                         new() {
-                            Path = "LocalSettings.EnableAiImageAnalysisByDefault", Label = "AI image analysis by default", Applies = SettingApplies.Live,
+                            Path = "LocalSettings.EnableImageMetaAnalysisByDefault", Label = "Image meta analysis by default", Applies = SettingApplies.Live,
                             Help = "Sends every uploaded picture to Image AI, which gives it a title, a description, keywords, the point it is about and the things in it. The focus point and the keywords are kept in the file's meta, and the words make the picture findable by search. Costs one Image AI call per picture.",
+                        },
+                        new() {
+                            Path = "LocalSettings.EnableImageCropModeAnalysisByDefault", Label = "Image crop mode analysis by default", Applies = SettingApplies.Live,
+                            Help = "Asks Image AI whether every uploaded picture is a graphic - a logo, an illustration, a diagram, a screenshot, a product alone on a plain ground - or a photograph, and sets its crop mode when the AI is sure: Fit for a graphic, shown whole, Fill for a photograph, cropped about its focus point to fill a shape of another size. A picture left fitted whole gets the colour of its edges as its background, so the room around it looks like more of it. Costs one Image AI call per picture.",
                         },
                         new() {
                             Path = "LocalSettings.EnableFileTextIndexingByDefault", Label = "File text indexing by default", Applies = SettingApplies.Live,
@@ -1289,7 +1293,7 @@ public static class SettingsCatalog {
                 new() {
                     Id = "imaging",
                     Title = "Image AI",
-                    Help = "Creating images, changing them and saying what they show. Your own code reaches it as NodeStore.Services.Imaging; the database itself calls it only for AI image analysis, when that is turned on under Search & AI › File analysis. It is there without any settings, calling the hosted Relatude Imaging service with this installation's license, and nothing is charged until it is called.",
+                    Help = "Creating images, changing them and saying what they show. Your own code reaches it as NodeStore.Services.Imaging; the database itself calls it only for image meta and crop mode analysis, when they are turned on under Search & AI › File analysis. It is there without any settings, calling the hosted Relatude Imaging service with this installation's license, and nothing is charged until it is called.",
                     Settings = [
                         new() {
                             Path = "ImagingSettings.TypeName", Label = "Provider type", Placeholder = RelatudeServicesImagingProvider.ShortName,

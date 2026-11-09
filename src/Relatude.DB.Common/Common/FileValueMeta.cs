@@ -81,7 +81,10 @@ public class DocumentFileMeta : FileValueMeta {
 }
 
 public class ImageFileMeta : FileValueMeta {
+    /// <summary>The image meta analysis: the title, description, keywords, focus point and things found by Image AI.</summary>
     public ImageAiAnalysis? AiAnalysis { get; set; }
+    /// <summary>The crop mode analysis: whether the picture is a graphic (Fit) or a photograph (Fill), and its edges' colour.</summary>
+    public ImageCropModeAnalysis? CropModeAnalysis { get; set; }
     /// <summary>
     /// The point of the picture to keep, in its pixels from the top left: where a crop is placed when the adjustment asking
     /// for a picture of this file names no focus (<c>FileAdjustmentImage.FocusX</c>, <c>FocusY</c>): a Fill, or an Auto that
@@ -132,6 +135,53 @@ public class FileTextExtraction : FileAnalysisStep {
 public class ImageAiAnalysis : FileAnalysisStep {
     public string? Language { get; set; }
 }
+/// <summary>
+/// What the crop mode analysis found: whether Image AI took the picture for a graphic, which is fitted whole, rather
+/// than a photograph, which is cropped to fill, and how sure it was (0 to 100); the crop mode is set only when it was sure.
+/// </summary>
+public class ImageCropModeAnalysis : FileAnalysisStep {
+    public bool? Graphic { get; set; }
+    public int? Certainty { get; set; }
+}
+
+/// <summary>What the database can learn about a stored file, each switched on by the database's settings or the file property.</summary>
+[Flags]
+public enum FileAnalysisKinds {
+    None = 0,
+    /// <summary>A picture's title, description, keywords, focus point and the things in it, from Image AI.</summary>
+    ImageMeta = 1,
+    /// <summary>The text of a document, a picture (OCR) or a recording, from File to text.</summary>
+    Text = 2,
+    /// <summary>A picture's crop mode, Fit for a graphic and Fill for a photograph, from Image AI, and its edges' colour as its background.</summary>
+    ImageCropMode = 4,
+}
+
+/// <summary>One analysis of a file asked for at once (IDataStore.AnalyseFileAsync), and how it went.</summary>
+public sealed record FileAnalysisStepReport(FileAnalysisKinds Kind, FileAnalysisStepState State, string Summary, int? Credits = null);
+
+public enum FileAnalysisStepState {
+    /// <summary>Done, and the result kept with the file.</summary>
+    Done,
+    /// <summary>Done before, and not asked to be done again.</summary>
+    DoneBefore,
+    /// <summary>Not done, for a reason kept with the file (the service does not read such files, say): not tried again.</summary>
+    Skipped,
+    /// <summary>Not for this file, or no service for it here.</summary>
+    NotPossible,
+    /// <summary>Tried, and failed: tried again at the next text reindex.</summary>
+    Failed,
+}
+
+/// <summary>
+/// The analyses of a file a file property holds: those it wants that the database can do here (by its switches and the
+/// database's), those done, and those the database can do here at all, asked for or not.
+/// </summary>
+public readonly record struct FileAnalysisState(FileAnalysisKinds Wanted, FileAnalysisKinds Done, FileAnalysisKinds Possible) {
+    public FileAnalysisKinds Missing => Wanted & ~Done;
+}
+
+/// <summary>The analyses of a file asked for at once, and the file once their results are kept; null when it was replaced or removed meanwhile.</summary>
+public sealed record FileAnalysisReport(FileValue? File, FileAnalysisStepReport[] Steps);
 
 public sealed record ImageFocusPoint(int X, int Y);
 

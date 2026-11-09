@@ -24,7 +24,7 @@ namespace Relatude.DB.Nodes;
 /// <para>They are here so application code can use the accounts the database is already configured with - on a
 /// server, the installation's own Relatude license - rather than holding vendor accounts of its own. Inside the
 /// database, semantic search uses <see cref="AI"/>, and file analysis uses <see cref="Imaging"/> and
-/// <see cref="FileToText"/> when it is turned on (LocalSettings.EnableAiImageAnalysisByDefault,
+/// <see cref="FileToText"/> when it is turned on (LocalSettings.EnableImageMetaAnalysisByDefault, EnableImageCropModeAnalysisByDefault,
 /// EnableFileTextIndexingByDefault, EnableVideoAndAudioFileTextIndexingByDefault, or the same switches on a
 /// file property).</para>
 /// <para>Each one throws when the database has none, so check its <c>Has</c> property first on a path that

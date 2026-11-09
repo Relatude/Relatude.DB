@@ -324,7 +324,9 @@ public sealed class PropertyOverride {
     [OverrideScope(OverrideScope.WholeProperty), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public Guid? FileStorageProviderId { get; set; }
     [OverrideScope(OverrideScope.WholeProperty), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public bool? AiImageAnalysis { get; set; }
+    public bool? ImageMetaAnalysis { get; set; }
+    [OverrideScope(OverrideScope.WholeProperty), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? ImageCropModeAnalysis { get; set; }
     [OverrideScope(OverrideScope.WholeProperty), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public bool? FileTextIndexing { get; set; }
     [OverrideScope(OverrideScope.WholeProperty), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

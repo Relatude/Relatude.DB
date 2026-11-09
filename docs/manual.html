@@ -1177,7 +1177,7 @@ database you can override these:</p>
 </tr>
 <tr>
 <td>Property, on the declaring type only</td>
-<td><code>IndexType</code>, <code>IndexedByWords</code>, <code>TextIndexType</code>, <code>CultureSensitive</code>, <code>MinLength</code>, <code>MaxLength</code>, <code>RegularExpression</code>, <code>RegularExpressionMessage</code>, <code>LegalCharacters</code>, <code>Trim</code>, <code>CaseTransform</code>, <code>MinValue</code>, <code>MaxValue</code>, <code>FacetRangePowerBase</code>, <code>FacetRangeCount</code>, <code>Facet</code>, <code>TextIndexRelatedContent</code>, <code>TextIndexRelatedDisplayName</code>, <code>TextIndexRecursiveLevelLimit</code>, <code>Display</code> and <code>AllowInlineEditing</code> (<a href="#how-an-editor-shows-them-display">§10</a>), <code>TitleLayout</code>, <code>Unit</code>, <code>Height</code>, <code>Width</code>, <code>Title</code>, <code>TextLines</code>, <code>StringType</code>, <code>UniqueValues</code>, <code>CaseSensitive</code>, <code>IgnoreDuplicateEmptyValues</code>, <code>PrefixSearch</code>, <code>InfixSearch</code>, <code>IndexedBySemantic</code>, <code>PropertyIdForEmbeddings</code>, <code>MinWordLength</code>, <code>MaxWordLength</code>, <code>LegalValues</code>, <code>LegalValueNames</code>, <code>ReadAccess</code>, <code>WriteAccess</code>, <code>IncludeTypes</code>, <code>PrependOnAdd</code>, <code>FileStorageProviderId</code>, <code>AiImageAnalysis</code>, <code>FileTextIndexing</code>, <code>VideoAndAudioFileTextIndexing</code>, and a password's <code>AllowHashed</code>, <code>AllowEncrypted</code>, <code>AllowPlainText</code>, <code>RequireUppercase</code>, <code>RequireLowercase</code>, <code>RequireDigit</code>, <code>RequireSymbol</code></td>
+<td><code>IndexType</code>, <code>IndexedByWords</code>, <code>TextIndexType</code>, <code>CultureSensitive</code>, <code>MinLength</code>, <code>MaxLength</code>, <code>RegularExpression</code>, <code>RegularExpressionMessage</code>, <code>LegalCharacters</code>, <code>Trim</code>, <code>CaseTransform</code>, <code>MinValue</code>, <code>MaxValue</code>, <code>FacetRangePowerBase</code>, <code>FacetRangeCount</code>, <code>Facet</code>, <code>TextIndexRelatedContent</code>, <code>TextIndexRelatedDisplayName</code>, <code>TextIndexRecursiveLevelLimit</code>, <code>Display</code> and <code>AllowInlineEditing</code> (<a href="#how-an-editor-shows-them-display">§10</a>), <code>TitleLayout</code>, <code>Unit</code>, <code>Height</code>, <code>Width</code>, <code>Title</code>, <code>TextLines</code>, <code>StringType</code>, <code>UniqueValues</code>, <code>CaseSensitive</code>, <code>IgnoreDuplicateEmptyValues</code>, <code>PrefixSearch</code>, <code>InfixSearch</code>, <code>IndexedBySemantic</code>, <code>PropertyIdForEmbeddings</code>, <code>MinWordLength</code>, <code>MaxWordLength</code>, <code>LegalValues</code>, <code>LegalValueNames</code>, <code>ReadAccess</code>, <code>WriteAccess</code>, <code>IncludeTypes</code>, <code>PrependOnAdd</code>, <code>FileStorageProviderId</code>, <code>ImageMetaAnalysis</code>, <code>ImageCropModeAnalysis</code>, <code>FileTextIndexing</code>, <code>VideoAndAudioFileTextIndexing</code>, and a password's <code>AllowHashed</code>, <code>AllowEncrypted</code>, <code>AllowPlainText</code>, <code>RequireUppercase</code>, <code>RequireLowercase</code>, <code>RequireDigit</code>, <code>RequireSymbol</code></td>
 </tr>
 </tbody>
 </table>
@@ -1609,7 +1609,7 @@ the storage.</p>
 <a href="#17-uploading-files">§17</a>, and the URLs they are served on in <a href="#18-urls-and-the-url-manager">§18</a>.</p>
 <h3 id="61-file-analysis">6.1 File analysis<a class="anchor" href="#61-file-analysis" aria-label="Link to this section">#</a></h3>
 <p>The database can learn what is in the files you upload, in the background after each upload, using
-the Image AI and File to text services (<a href="#34-ai-services">§34</a>). Three database settings turn it on
+the Image AI and File to text services (<a href="#34-ai-services">§34</a>). Four database settings turn it on
 for every file property, all off by default:</p>
 <table>
 <thead>
@@ -1621,9 +1621,14 @@ for every file property, all off by default:</p>
 </thead>
 <tbody>
 <tr>
-<td><code>EnableAiImageAnalysisByDefault</code></td>
+<td><code>EnableImageMetaAnalysisByDefault</code></td>
 <td>Pictures, to Image AI</td>
 <td>A title, a description, keywords, the focus point and the things in the picture</td>
+</tr>
+<tr>
+<td><code>EnableImageCropModeAnalysisByDefault</code></td>
+<td>Pictures, to Image AI</td>
+<td>The picture's crop mode: <code>Fit</code> for a graphic, <code>Fill</code> for a photograph; and for a picture left fitted, its edges' colour as its background</td>
 </tr>
 <tr>
 <td><code>EnableFileTextIndexingByDefault</code></td>
@@ -1640,7 +1645,7 @@ for every file property, all off by default:</p>
 <p>They are under <strong>Settings › Search &amp; AI › File analysis</strong> in the admin UI, or in <code>LocalSettings</code>
 (<a href="#121-every-setting-in-relatudedbjson">§12.1</a>). A file property can decide for itself. <code>BoolValue.Default</code>
 follows the database setting:</p>
-<div class="codehilite"><pre><span></span><code><span class="na">[FileProperty(AiImageAnalysis = BoolValue.True)]</span><span class="w">          </span><span class="c1">// always analysed, whatever the default</span>
+<div class="codehilite"><pre><span></span><code><span class="na">[FileProperty(ImageMetaAnalysis = BoolValue.True)]</span><span class="w">        </span><span class="c1">// always analysed, whatever the default</span>
 <span class="n">FileValue</span><span class="w"> </span><span class="n">Photo</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
 
 <span class="na">[FileProperty(FileTextIndexing = BoolValue.False)]</span><span class="w">        </span><span class="c1">// never read, even with the default on</span>
@@ -1650,6 +1655,13 @@ follows the database setting:</p>
 <span class="n">FileValue</span><span class="w"> </span><span class="n">Recording</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
 </code></pre></div>
 
+<p><strong>The crop mode analysis</strong> asks Image AI whether the picture is a graphic (a logo, an icon, an
+illustration, a diagram, a chart, a map, a screenshot, a page of text, or a product alone on a plain
+ground) or a photograph. When it is at least 70 sure in 100, the picture's <code>CropMode</code> becomes <code>Fit</code>
+for a graphic, shown whole, or <code>Fill</code> for a photograph, cropped about its focus point. A picture left
+at <code>Fit</code>, <code>Auto</code> or no crop mode also gets a <code>BackgroundColor</code>: the commonest colour along its sides,
+else their average, so the room around it looks like more of it. Edges that are mostly see-through
+leave the background as it was. An SVG has no crop mode analysis.</p>
 <p><strong>What happens.</strong> An upload or a file copy queues a background task (Settings › Tasks shows it). The
 task sends the file to the service, then writes the result into the file value: the text goes into
 <code>TextExtract</code>, and everything else goes into <code>MetaJSON</code> as typed meta. That write queues the node for
@@ -1664,6 +1676,20 @@ treated differently:</p>
 <li><strong>The call fails</strong> (no credits, no answer). Nothing is recorded, and the file is tried again at
   the next text reindex.</li>
 </ul>
+<p>The background task fills in only what is not set: a title, a description, keywords, a focus point,
+a crop mode or a background set by a person stays.</p>
+<p><strong>Analysing at once.</strong> <code>db.Datastore.AnalyseFileAsync(propertyPath, kinds, force, ctx)</code> runs the
+analyses now, in the version the context reads, and keeps each result as it is done. It answers the
+file and a report per kind (done, done before, skipped, not possible here, failed). Without <code>force</code>,
+analyses done before are not done again. With <code>force</code> they are, and the results replace what was
+set by hand. The same analysis of a file is never run twice at once: a second request, such as the
+background task's, waits for the first. <code>GetFileAnalyses(propertyPath, value)</code> tells which analyses
+the property wants, which are done, and which the database can do here.</p>
+<div class="codehilite"><pre><span></span><code><span class="kt">var</span><span class="w"> </span><span class="n">path</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">PropertyPath</span><span class="p">(</span><span class="n">productId</span><span class="p">,</span><span class="w"> </span><span class="n">pictureProperty</span><span class="p">.</span><span class="n">Id</span><span class="p">);</span>
+<span class="kt">var</span><span class="w"> </span><span class="n">report</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">Datastore</span><span class="p">.</span><span class="n">AnalyseFileAsync</span><span class="p">(</span><span class="n">path</span><span class="p">,</span><span class="w"> </span><span class="n">FileAnalysisKinds</span><span class="p">.</span><span class="n">ImageMeta</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">FileAnalysisKinds</span><span class="p">.</span><span class="n">ImageCropMode</span><span class="p">,</span><span class="w"> </span><span class="n">force</span><span class="p">:</span><span class="w"> </span><span class="k">true</span><span class="p">);</span>
+<span class="k">foreach</span><span class="w"> </span><span class="p">(</span><span class="kt">var</span><span class="w"> </span><span class="n">step</span><span class="w"> </span><span class="k">in</span><span class="w"> </span><span class="n">report</span><span class="p">.</span><span class="n">Steps</span><span class="p">)</span><span class="w"> </span><span class="n">Console</span><span class="p">.</span><span class="n">WriteLine</span><span class="p">(</span><span class="n">step</span><span class="p">.</span><span class="n">Kind</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s">&quot;: &quot;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">step</span><span class="p">.</span><span class="n">State</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s">&quot;, &quot;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">step</span><span class="p">.</span><span class="n">Summary</span><span class="p">);</span>
+</code></pre></div>
+
 <p><strong>Files uploaded before a switch was on</strong> are analysed when the text index is rebuilt: <strong>Storage ›
 Maintenance › Rebuild text index</strong> in the admin UI, <code>db.Datastore.ReIndexAllText()</code>, or the <code>reindex-text</code> job
 (<a href="#36-background-tasks-and-the-scheduler">§36</a>). The rebuild queues every stored file that is still
@@ -1686,7 +1712,7 @@ missing an analysis.</p>
 <tr>
 <td><code>ImageFileMeta</code></td>
 <td>Pictures</td>
-<td><code>FocusPoint</code> (pixels from the top left; where crops are placed), <code>Objects</code> (type, name, confidence, box), <code>AiAnalysis</code>, and the picture's own <code>CropMode</code> and <code>BackgroundColor</code> (<a href="#a-pictures-own-defaults">A picture's own defaults</a>)</td>
+<td><code>FocusPoint</code> (pixels from the top left; where crops are placed), <code>Objects</code> (type, name, confidence, box), <code>AiAnalysis</code> (the meta analysis), <code>CropModeAnalysis</code> (<code>Graphic</code> and <code>Certainty</code>), and the picture's own <code>CropMode</code> and <code>BackgroundColor</code> (<a href="#a-pictures-own-defaults">A picture's own defaults</a>)</td>
 </tr>
 <tr>
 <td><code>DocumentFileMeta</code></td>
@@ -1713,7 +1739,7 @@ missing an analysis.</p>
 <span class="kt">string</span><span class="w"> </span><span class="n">text</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">photo</span><span class="p">.</span><span class="n">TextExtract</span><span class="p">;</span><span class="w">         </span><span class="c1">// the file&#39;s text, or a timed transcript</span>
 </code></pre></div>
 
-<p><code>TextExtraction</code> and <code>AiAnalysis</code> record when the step ran, which provider ran it, and the <code>Error</code> if
+<p><code>TextExtraction</code>, <code>AiAnalysis</code> and <code>CropModeAnalysis</code> record when the step ran, which provider ran it, and the <code>Error</code> if
 the service refused the file. <code>Technical</code> holds what the decoder reported when the file was stored:
 the image details, or the probe of a video. You can also write the meta yourself with
 <code>SetMeta(meta)</code> and then save the node.</p>
@@ -3236,9 +3262,14 @@ the vectors on disk:</p>
 <td>Keep a text index per culture, so a search in a culture finds the words of the version its readers see (<a href="#29-cultures-visibility-and-scoped-stores">§29</a>). A change rebuilds the text indexes at the next open.</td>
 </tr>
 <tr>
-<td><code>EnableAiImageAnalysisByDefault</code></td>
+<td><code>EnableImageMetaAnalysisByDefault</code></td>
 <td><code>false</code></td>
 <td>Send every uploaded picture to Image AI for a title, a description, keywords, a focus point and the things in it (<a href="#61-file-analysis">§6.1</a>). One Image AI call per picture.</td>
+</tr>
+<tr>
+<td><code>EnableImageCropModeAnalysisByDefault</code></td>
+<td><code>false</code></td>
+<td>Ask Image AI whether every uploaded picture is a graphic (<code>Fit</code>) or a photograph (<code>Fill</code>), and give a fitted one its edges' colour as its background (<a href="#61-file-analysis">§6.1</a>). One Image AI call per picture.</td>
 </tr>
 <tr>
 <td><code>EnableFileTextIndexingByDefault</code></td>

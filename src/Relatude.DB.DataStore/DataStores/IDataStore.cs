@@ -205,6 +205,16 @@ public interface IDataStore : IDisposable {
     FileValue? UpdateFileMetaIfNotSet(PropertyPath propertyPath, Guid fileId, BasicFileMeta meta, QueryContext? ctx = null);
     void UseFileAnalysisProviders(Relatude.DB.Imaging.IImagingProvider? imaging, Relatude.DB.FileToText.IFileToTextProvider? fileToText);
     int QueueMissingFileAnalyses(IEnumerable<Guid>? nodeTypeIds = null);
+    /// <summary>The analyses the file property wants of the file it holds, those done, and those the database can do here.</summary>
+    FileAnalysisState GetFileAnalyses(PropertyPath propertyPath, FileValue value);
+    /// <summary>
+    /// Analyses the file a property holds, in the version the context reads, now rather than in the background, and keeps
+    /// what is found with it: the kinds asked for that the database can do (its providers, the file's type), at once.
+    /// Without <paramref name="force"/> one done before is not done again, and what was set by hand stays (a title, a
+    /// focus point, a crop mode); with it, it is done again and replaces them. An analysis of the same file under way
+    /// (the background queue's) is waited for rather than paid for twice.
+    /// </summary>
+    Task<FileAnalysisReport> AnalyseFileAsync(PropertyPath propertyPath, FileAnalysisKinds kinds, bool force = false, QueryContext? ctx = null, CancellationToken cancellationToken = default);
 
     Task<Guid> InitiateMultipartUploadAsync(PropertyPath propertyPath, string fileName, QueryContext? ctx = null);
     Task AppendMultipartUploadAsync(Guid fileId, byte[] data, int length);

@@ -383,7 +383,8 @@ internal static class BuildUtilsProperties {
     static FilePropertyModel getFilePropertyModel(FilePropertyAttribute a) {
         var p = new FilePropertyModel();
         if (!string.IsNullOrEmpty(a.FileStorageProviderId)) p.FileStorageProviderId = Guid.Parse(a.FileStorageProviderId);
-        p.AiImageAnalysis = toNullable(a.AiImageAnalysis);
+        p.ImageMetaAnalysis = toNullable(a.ImageMetaAnalysis);
+        p.ImageCropModeAnalysis = toNullable(a.ImageCropModeAnalysis);
         p.FileTextIndexing = toNullable(a.FileTextIndexing);
         p.VideoAndAudioFileTextIndexing = toNullable(a.VideoAndAudioFileTextIndexing);
         return p;

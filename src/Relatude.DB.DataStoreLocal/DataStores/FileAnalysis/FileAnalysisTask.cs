@@ -3,13 +3,6 @@ using Relatude.DB.DataStores;
 
 namespace Relatude.DB.Tasks.FileAnalysis;
 
-[Flags]
-public enum FileAnalysisKinds {
-    None = 0,
-    AiImage = 1,
-    Text = 2,
-}
-
 public sealed class FileAnalysisTask(PropertyPath propertyPath, Guid fileId, FileAnalysisKinds kinds) : TaskData {
     public PropertyPath PropertyPath { get; } = propertyPath;
     public Guid FileId { get; } = fileId;
@@ -37,7 +30,7 @@ internal sealed class FileAnalysisTaskRunner(DataStoreLocal db) : TaskRunner<Fil
             var id = GetTaskLogId(task)!;
             FileAnalysisOutcome outcome;
             try {
-                outcome = await db.AnalyseFileAsync(task, cancellationToken);
+                outcome = await db.RunFileAnalysisTaskAsync(task, cancellationToken);
             } catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) {
                 throw;
             } catch (Exception error) {
@@ -69,8 +62,9 @@ internal sealed class FileAnalysisTaskRunner(DataStoreLocal db) : TaskRunner<Fil
     }
     static string describe(FileAnalysisKinds kinds) {
         var parts = new List<string>();
-        if (kinds.HasFlag(FileAnalysisKinds.AiImage)) parts.Add("AI image analysis");
+        if (kinds.HasFlag(FileAnalysisKinds.ImageMeta)) parts.Add("image meta analysis");
+        if (kinds.HasFlag(FileAnalysisKinds.ImageCropMode)) parts.Add("crop mode analysis");
         if (kinds.HasFlag(FileAnalysisKinds.Text)) parts.Add("text extraction");
-        return parts.Count == 0 ? "nothing" : string.Join(" and ", parts);
+        return parts.Count == 0 ? "nothing" : string.Join(", ", parts);
     }
 }

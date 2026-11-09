@@ -518,7 +518,8 @@ public static class ModelGen {
                     addBaseAttributes<FilePropertyAttribute>(p, dm, sb);
                     var f = (FilePropertyModel)p;
                     if (f.FileStorageProviderId != Guid.Empty) sb.Append(", " + nameof(FilePropertyAttribute.FileStorageProviderId) + " = \"" + f.FileStorageProviderId + "\"");
-                    if (f.AiImageAnalysis.HasValue) sb.Append(", " + nameof(FilePropertyAttribute.AiImageAnalysis) + " = " + addAttributeBool(f.AiImageAnalysis.Value ? BoolValue.True : BoolValue.False));
+                    if (f.ImageMetaAnalysis.HasValue) sb.Append(", " + nameof(FilePropertyAttribute.ImageMetaAnalysis) + " = " + addAttributeBool(f.ImageMetaAnalysis.Value ? BoolValue.True : BoolValue.False));
+                    if (f.ImageCropModeAnalysis.HasValue) sb.Append(", " + nameof(FilePropertyAttribute.ImageCropModeAnalysis) + " = " + addAttributeBool(f.ImageCropModeAnalysis.Value ? BoolValue.True : BoolValue.False));
                     if (f.FileTextIndexing.HasValue) sb.Append(", " + nameof(FilePropertyAttribute.FileTextIndexing) + " = " + addAttributeBool(f.FileTextIndexing.Value ? BoolValue.True : BoolValue.False));
                     if (f.VideoAndAudioFileTextIndexing.HasValue) sb.Append(", " + nameof(FilePropertyAttribute.VideoAndAudioFileTextIndexing) + " = " + addAttributeBool(f.VideoAndAudioFileTextIndexing.Value ? BoolValue.True : BoolValue.False));
                     sb.AppendLine(")]");

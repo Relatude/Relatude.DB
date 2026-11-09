@@ -90,7 +90,8 @@ public static class DatamodelJson {
             removeProperty(typeInfo, nameof(RelationPropertyModel.Display));
             removeProperty(typeInfo, nameof(RelationPropertyModel.AllowInlineEditing));
         } else if (typeInfo.Type == typeof(FilePropertyModel)) {
-            removeProperty(typeInfo, nameof(FilePropertyModel.AiImageAnalysis));
+            removeProperty(typeInfo, nameof(FilePropertyModel.ImageMetaAnalysis));
+            removeProperty(typeInfo, nameof(FilePropertyModel.ImageCropModeAnalysis));
             removeProperty(typeInfo, nameof(FilePropertyModel.FileTextIndexing));
             removeProperty(typeInfo, nameof(FilePropertyModel.VideoAndAudioFileTextIndexing));
         } else if (typeInfo.Type == typeof(Datamodel)) {

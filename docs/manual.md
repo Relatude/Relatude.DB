@@ -739,7 +739,7 @@ database you can override these:
 | Node type, that type only | `Hidden`, `Title`, `Description`, `DefaultReadAccess`, `DefaultEditViewAccess`, `DefaultEditAccess`, `DefaultPublishAccess`, `MinNoInstances`, `MaxNoInstances`, `TextIndexBoost` |
 | Property, per type | `DefaultValue`, `ExcludeFromTextIndex`, `IndexBoost` (`TextIndexBoost` on the attributes), `DisplayName` |
 | Property, asked for by any type | `Indexed`, `NotFacet` |
-| Property, on the declaring type only | `IndexType`, `IndexedByWords`, `TextIndexType`, `CultureSensitive`, `MinLength`, `MaxLength`, `RegularExpression`, `RegularExpressionMessage`, `LegalCharacters`, `Trim`, `CaseTransform`, `MinValue`, `MaxValue`, `FacetRangePowerBase`, `FacetRangeCount`, `Facet`, `TextIndexRelatedContent`, `TextIndexRelatedDisplayName`, `TextIndexRecursiveLevelLimit`, `Display` and `AllowInlineEditing` ([§10](#how-an-editor-shows-them-display)), `TitleLayout`, `Unit`, `Height`, `Width`, `Title`, `TextLines`, `StringType`, `UniqueValues`, `CaseSensitive`, `IgnoreDuplicateEmptyValues`, `PrefixSearch`, `InfixSearch`, `IndexedBySemantic`, `PropertyIdForEmbeddings`, `MinWordLength`, `MaxWordLength`, `LegalValues`, `LegalValueNames`, `ReadAccess`, `WriteAccess`, `IncludeTypes`, `PrependOnAdd`, `FileStorageProviderId`, `AiImageAnalysis`, `FileTextIndexing`, `VideoAndAudioFileTextIndexing`, and a password's `AllowHashed`, `AllowEncrypted`, `AllowPlainText`, `RequireUppercase`, `RequireLowercase`, `RequireDigit`, `RequireSymbol` |
+| Property, on the declaring type only | `IndexType`, `IndexedByWords`, `TextIndexType`, `CultureSensitive`, `MinLength`, `MaxLength`, `RegularExpression`, `RegularExpressionMessage`, `LegalCharacters`, `Trim`, `CaseTransform`, `MinValue`, `MaxValue`, `FacetRangePowerBase`, `FacetRangeCount`, `Facet`, `TextIndexRelatedContent`, `TextIndexRelatedDisplayName`, `TextIndexRecursiveLevelLimit`, `Display` and `AllowInlineEditing` ([§10](#how-an-editor-shows-them-display)), `TitleLayout`, `Unit`, `Height`, `Width`, `Title`, `TextLines`, `StringType`, `UniqueValues`, `CaseSensitive`, `IgnoreDuplicateEmptyValues`, `PrefixSearch`, `InfixSearch`, `IndexedBySemantic`, `PropertyIdForEmbeddings`, `MinWordLength`, `MaxWordLength`, `LegalValues`, `LegalValueNames`, `ReadAccess`, `WriteAccess`, `IncludeTypes`, `PrependOnAdd`, `FileStorageProviderId`, `ImageMetaAnalysis`, `ImageCropModeAnalysis`, `FileTextIndexing`, `VideoAndAudioFileTextIndexing`, and a password's `AllowHashed`, `AllowEncrypted`, `AllowPlainText`, `RequireUppercase`, `RequireLowercase`, `RequireDigit`, `RequireSymbol` |
 
 What the compiled code depends on cannot be overridden: ids and names, the property type, what a type
 inherits, the shape of a member (`ReferenceValueType`, `RelationValueType`, `EmbeddedValueType`), the
@@ -1110,12 +1110,13 @@ FileValue Brochure { get; set; }
 ### 6.1 File analysis
 
 The database can learn what is in the files you upload, in the background after each upload, using
-the Image AI and File to text services ([§34](#34-ai-services)). Three database settings turn it on
+the Image AI and File to text services ([§34](#34-ai-services)). Four database settings turn it on
 for every file property, all off by default:
 
 | Setting | What is sent | What you get |
 |---|---|---|
-| `EnableAiImageAnalysisByDefault` | Pictures, to Image AI | A title, a description, keywords, the focus point and the things in the picture |
+| `EnableImageMetaAnalysisByDefault` | Pictures, to Image AI | A title, a description, keywords, the focus point and the things in the picture |
+| `EnableImageCropModeAnalysisByDefault` | Pictures, to Image AI | The picture's crop mode: `Fit` for a graphic, `Fill` for a photograph; and for a picture left fitted, its edges' colour as its background |
 | `EnableFileTextIndexingByDefault` | Documents, and pictures for OCR, to File to text | The text of the file, its title, author, language and pages |
 | `EnableVideoAndAudioFileTextIndexingByDefault` | Recordings and videos, to File to text | A transcript, timed line by line, and the duration |
 
@@ -1124,7 +1125,7 @@ They are under **Settings › Search & AI › File analysis** in the admin UI, o
 follows the database setting:
 
 ```csharp
-[FileProperty(AiImageAnalysis = BoolValue.True)]          // always analysed, whatever the default
+[FileProperty(ImageMetaAnalysis = BoolValue.True)]        // always analysed, whatever the default
 FileValue Photo { get; set; }
 
 [FileProperty(FileTextIndexing = BoolValue.False)]        // never read, even with the default on
@@ -1133,6 +1134,14 @@ FileValue SignedContract { get; set; }
 [FileProperty(VideoAndAudioFileTextIndexing = BoolValue.True)]
 FileValue Recording { get; set; }
 ```
+
+**The crop mode analysis** asks Image AI whether the picture is a graphic (a logo, an icon, an
+illustration, a diagram, a chart, a map, a screenshot, a page of text, or a product alone on a plain
+ground) or a photograph. When it is at least 70 sure in 100, the picture's `CropMode` becomes `Fit`
+for a graphic, shown whole, or `Fill` for a photograph, cropped about its focus point. A picture left
+at `Fit`, `Auto` or no crop mode also gets a `BackgroundColor`: the commonest colour along its sides,
+else their average, so the room around it looks like more of it. Edges that are mostly see-through
+leave the background as it was. An SVG has no crop mode analysis.
 
 **What happens.** An upload or a file copy queues a background task (Settings › Tasks shows it). The
 task sends the file to the service, then writes the result into the file value: the text goes into
@@ -1149,6 +1158,23 @@ treated differently:
 - **The call fails** (no credits, no answer). Nothing is recorded, and the file is tried again at
   the next text reindex.
 
+The background task fills in only what is not set: a title, a description, keywords, a focus point,
+a crop mode or a background set by a person stays.
+
+**Analysing at once.** `db.Datastore.AnalyseFileAsync(propertyPath, kinds, force, ctx)` runs the
+analyses now, in the version the context reads, and keeps each result as it is done. It answers the
+file and a report per kind (done, done before, skipped, not possible here, failed). Without `force`,
+analyses done before are not done again. With `force` they are, and the results replace what was
+set by hand. The same analysis of a file is never run twice at once: a second request, such as the
+background task's, waits for the first. `GetFileAnalyses(propertyPath, value)` tells which analyses
+the property wants, which are done, and which the database can do here.
+
+```csharp
+var path = new PropertyPath(productId, pictureProperty.Id);
+var report = await db.Datastore.AnalyseFileAsync(path, FileAnalysisKinds.ImageMeta | FileAnalysisKinds.ImageCropMode, force: true);
+foreach (var step in report.Steps) Console.WriteLine(step.Kind + ": " + step.State + ", " + step.Summary);
+```
+
 **Files uploaded before a switch was on** are analysed when the text index is rebuilt: **Storage ›
 Maintenance › Rebuild text index** in the admin UI, `db.Datastore.ReIndexAllText()`, or the `reindex-text` job
 ([§36](#36-background-tasks-and-the-scheduler)). The rebuild queues every stored file that is still
@@ -1159,7 +1185,7 @@ missing an analysis.
 | Class | For | Adds |
 |---|---|---|
 | `FileValueMeta` | Every file (the base class) | `Title`, `Description`, `Keywords`, `Author`, `Language`, `TextExtraction`, `Technical` |
-| `ImageFileMeta` | Pictures | `FocusPoint` (pixels from the top left; where crops are placed), `Objects` (type, name, confidence, box), `AiAnalysis`, and the picture's own `CropMode` and `BackgroundColor` ([A picture's own defaults](#a-pictures-own-defaults)) |
+| `ImageFileMeta` | Pictures | `FocusPoint` (pixels from the top left; where crops are placed), `Objects` (type, name, confidence, box), `AiAnalysis` (the meta analysis), `CropModeAnalysis` (`Graphic` and `Certainty`), and the picture's own `CropMode` and `BackgroundColor` ([A picture's own defaults](#a-pictures-own-defaults)) |
 | `DocumentFileMeta` | Documents | `Pages` |
 | `AudioFileMeta`, `VideoFileMeta` | Recordings and videos (both derive from `MediaFileMeta`) | `Duration` |
 
@@ -1177,7 +1203,7 @@ bool read = meta.TextExtraction?.Succeeded == true;
 string text = photo.TextExtract;         // the file's text, or a timed transcript
 ```
 
-`TextExtraction` and `AiAnalysis` record when the step ran, which provider ran it, and the `Error` if
+`TextExtraction`, `AiAnalysis` and `CropModeAnalysis` record when the step ran, which provider ran it, and the `Error` if
 the service refused the file. `Technical` holds what the decoder reported when the file was stored:
 the image details, or the probe of a video. You can also write the meta yourself with
 `SetMeta(meta)` and then save the node.
@@ -2271,7 +2297,8 @@ the vectors on disk:
 | `EnableSemanticIndexByDefault` | `false` | The same for the vector index. Every node costs an embedding call, so prefer opting in per property. |
 | `EnableInstantTextIndexingByDefault` | `false` | Index text inside the transaction instead of in the background, so a node is searchable as soon as the write returns. Writes get slower. |
 | `CultureSensitiveTextIndex` | `false` | Keep a text index per culture, so a search in a culture finds the words of the version its readers see ([§29](#29-cultures-visibility-and-scoped-stores)). A change rebuilds the text indexes at the next open. |
-| `EnableAiImageAnalysisByDefault` | `false` | Send every uploaded picture to Image AI for a title, a description, keywords, a focus point and the things in it ([§6.1](#61-file-analysis)). One Image AI call per picture. |
+| `EnableImageMetaAnalysisByDefault` | `false` | Send every uploaded picture to Image AI for a title, a description, keywords, a focus point and the things in it ([§6.1](#61-file-analysis)). One Image AI call per picture. |
+| `EnableImageCropModeAnalysisByDefault` | `false` | Ask Image AI whether every uploaded picture is a graphic (`Fit`) or a photograph (`Fill`), and give a fitted one its edges' colour as its background ([§6.1](#61-file-analysis)). One Image AI call per picture. |
 | `EnableFileTextIndexingByDefault` | `false` | Read the text of every uploaded document, and of pictures by OCR, with File to text, and put it in the node's search text ([§6.1](#61-file-analysis)). One File to text call per file. |
 | `EnableVideoAndAudioFileTextIndexingByDefault` | `false` | Transcribe every uploaded recording and video the same way. A long recording is charged per part. |
 | `ValueIndexes` | null | The engines that value indexes (`Indexed = true`) can run on: `{ "Id", "TypeName", "MaxMemoryUsageInMb" }`. `TypeName` is `Native`, `Sqlite` (needs `Relatude.DB.Plugins.Sqlite`) or the full type name of your own `IValueIndexEngine`. An engine is used only when a default names it. |

@@ -46,9 +46,9 @@ public class DataStoreSession : IDataStore {
     public void DeRegisterActivity(long activityId)
         => _datastore.DeRegisterActivity(activityId);
 
-    public Task<Guid> InitiateMultipartUploadAsync(PropertyPath propertyPath, string fileName, QueryContext? ctx = null) => _datastore.InitiateMultipartUploadAsync(propertyPath, fileName, ctx);
+    public Task<Guid> InitiateMultipartUploadAsync(PropertyPath propertyPath, string fileName, QueryContext? ctx = null) => _datastore.InitiateMultipartUploadAsync(propertyPath, fileName, ctx ?? QueryContext);
     public Task AppendMultipartUploadAsync(Guid fileId, byte[] data, int length) => _datastore.AppendMultipartUploadAsync(fileId, data, length);
-    public Task<FileValue> FinalizeMultipartUploadAsync(Guid fileId, int? maxWaitForMetaUpdate = null, QueryContext? ctx = null) => _datastore.FinalizeMultipartUploadAsync(fileId, maxWaitForMetaUpdate, ctx);
+    public Task<FileValue> FinalizeMultipartUploadAsync(Guid fileId, int? maxWaitForMetaUpdate = null, QueryContext? ctx = null) => _datastore.FinalizeMultipartUploadAsync(fileId, maxWaitForMetaUpdate, ctx ?? QueryContext);
     public Task CancelMultipartUpload(Guid fileId) => _datastore.CancelMultipartUpload(fileId);
     public bool FileStoreSupportsMultipartUploads(PropertyPath propertyPath) => _datastore.FileStoreSupportsMultipartUploads(propertyPath);
 
@@ -122,6 +122,9 @@ public class DataStoreSession : IDataStore {
     public FileValue? UpdateFileMetaIfNotSet(PropertyPath propertyPath, Guid fileId, BasicFileMeta meta, QueryContext? ctx = null) => _datastore.UpdateFileMetaIfNotSet(propertyPath, fileId, meta, ctx ?? QueryContext);
     public void UseFileAnalysisProviders(Relatude.DB.Imaging.IImagingProvider? imaging, Relatude.DB.FileToText.IFileToTextProvider? fileToText) => _datastore.UseFileAnalysisProviders(imaging, fileToText);
     public int QueueMissingFileAnalyses(IEnumerable<Guid>? nodeTypeIds = null) => _datastore.QueueMissingFileAnalyses(nodeTypeIds);
+    public FileAnalysisState GetFileAnalyses(PropertyPath propertyPath, FileValue value) => _datastore.GetFileAnalyses(propertyPath, value);
+    public Task<FileAnalysisReport> AnalyseFileAsync(PropertyPath propertyPath, FileAnalysisKinds kinds, bool force = false, QueryContext? ctx = null, CancellationToken cancellationToken = default)
+        => _datastore.AnalyseFileAsync(propertyPath, kinds, force, ctx ?? QueryContext, cancellationToken);
 
     public bool TryGetNodeType(Guid id, out Guid nodeTypeId)
         => _datastore.TryGetNodeType(id, out nodeTypeId);
