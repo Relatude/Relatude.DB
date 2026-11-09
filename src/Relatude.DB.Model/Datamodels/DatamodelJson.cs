@@ -30,12 +30,13 @@ public static class DatamodelJson {
     /// <summary>
     /// Options for the store's checksum (<see cref="SerializeForChecksum"/>): <see cref="ChecksumOptions"/>
     /// with what only says how a type or a property is shown left out as well (<see cref="NodeTypeModel.Icon"/>,
-    /// <see cref="NodeTypeModel.NameProperty"/>, <see cref="NodeTypeModel.Title"/>, <see cref="NodeTypeModel.Description"/>,
+    /// <see cref="NodeTypeModel.Title"/>, <see cref="NodeTypeModel.Description"/>,
     /// the <see cref="RelationPropertyModel.Display"/> and <see cref="RelationPropertyModel.AllowInlineEditing"/> of the
     /// properties holding other nodes, every property's <see cref="PropertyModel.TitleLayout"/>, <see cref="PropertyModel.Unit"/>,
     /// <see cref="PropertyModel.Height"/>, <see cref="PropertyModel.Width"/> and <see cref="PropertyModel.Title"/>, a string's
-    /// <see cref="StringPropertyModel.TextLines"/>, and their overrides), so choosing an icon, a name property, a title, a
-    /// display mode, a title layout, a unit, a size or a number of lines does not rebuild the state and every index. A string's <see cref="StringPropertyModel.StringType"/> is written as AnyString when it is
+    /// <see cref="StringPropertyModel.TextLines"/>, a Guid's or Guid[]'s <see cref="GuidPropertyModel.GuidType"/>, and their
+    /// overrides), so choosing an icon, a title, a display mode, a title layout, a unit, a size, a number
+    /// of lines or what ids are ids of does not rebuild the state and every index. A string's <see cref="StringPropertyModel.StringType"/> is written as AnyString when it is
     /// <see cref="StringValueType.SingleLineText"/>, <see cref="StringValueType.MultiLineText"/> or
     /// <see cref="StringValueType.Code"/>, which the store keeps and indexes as it does AnyString: moving between the four
     /// says how the text is edited, not what is stored. The
@@ -74,7 +75,9 @@ public static class DatamodelJson {
             removeProperty(typeInfo, nameof(PropertyModel.Width));
             removeProperty(typeInfo, nameof(PropertyModel.Title));
         }
-        if (typeInfo.Type == typeof(StringPropertyModel)) {
+        if (typeInfo.Type == typeof(GuidPropertyModel) || typeInfo.Type == typeof(GuidArrayPropertyModel)) {
+            removeProperty(typeInfo, nameof(GuidPropertyModel.GuidType));
+        } else if (typeInfo.Type == typeof(StringPropertyModel)) {
             // how many lines a text area shows; and one line or several of plain text is stored as any text is
             removeProperty(typeInfo, nameof(StringPropertyModel.TextLines));
             foreach (var p in typeInfo.Properties) {
@@ -84,7 +87,6 @@ public static class DatamodelJson {
             }
         } else if (typeInfo.Type == typeof(NodeTypeModel)) {
             removeProperty(typeInfo, nameof(NodeTypeModel.Icon));
-            removeProperty(typeInfo, nameof(NodeTypeModel.NameProperty));
             removeProperty(typeInfo, nameof(NodeTypeModel.Title));
             removeProperty(typeInfo, nameof(NodeTypeModel.Description));
             // what nodes may be made, not how they are stored: IsAbstract is new and left out, and IsInnerNode, which
@@ -111,25 +113,24 @@ public static class DatamodelJson {
             }
         }
     }
-    // the overrides as if no icon, name property, title, description, display mode or other presentation were
+    // the overrides as if no icon, title, description, display mode or other presentation were
     // overridden: the types and properties with nothing else overridden are left out. A string kind of plain text is
     // left out too: the property itself says what is stored, with one line or several read as any text
     static bool hasPresentation(PropertyOverride p) => p.Display != null || p.AllowInlineEditing != null || p.TitleLayout != null || p.Unit != null
-        || p.Height != null || p.Width != null || p.Title != null || p.TextLines != null || p.StringType is StringValueType.SingleLineText or StringValueType.MultiLineText or StringValueType.Code;
+        || p.Height != null || p.Width != null || p.Title != null || p.TextLines != null || p.GuidType != null || p.StringType is StringValueType.SingleLineText or StringValueType.MultiLineText or StringValueType.Code;
     static DatamodelOverrides? withoutPresentation(DatamodelOverrides? overrides) {
-        if (overrides == null || !overrides.NodeTypes.Values.Any(t => t.Icon != null || t.NameProperty != null || t.Title != null || t.Description != null
+        if (overrides == null || !overrides.NodeTypes.Values.Any(t => t.Icon != null || t.Title != null || t.Description != null
             || t.IsAbstract != null || t.IsInnerNode != null || t.Properties?.Values.Any(hasPresentation) == true)) return overrides;
         var copy = new DatamodelOverrides();
         foreach (var (id, t) in overrides.NodeTypes) {
             var c = JsonSerializer.Deserialize<NodeTypeOverride>(JsonSerializer.Serialize(t, Options), Options)!;
             c.Icon = null;
-            c.NameProperty = null;
             c.Title = null;
             c.Description = null;
             c.IsAbstract = null; // what may be made, which the state does not hold
             c.IsInnerNode = null;
             if (c.Properties != null) foreach (var p in c.Properties.Values) {
-                    p.Display = null; p.AllowInlineEditing = null; p.TitleLayout = null; p.Unit = null; p.Height = null; p.Width = null; p.Title = null; p.TextLines = null;
+                    p.Display = null; p.AllowInlineEditing = null; p.TitleLayout = null; p.Unit = null; p.Height = null; p.Width = null; p.Title = null; p.TextLines = null; p.GuidType = null;
                     if (p.StringType is StringValueType.SingleLineText or StringValueType.MultiLineText or StringValueType.Code) p.StringType = null;
                 }
             copy.NodeTypes[id] = c;

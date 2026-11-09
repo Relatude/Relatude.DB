@@ -45,14 +45,14 @@ public static partial class FromBytes {
         // adding only valid props and force type if needed, adding default for missing:            
         var nodePath = new NodePath(new NodeKey(guid, __id));
         for (int i = 0; i < valueCount; i++) {
-            var id = stream.ReadGuid();
+            var id = readAs(nodeType, stream.ReadGuid(), out var former);
             var propType = (PropertyType)stream.ReadUInt();
             var bytes = stream.ReadByteArray();
             if (datamodel.Properties.TryGetValue(id, out var propDef)) {
                 var value = toPropertyValue(bytes, propType, datamodel, propDef, nodePath);
                 if (allProps.ContainsKey(id)) {
                     value = forceValueType(propDef.PropertyType, value);
-                    if(value!=null) values.Add(id, value);
+                    if (value != null) addValue(values, nodeType, id, former, value);
                 }
             }
         }
@@ -81,14 +81,14 @@ public static partial class FromBytes {
         // adding only valid props and force type if needed, adding default for missing:            
         var nodePath = new NodePath(new NodeKey(guid, __id));
         for (int i = 0; i < valueCount; i++) {
-            var id = stream.ReadGuid();
+            var id = readAs(nodeType, stream.ReadGuid(), out var former);
             var propType = (PropertyType)stream.ReadUInt();
             var bytes = stream.ReadByteArray();
             if (datamodel.Properties.TryGetValue(id, out var propDef)) {
                 var value = toPropertyValue(bytes, propType, datamodel, propDef, nodePath);
                 if (allProps.ContainsKey(id)) {
                     value = forceValueType(propDef.PropertyType, value);
-                    if (value != null) values.Add(id, value);
+                    if (value != null) addValue(values, nodeType, id, former, value);
                 }
             }
         }
@@ -108,7 +108,7 @@ public static partial class FromBytes {
         var revisionGuid = stream.ReadGuid();
         var createdUtc = stream.ReadDateTime();
         var changedUtc = stream.ReadDateTime();
-        string? displayName = stream.ReadStringOrNull();
+        stream.ReadStringOrNull(); // the display name nodes once had
         string? address = stream.ReadStringOrNull();
 
         // Node data meta:
@@ -126,14 +126,14 @@ public static partial class FromBytes {
         var nodePath = new NodePath(new NodeKey(guid, __id));
         // adding only valid props and force type if needed, adding default for missing:            
         for (int i = 0; i < valueCount; i++) {
-            var id = stream.ReadGuid();
+            var id = readAs(nodeType, stream.ReadGuid(), out var former);
             var propType = (PropertyType)stream.ReadUInt();
             var bytes = stream.ReadByteArray();
             if (datamodel.Properties.TryGetValue(id, out var propDef)) {
                 var value = toPropertyValue(bytes, propType, datamodel, propDef, nodePath);
                 if (allProps.ContainsKey(id)) {
                     value = forceValueType(propDef.PropertyType, value);
-                    if (value != null) values.Add(id, value);
+                    if (value != null) addValue(values, nodeType, id, former, value);
                 }
             }
         }
@@ -154,7 +154,7 @@ public static partial class FromBytes {
     static NodeData read_NodeData(Datamodel datamodel, Stream stream, Guid guid, int __id, Guid nodeTypeId, PropertyPath? propertyPath) {
         var createdUtc = stream.ReadDateTime();
         var changedUtc = stream.ReadDateTime();
-        string? displayName = stream.ReadStringOrNull();
+        stream.ReadStringOrNull(); // the display name nodes once had
         string? address = stream.ReadStringOrNull();
 
         // Node data meta:
@@ -172,14 +172,14 @@ public static partial class FromBytes {
         // adding only valid props and force type if needed, adding default for missing:            
         var nodePath = propertyPath == null ? new NodePath(new NodeKey(guid, __id)) : propertyPath.CreatePathToInnerNode(guid);
         for (int i = 0; i < valueCount; i++) {
-            var id = stream.ReadGuid();
+            var id = readAs(nodeType, stream.ReadGuid(), out var former);
             var propType = (PropertyType)stream.ReadUInt();
             var bytes = stream.ReadByteArray();
             if (datamodel.Properties.TryGetValue(id, out var propDef)) {
                 var value = toPropertyValue(bytes, propType, datamodel, propDef, nodePath);
                 if (allProps.ContainsKey(id)) {
                     value = forceValueType(propDef.PropertyType, value);
-                    if (value != null) values.Add(id, value);
+                    if (value != null) addValue(values, nodeType, id, former, value);
                 }
             }
         }
@@ -206,6 +206,17 @@ public static partial class FromBytes {
         return new(guid, __id, nodeTypeId, versions);
     }
 
+    // a value stored under a former property (NodeTypeModel.FormerPropertyIds) is read as the property it became
+    static Guid readAs(NodeTypeModel nodeType, Guid id, out bool former) {
+        former = nodeType.AllFormerPropertyIds.TryGetValue(id, out var now);
+        return former ? now : id;
+    }
+    // a value the node holds under the property itself wins over a former one, read before or after it
+    static void addValue(Properties<object> values, NodeTypeModel nodeType, Guid id, bool former, object value) {
+        if (nodeType.AllFormerPropertyIds.Count == 0) values.Add(id, value);
+        else if (!former) values.SetOrRemoveIfNull(id, value);
+        else if (!values.ContainsKey(id)) values.Add(id, value);
+    }
     static object toPropertyValue(byte[] bytes, PropertyType propType, Datamodel datamodel, PropertyModel propDef, NodePath parent) {
         return propType switch {
             PropertyType.String => RelatudeDBGlobals.Encoding.GetString(bytes),

@@ -445,7 +445,7 @@ each concept builds on the last.</p>
 </tr>
 <tr>
 <td><code>NodeMeta Meta</code></td>
-<td>Metadata the system manages: timestamps, culture, revision, access, display name, address.</td>
+<td>Metadata the system manages: timestamps, culture, revision, access, address.</td>
 </tr>
 <tr>
 <td><strong>Scalar properties</strong></td>
@@ -480,21 +480,19 @@ tracks your changes and loads relations lazily. You never write a class.</p>
 <a href="#2-your-first-node-type">§2</a> shows how to use this.</p>
 <hr />
 <h2 id="2-your-first-node-type">2. Your first node type<a class="anchor" href="#2-your-first-node-type" aria-label="Link to this section">#</a></h2>
-<p>The three namespaces a model file usually imports:</p>
-<div class="codehilite"><pre><span></span><code><span class="k">using</span><span class="w"> </span><span class="nn">Relatude.DB.Common</span><span class="p">;</span><span class="w">       </span><span class="c1">// FileValue, GeoCoordinate, NodeKey</span>
-<span class="k">using</span><span class="w"> </span><span class="nn">Relatude.DB.Datamodels</span><span class="p">;</span><span class="w">   </span><span class="c1">// NodeMeta, RevisionType</span>
-<span class="k">using</span><span class="w"> </span><span class="nn">Relatude.DB.Nodes</span><span class="p">;</span><span class="w">        </span><span class="c1">// attributes, relation bases, Reference, References, EmbeddedMap</span>
+<p>The namespaces a model file usually imports:</p>
+<div class="codehilite"><pre><span></span><code><span class="k">using</span><span class="w"> </span><span class="nn">Relatude.DB.Common</span><span class="p">;</span><span class="w">         </span><span class="c1">// FileValue, GeoCoordinate, NodeKey</span>
+<span class="k">using</span><span class="w"> </span><span class="nn">Relatude.DB.Datamodels</span><span class="p">;</span><span class="w">     </span><span class="c1">// NodeMeta, RevisionType</span>
+<span class="k">using</span><span class="w"> </span><span class="nn">Relatude.DB.Native.Models</span><span class="p">;</span><span class="w">  </span><span class="c1">// IName</span>
+<span class="k">using</span><span class="w"> </span><span class="nn">Relatude.DB.Nodes</span><span class="p">;</span><span class="w">          </span><span class="c1">// attributes, relation bases, Reference, References, EmbeddedMap</span>
 </code></pre></div>
 
 <p>Here is <code>IOrganizer</code>, a company that runs events. <strong>The interface is the whole node type.</strong> There is
 no class, and none is needed:</p>
 <div class="codehilite"><pre><span></span><code><span class="k">namespace</span><span class="w"> </span><span class="nn">VenueApp.Models</span><span class="p">;</span>
 
-<span class="k">public</span><span class="w"> </span><span class="k">interface</span><span class="w"> </span><span class="n">IOrganizer</span><span class="w"> </span><span class="p">{</span>
+<span class="k">public</span><span class="w"> </span><span class="k">interface</span><span class="w"> </span><span class="n">IOrganizer</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">IName</span><span class="w"> </span><span class="p">{</span><span class="w">   </span><span class="c1">// IName gives it its Name</span>
 <span class="w">    </span><span class="n">Guid</span><span class="w"> </span><span class="n">Id</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
-
-<span class="w">    </span><span class="na">[StringProperty(Indexed = true, IndexedByWords = true, MaxLength = 200, DisplayName = true)]</span>
-<span class="w">    </span><span class="kt">string</span><span class="w"> </span><span class="n">Name</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
 
 <span class="w">    </span><span class="na">[StringProperty(UniqueValues = true, MaxLength = 254)]</span>
 <span class="w">    </span><span class="kt">string</span><span class="w"> </span><span class="n">ContactEmail</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
@@ -530,6 +528,8 @@ no class, and none is needed:</p>
    attributes on a class member that implements it are ignored. The one exception is
    <code>[PropertyOverride]</code> (<a href="#31-overriding-attributes">§3.1</a>).</li>
 </ol>
+<p><code>Name</code> comes from <code>IName</code>, the engine's interface for a node's name. The admin UI, GraphQL and facets
+show a node by it, and the datamodel must hold <code>IName</code> (<a href="#node-names-iname">Node names</a>).</p>
 <p><code>[Exclude]</code> leaves a type or a property out of the datamodel.</p>
 <h3 id="why-interfaces-are-the-better-default">Why interfaces are the better default<a class="anchor" href="#why-interfaces-are-the-better-default" aria-label="Link to this section">#</a></h3>
 <table>
@@ -587,12 +587,9 @@ focused facet interfaces:</p>
 <span class="p">}</span>
 
 <span class="c1">// A thing with an identity, a name and a slug.</span>
-<span class="k">public</span><span class="w"> </span><span class="k">interface</span><span class="w"> </span><span class="n">INamedNode</span><span class="w"> </span><span class="p">{</span>
+<span class="k">public</span><span class="w"> </span><span class="k">interface</span><span class="w"> </span><span class="n">INamedNode</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">IName</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="n">Guid</span><span class="w"> </span><span class="n">Id</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
 <span class="w">    </span><span class="n">NodeMeta</span><span class="w"> </span><span class="n">Meta</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
-
-<span class="w">    </span><span class="na">[StringProperty(Indexed = true, IndexedByWords = true, PrefixSearch = true, DisplayName = true)]</span>
-<span class="w">    </span><span class="kt">string</span><span class="w"> </span><span class="n">Title</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
 
 <span class="w">    </span><span class="na">[AddressProperty]</span>
 <span class="w">    </span><span class="kt">string</span><span class="w"> </span><span class="n">Slug</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w">          </span><span class="c1">// the node&#39;s address, set with db.UpdateAddress</span>
@@ -633,13 +630,13 @@ directly and get mixed results:</p>
 
 <span class="k">foreach</span><span class="w"> </span><span class="p">(</span><span class="kt">var</span><span class="w"> </span><span class="n">x</span><span class="w"> </span><span class="k">in</span><span class="w"> </span><span class="n">nearby</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="n">Console</span><span class="p">.</span><span class="n">WriteLine</span><span class="p">(</span><span class="n">x</span><span class="w"> </span><span class="k">switch</span><span class="w"> </span><span class="p">{</span>
-<span class="w">        </span><span class="n">IVenue</span><span class="w"> </span><span class="n">v</span><span class="w">    </span><span class="o">=&gt;</span><span class="w"> </span><span class="s">$&quot;Venue: {v.Title}&quot;</span><span class="p">,</span>
-<span class="w">        </span><span class="n">IAttendee</span><span class="w"> </span><span class="n">a</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="s">$&quot;Attendee: {a.Title}&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="n">IVenue</span><span class="w"> </span><span class="n">v</span><span class="w">    </span><span class="o">=&gt;</span><span class="w"> </span><span class="s">$&quot;Venue: {v.Name}&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="n">IAttendee</span><span class="w"> </span><span class="n">a</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="s">$&quot;Attendee: {a.Name}&quot;</span><span class="p">,</span>
 <span class="w">        </span><span class="n">_</span><span class="w">           </span><span class="o">=&gt;</span><span class="w"> </span><span class="s">&quot;Something else&quot;</span>
 <span class="w">    </span><span class="p">});</span>
 <span class="p">}</span>
 
-<span class="c1">// One search box over everything that has a title</span>
+<span class="c1">// One search box over everything that has a name</span>
 <span class="kt">var</span><span class="w"> </span><span class="n">hits</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">Query</span><span class="o">&lt;</span><span class="n">INamedNode</span><span class="o">&gt;</span><span class="p">()</span>
 <span class="w">             </span><span class="p">.</span><span class="n">WhereSearch</span><span class="p">(</span><span class="s">&quot;outdoor jazz&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">semanticRatio</span><span class="p">:</span><span class="w"> </span><span class="mf">0.5</span><span class="p">)</span>
 <span class="w">             </span><span class="p">.</span><span class="n">Execute</span><span class="p">();</span>
@@ -680,7 +677,7 @@ and the class a form you can create. A class has four extra obligations:</p>
 <div class="codehilite"><pre><span></span><code><span class="k">public</span><span class="w"> </span><span class="k">class</span><span class="w"> </span><span class="nc">Organizer</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">IOrganizer</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="k">public</span><span class="w"> </span><span class="n">Guid</span><span class="w"> </span><span class="n">Id</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
 
-<span class="w">    </span><span class="c1">// The attributes are on IOrganizer: repeating them here has no effect.</span>
+<span class="w">    </span><span class="c1">// The attributes are on IOrganizer and IName: repeating them here has no effect.</span>
 <span class="w">    </span><span class="k">public</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="n">Name</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kt">string</span><span class="p">.</span><span class="n">Empty</span><span class="p">;</span>
 <span class="w">    </span><span class="k">public</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="n">ContactEmail</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kt">string</span><span class="p">.</span><span class="n">Empty</span><span class="p">;</span>
 <span class="w">    </span><span class="k">public</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="n">Slug</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kt">string</span><span class="p">.</span><span class="n">Empty</span><span class="p">;</span>
@@ -714,7 +711,9 @@ same goes for <code>[Relation(Id = …)]</code>.</p>
 </code></pre></div>
 
 <p>A property's id is derived from its declaring type's id and its own name, so a pinned type id keeps
-the property ids too. To rename a property, pin its id with the <code>Id</code> of its attribute.</p>
+the property ids too. To rename a property, pin its id with the <code>Id</code> of its attribute. When the
+values are to be read as another property, one the type declares or inherits, name the old id with
+<code>[FormerProperty]</code> on the type (<a href="#node-names-iname">Node names</a> shows it).</p>
 <p><code>BoolValue</code> has three values: <code>Default</code> (take it from the base types, else the database default),
 <code>True</code> and <code>False</code>. <code>TextIndex</code>, <code>SemanticIndex</code> and <code>InstantTextIndexing</code> are inherited by derived
 types (<a href="#31-overriding-attributes">§3.1</a>). <code>MinNoInstances</code> and <code>MaxNoInstances</code> limit how many nodes
@@ -747,10 +746,8 @@ content to create.</p>
 </code></pre></div>
 
 <p>Both belong to the type alone and are not inherited. Without a title, an application makes one from
-the type name (<code>IArticlePage</code> reads "Article page"). <code>NameProperty = nameof(Title)</code> names the property
-that holds a node's name, which an editor such as the CMS shows at the top of a node's form; a type
-without one takes its base type's. Like an icon, these only change how a type is shown, and the
-datamodel editor saves them as overrides on a type from compiled code.</p>
+the type name (<code>IArticlePage</code> reads "Article page"). Like an icon, these only change how a type is
+shown, and the datamodel editor saves them as overrides on a type from compiled code.</p>
 <h3 id="optional-abstract-types-and-inner-node-types">Optional: abstract types and inner node types<a class="anchor" href="#optional-abstract-types-and-inner-node-types" aria-label="Link to this section">#</a></h3>
 <p>Two switches say what nodes may be made of a type. <code>Abstract = true</code> says no node is ever of the type
 itself, only of the types inheriting from it: a base that gathers what they share, as an abstract
@@ -885,7 +882,6 @@ efficiently, and to be a facet.</strong> Without an index, the engine scans.</p>
 <span class="w">    </span><span class="k">public</span><span class="w"> </span><span class="kt">string?</span><span class="w"> </span><span class="n">WriteAccess</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w">     </span><span class="c1">// the user group that may write it</span>
 <span class="w">    </span><span class="k">public</span><span class="w"> </span><span class="kt">bool</span><span class="w"> </span><span class="n">ExcludeFromTextIndex</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
 <span class="w">    </span><span class="k">public</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="n">TextIndexBoost</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w">      </span><span class="c1">// extra times the value goes into the text index</span>
-<span class="w">    </span><span class="k">public</span><span class="w"> </span><span class="kt">bool</span><span class="w"> </span><span class="n">DisplayName</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w">        </span><span class="c1">// part of the node&#39;s display name</span>
 <span class="w">    </span><span class="k">public</span><span class="w"> </span><span class="n">TitleLayout</span><span class="w"> </span><span class="n">TitleLayout</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="c1">// where an editor puts the title: Default, Left, Above or None</span>
 <span class="w">    </span><span class="k">public</span><span class="w"> </span><span class="kt">string?</span><span class="w"> </span><span class="n">Unit</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w">            </span><span class="c1">// shown by an editor right of the control: &quot;kg&quot;</span>
 <span class="w">    </span><span class="k">public</span><span class="w"> </span><span class="kt">string?</span><span class="w"> </span><span class="n">Height</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w">          </span><span class="c1">// how tall an editor makes the control: &quot;300px&quot;, &quot;50%&quot;</span>
@@ -1007,6 +1003,23 @@ so their bounds and defaults are strings in a fixed format:</p>
 <span class="k">public</span><span class="w"> </span><span class="n">Guid</span><span class="w"> </span><span class="n">ExternalRef</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
 </code></pre></div>
 
+<h3 id="ids-of-node-types-properties-and-relations">Ids of node types, properties and relations<a class="anchor" href="#ids-of-node-types-properties-and-relations" aria-label="Link to this section">#</a></h3>
+<p>A <code>Guid</code> or <code>Guid[]</code> property can hold ids from the datamodel itself. <code>GuidType</code> says what kind of id
+it holds, so an editing interface such as the CMS can offer them by name in a drop-down instead of as
+Guids:</p>
+<div class="codehilite"><pre><span></span><code><span class="na">[GuidArrayProperty(GuidType = GuidValueType.NodeType)]</span>
+<span class="k">public</span><span class="w"> </span><span class="n">Guid</span><span class="p">[]</span><span class="w"> </span><span class="n">NodeTypes</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[];</span>
+
+<span class="na">[GuidProperty(GuidType = GuidValueType.Property)]</span>
+<span class="k">public</span><span class="w"> </span><span class="n">Guid</span><span class="w"> </span><span class="n">SortBy</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+
+<span class="na">[GuidProperty(GuidType = GuidValueType.Relation)]</span>
+<span class="k">public</span><span class="w"> </span><span class="n">Guid</span><span class="w"> </span><span class="n">Tree</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+</code></pre></div>
+
+<p><code>GuidValueType</code> is in <code>Relatude.DB.Datamodels.Properties</code>. The default, <code>AnyGuid</code>, means any id. The
+store does not check the ids or follow them, so an id can still name a type after that type has been
+removed. The datamodel editor shows <code>GuidType</code> as <strong>Id of</strong>, under the property's name.</p>
 <h3 id="enums">Enums<a class="anchor" href="#enums" aria-label="Link to this section">#</a></h3>
 <p>Declare the property as your enum type. The engine stores it as an integer and fills in the enum's
 names (<code>FullEnumTypeName</code>, <code>LegalValues</code>, <code>LegalValueNames</code>), so the admin UI and facets show names
@@ -1086,7 +1099,7 @@ not set one takes it from its closest base type that does, and then from the dat
 <p>If two unrelated base types disagree, the type gets the database default, and the database logs a
 warning naming both. Set the switch on the type itself to choose. Semantic indexing needs the text
 index, so a type that is semantically indexed stays text indexed whatever its <code>TextIndex</code> says.</p>
-<p><strong>Inherited properties: <code>[PropertyOverride]</code>.</strong> A derived type can set six things for a property it
+<p><strong>Inherited properties: <code>[PropertyOverride]</code>.</strong> A derived type can set five things for a property it
 inherits:</p>
 <table>
 <thead>
@@ -1109,10 +1122,6 @@ inherits:</p>
 <td>Extra times the value goes into the type's text index; <code>0</code> cancels an inherited boost</td>
 </tr>
 <tr>
-<td><code>DisplayName</code></td>
-<td><code>BoolValue.True</code> makes the property part of the type's display name; <code>False</code> takes it out</td>
-</tr>
-<tr>
 <td><code>Indexed</code></td>
 <td><code>BoolValue.True</code> asks for the property's value index, to filter, sort and facet on it</td>
 </tr>
@@ -1129,7 +1138,7 @@ defaults and an index on <code>Status</code>, and support tickets keep their bod
 <span class="na">[Node(TextIndex = BoolValue.True)]</span>
 <span class="k">public</span><span class="w"> </span><span class="k">interface</span><span class="w"> </span><span class="n">IContent</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="n">Guid</span><span class="w"> </span><span class="n">Id</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
-<span class="w">    </span><span class="na">[StringProperty(DefaultValue = &quot;Untitled&quot;, DisplayName = true)]</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="n">Title</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+<span class="w">    </span><span class="na">[StringProperty(DefaultValue = &quot;Untitled&quot;)]</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="n">Title</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
 <span class="w">    </span><span class="na">[HtmlProperty]</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="n">Body</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
 <span class="w">    </span><span class="na">[IntegerProperty]</span><span class="w"> </span><span class="n">ContentStatus</span><span class="w"> </span><span class="n">Status</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
 <span class="p">}</span>
@@ -1172,14 +1181,13 @@ startup, with a message naming the type and the property. It fails when the attr
 <ul>
 <li>names a property the type declares itself (set that property's own attribute instead);</li>
 <li>names no member of the type (use <code>nameof</code> to avoid typos), or a member marked <code>[Exclude]</code>;</li>
-<li>names a system member: the id, <code>NodeMeta</code>, the created or changed date, or the display-name or
-  address marker;</li>
+<li>names a system member: the id, <code>NodeMeta</code>, the created or changed date, or the address marker;</li>
 <li>gives a <code>DefaultValue</code> that does not convert to the property's type, or gives a default to a
   property that has none (arrays, files, references and the like);</li>
 <li>sits on a type without naming a property, or sits on a member and names another property;</li>
 <li>names a property that another <code>[PropertyOverride]</code> on the same type also names. Combine them.</li>
 </ul>
-<p><strong>What can be overridden.</strong> In code, <code>[PropertyOverride]</code> takes the six attributes above. In the
+<p><strong>What can be overridden.</strong> In code, <code>[PropertyOverride]</code> takes the five attributes above. In the
 database you can override these:</p>
 <table>
 <thead>
@@ -1191,7 +1199,7 @@ database you can override these:</p>
 <tbody>
 <tr>
 <td>Node type, inherited by derived types</td>
-<td><code>TextIndex</code>, <code>SemanticIndex</code>, <code>InstantTextIndexing</code>, <code>Icon</code>, <code>NameProperty</code></td>
+<td><code>TextIndex</code>, <code>SemanticIndex</code>, <code>InstantTextIndexing</code>, <code>Icon</code></td>
 </tr>
 <tr>
 <td>Node type, that type only</td>
@@ -1199,7 +1207,7 @@ database you can override these:</p>
 </tr>
 <tr>
 <td>Property, per type</td>
-<td><code>DefaultValue</code>, <code>ExcludeFromTextIndex</code>, <code>IndexBoost</code> (<code>TextIndexBoost</code> on the attributes), <code>DisplayName</code></td>
+<td><code>DefaultValue</code>, <code>ExcludeFromTextIndex</code>, <code>IndexBoost</code> (<code>TextIndexBoost</code> on the attributes)</td>
 </tr>
 <tr>
 <td>Property, asked for by any type</td>
@@ -1207,7 +1215,7 @@ database you can override these:</p>
 </tr>
 <tr>
 <td>Property, on the declaring type only</td>
-<td><code>IndexType</code>, <code>IndexedByWords</code>, <code>TextIndexType</code>, <code>CultureSensitive</code>, <code>MinLength</code>, <code>MaxLength</code>, <code>RegularExpression</code>, <code>RegularExpressionMessage</code>, <code>LegalCharacters</code>, <code>Trim</code>, <code>CaseTransform</code>, <code>MinValue</code>, <code>MaxValue</code>, <code>FacetRangePowerBase</code>, <code>FacetRangeCount</code>, <code>Facet</code>, <code>TextIndexRelatedContent</code>, <code>TextIndexRelatedDisplayName</code>, <code>TextIndexRecursiveLevelLimit</code>, <code>Display</code> and <code>AllowInlineEditing</code> (<a href="#how-an-editor-shows-them-display">§10</a>), <code>TitleLayout</code>, <code>Unit</code>, <code>Height</code>, <code>Width</code>, <code>Title</code>, <code>TextLines</code>, <code>StringType</code>, <code>UniqueValues</code>, <code>CaseSensitive</code>, <code>IgnoreDuplicateEmptyValues</code>, <code>PrefixSearch</code>, <code>InfixSearch</code>, <code>IndexedBySemantic</code>, <code>PropertyIdForEmbeddings</code>, <code>MinWordLength</code>, <code>MaxWordLength</code>, <code>LegalValues</code>, <code>LegalValueNames</code>, <code>ReadAccess</code>, <code>WriteAccess</code>, <code>IncludeTypes</code>, <code>PrependOnAdd</code>, <code>FileStorageProviderId</code>, <code>ImageMetaAnalysis</code>, <code>ImageCropModeAnalysis</code>, <code>FileTextIndexing</code>, <code>VideoAndAudioFileTextIndexing</code>, and a password's <code>AllowHashed</code>, <code>AllowEncrypted</code>, <code>AllowPlainText</code>, <code>RequireUppercase</code>, <code>RequireLowercase</code>, <code>RequireDigit</code>, <code>RequireSymbol</code></td>
+<td><code>IndexType</code>, <code>IndexedByWords</code>, <code>TextIndexType</code>, <code>CultureSensitive</code>, <code>MinLength</code>, <code>MaxLength</code>, <code>RegularExpression</code>, <code>RegularExpressionMessage</code>, <code>LegalCharacters</code>, <code>Trim</code>, <code>CaseTransform</code>, <code>MinValue</code>, <code>MaxValue</code>, <code>FacetRangePowerBase</code>, <code>FacetRangeCount</code>, <code>Facet</code>, <code>TextIndexRelatedContent</code>, <code>TextIndexRelatedName</code>, <code>TextIndexRecursiveLevelLimit</code>, <code>Display</code> and <code>AllowInlineEditing</code> (<a href="#how-an-editor-shows-them-display">§10</a>), <code>TitleLayout</code>, <code>Unit</code>, <code>Height</code>, <code>Width</code>, <code>Title</code>, <code>TextLines</code>, <code>GuidType</code>, <code>StringType</code>, <code>UniqueValues</code>, <code>CaseSensitive</code>, <code>IgnoreDuplicateEmptyValues</code>, <code>PrefixSearch</code>, <code>InfixSearch</code>, <code>IndexedBySemantic</code>, <code>PropertyIdForEmbeddings</code>, <code>MinWordLength</code>, <code>MaxWordLength</code>, <code>LegalValues</code>, <code>LegalValueNames</code>, <code>ReadAccess</code>, <code>WriteAccess</code>, <code>IncludeTypes</code>, <code>PrependOnAdd</code>, <code>FileStorageProviderId</code>, <code>ImageMetaAnalysis</code>, <code>ImageCropModeAnalysis</code>, <code>FileTextIndexing</code>, <code>VideoAndAudioFileTextIndexing</code>, and a password's <code>AllowHashed</code>, <code>AllowEncrypted</code>, <code>AllowPlainText</code>, <code>RequireUppercase</code>, <code>RequireLowercase</code>, <code>RequireDigit</code>, <code>RequireSymbol</code></td>
 </tr>
 </tbody>
 </table>
@@ -1280,8 +1288,8 @@ created.</p>
 <li><strong>Index changes rebuild.</strong> Turning on <code>Indexed</code> or <code>IndexedByWords</code>, or asking for an index from a
   derived type, changes the model. The database then rebuilds its state and indexes from the log at
   the next open. When text indexing changes for a type, its nodes are queued for text indexing.
-  Settings that only change how a type is shown (<code>Icon</code>, <code>Title</code>, <code>Description</code>, <code>NameProperty</code>,
-  <code>Display</code>, <code>TitleLayout</code>, <code>Unit</code>, <code>Height</code>, <code>TextLines</code>) rebuild nothing.</li>
+  Settings that only change how a type is shown (<code>Icon</code>, <code>Title</code>, <code>Description</code>, <code>Display</code>,
+  <code>TitleLayout</code>, <code>Unit</code>, <code>Height</code>, <code>TextLines</code>, <code>GuidType</code>) rebuild nothing.</li>
 </ul>
 <h3 id="passwords">Passwords<a class="anchor" href="#passwords" aria-label="Link to this section">#</a></h3>
 <p>A <code>PasswordValue</code> property holds a password. By default the store keeps it as an Argon2id hash,
@@ -1322,8 +1330,7 @@ keep a password when it sets one:</p>
   <code>{"clear": true}</code> to change it. A value that holds no change, like a stale object saved again,
   leaves the stored password as it is.</li>
 <li><strong>A query can only ask <code>IsSet</code></strong>: <code>Where(m =&gt; m.Password.IsSet)</code>. Comparing, sorting, grouping or
-  selecting a password throws. A password is never in an index, the text index, the display name,
-  GraphQL or a facet.</li>
+  selecting a password throws. A password is never in an index, the text index, GraphQL or a facet.</li>
 <li><strong><code>NeedsRehash</code></strong> is true when a password was kept with other hash settings, pepper or key than the
   store's current ones. Set the password again after a successful <code>Verify</code> at sign-in.</li>
 </ul>
@@ -1346,9 +1353,9 @@ each hash keeps the settings it was made with.</p>
 <p>The property's options, in the attribute and the datamodel editor: <code>AllowHashed</code> (on),
 <code>AllowEncrypted</code> and <code>AllowPlainText</code> (off), <code>MinLength</code> (8), <code>MaxLength</code> (128), <code>RequireUppercase</code>,
 <code>RequireLowercase</code>, <code>RequireDigit</code>, <code>RequireSymbol</code>, and <code>RegularExpression</code> with
-<code>RegularExpressionMessage</code>. A password property cannot be indexed, unique, part of the display name
-or per culture, or sit on a type kept inside another node's embedded property. A remote store cannot
-set a password: only the store that keeps the node has the keys.</p>
+<code>RegularExpressionMessage</code>. A password property cannot be indexed, unique or per culture, or sit on
+a type kept inside another node's embedded property. A remote store cannot set a password: only the
+store that keeps the node has the keys.</p>
 <hr />
 <h2 id="4-marker-properties">4. Marker properties<a class="anchor" href="#4-marker-properties" aria-label="Link to this section">#</a></h2>
 <p>A marker attribute maps a member to a value the store keeps for every node. The member is not a
@@ -1384,22 +1391,14 @@ ignored. Use each marker at most once per type.</p>
 <td>When the node's values last changed.</td>
 </tr>
 <tr>
-<td><code>[DisplayNameProperty]</code></td>
-<td><code>string</code></td>
-<td>The display name you set with <code>UpdateDisplayName</code>.</td>
-</tr>
-<tr>
 <td><code>[AddressProperty]</code></td>
 <td><code>string</code></td>
 <td>The node's address: one URL segment, not the whole path (<a href="#18-urls-and-the-url-manager">§18</a>).</td>
 </tr>
 </tbody>
 </table>
-<div class="codehilite"><pre><span></span><code><span class="k">public</span><span class="w"> </span><span class="k">interface</span><span class="w"> </span><span class="n">IArticle</span><span class="w"> </span><span class="p">{</span>
+<div class="codehilite"><pre><span></span><code><span class="k">public</span><span class="w"> </span><span class="k">interface</span><span class="w"> </span><span class="n">IArticle</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">IName</span><span class="w"> </span><span class="p">{</span><span class="w">                  </span><span class="c1">// Name: the node&#39;s name (below)</span>
 <span class="w">    </span><span class="n">Guid</span><span class="w"> </span><span class="n">Id</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
-
-<span class="w">    </span><span class="na">[StringProperty(Indexed = true, IndexedByWords = true, DisplayName = true)]</span>
-<span class="w">    </span><span class="kt">string</span><span class="w"> </span><span class="n">Title</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w">                       </span><span class="c1">// an ordinary property that names the node</span>
 
 <span class="w">    </span><span class="na">[AddressProperty]</span><span class="w">    </span><span class="kt">string</span><span class="w"> </span><span class="n">Address</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
 <span class="w">    </span><span class="na">[CreatedUtcProperty]</span><span class="w"> </span><span class="n">DateTime</span><span class="w"> </span><span class="n">CreatedUtc</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
@@ -1412,14 +1411,12 @@ ignored. Use each marker at most once per type.</p>
   code, and a <code>{ get; set; }</code> marker member stops the store from starting.</li>
 <li><strong>Set the address with <code>UpdateAddress</code></strong>, in the same transaction as the insert if you like. On a
   class, you can also set an <code>[AddressProperty]</code> member before you save.</li>
-<li><strong>Name nodes with <code>DisplayName = true</code> on a property</strong>, like <code>Title</code> above. The admin UI, GraphQL
-  and facets show nodes by these properties (<a href="#31-overriding-attributes">§3.1</a>). The
-  <code>[DisplayNameProperty]</code> member and <code>Meta.DisplayName</code> hold a separate name, which stays empty until
-  you call <code>UpdateDisplayName</code>.</li>
+<li><strong>The name is not a marker.</strong> It is the ordinary property <code>IName.Name</code>, which you set, index and
+  query like any other (<a href="#node-names-iname">Node names</a>).</li>
 </ul>
 <p>Inserting a node together with its address:</p>
 <div class="codehilite"><pre><span></span><code><span class="kt">var</span><span class="w"> </span><span class="n">article</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">Create</span><span class="o">&lt;</span><span class="n">IArticle</span><span class="o">&gt;</span><span class="p">();</span>
-<span class="n">article</span><span class="p">.</span><span class="n">Title</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;Winter Session&quot;</span><span class="p">;</span>
+<span class="n">article</span><span class="p">.</span><span class="n">Name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;Winter Session&quot;</span><span class="p">;</span>
 
 <span class="n">db</span><span class="p">.</span><span class="n">CreateTransaction</span><span class="p">()</span>
 <span class="w">  </span><span class="p">.</span><span class="n">Insert</span><span class="p">(</span><span class="n">article</span><span class="p">)</span>
@@ -1427,11 +1424,77 @@ ignored. Use each marker at most once per type.</p>
 <span class="w">  </span><span class="p">.</span><span class="n">Execute</span><span class="p">();</span>
 </code></pre></div>
 
+<h3 id="node-names-iname">Node names: <code>IName</code><a class="anchor" href="#node-names-iname" aria-label="Link to this section">#</a></h3>
+<p>A node's name is one property, <code>IName.Name</code>, in the engine's own model (namespace
+<code>Relatude.DB.Native.Models</code>). A type has a name when it inherits <code>IName</code>. An interface inherits the
+property and declares nothing more; a class implements it with a plain <code>Name</code>, with no attribute of
+its own:</p>
+<div class="codehilite"><pre><span></span><code><span class="k">using</span><span class="w"> </span><span class="nn">Relatude.DB.Native.Models</span><span class="p">;</span><span class="w">   </span><span class="c1">// IName</span>
+
+<span class="k">public</span><span class="w"> </span><span class="k">interface</span><span class="w"> </span><span class="n">IVenue</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">IName</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">Guid</span><span class="w"> </span><span class="n">Id</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+<span class="w">    </span><span class="c1">// ...</span>
+<span class="p">}</span>
+
+<span class="k">public</span><span class="w"> </span><span class="k">class</span><span class="w"> </span><span class="nc">Brand</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">IName</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">public</span><span class="w"> </span><span class="n">Guid</span><span class="w"> </span><span class="n">Id</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+<span class="w">    </span><span class="k">public</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="n">Name</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<p><code>IName.Name</code> is a string with a value index (<code>[StringProperty(Indexed = true)]</code>), and its id is
+<code>NodeConstants.NamePropertyId</code>. It has no word index of its own, so <code>MatchesSearch</code> does not apply
+to it; <code>WhereSearch</code> finds names through the node's text index (<a href="#21-text-and-semantic-search">§21</a>).
+Every named type shares that one property, so one index holds the names of all of them. A query over
+<code>IName</code> sorts and filters nodes of every named type by name:</p>
+<div class="codehilite"><pre><span></span><code><span class="kt">var</span><span class="w"> </span><span class="n">all</span><span class="w">  </span><span class="o">=</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">Query</span><span class="o">&lt;</span><span class="n">IName</span><span class="o">&gt;</span><span class="p">().</span><span class="n">OrderBy</span><span class="p">(</span><span class="n">n</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">n</span><span class="p">.</span><span class="n">Name</span><span class="p">).</span><span class="n">Page</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">50</span><span class="p">).</span><span class="n">Execute</span><span class="p">();</span><span class="w">   </span><span class="c1">// every named type, A to Z</span>
+<span class="kt">var</span><span class="w"> </span><span class="n">oslo</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">Query</span><span class="o">&lt;</span><span class="n">IName</span><span class="o">&gt;</span><span class="p">().</span><span class="n">Where</span><span class="p">(</span><span class="n">n</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">n</span><span class="p">.</span><span class="n">Name</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s">&quot;Oslo&quot;</span><span class="p">).</span><span class="n">Execute</span><span class="p">();</span>
+</code></pre></div>
+
+<p>The datamodel must hold <code>IName</code>, as it holds every type a node type inherits. Add it with
+<code>dm.Add&lt;IName&gt;()</code>, or the engine's whole model with <code>dm.AddNamespace&lt;ISystemUser&gt;()</code>
+(<a href="#two-ways-to-register-a-datamodel">§12</a>).</p>
+<p>Nothing else is a name, and nothing is guessed from other properties. A node of a type without
+<code>IName</code>, or with an empty <code>Name</code>, has no name. What uses the name:</p>
+<ul>
+<li><strong>The admin UI</strong> shows a node by its name, else its address, else its id. A type's table puts
+  <code>Name</code> first.</li>
+<li><strong>GraphQL</strong> has it as the system field <code>name</code> on every node type (<a href="#333-the-schema">§33.3</a>).</li>
+<li><strong>Facets</strong> on a relation or a reference label each bucket with the related node's name
+  (<a href="#28-faceted-search">§28</a>).</li>
+<li><strong>The text index</strong> of a node takes in its related nodes' names with
+  <code>[RelationProperty(TextIndexRelatedName = true)]</code> (<a href="#relation-options">Relation options</a>).</li>
+</ul>
+<p>Code that works with a node's raw data (<code>INodeData</code>) gets the name with <code>NodeName.Of(node)</code>
+(namespace <code>Relatude.DB.Datamodels</code>): the name, or <code>null</code> when the type has none or it is empty.
+<code>NodeTypeModel.HasName</code> says whether a type has a name.</p>
+<p><strong>Names stored under another property.</strong> A type that moves from a <code>Name</code> or <code>Title</code> of its own to
+<code>IName</code> keeps its stored names with <code>[FormerProperty(id, property)]</code>. On a node type, it reads the
+values its nodes stored under a property the type no longer has, the one with that id, as the
+property named: one of the type's own or one it inherits.</p>
+<div class="codehilite"><pre><span></span><code><span class="na">[Node]</span>
+<span class="na">[FormerProperty(&quot;42c0ded9-2148-eff3-b91f-d686f8b2b3da&quot;, nameof(IName.Name))]</span><span class="w"> </span><span class="c1">// its own Name, stored before</span>
+<span class="k">public</span><span class="w"> </span><span class="k">class</span><span class="w"> </span><span class="nc">Brand</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">IName</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">public</span><span class="w"> </span><span class="n">Guid</span><span class="w"> </span><span class="n">Id</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+<span class="w">    </span><span class="k">public</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="n">Name</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<ul>
+<li>The id is the old property's: the one pinned with <code>Id =</code>, or the one derived from its type's id
+  and member name. The datamodel JSON in the database's <code>datamodels</code> folder shows it.</li>
+<li>A node that also holds a value under the new property keeps that one.</li>
+<li>A node read holds the value under the new property, and stores it there when it is next written.
+  The indexes are rebuilt once at the next open, as for any change to the model.</li>
+<li>Types inheriting the type read their nodes the same way. A type may carry several
+  <code>[FormerProperty]</code> attributes, one per old id (<code>NodeTypeModel.FormerPropertyIds</code>).</li>
+</ul>
+<p>The datamodel editor warns (<code>own-name</code>) about a type that has a property of its own called <code>Name</code>,
+which is not the node's name, and suggests <code>IName</code> with <code>[FormerProperty]</code>.</p>
 <h3 id="what-lives-in-nodemeta">What lives in <code>NodeMeta</code><a class="anchor" href="#what-lives-in-nodemeta" aria-label="Link to this section">#</a></h3>
 <p>Every node carries system data, which a <code>NodeMeta Meta { get; }</code> member reads. Never create or
 assign a <code>NodeMeta</code> yourself. Change the writable fields with <code>UpdateMeta</code>
-(<a href="#writing-meta-updatemeta">Writing meta</a>), and the address and display name with <code>UpdateAddress</code> and
-<code>UpdateDisplayName</code>.</p>
+(<a href="#writing-meta-updatemeta">Writing meta</a>), and the address with <code>UpdateAddress</code>.</p>
 <table>
 <thead>
 <tr>
@@ -1453,8 +1516,8 @@ assign a <code>NodeMeta</code> yourself. Change the writable fields with <code>U
 <td>When the node was created, and when its values last changed.</td>
 </tr>
 <tr>
-<td><code>DisplayName</code>, <code>Address</code></td>
-<td>The display name set with <code>UpdateDisplayName</code>, and the address.</td>
+<td><code>Address</code></td>
+<td>The node's address, set with <code>UpdateAddress</code>.</td>
 </tr>
 <tr>
 <td><code>CultureId</code></td>
@@ -2140,7 +2203,7 @@ expression, they take <code>Guid</code> ids or a raw property id; <code>Transact
 <p><code>[RelationProperty]</code> on an end can put the related nodes into this node's text index, so a venue is
 found by the names of its events, and makes the relation a facet:</p>
 <div class="codehilite"><pre><span></span><code><span class="na">[RelationProperty(</span>
-<span class="na">    TextIndexRelatedDisplayName = true,   // index the related nodes&#39; names</span>
+<span class="na">    TextIndexRelatedName = true,          // index the related nodes&#39; names (IName.Name)</span>
 <span class="na">    TextIndexRelatedContent = false,      // true indexes their text as well</span>
 <span class="na">    TextIndexRecursiveLevelLimit = 1,     // how far related content is followed</span>
 <span class="na">    Facet = true)]</span><span class="w">                        </span><span class="c1">// facets are opt-in for relations</span>
@@ -2306,11 +2369,14 @@ type from compiled code, the change is saved as an override in the database
 <hr />
 <h2 id="11-the-complete-example-model">11. The complete example model<a class="anchor" href="#11-the-complete-example-model" aria-label="Link to this section">#</a></h2>
 <p>Here is the whole running domain in one place. Parts II and III query this model.</p>
-<p>Two details follow from <a href="#4-marker-properties">§4</a>. Names are ordinary properties marked
-<code>DisplayName = true</code>, so you set, index and query them like any other. <code>Slug</code> is the node's address,
-so it is read-only here: give a node its slug with <code>UpdateAddress</code>.</p>
+<p>Two details follow from <a href="#4-marker-properties">§4</a>. Organizers and venues inherit <code>IName</code>, so their
+<code>Name</code> is the node's name (<a href="#node-names-iname">Node names</a>). An event's <code>Title</code>, an attendee's
+<code>FullName</code> and an asset's <code>FileName</code> are properties of their own, which
+<a href="#111-the-same-model-with-facet-interfaces">§11.1</a> makes one name. <code>Slug</code> is the node's address, so
+it is read-only here: give a node its slug with <code>UpdateAddress</code>.</p>
 <div class="codehilite"><pre><span></span><code><span class="k">using</span><span class="w"> </span><span class="nn">Relatude.DB.Common</span><span class="p">;</span>
 <span class="k">using</span><span class="w"> </span><span class="nn">Relatude.DB.Datamodels</span><span class="p">;</span>
+<span class="k">using</span><span class="w"> </span><span class="nn">Relatude.DB.Native.Models</span><span class="p">;</span>
 <span class="k">using</span><span class="w"> </span><span class="nn">Relatude.DB.Nodes</span><span class="p">;</span>
 
 <span class="k">namespace</span><span class="w"> </span><span class="nn">VenueApp.Models</span><span class="p">;</span>
@@ -2320,12 +2386,9 @@ so it is read-only here: give a node its slug with <code>UpdateAddress</code>.</
 
 <span class="c1">// ── Node types ───────────────────────────────────</span>
 
-<span class="k">public</span><span class="w"> </span><span class="k">interface</span><span class="w"> </span><span class="n">IOrganizer</span><span class="w"> </span><span class="p">{</span>
+<span class="k">public</span><span class="w"> </span><span class="k">interface</span><span class="w"> </span><span class="n">IOrganizer</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">IName</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="n">Guid</span><span class="w"> </span><span class="n">Id</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
 <span class="w">    </span><span class="n">NodeMeta</span><span class="w"> </span><span class="n">Meta</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
-
-<span class="w">    </span><span class="na">[StringProperty(Indexed = true, MaxLength = 200, IndexedByWords = true, DisplayName = true)]</span>
-<span class="w">    </span><span class="kt">string</span><span class="w"> </span><span class="n">Name</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
 
 <span class="w">    </span><span class="na">[StringProperty(UniqueValues = true, IgnoreDuplicateEmptyValues = true)]</span><span class="w">   </span><span class="c1">// unique, but may be empty</span>
 <span class="w">    </span><span class="kt">string</span><span class="w"> </span><span class="n">ContactEmail</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
@@ -2336,12 +2399,9 @@ so it is read-only here: give a node its slug with <code>UpdateAddress</code>.</
 <span class="w">    </span><span class="n">OrganizerEvents</span><span class="p">.</span><span class="n">Events</span><span class="w"> </span><span class="n">Events</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
 <span class="p">}</span>
 
-<span class="k">public</span><span class="w"> </span><span class="k">interface</span><span class="w"> </span><span class="n">IVenue</span><span class="w"> </span><span class="p">{</span>
+<span class="k">public</span><span class="w"> </span><span class="k">interface</span><span class="w"> </span><span class="n">IVenue</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">IName</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="n">Guid</span><span class="w"> </span><span class="n">Id</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
 <span class="w">    </span><span class="n">NodeMeta</span><span class="w"> </span><span class="n">Meta</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
-
-<span class="w">    </span><span class="na">[StringProperty(Indexed = true, IndexedByWords = true, PrefixSearch = true, DisplayName = true)]</span>
-<span class="w">    </span><span class="kt">string</span><span class="w"> </span><span class="n">Name</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
 
 <span class="w">    </span><span class="na">[AddressProperty]</span><span class="w"> </span><span class="kt">string</span><span class="w"> </span><span class="n">Slug</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
 
@@ -2378,8 +2438,7 @@ so it is read-only here: give a node its slug with <code>UpdateAddress</code>.</
 <span class="w">    </span><span class="n">Guid</span><span class="w"> </span><span class="n">Id</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
 <span class="w">    </span><span class="n">NodeMeta</span><span class="w"> </span><span class="n">Meta</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
 
-<span class="w">    </span><span class="na">[StringProperty(Indexed = true, IndexedByWords = true, IndexedBySemantic = true, PrefixSearch = true,</span>
-<span class="na">                    DisplayName = true)]</span>
+<span class="w">    </span><span class="na">[StringProperty(Indexed = true, IndexedByWords = true, IndexedBySemantic = true, PrefixSearch = true)]</span>
 <span class="w">    </span><span class="kt">string</span><span class="w"> </span><span class="n">Title</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
 
 <span class="w">    </span><span class="na">[HtmlProperty(IndexedByWords = true, IndexedBySemantic = true)]</span>
@@ -2416,7 +2475,7 @@ so it is read-only here: give a node its slug with <code>UpdateAddress</code>.</
 <span class="w">    </span><span class="n">Guid</span><span class="w"> </span><span class="n">Id</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
 <span class="w">    </span><span class="n">NodeMeta</span><span class="w"> </span><span class="n">Meta</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
 
-<span class="w">    </span><span class="na">[StringProperty(Indexed = true, IndexedByWords = true, DisplayName = true)]</span>
+<span class="w">    </span><span class="na">[StringProperty(Indexed = true, IndexedByWords = true)]</span>
 <span class="w">    </span><span class="kt">string</span><span class="w"> </span><span class="n">FullName</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
 
 <span class="w">    </span><span class="na">[StringProperty(Indexed = true, UniqueValues = true)]</span>
@@ -2433,7 +2492,7 @@ so it is read-only here: give a node its slug with <code>UpdateAddress</code>.</
 <span class="w">    </span><span class="n">Guid</span><span class="w"> </span><span class="n">Id</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
 <span class="w">    </span><span class="n">NodeMeta</span><span class="w"> </span><span class="n">Meta</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
 
-<span class="w">    </span><span class="na">[StringProperty(Indexed = true, DisplayName = true)]</span>
+<span class="w">    </span><span class="na">[StringProperty(Indexed = true)]</span>
 <span class="w">    </span><span class="kt">string</span><span class="w"> </span><span class="n">FileName</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
 
 <span class="w">    </span><span class="na">[FileProperty]</span>
@@ -2481,17 +2540,15 @@ so it is read-only here: give a node its slug with <code>UpdateAddress</code>.</
 <p>The model above declares everything on each type, so each type reads on its own. In a real project
 you would move the shared properties into facet interfaces, as in <a href="#2-your-first-node-type">§2</a>. Most
 of the repetition goes, and queries across types get simple.</p>
-<p>One change comes with it: the names (<code>Name</code>, <code>Title</code>, <code>FullName</code>, <code>FileName</code>) become one
-<code>INamedNode.Title</code>. A shared name is worth it: it is what makes one search box and one "recently
-changed" feed possible. The enums, <code>OpeningHours</code> and the relation classes stay as above.</p>
+<p>One change comes with it: the names (<code>Title</code>, <code>FullName</code>, <code>FileName</code>) become one name, <code>IName.Name</code>,
+which <code>INamedNode</code> inherits. A shared name is worth it: it is what makes one search box, one list
+sorted by name and one "recently changed" feed possible. The enums, <code>OpeningHours</code> and the relation
+classes stay as above.</p>
 <div class="codehilite"><pre><span></span><code><span class="c1">// ── Facets ───────────────────────────────────────</span>
 
-<span class="k">public</span><span class="w"> </span><span class="k">interface</span><span class="w"> </span><span class="n">INamedNode</span><span class="w"> </span><span class="p">{</span>
+<span class="k">public</span><span class="w"> </span><span class="k">interface</span><span class="w"> </span><span class="n">INamedNode</span><span class="w"> </span><span class="p">:</span><span class="w"> </span><span class="n">IName</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="n">Guid</span><span class="w"> </span><span class="n">Id</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
 <span class="w">    </span><span class="n">NodeMeta</span><span class="w"> </span><span class="n">Meta</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
-
-<span class="w">    </span><span class="na">[StringProperty(Indexed = true, IndexedByWords = true, PrefixSearch = true, DisplayName = true)]</span>
-<span class="w">    </span><span class="kt">string</span><span class="w"> </span><span class="n">Title</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="k">set</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
 
 <span class="w">    </span><span class="na">[AddressProperty]</span><span class="w">    </span><span class="kt">string</span><span class="w"> </span><span class="n">Slug</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
 <span class="w">    </span><span class="na">[CreatedUtcProperty]</span><span class="w"> </span><span class="n">DateTime</span><span class="w"> </span><span class="n">CreatedUtc</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">get</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
@@ -2569,11 +2626,15 @@ changed" feed possible. The enums, <code>OpeningHours</code> and the relation cl
 <span class="p">}</span>
 </code></pre></div>
 
-<p><code>Id</code>, <code>Meta</code>, <code>Title</code>, <code>Slug</code> and the timestamps are now written once, in <code>INamedNode</code>, and every
-type inherits them. <code>Location</code> is written once and shared by venues and attendees.</p>
+<p><code>Id</code>, <code>Meta</code>, <code>Slug</code> and the timestamps are now written once, in <code>INamedNode</code>, which brings <code>Name</code>
+from <code>IName</code>, and every type inherits them. <code>Location</code> is written once and shared by venues and
+attendees.</p>
 <p>The payoff comes at query time:</p>
 <div class="codehilite"><pre><span></span><code><span class="c1">// one search box across venues, events, organizers and assets</span>
 <span class="n">db</span><span class="p">.</span><span class="n">Query</span><span class="o">&lt;</span><span class="n">INamedNode</span><span class="o">&gt;</span><span class="p">().</span><span class="n">WhereSearch</span><span class="p">(</span><span class="s">&quot;nordic jazz&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">semanticRatio</span><span class="p">:</span><span class="w"> </span><span class="mf">0.5</span><span class="p">).</span><span class="n">Execute</span><span class="p">();</span>
+
+<span class="c1">// one A to Z list across them</span>
+<span class="n">db</span><span class="p">.</span><span class="n">Query</span><span class="o">&lt;</span><span class="n">INamedNode</span><span class="o">&gt;</span><span class="p">().</span><span class="n">OrderBy</span><span class="p">(</span><span class="n">x</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">x</span><span class="p">.</span><span class="n">Name</span><span class="p">).</span><span class="n">Page</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span><span class="w"> </span><span class="mi">50</span><span class="p">).</span><span class="n">Execute</span><span class="p">();</span>
 
 <span class="c1">// one map query across venues and attendees</span>
 <span class="n">db</span><span class="p">.</span><span class="n">Query</span><span class="o">&lt;</span><span class="n">ILocatable</span><span class="o">&gt;</span><span class="p">().</span><span class="n">Where</span><span class="p">(</span><span class="n">x</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">x</span><span class="p">.</span><span class="n">Location</span><span class="p">.</span><span class="n">IsWithin</span><span class="p">(</span><span class="n">oslo</span><span class="p">,</span><span class="w"> </span><span class="mi">5</span><span class="n">_000</span><span class="p">)).</span><span class="n">Execute</span><span class="p">();</span>
@@ -2587,8 +2648,8 @@ type inherits them. <code>Location</code> is written once and shared by venues a
 
 <p>Each of these is a single indexed query. Without the facet interfaces, each would be one query per
 type, merged and sorted again in memory, and changed every time you add a type.</p>
-<p>Mind the <a href="#two-constraints-to-design-around">two constraints</a>: because <code>INamedNode</code> declares
-<code>Title</code>, no other facet may declare a <code>Title</code>, and no composed type may declare it again.</p>
+<p>Mind the <a href="#two-constraints-to-design-around">two constraints</a>: because <code>IName</code> declares <code>Name</code>, no
+other facet may declare a <code>Name</code>, and no composed type may declare it again.</p>
 <hr />
 <h2 id="12-registering-the-model-the-admin-ui">12. Registering the model &amp; the admin UI<a class="anchor" href="#12-registering-the-model-the-admin-ui" aria-label="Link to this section">#</a></h2>
 <h3 id="server-hosted-the-usual-case">Server-hosted (the usual case)<a class="anchor" href="#server-hosted-the-usual-case" aria-label="Link to this section">#</a></h3>
@@ -4362,6 +4423,7 @@ The two add up: the server loads the sources first, then runs <code>OnDatamodelI
 <p><strong>In <code>Program.cs</code></strong>, the usual choice when the model ships with the application. It is refactor-safe,
 and a mistake fails at compile time:</p>
 <div class="codehilite"><pre><span></span><code><span class="n">options</span><span class="p">.</span><span class="n">OnDatamodelInit</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">dm</span><span class="p">,</span><span class="w"> </span><span class="n">database</span><span class="p">)</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">dm</span><span class="p">.</span><span class="n">AddNamespace</span><span class="o">&lt;</span><span class="n">ISystemUser</span><span class="o">&gt;</span><span class="p">();</span><span class="w">  </span><span class="c1">// the engine&#39;s own model: users, groups, cultures, IName</span>
 <span class="w">    </span><span class="n">dm</span><span class="p">.</span><span class="n">AddNamespace</span><span class="o">&lt;</span><span class="n">IVenue</span><span class="o">&gt;</span><span class="p">();</span><span class="w">       </span><span class="c1">// every node and relation type in IVenue&#39;s namespace</span>
 <span class="w">    </span><span class="n">dm</span><span class="p">.</span><span class="n">Add</span><span class="o">&lt;</span><span class="n">IEvent</span><span class="o">&gt;</span><span class="p">();</span><span class="w">                </span><span class="c1">// one type, and the types it references (not embedded ones)</span>
 <span class="w">    </span><span class="n">dm</span><span class="p">.</span><span class="n">Add</span><span class="p">(</span><span class="k">typeof</span><span class="p">(</span><span class="n">IAttendee</span><span class="p">));</span>
@@ -4372,8 +4434,13 @@ and a mistake fails at compile time:</p>
 <ul>
 <li><code>AddNamespace&lt;T&gt;</code> adds the types in exactly <code>T</code>'s namespace, from <code>T</code>'s assembly. It skips enums,
   static classes and anything marked <code>[Exclude]</code>.</li>
-<li><code>Add&lt;T&gt;</code> also adds every type <code>T</code> references, unless you pass <code>includeAllReferencedModels: false</code>.</li>
+<li><code>Add&lt;T&gt;</code> also adds every type <code>T</code> references, unless you pass <code>includeAllReferencedModels: false</code>.
+  It does not add the types <code>T</code> inherits.</li>
 <li><code>AddAssembly</code> takes one namespace, or a pattern in which <code>*</code> stands for any run of characters.</li>
+<li>Every type a node type inherits must be in the datamodel, or the build fails. That includes
+  <code>IName</code> (<a href="#node-names-iname">Node names</a>): <code>dm.Add&lt;IName&gt;()</code> adds it alone, and
+  <code>dm.AddNamespace&lt;ISystemUser&gt;()</code> the engine's whole model, <code>Relatude.DB.Native.Models</code>. A
+  <code>relatude.db.json</code> made by <code>relatude new</code> or <code>relatude init</code> has a source for that namespace.</li>
 </ul>
 <p>With more than one database, branch on the database the callback is given:</p>
 <div class="codehilite"><pre><span></span><code><span class="n">options</span><span class="p">.</span><span class="n">OnDatamodelInit</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">dm</span><span class="p">,</span><span class="w"> </span><span class="n">database</span><span class="p">)</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="p">{</span>
@@ -4392,6 +4459,13 @@ deployments of the same build. You can also edit the sources in the admin UI, on
     &quot;Type&quot;: &quot;CompiledTypes&quot;,
     &quot;Reference&quot;: &quot;VenueApp&quot;,           // the assembly; empty means the application itself
     &quot;Namespace&quot;: &quot;VenueApp.Models.*&quot;   // required: one namespace, or a pattern
+  },
+  {
+    &quot;Id&quot;: &quot;ff05…&quot;,
+    &quot;Name&quot;: &quot;Native&quot;,                  // the engine&#39;s own model, IName among it
+    &quot;Type&quot;: &quot;CompiledTypes&quot;,
+    &quot;Reference&quot;: &quot;Relatude.DB.NodeStore&quot;,
+    &quot;Namespace&quot;: &quot;Relatude.DB.Native.Models&quot;
   }
 ]
 </code></pre></div>
@@ -4590,6 +4664,7 @@ these settings.</p>
 <p>Outside the server (in tests, an embedded store or an import tool), build the <code>Datamodel</code> yourself
 with the same methods, then open a store on it:</p>
 <div class="codehilite"><pre><span></span><code><span class="kt">var</span><span class="w"> </span><span class="n">datamodel</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">Datamodel</span><span class="p">();</span>
+<span class="n">datamodel</span><span class="p">.</span><span class="n">AddNamespace</span><span class="o">&lt;</span><span class="n">ISystemUser</span><span class="o">&gt;</span><span class="p">();</span><span class="w">   </span><span class="c1">// the engine&#39;s own model, IName among it</span>
 <span class="n">datamodel</span><span class="p">.</span><span class="n">AddNamespace</span><span class="o">&lt;</span><span class="n">IVenue</span><span class="o">&gt;</span><span class="p">();</span>
 <span class="n">datamodel</span><span class="p">.</span><span class="n">Add</span><span class="o">&lt;</span><span class="n">IEvent</span><span class="o">&gt;</span><span class="p">();</span>
 
@@ -4605,17 +4680,21 @@ throws. Under the server, <code>OnDatamodelInit</code> is the place for this.</p
 <ul>
 <li>A node type that is a class needs a public parameterless constructor.</li>
 <li>Two parent interfaces may not declare the same property name, and neither may two classes.
-  Re-declaring an inherited property with <code>override</code> or <code>new</code> is not supported. To give a derived type
-  its own default, text index or display name setting for an inherited property, or to ask for its
-  value index or a facet, use <code>[PropertyOverride]</code> (<a href="#31-overriding-attributes">§3.1</a>).</li>
+  Re-declaring an inherited property with <code>override</code> or <code>new</code> is not supported, so an interface
+  inheriting <code>IName</code> does not declare <code>Name</code> again. To give a derived type its own default or text index setting
+  for an inherited property, or to ask for its value index or a facet, use <code>[PropertyOverride]</code>
+  (<a href="#31-overriding-attributes">§3.1</a>).</li>
 <li>A <code>[PropertyOverride]</code> must name a property the type inherits (not a system member), with a default
   the property's type can hold.</li>
+<li>A <code>[FormerProperty]</code> must give a property id and name a property the type declares or inherits,
+  not a system member, and a type gives each old id once (<a href="#node-names-iname">Node names</a>).</li>
+<li>Every type a node type inherits must be in the datamodel, <code>IName</code> included.</li>
 <li>Nullable value types (<code>int?</code>, <code>DateTime?</code>, <code>GeoCoordinate?</code>) are not supported.</li>
 <li>The allowed value types are <code>bool</code>, <code>byte</code>, <code>int</code>, <code>long</code>, <code>double</code>, <code>float</code>, <code>decimal</code>, <code>DateTime</code>,
   <code>DateTimeOffset</code>, <code>Guid</code>, <code>TimeSpan</code>, <code>GeoCoordinate</code> and enums.</li>
 <li><code>Id</code> must be <code>Guid</code> or <code>string</code>, and the internal id <code>int</code>, <code>long</code> or <code>string</code>.</li>
-<li>Marker attributes need a matching type: <code>[DisplayNameProperty]</code> and <code>[AddressProperty]</code> on
-  <code>string</code>, <code>[CreatedUtcProperty]</code> and <code>[ChangedUtcProperty]</code> on <code>DateTime</code>.</li>
+<li>Marker attributes need a matching type: <code>[AddressProperty]</code> on <code>string</code>, <code>[CreatedUtcProperty]</code>
+  and <code>[ChangedUtcProperty]</code> on <code>DateTime</code>.</li>
 <li>Two types with the same <code>[Node(Id = …)]</code> but different full names are an error.</li>
 <li>A relation class needs the right nested side classes for its shape.</li>
 <li>A <code>RegularExpression</code> must be valid, and <code>MaxNoInstances</code> can be neither negative nor below
@@ -4636,6 +4715,10 @@ throws. Under the server, <code>OnDatamodelInit</code> is the place for this.</p
 <p>Relatude.DB has its own model in <code>Relatude.DB.Native.Models</code>: <code>ISystemUser</code>, <code>ISystemUserGroup</code>,
 <code>ISystemCollection</code> and <code>ISystemCulture</code>. The admin UI, authentication and cultures depend on them.
 If your domain needs users, model your own type, and relate it to <code>ISystemUser</code> if you need the link.</p>
+<p>All four inherit <code>IName</code> (<a href="#node-names-iname">Node names</a>), so a user's, a group's and a
+collection's name is its <code>Name</code>. A culture's <code>Name</code> is its English name, beside <code>NativeName</code> and
+<code>CultureCode</code>. <code>db.EnsureCultures(codes)</code> makes the culture nodes that are missing and fills in both
+names from .NET's culture.</p>
 <hr />
 <h1 id="part-ii-writing-data">Part II — Writing data<a class="anchor" href="#part-ii-writing-data" aria-label="Link to this section">#</a></h1>
 <h2 id="13-create-insert-update-delete">13. Create, insert, update, delete<a class="anchor" href="#13-create-insert-update-delete" aria-label="Link to this section">#</a></h2>
@@ -5843,7 +5926,7 @@ them: <code>0.0</code> is keyword only, <code>1.0</code> is vector only, and val
   does the same for the vector index. Subtypes inherit the setting.</li>
 <li>Every property goes in except those with <code>ExcludeFromTextIndex = true</code>. Dates, booleans, ids and
   coordinates are out by default. <code>TextIndexBoost</code> adds a property's text that many extra times.</li>
-<li><code>[RelationProperty(TextIndexRelatedDisplayName = true)]</code> adds the related nodes' display names, so
+<li><code>[RelationProperty(TextIndexRelatedName = true)]</code> adds the related nodes' names (<code>IName.Name</code>), so
   a venue can be found by the names of its events.</li>
 </ul>
 <p><code>IndexedByWords</code> and <code>IndexedBySemantic</code> give one string property an index of its own. Search that
@@ -6215,6 +6298,9 @@ with <code>Selected</code> set:</p>
 <p>Each method takes the property as an expression, a name or an id. <strong>Faceting needs
 <code>Indexed = true</code>.</strong> <code>NotFacet = true</code> keeps a property out, and a relation takes part only with
 <code>[RelationProperty(Facet = true)]</code>.</p>
+<p>A relation, reference or references facet labels each bucket with the related node's name
+(<code>IName.Name</code>, <a href="#node-names-iname">Node names</a>), read in the version the query's context reads, else
+with the node's id.</p>
 <h3 id="where-the-un-named-facets-come-from">Where the un-named facets come from<a class="anchor" href="#where-the-un-named-facets-come-from" aria-label="Link to this section">#</a></h3>
 <p>With no facet named, a facet query counts every facetable property of every node type in the result.
 Naming a facet turns this off. These methods choose explicitly, and combine with the facets you
@@ -6636,6 +6722,9 @@ revisions: versions with an id, a <code>RevisionType</code>, a culture and value
     safe.</li>
 <li><strong>Pin <code>[Node(Id = …)]</code> and <code>[Relation(Id = …)]</code> early.</strong> Without them the id is a hash of the
     full type name, so a rename creates a new, empty type.</li>
+<li><strong>A node's name is <code>IName.Name</code> and nothing else.</strong> A <code>Name</code> or <code>Title</code> a type declares itself is
+    an ordinary property: inherit <code>IName</code>, and read stored names with <code>[FormerProperty]</code>
+    (<a href="#node-names-iname">Node names</a>).</li>
 </ol>
 <p><strong>Geo</strong></p>
 <ol>
@@ -7807,8 +7896,9 @@ or with one the database does not have.</p>
   <code>events(filter, search, orderBy, descending, page, pageSize, ids)</code>.</li>
 </ul>
 <p>Every node type implements the <code>Node</code> interface and its four system fields: <code>id</code> (the node's
-<code>Guid</code>), <code>displayName</code>, <code>createdUtc</code> and <code>changedUtc</code>. Here is the schema of the endpoint above,
-trimmed:</p>
+<code>Guid</code>), <code>name</code> (its <code>IName.Name</code>, null for a type without a name,
+<a href="#node-names-iname">Node names</a>), <code>createdUtc</code> and <code>changedUtc</code>. Here is the schema of the endpoint
+above, trimmed:</p>
 <div class="codehilite"><pre><span></span><code>type Query {
   event(id: ID!): Event
   events(filter: EventFilterInput, search: String, orderBy: EventOrderBy, descending: Boolean = false,
@@ -7822,7 +7912,7 @@ trimmed:</p>
 
 interface Event implements Node {
   id: ID!
-  displayName: String
+  name: String
   createdUtc: DateTime!
   changedUtc: DateTime!
   price: Decimal!
@@ -7835,11 +7925,10 @@ interface Event implements Node {
 type EventNode implements Node &amp; Event { ... }   # the same fields
 
 interface Venue implements Node {
-  ...
+  ...                            # the system fields; name is the venue&#39;s IName.Name
   capacity: Int!
   events(top: Int): [Event!]!
   location: GeoCoordinate
-  name: String
 }
 
 type EventResult {
@@ -7899,8 +7988,11 @@ are used as they are:</p>
 </tbody>
 </table>
 <ul>
-<li>System fields keep their names. A property that would clash with one gets <code>Value</code> added:
-  <code>DisplayName</code> becomes <code>displayNameValue</code>.</li>
+<li><code>IName.Name</code> is the field <code>name</code> itself, so filters, <code>orderBy</code> and mutation inputs call it <code>name</code>
+  too. Under exact names, or named otherwise by the endpoint, it is a field of its own beside <code>name</code>.</li>
+<li>System fields keep their names. A property that would clash with one gets <code>Value</code> added: a type's
+  own <code>Name</code>, one that is not <code>IName.Name</code>, becomes <code>nameValue</code>, as properties clashing with <code>id</code>,
+  <code>createdUtc</code> and <code>changedUtc</code> do.</li>
 <li>A name that is taken gets <code>_2</code> added, with a warning.</li>
 <li>An inherited property keeps the field name its base type gives it. A different name set on the
   subtype is ignored, with a warning.</li>
@@ -9513,7 +9605,7 @@ engines compared by corpus size and cache budget, with throughput, recall, resta
 (function () {
   "use strict";
 
-  var NAV = [{"level": 1, "text": "Data Modelling & Querying with Relatude.DB", "id": "data-modelling-querying-with-relatudedb", "children": []}, {"level": 1, "text": "Part I — Data modelling", "id": "part-i-data-modelling", "children": [{"level": 2, "text": "1. The mental model", "id": "1-the-mental-model", "children": [{"level": 3, "text": "Interfaces are the model", "id": "interfaces-are-the-model", "children": []}]}, {"level": 2, "text": "2. Your first node type", "id": "2-your-first-node-type", "children": [{"level": 3, "text": "Why interfaces are the better default", "id": "why-interfaces-are-the-better-default", "children": []}, {"level": 3, "text": "Multiple inheritance with interfaces", "id": "multiple-inheritance-with-interfaces", "children": []}, {"level": 3, "text": "Querying across the hierarchy", "id": "querying-across-the-hierarchy", "children": []}, {"level": 3, "text": "Two constraints to design around", "id": "two-constraints-to-design-around", "children": []}, {"level": 3, "text": "When you do want a class", "id": "when-you-do-want-a-class", "children": []}, {"level": 3, "text": "Optional: stable type ids", "id": "optional-stable-type-ids", "children": []}, {"level": 3, "text": "Optional: an icon for the type", "id": "optional-an-icon-for-the-type", "children": []}, {"level": 3, "text": "Optional: a title and a description", "id": "optional-a-title-and-a-description", "children": []}, {"level": 3, "text": "Optional: abstract types and inner node types", "id": "optional-abstract-types-and-inner-node-types", "children": []}]}, {"level": 2, "text": "3. Scalar properties and their attributes", "id": "3-scalar-properties-and-their-attributes", "children": [{"level": 3, "text": "The attribute catalogue", "id": "the-attribute-catalogue", "children": []}, {"level": 3, "text": "Strings", "id": "strings", "children": []}, {"level": 3, "text": "Numbers", "id": "numbers", "children": []}, {"level": 3, "text": "Enums", "id": "enums", "children": []}, {"level": 3, "text": "Validation happens on write", "id": "validation-happens-on-write", "children": []}, {"level": 3, "text": "3.1 Overriding attributes", "id": "31-overriding-attributes", "children": []}, {"level": 3, "text": "Passwords", "id": "passwords", "children": []}]}, {"level": 2, "text": "4. Marker properties", "id": "4-marker-properties", "children": [{"level": 3, "text": "What lives in NodeMeta", "id": "what-lives-in-nodemeta", "children": []}, {"level": 3, "text": "Writing meta: UpdateMeta", "id": "writing-meta-updatemeta", "children": []}, {"level": 3, "text": "Querying by the node's own dates", "id": "querying-by-the-nodes-own-dates", "children": []}]}, {"level": 2, "text": "5. Geo coordinates", "id": "5-geo-coordinates", "children": [{"level": 3, "text": "Constructing and reading", "id": "constructing-and-reading", "children": []}, {"level": 3, "text": "The empty value", "id": "the-empty-value", "children": []}, {"level": 3, "text": "Distance and radius tests", "id": "distance-and-radius-tests", "children": []}, {"level": 3, "text": "Precision and sort order", "id": "precision-and-sort-order", "children": []}, {"level": 3, "text": "JSON shape", "id": "json-shape", "children": []}, {"level": 3, "text": "Seeing them", "id": "seeing-them", "children": []}]}, {"level": 2, "text": "6. Files", "id": "6-files", "children": [{"level": 3, "text": "6.1 File analysis", "id": "61-file-analysis", "children": []}]}, {"level": 2, "text": "7. Embedded data", "id": "7-embedded-data", "children": [{"level": 3, "text": "Embedded<T> — a collection keyed by the embedded object's own Guid Id", "id": "embedded-a-collection-keyed-by-the-embedded-objects-own-guid-id", "children": []}, {"level": 3, "text": "EmbeddedMap<TKey, TValue> — a collection keyed by a property of the value", "id": "embeddedmap-a-collection-keyed-by-a-property-of-the-value", "children": []}, {"level": 3, "text": "Working with an embedded map", "id": "working-with-an-embedded-map", "children": []}]}, {"level": 2, "text": "8. References — lightweight pointers", "id": "8-references-lightweight-pointers", "children": [{"level": 3, "text": "Reading and writing a Reference<T>", "id": "reading-and-writing-a-reference", "children": []}, {"level": 3, "text": "Reading and writing a References<T>", "id": "reading-and-writing-a-references", "children": []}]}, {"level": 2, "text": "9. Relations — the graph edges", "id": "9-relations-the-graph-edges", "children": [{"level": 3, "text": "The five shapes", "id": "the-five-shapes", "children": []}, {"level": 3, "text": "Using them on node types", "id": "using-them-on-node-types", "children": []}, {"level": 3, "text": "The \"one\" side API", "id": "the-one-side-api", "children": []}, {"level": 3, "text": "The \"many\" side API", "id": "the-many-side-api", "children": []}, {"level": 3, "text": "9.1 Relation lists are ordered", "id": "91-relation-lists-are-ordered", "children": []}, {"level": 3, "text": "Relation options", "id": "relation-options", "children": []}]}, {"level": 2, "text": "10. Choosing between relation, reference and embedded", "id": "10-choosing-between-relation-reference-and-embedded", "children": [{"level": 3, "text": "How an editor shows them: Display", "id": "how-an-editor-shows-them-display", "children": []}]}, {"level": 2, "text": "11. The complete example model", "id": "11-the-complete-example-model", "children": [{"level": 3, "text": "11.1 The same model with facet interfaces", "id": "111-the-same-model-with-facet-interfaces", "children": []}]}, {"level": 2, "text": "12. Registering the model & the admin UI", "id": "12-registering-the-model-the-admin-ui", "children": [{"level": 3, "text": "Server-hosted (the usual case)", "id": "server-hosted-the-usual-case", "children": []}, {"level": 3, "text": "relatude.db.json", "id": "relatudedbjson", "children": []}, {"level": 3, "text": "12.1 Every setting in relatude.db.json", "id": "121-every-setting-in-relatudedbjson", "children": []}, {"level": 3, "text": "Overriding settings from configuration", "id": "overriding-settings-from-configuration", "children": []}, {"level": 3, "text": "Changes made in the admin UI: relatude.db.overrides.json", "id": "changes-made-in-the-admin-ui-relatudedboverridesjson", "children": []}, {"level": 3, "text": "Settings of your own: custom settings", "id": "settings-of-your-own-custom-settings", "children": []}, {"level": 3, "text": "12.2 What goes where: source control, deployment and appsettings", "id": "122-what-goes-where-source-control-deployment-and-appsettings", "children": []}, {"level": 3, "text": "Options and events in Program.cs", "id": "options-and-events-in-programcs", "children": []}, {"level": 3, "text": "Two ways to register a datamodel", "id": "two-ways-to-register-a-datamodel", "children": []}, {"level": 3, "text": "The admin UI", "id": "the-admin-ui", "children": []}, {"level": 3, "text": "Programmatic / embedded", "id": "programmatic-embedded", "children": []}, {"level": 3, "text": "What the model builder validates", "id": "what-the-model-builder-validates", "children": []}, {"level": 3, "text": "Do not redefine the native types", "id": "do-not-redefine-the-native-types", "children": []}]}]}, {"level": 1, "text": "Part II — Writing data", "id": "part-ii-writing-data", "children": [{"level": 2, "text": "13. Create, insert, update, delete", "id": "13-create-insert-update-delete", "children": [{"level": 3, "text": "Read", "id": "read", "children": []}, {"level": 3, "text": "Update, upsert, delete", "id": "update-upsert-delete", "children": []}]}, {"level": 2, "text": "14. Relating nodes", "id": "14-relating-nodes", "children": [{"level": 3, "text": "Which verb", "id": "which-verb", "children": []}]}, {"level": 2, "text": "15. Transactions", "id": "15-transactions", "children": [{"level": 3, "text": "Locks", "id": "locks", "children": []}, {"level": 3, "text": "Transaction plugins", "id": "transaction-plugins", "children": []}]}, {"level": 2, "text": "16. Older versions of a node", "id": "16-older-versions-of-a-node", "children": [{"level": 3, "text": "16.1 Reverting the database to an earlier point", "id": "161-reverting-the-database-to-an-earlier-point", "children": []}]}, {"level": 2, "text": "17. Uploading files", "id": "17-uploading-files", "children": [{"level": 3, "text": "Copying files", "id": "copying-files", "children": []}, {"level": 3, "text": "Very large files", "id": "very-large-files", "children": []}, {"level": 3, "text": "Serving and converting", "id": "serving-and-converting", "children": []}, {"level": 3, "text": "Light and dark mode", "id": "light-and-dark-mode", "children": []}, {"level": 3, "text": "Pictures cropped in the browser", "id": "pictures-cropped-in-the-browser", "children": []}]}, {"level": 2, "text": "18. URLs and the URL manager", "id": "18-urls-and-the-url-manager", "children": [{"level": 3, "text": "Configuring it", "id": "configuring-it", "children": []}, {"level": 3, "text": "Where the path comes from", "id": "where-the-path-comes-from", "children": []}, {"level": 3, "text": "Address uniqueness", "id": "address-uniqueness", "children": []}, {"level": 3, "text": "Page URL formats", "id": "page-url-formats", "children": []}, {"level": 3, "text": "Prefixes", "id": "prefixes", "children": []}, {"level": 3, "text": "18.1 Asset URLs: files, variants and deeplinks", "id": "181-asset-urls-files-variants-and-deeplinks", "children": []}, {"level": 3, "text": "18.2 Links inside HTML and Markdown", "id": "182-links-inside-html-and-markdown", "children": []}, {"level": 3, "text": "Writing your own manager", "id": "writing-your-own-manager", "children": []}, {"level": 3, "text": "The middleware that serves it", "id": "the-middleware-that-serves-it", "children": []}]}]}, {"level": 1, "text": "Part III — Querying", "id": "part-iii-querying", "children": [{"level": 2, "text": "19. Query anatomy", "id": "19-query-anatomy", "children": [{"level": 3, "text": "Queries are immutable", "id": "queries-are-immutable", "children": []}, {"level": 3, "text": "Heavy queries, and stopping one", "id": "heavy-queries-and-stopping-one", "children": []}, {"level": 3, "text": "Entry points", "id": "entry-points", "children": []}, {"level": 3, "text": "Executing", "id": "executing", "children": []}]}, {"level": 2, "text": "20. Filtering with Where", "id": "20-filtering-with-where", "children": []}, {"level": 2, "text": "21. Text and semantic search", "id": "21-text-and-semantic-search", "children": [{"level": 3, "text": "WhereSearch — search as a filter", "id": "wheresearch-search-as-a-filter", "children": []}, {"level": 3, "text": "Search — search as ranking", "id": "search-search-as-ranking", "children": []}, {"level": 3, "text": "What actually gets searched", "id": "what-actually-gets-searched", "children": []}]}, {"level": 2, "text": "22. Geo queries", "id": "22-geo-queries", "children": [{"level": 3, "text": "Sorting by distance", "id": "sorting-by-distance", "children": []}, {"level": 3, "text": "A widening search", "id": "a-widening-search", "children": []}, {"level": 3, "text": "Things to remember about geo filters", "id": "things-to-remember-about-geo-filters", "children": []}]}, {"level": 2, "text": "23. Relation filters", "id": "23-relation-filters", "children": []}, {"level": 2, "text": "24. Eager loading: Include and Preload", "id": "24-eager-loading-include-and-preload", "children": [{"level": 3, "text": "Going deeper: ThenInclude / ThenPreload", "id": "going-deeper-theninclude-thenpreload", "children": []}, {"level": 3, "text": "Filtering what gets included", "id": "filtering-what-gets-included", "children": []}, {"level": 3, "text": "When you only need ids", "id": "when-you-only-need-ids", "children": []}]}, {"level": 2, "text": "25. Graph traversal and shortest path", "id": "25-graph-traversal-and-shortest-path", "children": [{"level": 3, "text": "Traverse", "id": "traverse", "children": []}, {"level": 3, "text": "ShortestPath", "id": "shortestpath", "children": []}]}, {"level": 2, "text": "26. Sorting, paging and result sets", "id": "26-sorting-paging-and-result-sets", "children": [{"level": 3, "text": "Paging", "id": "paging", "children": []}, {"level": 3, "text": "ResultSet<T>", "id": "resultset", "children": []}]}, {"level": 2, "text": "27. Aggregates", "id": "27-aggregates", "children": []}, {"level": 2, "text": "28. Faceted search", "id": "28-faceted-search", "children": [{"level": 3, "text": "Applying the user's selection", "id": "applying-the-users-selection", "children": []}, {"level": 3, "text": "Facet declaration methods", "id": "facet-declaration-methods", "children": []}, {"level": 3, "text": "Where the un-named facets come from", "id": "where-the-un-named-facets-come-from", "children": []}, {"level": 3, "text": "28.1 Pivot tables", "id": "281-pivot-tables", "children": []}, {"level": 3, "text": "28.2 GroupBy", "id": "282-groupby", "children": []}]}, {"level": 2, "text": "29. Cultures, visibility and scoped stores", "id": "29-cultures-visibility-and-scoped-stores", "children": [{"level": 3, "text": "Revisions in several cultures", "id": "revisions-in-several-cultures", "children": []}]}, {"level": 2, "text": "30. Pitfalls and gotchas", "id": "30-pitfalls-and-gotchas", "children": []}]}, {"level": 1, "text": "Part IV — Tooling", "id": "part-iv-tooling", "children": [{"level": 2, "text": "31. The command line tool", "id": "31-the-command-line-tool", "children": [{"level": 3, "text": "The commands", "id": "the-commands", "children": []}, {"level": 3, "text": "A typical session", "id": "a-typical-session", "children": []}, {"level": 3, "text": "Finding the database and the model", "id": "finding-the-database-and-the-model", "children": []}, {"level": 3, "text": "Creating a project", "id": "creating-a-project", "children": []}, {"level": 3, "text": "Undoing an experiment", "id": "undoing-an-experiment", "children": []}, {"level": 3, "text": "Running queries", "id": "running-queries", "children": []}, {"level": 3, "text": "Things worth knowing", "id": "things-worth-knowing", "children": []}]}, {"level": 2, "text": "32. Logs — recording what the application does", "id": "32-logs-recording-what-the-application-does", "children": [{"level": 3, "text": "32.1 Defining a log", "id": "321-defining-a-log", "children": []}, {"level": 3, "text": "32.2 Recording from the application", "id": "322-recording-from-the-application", "children": []}, {"level": 3, "text": "32.3 Statistics", "id": "323-statistics", "children": []}, {"level": 3, "text": "32.4 Estimated unique counts: HyperLogLog", "id": "324-estimated-unique-counts-hyperloglog", "children": []}, {"level": 3, "text": "32.5 Reading a log", "id": "325-reading-a-log", "children": []}, {"level": 3, "text": "32.6 Changing a definition", "id": "326-changing-a-definition", "children": []}, {"level": 3, "text": "32.7 Files, limits and cleaning up", "id": "327-files-limits-and-cleaning-up", "children": []}, {"level": 3, "text": "32.8 Positions", "id": "328-positions", "children": []}]}]}, {"level": 1, "text": "Part V — APIs", "id": "part-v-apis", "children": [{"level": 2, "text": "33. GraphQL endpoints", "id": "33-graphql-endpoints", "children": [{"level": 3, "text": "33.1 An endpoint in the admin UI", "id": "331-an-endpoint-in-the-admin-ui", "children": []}, {"level": 3, "text": "33.2 The definition file", "id": "332-the-definition-file", "children": []}, {"level": 3, "text": "33.3 The schema", "id": "333-the-schema", "children": []}, {"level": 3, "text": "33.4 Querying", "id": "334-querying", "children": []}, {"level": 3, "text": "33.5 Views", "id": "335-views", "children": []}, {"level": 3, "text": "33.6 Mutations", "id": "336-mutations", "children": []}, {"level": 3, "text": "33.7 Over HTTP", "id": "337-over-http", "children": []}, {"level": 3, "text": "33.8 The explorer and the facet page", "id": "338-the-explorer-and-the-facet-page", "children": []}, {"level": 3, "text": "33.9 Code-first: mapping an endpoint in Program.cs", "id": "339-code-first-mapping-an-endpoint-in-programcs", "children": []}, {"level": 3, "text": "33.10 Who reads, and the limits", "id": "3310-who-reads-and-the-limits", "children": []}]}, {"level": 2, "text": "34. AI services", "id": "34-ai-services", "children": [{"level": 3, "text": "34.1 Text: embeddings and completions", "id": "341-text-embeddings-and-completions", "children": []}, {"level": 3, "text": "34.2 Images", "id": "342-images", "children": []}, {"level": 3, "text": "34.3 Files to text", "id": "343-files-to-text", "children": []}, {"level": 3, "text": "34.4 Translation", "id": "344-translation", "children": []}, {"level": 3, "text": "34.5 Prices, answers kept, and errors", "id": "345-prices-answers-kept-and-errors", "children": []}]}, {"level": 2, "text": "35. Relatude Services", "id": "35-relatude-services", "children": [{"level": 3, "text": "35.1 A license is not needed", "id": "351-a-license-is-not-needed", "children": []}, {"level": 3, "text": "35.2 A provider of your own", "id": "352-a-provider-of-your-own", "children": []}, {"level": 3, "text": "35.3 The account at services.relatude.com", "id": "353-the-account-at-servicesrelatudecom", "children": []}, {"level": 3, "text": "35.4 Connecting an installation", "id": "354-connecting-an-installation", "children": []}, {"level": 3, "text": "35.5 Who is behind a request: IP lookup", "id": "355-who-is-behind-a-request-ip-lookup", "children": []}]}]}, {"level": 1, "text": "Part VI — Background work", "id": "part-vi-background-work", "children": [{"level": 2, "text": "36. Background tasks and the scheduler", "id": "36-background-tasks-and-the-scheduler", "children": [{"level": 3, "text": "36.1 Jobs", "id": "361-jobs", "children": []}, {"level": 3, "text": "36.2 Schedules", "id": "362-schedules", "children": []}, {"level": 3, "text": "36.3 The Scheduler page", "id": "363-the-scheduler-page", "children": []}]}, {"level": 2, "text": "Where to look when this manual runs out", "id": "where-to-look-when-this-manual-runs-out", "children": []}]}];
+  var NAV = [{"level": 1, "text": "Data Modelling & Querying with Relatude.DB", "id": "data-modelling-querying-with-relatudedb", "children": []}, {"level": 1, "text": "Part I — Data modelling", "id": "part-i-data-modelling", "children": [{"level": 2, "text": "1. The mental model", "id": "1-the-mental-model", "children": [{"level": 3, "text": "Interfaces are the model", "id": "interfaces-are-the-model", "children": []}]}, {"level": 2, "text": "2. Your first node type", "id": "2-your-first-node-type", "children": [{"level": 3, "text": "Why interfaces are the better default", "id": "why-interfaces-are-the-better-default", "children": []}, {"level": 3, "text": "Multiple inheritance with interfaces", "id": "multiple-inheritance-with-interfaces", "children": []}, {"level": 3, "text": "Querying across the hierarchy", "id": "querying-across-the-hierarchy", "children": []}, {"level": 3, "text": "Two constraints to design around", "id": "two-constraints-to-design-around", "children": []}, {"level": 3, "text": "When you do want a class", "id": "when-you-do-want-a-class", "children": []}, {"level": 3, "text": "Optional: stable type ids", "id": "optional-stable-type-ids", "children": []}, {"level": 3, "text": "Optional: an icon for the type", "id": "optional-an-icon-for-the-type", "children": []}, {"level": 3, "text": "Optional: a title and a description", "id": "optional-a-title-and-a-description", "children": []}, {"level": 3, "text": "Optional: abstract types and inner node types", "id": "optional-abstract-types-and-inner-node-types", "children": []}]}, {"level": 2, "text": "3. Scalar properties and their attributes", "id": "3-scalar-properties-and-their-attributes", "children": [{"level": 3, "text": "The attribute catalogue", "id": "the-attribute-catalogue", "children": []}, {"level": 3, "text": "Strings", "id": "strings", "children": []}, {"level": 3, "text": "Numbers", "id": "numbers", "children": []}, {"level": 3, "text": "Ids of node types, properties and relations", "id": "ids-of-node-types-properties-and-relations", "children": []}, {"level": 3, "text": "Enums", "id": "enums", "children": []}, {"level": 3, "text": "Validation happens on write", "id": "validation-happens-on-write", "children": []}, {"level": 3, "text": "3.1 Overriding attributes", "id": "31-overriding-attributes", "children": []}, {"level": 3, "text": "Passwords", "id": "passwords", "children": []}]}, {"level": 2, "text": "4. Marker properties", "id": "4-marker-properties", "children": [{"level": 3, "text": "Node names: IName", "id": "node-names-iname", "children": []}, {"level": 3, "text": "What lives in NodeMeta", "id": "what-lives-in-nodemeta", "children": []}, {"level": 3, "text": "Writing meta: UpdateMeta", "id": "writing-meta-updatemeta", "children": []}, {"level": 3, "text": "Querying by the node's own dates", "id": "querying-by-the-nodes-own-dates", "children": []}]}, {"level": 2, "text": "5. Geo coordinates", "id": "5-geo-coordinates", "children": [{"level": 3, "text": "Constructing and reading", "id": "constructing-and-reading", "children": []}, {"level": 3, "text": "The empty value", "id": "the-empty-value", "children": []}, {"level": 3, "text": "Distance and radius tests", "id": "distance-and-radius-tests", "children": []}, {"level": 3, "text": "Precision and sort order", "id": "precision-and-sort-order", "children": []}, {"level": 3, "text": "JSON shape", "id": "json-shape", "children": []}, {"level": 3, "text": "Seeing them", "id": "seeing-them", "children": []}]}, {"level": 2, "text": "6. Files", "id": "6-files", "children": [{"level": 3, "text": "6.1 File analysis", "id": "61-file-analysis", "children": []}]}, {"level": 2, "text": "7. Embedded data", "id": "7-embedded-data", "children": [{"level": 3, "text": "Embedded<T> — a collection keyed by the embedded object's own Guid Id", "id": "embedded-a-collection-keyed-by-the-embedded-objects-own-guid-id", "children": []}, {"level": 3, "text": "EmbeddedMap<TKey, TValue> — a collection keyed by a property of the value", "id": "embeddedmap-a-collection-keyed-by-a-property-of-the-value", "children": []}, {"level": 3, "text": "Working with an embedded map", "id": "working-with-an-embedded-map", "children": []}]}, {"level": 2, "text": "8. References — lightweight pointers", "id": "8-references-lightweight-pointers", "children": [{"level": 3, "text": "Reading and writing a Reference<T>", "id": "reading-and-writing-a-reference", "children": []}, {"level": 3, "text": "Reading and writing a References<T>", "id": "reading-and-writing-a-references", "children": []}]}, {"level": 2, "text": "9. Relations — the graph edges", "id": "9-relations-the-graph-edges", "children": [{"level": 3, "text": "The five shapes", "id": "the-five-shapes", "children": []}, {"level": 3, "text": "Using them on node types", "id": "using-them-on-node-types", "children": []}, {"level": 3, "text": "The \"one\" side API", "id": "the-one-side-api", "children": []}, {"level": 3, "text": "The \"many\" side API", "id": "the-many-side-api", "children": []}, {"level": 3, "text": "9.1 Relation lists are ordered", "id": "91-relation-lists-are-ordered", "children": []}, {"level": 3, "text": "Relation options", "id": "relation-options", "children": []}]}, {"level": 2, "text": "10. Choosing between relation, reference and embedded", "id": "10-choosing-between-relation-reference-and-embedded", "children": [{"level": 3, "text": "How an editor shows them: Display", "id": "how-an-editor-shows-them-display", "children": []}]}, {"level": 2, "text": "11. The complete example model", "id": "11-the-complete-example-model", "children": [{"level": 3, "text": "11.1 The same model with facet interfaces", "id": "111-the-same-model-with-facet-interfaces", "children": []}]}, {"level": 2, "text": "12. Registering the model & the admin UI", "id": "12-registering-the-model-the-admin-ui", "children": [{"level": 3, "text": "Server-hosted (the usual case)", "id": "server-hosted-the-usual-case", "children": []}, {"level": 3, "text": "relatude.db.json", "id": "relatudedbjson", "children": []}, {"level": 3, "text": "12.1 Every setting in relatude.db.json", "id": "121-every-setting-in-relatudedbjson", "children": []}, {"level": 3, "text": "Overriding settings from configuration", "id": "overriding-settings-from-configuration", "children": []}, {"level": 3, "text": "Changes made in the admin UI: relatude.db.overrides.json", "id": "changes-made-in-the-admin-ui-relatudedboverridesjson", "children": []}, {"level": 3, "text": "Settings of your own: custom settings", "id": "settings-of-your-own-custom-settings", "children": []}, {"level": 3, "text": "12.2 What goes where: source control, deployment and appsettings", "id": "122-what-goes-where-source-control-deployment-and-appsettings", "children": []}, {"level": 3, "text": "Options and events in Program.cs", "id": "options-and-events-in-programcs", "children": []}, {"level": 3, "text": "Two ways to register a datamodel", "id": "two-ways-to-register-a-datamodel", "children": []}, {"level": 3, "text": "The admin UI", "id": "the-admin-ui", "children": []}, {"level": 3, "text": "Programmatic / embedded", "id": "programmatic-embedded", "children": []}, {"level": 3, "text": "What the model builder validates", "id": "what-the-model-builder-validates", "children": []}, {"level": 3, "text": "Do not redefine the native types", "id": "do-not-redefine-the-native-types", "children": []}]}]}, {"level": 1, "text": "Part II — Writing data", "id": "part-ii-writing-data", "children": [{"level": 2, "text": "13. Create, insert, update, delete", "id": "13-create-insert-update-delete", "children": [{"level": 3, "text": "Read", "id": "read", "children": []}, {"level": 3, "text": "Update, upsert, delete", "id": "update-upsert-delete", "children": []}]}, {"level": 2, "text": "14. Relating nodes", "id": "14-relating-nodes", "children": [{"level": 3, "text": "Which verb", "id": "which-verb", "children": []}]}, {"level": 2, "text": "15. Transactions", "id": "15-transactions", "children": [{"level": 3, "text": "Locks", "id": "locks", "children": []}, {"level": 3, "text": "Transaction plugins", "id": "transaction-plugins", "children": []}]}, {"level": 2, "text": "16. Older versions of a node", "id": "16-older-versions-of-a-node", "children": [{"level": 3, "text": "16.1 Reverting the database to an earlier point", "id": "161-reverting-the-database-to-an-earlier-point", "children": []}]}, {"level": 2, "text": "17. Uploading files", "id": "17-uploading-files", "children": [{"level": 3, "text": "Copying files", "id": "copying-files", "children": []}, {"level": 3, "text": "Very large files", "id": "very-large-files", "children": []}, {"level": 3, "text": "Serving and converting", "id": "serving-and-converting", "children": []}, {"level": 3, "text": "Light and dark mode", "id": "light-and-dark-mode", "children": []}, {"level": 3, "text": "Pictures cropped in the browser", "id": "pictures-cropped-in-the-browser", "children": []}]}, {"level": 2, "text": "18. URLs and the URL manager", "id": "18-urls-and-the-url-manager", "children": [{"level": 3, "text": "Configuring it", "id": "configuring-it", "children": []}, {"level": 3, "text": "Where the path comes from", "id": "where-the-path-comes-from", "children": []}, {"level": 3, "text": "Address uniqueness", "id": "address-uniqueness", "children": []}, {"level": 3, "text": "Page URL formats", "id": "page-url-formats", "children": []}, {"level": 3, "text": "Prefixes", "id": "prefixes", "children": []}, {"level": 3, "text": "18.1 Asset URLs: files, variants and deeplinks", "id": "181-asset-urls-files-variants-and-deeplinks", "children": []}, {"level": 3, "text": "18.2 Links inside HTML and Markdown", "id": "182-links-inside-html-and-markdown", "children": []}, {"level": 3, "text": "Writing your own manager", "id": "writing-your-own-manager", "children": []}, {"level": 3, "text": "The middleware that serves it", "id": "the-middleware-that-serves-it", "children": []}]}]}, {"level": 1, "text": "Part III — Querying", "id": "part-iii-querying", "children": [{"level": 2, "text": "19. Query anatomy", "id": "19-query-anatomy", "children": [{"level": 3, "text": "Queries are immutable", "id": "queries-are-immutable", "children": []}, {"level": 3, "text": "Heavy queries, and stopping one", "id": "heavy-queries-and-stopping-one", "children": []}, {"level": 3, "text": "Entry points", "id": "entry-points", "children": []}, {"level": 3, "text": "Executing", "id": "executing", "children": []}]}, {"level": 2, "text": "20. Filtering with Where", "id": "20-filtering-with-where", "children": []}, {"level": 2, "text": "21. Text and semantic search", "id": "21-text-and-semantic-search", "children": [{"level": 3, "text": "WhereSearch — search as a filter", "id": "wheresearch-search-as-a-filter", "children": []}, {"level": 3, "text": "Search — search as ranking", "id": "search-search-as-ranking", "children": []}, {"level": 3, "text": "What actually gets searched", "id": "what-actually-gets-searched", "children": []}]}, {"level": 2, "text": "22. Geo queries", "id": "22-geo-queries", "children": [{"level": 3, "text": "Sorting by distance", "id": "sorting-by-distance", "children": []}, {"level": 3, "text": "A widening search", "id": "a-widening-search", "children": []}, {"level": 3, "text": "Things to remember about geo filters", "id": "things-to-remember-about-geo-filters", "children": []}]}, {"level": 2, "text": "23. Relation filters", "id": "23-relation-filters", "children": []}, {"level": 2, "text": "24. Eager loading: Include and Preload", "id": "24-eager-loading-include-and-preload", "children": [{"level": 3, "text": "Going deeper: ThenInclude / ThenPreload", "id": "going-deeper-theninclude-thenpreload", "children": []}, {"level": 3, "text": "Filtering what gets included", "id": "filtering-what-gets-included", "children": []}, {"level": 3, "text": "When you only need ids", "id": "when-you-only-need-ids", "children": []}]}, {"level": 2, "text": "25. Graph traversal and shortest path", "id": "25-graph-traversal-and-shortest-path", "children": [{"level": 3, "text": "Traverse", "id": "traverse", "children": []}, {"level": 3, "text": "ShortestPath", "id": "shortestpath", "children": []}]}, {"level": 2, "text": "26. Sorting, paging and result sets", "id": "26-sorting-paging-and-result-sets", "children": [{"level": 3, "text": "Paging", "id": "paging", "children": []}, {"level": 3, "text": "ResultSet<T>", "id": "resultset", "children": []}]}, {"level": 2, "text": "27. Aggregates", "id": "27-aggregates", "children": []}, {"level": 2, "text": "28. Faceted search", "id": "28-faceted-search", "children": [{"level": 3, "text": "Applying the user's selection", "id": "applying-the-users-selection", "children": []}, {"level": 3, "text": "Facet declaration methods", "id": "facet-declaration-methods", "children": []}, {"level": 3, "text": "Where the un-named facets come from", "id": "where-the-un-named-facets-come-from", "children": []}, {"level": 3, "text": "28.1 Pivot tables", "id": "281-pivot-tables", "children": []}, {"level": 3, "text": "28.2 GroupBy", "id": "282-groupby", "children": []}]}, {"level": 2, "text": "29. Cultures, visibility and scoped stores", "id": "29-cultures-visibility-and-scoped-stores", "children": [{"level": 3, "text": "Revisions in several cultures", "id": "revisions-in-several-cultures", "children": []}]}, {"level": 2, "text": "30. Pitfalls and gotchas", "id": "30-pitfalls-and-gotchas", "children": []}]}, {"level": 1, "text": "Part IV — Tooling", "id": "part-iv-tooling", "children": [{"level": 2, "text": "31. The command line tool", "id": "31-the-command-line-tool", "children": [{"level": 3, "text": "The commands", "id": "the-commands", "children": []}, {"level": 3, "text": "A typical session", "id": "a-typical-session", "children": []}, {"level": 3, "text": "Finding the database and the model", "id": "finding-the-database-and-the-model", "children": []}, {"level": 3, "text": "Creating a project", "id": "creating-a-project", "children": []}, {"level": 3, "text": "Undoing an experiment", "id": "undoing-an-experiment", "children": []}, {"level": 3, "text": "Running queries", "id": "running-queries", "children": []}, {"level": 3, "text": "Things worth knowing", "id": "things-worth-knowing", "children": []}]}, {"level": 2, "text": "32. Logs — recording what the application does", "id": "32-logs-recording-what-the-application-does", "children": [{"level": 3, "text": "32.1 Defining a log", "id": "321-defining-a-log", "children": []}, {"level": 3, "text": "32.2 Recording from the application", "id": "322-recording-from-the-application", "children": []}, {"level": 3, "text": "32.3 Statistics", "id": "323-statistics", "children": []}, {"level": 3, "text": "32.4 Estimated unique counts: HyperLogLog", "id": "324-estimated-unique-counts-hyperloglog", "children": []}, {"level": 3, "text": "32.5 Reading a log", "id": "325-reading-a-log", "children": []}, {"level": 3, "text": "32.6 Changing a definition", "id": "326-changing-a-definition", "children": []}, {"level": 3, "text": "32.7 Files, limits and cleaning up", "id": "327-files-limits-and-cleaning-up", "children": []}, {"level": 3, "text": "32.8 Positions", "id": "328-positions", "children": []}]}]}, {"level": 1, "text": "Part V — APIs", "id": "part-v-apis", "children": [{"level": 2, "text": "33. GraphQL endpoints", "id": "33-graphql-endpoints", "children": [{"level": 3, "text": "33.1 An endpoint in the admin UI", "id": "331-an-endpoint-in-the-admin-ui", "children": []}, {"level": 3, "text": "33.2 The definition file", "id": "332-the-definition-file", "children": []}, {"level": 3, "text": "33.3 The schema", "id": "333-the-schema", "children": []}, {"level": 3, "text": "33.4 Querying", "id": "334-querying", "children": []}, {"level": 3, "text": "33.5 Views", "id": "335-views", "children": []}, {"level": 3, "text": "33.6 Mutations", "id": "336-mutations", "children": []}, {"level": 3, "text": "33.7 Over HTTP", "id": "337-over-http", "children": []}, {"level": 3, "text": "33.8 The explorer and the facet page", "id": "338-the-explorer-and-the-facet-page", "children": []}, {"level": 3, "text": "33.9 Code-first: mapping an endpoint in Program.cs", "id": "339-code-first-mapping-an-endpoint-in-programcs", "children": []}, {"level": 3, "text": "33.10 Who reads, and the limits", "id": "3310-who-reads-and-the-limits", "children": []}]}, {"level": 2, "text": "34. AI services", "id": "34-ai-services", "children": [{"level": 3, "text": "34.1 Text: embeddings and completions", "id": "341-text-embeddings-and-completions", "children": []}, {"level": 3, "text": "34.2 Images", "id": "342-images", "children": []}, {"level": 3, "text": "34.3 Files to text", "id": "343-files-to-text", "children": []}, {"level": 3, "text": "34.4 Translation", "id": "344-translation", "children": []}, {"level": 3, "text": "34.5 Prices, answers kept, and errors", "id": "345-prices-answers-kept-and-errors", "children": []}]}, {"level": 2, "text": "35. Relatude Services", "id": "35-relatude-services", "children": [{"level": 3, "text": "35.1 A license is not needed", "id": "351-a-license-is-not-needed", "children": []}, {"level": 3, "text": "35.2 A provider of your own", "id": "352-a-provider-of-your-own", "children": []}, {"level": 3, "text": "35.3 The account at services.relatude.com", "id": "353-the-account-at-servicesrelatudecom", "children": []}, {"level": 3, "text": "35.4 Connecting an installation", "id": "354-connecting-an-installation", "children": []}, {"level": 3, "text": "35.5 Who is behind a request: IP lookup", "id": "355-who-is-behind-a-request-ip-lookup", "children": []}]}]}, {"level": 1, "text": "Part VI — Background work", "id": "part-vi-background-work", "children": [{"level": 2, "text": "36. Background tasks and the scheduler", "id": "36-background-tasks-and-the-scheduler", "children": [{"level": 3, "text": "36.1 Jobs", "id": "361-jobs", "children": []}, {"level": 3, "text": "36.2 Schedules", "id": "362-schedules", "children": []}, {"level": 3, "text": "36.3 The Scheduler page", "id": "363-the-scheduler-page", "children": []}]}, {"level": 2, "text": "Where to look when this manual runs out", "id": "where-to-look-when-this-manual-runs-out", "children": []}]}];
   // v2: the default collapse state changed, and the key is versioned so readers
   // carrying a v1 payload get the new default rather than their old tree.
   var KEY = "relatude-manual-state-v2";

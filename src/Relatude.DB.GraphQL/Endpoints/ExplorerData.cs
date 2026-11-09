@@ -30,7 +30,7 @@ public static class ExplorerData {
                 var type = list.TargetNodeType!;
                 var node = sampler(type);
                 if (node == null) continue;
-                var entry = new GraphQLSample(node.Id.ToString(), ExplorerGuide.DisplayName(type, node));
+                var entry = new GraphQLSample(node.Id.ToString(), ExplorerGuide.NameOf(node));
                 // the builder looks a sample up by the type a field returns: the interface a class is referred to by, or the class
                 if (schema.ReferenceTypesByNodeTypeId.TryGetValue(type.Id, out var reference)) samples.TryAdd(reference.Name, entry);
                 if (schema.ObjectTypesByNodeTypeId.TryGetValue(type.Id, out var objectType)) samples.TryAdd(objectType.Name, entry);

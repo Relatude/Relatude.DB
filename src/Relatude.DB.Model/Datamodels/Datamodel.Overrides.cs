@@ -131,7 +131,7 @@ public partial class Datamodel {
     // The attributes types set for the properties they inherit (NodeTypeModel.PropertyOverrides): for
     // every type and every property it has, the most specific type that sets one wins - the way C# finds
     // the override of a member - and what nothing overrides is what the declaring type says. Fills the
-    // per type lists and lookups the engine reads (TextIndexProperties, DisplayProperties, the default
+    // per type lists and lookups the engine reads (TextIndexProperties, the default
     // values and boosts), and leaves the shared property objects alone.
     void resolvePropertySettingsPerType() {
         var overriding = NodeTypes.Values.Where(t => t.PropertyOverrides is { Count: > 0 }).ToList();
@@ -139,15 +139,12 @@ public partial class Datamodel {
         foreach (var t in NodeTypes.Values) {
             var relevant = overriding.Where(o => t.ThisAndAllInheritedTypes.ContainsKey(o.Id)).ToList();
             foreach (var p in t.AllProperties.Values) {
-                var displayName = p.DisplayName;
                 var excluded = p.ExcludeFromTextIndex;
                 if (relevant.Count > 0) {
-                    if (resolve(t, p, relevant, nameof(PropertyOverride.DisplayName), o => o.DisplayName, out var dn)) displayName = (bool)dn!;
                     if (resolve(t, p, relevant, nameof(PropertyOverride.ExcludeFromTextIndex), o => o.ExcludeFromTextIndex, out var ex)) excluded = (bool)ex!;
                     if (resolve(t, p, relevant, nameof(PropertyOverride.IndexBoost), o => o.IndexBoost, out var boost)) t.IndexBoosts[p.Id] = (int)boost!;
                     if (resolve(t, p, relevant, nameof(PropertyOverride.DefaultValue), o => o.DefaultValue, out var value)) t.DefaultValues[p.Id] = value;
                 }
-                if (displayName) t.DisplayProperties.Add(p);
                 if (!excluded) t.TextIndexProperties.Add(p);
             }
         }
@@ -160,7 +157,7 @@ public partial class Datamodel {
             }
             foreach (var (name, scope, _) in DatamodelOverrides.SetMembers(o)) {
                 if (scope is not (OverrideScope.Inherited or OverrideScope.AnyType)) notice(t.FullName + " overrides " + name + " of " + p.CodeName + ", which is one setting for the property wherever it is used. "
-                    + "A type can only override the attributes of an inherited property that may differ between types (the default value, the text index and the display name), "
+                    + "A type can only override the attributes of an inherited property that may differ between types (the default value and the text index), "
                     + "and ask for its value index (Indexed) and for it to be a facet (NotFacet); it is ignored. ");
             }
         }

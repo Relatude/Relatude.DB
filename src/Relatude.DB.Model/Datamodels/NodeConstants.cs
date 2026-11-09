@@ -8,7 +8,14 @@ public static class NodeConstants {
 
     public static readonly Guid SystemAddressPropertyId = new("57c752bf-e364-43e1-9163-d8ffea004bad");
     public static readonly Guid SystemAutoAddressPropertyId = new("cf885adf-1121-41d8-85e6-70c553345dd0");
-    public static readonly Guid SystemDisplayNamePropertyId = new("c1ea2c8a-dbe8-4fa0-a020-ae05507305b6");
+    // c1ea2c8a-dbe8-4fa0-a020-ae05507305b6 was the display name's: never reuse it, old nodes may hold values under it
+
+    /// <summary>
+    /// The property that is a node's name: <c>IName.Name</c> (Relatude.DB.Native.Models). A type has a name when it
+    /// inherits IName, and that one property is what lists show, sort and search by, across every type that has it.
+    /// </summary>
+    public const string NamePropertyIdString = "decb9830-0b7f-c9cb-69a6-fe2b24f7a647";
+    public static readonly Guid NamePropertyId = new(NamePropertyIdString);
 
     // The node's own creation and change times (NodeMeta.CreatedUtc / ChangedUtc) as indexed system
     // properties of every node type. Their values are never stored among the node's values: the
@@ -30,7 +37,6 @@ public static class NodeConstants {
     public static readonly string SystemVectorIndexPropertyName = "_vectorIndex";
     public static readonly string SystemAddressPropertyName = "_address";
     public static readonly string SystemAutoAddressPropertyName = "_autoAddress";
-    public static readonly string SystemDisplayNamePropertyName = "_displayName";
     public const string SystemCreatedUtcPropertyName = "_createdUtc";
     public const string SystemChangedUtcPropertyName = "_changedUtc";
 
@@ -57,12 +63,12 @@ public static class NodeConstants {
     public const string NativeUserPropertyUserTypeString = "4f64452a-7dbc-f83f-ade1-c265a040b423";
     public const string NativeUserPropertyMembershipsString = "d476891e-f1d0-f541-283c-4abf258da8bd";
 
+    // a group's GroupName and a culture's EnglishName, read as their Name since both types have one ([FormerProperty])
     public const string NativeUserGroupPropertyGroupNameString = "49fd9384-5f68-6aca-9472-92640550e9e2";
     public const string NativeUserGroupPropertyUserMembersString = "c845e4b4-7e1d-1991-c922-25f00eb5a5a2";
     public const string NativeUserGroupPropertyGroupMembershipsString = "6cf54ce8-ed2c-c7db-15c6-406c5a8810e3";
     public const string NativeUserGroupPropertyGroupMembersString = "d5d61b7f-9d28-c98e-4128-d476a5e0fa25";
 
-    public const string NativeCollectionPropertyNameString = "decb9830-0b7f-c9cb-69a6-fe2b24f7a647";
     public const string NativeCollectionPropertyCulturesString = "9f38e583-0c9e-6e95-a42f-ca2f0ca1fbc7";
 
     public const string NativeCulturePropertyCultureCodeString = "f97c08b8-b851-fe8a-97cd-9b1dbec99f36";

@@ -63,15 +63,6 @@ public partial class NodeTypeModel { // with default values
     public string? Icon { get; set; }
 
     /// <summary>
-    /// The property that is a node's name, by id: one of the type's own properties or one it inherits. An editing
-    /// interface such as a CMS shows it as a text field at the top of the node's form. Null takes the closest type
-    /// it inherits from that names one (<see cref="Datamodel.GetNameProperty"/>). Like <see cref="Icon"/> it only says
-    /// how nodes are shown, so the store's checksum leaves it out. Left out of the JSON when null.
-    /// </summary>
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public Guid? NameProperty { get; set; }
-
-    /// <summary>
     /// What people call the type, where an interface built on the model names it, such as a CMS asking which kind of
     /// content to create: "Article page" for IArticlePage. Null leaves the interface to make one from the code name.
     /// The type's own, not inherited. Like <see cref="Icon"/> it only says how the type is shown, so the store's
@@ -105,7 +96,6 @@ public partial class NodeTypeModel { // with default values
     public string? NameOfCreatedUtcProperty { get; set; }
     public string? NameOfChangedUtcProperty { get; set; }
 
-    public string? NameOfDisplayNameProperty { get; set; }
     public string? NameOfAddressProperty { get; set; }
 
     public List<Guid> Parents { get; set; } = new();
@@ -124,7 +114,7 @@ public partial class NodeTypeModel { // with default values
     /// Attributes this type gives properties it inherits, by property id: what [PropertyOverride] says in
     /// code, or the same in a JSON model file. Only the attributes that may differ between the types that
     /// have a property count here (<see cref="OverrideScope.Inherited"/>: the default value, whether the
-    /// value is in the text index and with what boost, whether it is part of the display name). They apply
+    /// value is in the text index and with what boost). They apply
     /// to this type and the types inheriting from it, unless one of those sets its own; what the engine
     /// then reads for each type is resolved when the model initializes (see <see cref="GetDefaultValue"/>,
     /// <see cref="TextIndexProperties"/>). Besides those, Indexed asks for the property's value index and
@@ -133,5 +123,13 @@ public partial class NodeTypeModel { // with default values
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public Dictionary<Guid, PropertyOverride>? PropertyOverrides { get; set; }
+    /// <summary>
+    /// Values nodes of this type stored under a property they no longer have, now read as one they have: from the
+    /// old property's id to the new one's (<c>[FormerProperty]</c> in code). A node read from storage holds such a
+    /// value under the new id, unless it has one there already, and is written so, so a property renamed or merged
+    /// into another keeps what was stored. The types inheriting from this one read their nodes so too. Null for none.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Dictionary<Guid, Guid>? FormerPropertyIds { get; set; }
     public string FullName => String.IsNullOrEmpty(Namespace) ? CodeName : $"{Namespace}.{CodeName}";
 }

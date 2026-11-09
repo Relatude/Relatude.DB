@@ -315,7 +315,7 @@ sealed class UINodeSizes {
                 dm.Properties.TryGetValue(part.PropertyId, out var property);
                 var label = part.Kind switch {
                     NodeAnatomyPartKind.Header => "Header",
-                    NodeAnatomyPartKind.DisplayName => "Display name",
+                    NodeAnatomyPartKind.DisplayName => "Unused (once the display name)",
                     NodeAnatomyPartKind.Address => "Address",
                     NodeAnatomyPartKind.Meta => "Meta",
                     _ => property?.CodeName ?? part.PropertyId.ToString(),

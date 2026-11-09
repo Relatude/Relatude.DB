@@ -6,7 +6,7 @@ namespace Relatude.DB.NodeServer.Settings;
 /// The short name of a database (<see cref="NodeStoreContainerSettingsBase.ShortName"/>): a short,
 /// file-system-safe name the server uses for the folder it keeps the database's settings files in,
 /// below relatude.settings: relatude.settings/{short name}/ holds the definitions of its custom logs
-/// (logs/) and GraphQL endpoints (graphql/), and its datamodel overrides (datamodel.json) - what every
+/// (logs/) and GraphQL endpoints (graphql/), its templates (templates/) and its datamodel overrides (datamodel.json) - what every
 /// installation shares. A database without one keeps them directly in relatude.settings
 /// (relatude.settings/logs/, relatude.settings/graphql/, relatude.settings/datamodel.json), which is all
 /// an installation with one database needs. Short names are unique within an
@@ -22,11 +22,13 @@ public static class DatabaseShortName {
     };
     // the folders relatude.settings has for the database without a short name: a short name naming one
     // of them would put that database's folder inside the other database's
-    static readonly HashSet<string> _reservedBySettings = new(StringComparer.OrdinalIgnoreCase) { LogsFolderName, GraphQLFolderName };
+    static readonly HashSet<string> _reservedBySettings = new(StringComparer.OrdinalIgnoreCase) { LogsFolderName, GraphQLFolderName, TemplatesFolderName };
     /// <summary>The folder below a database's settings folder holding the definitions of its custom logs.</summary>
     public const string LogsFolderName = "logs";
     /// <summary>The folder below a database's settings folder holding the definitions of its GraphQL endpoints.</summary>
     public const string GraphQLFolderName = "graphql";
+    /// <summary>The folder below a database's settings folder holding its library of templates, one file per template, in folders of their own.</summary>
+    public const string TemplatesFolderName = "templates";
     /// <summary>The file in a database's settings folder holding the datamodel overrides every installation shares.</summary>
     public const string DatamodelFileName = "datamodel.json";
 
@@ -64,6 +66,10 @@ public static class DatabaseShortName {
 
     /// <summary>The folder of a database's GraphQL endpoint definitions, relative to the root data folder.</summary>
     public static string GraphQLFolder(string? shortName) => SettingsFolder(shortName) + "/" + GraphQLFolderName;
+
+    /// <summary>The folder of a database's templates, relative to the root data folder:
+    /// relatude.settings/{short name}/templates, or relatude.settings/templates for none.</summary>
+    public static string TemplatesFolder(string? shortName) => SettingsFolder(shortName) + "/" + TemplatesFolderName;
 
     /// <summary>The file of a database's shared datamodel overrides, relative to the root data folder:
     /// relatude.settings/{short name}/datamodel.json, or relatude.settings/datamodel.json for none.</summary>

@@ -450,12 +450,6 @@ public partial class Transaction {
     /// <summary>Writes several properties of one node, given as parallel arrays of property lambdas and values.</summary>
     public Transaction UpdateProperties<T>(Guid nodeId, Expression<Func<T, object?>>[] expressions, object[] values) => UpdateIfDifferentProperties(nodeId, expressions, values);
 
-    /// <summary>Sets the display name, the built in label used by the admin UI and by automatic address generation.</summary>
-    public Transaction UpdateDisplayName(object node, string value) => UpdateIfDifferentDisplayName(node, value);
-    /// <summary>Sets the display name of the node with this public id.</summary>
-    public Transaction UpdateDisplayName(Guid nodeId, string value) => UpdateIfDifferentDisplayName(nodeId, value);
-    /// <summary>Sets the display name of the node with this internal id.</summary>
-    public Transaction UpdateDisplayName(int nodeId, string value) => UpdateIfDifferentDisplayName(nodeId, value);
     /// <summary>Sets the address (URL path) of the node with this public id. The store adjusts it if it is taken.</summary>
     public Transaction UpdateAddress(Guid nodeId, string value) => UpdateIfDifferentAddress(nodeId, value);
     /// <summary>Sets the address of the node with this internal id.</summary>
@@ -534,18 +528,6 @@ public partial class Transaction {
         return this;
     }
 
-    /// <summary>Sets the display name of a node object, unless it already has that value.</summary>
-    public Transaction UpdateIfDifferentDisplayName(object node, string value) {
-        return UpdateIfDifferentProperty(node, NodeConstants.SystemDisplayNamePropertyId, value);
-    }
-    /// <summary>Sets the display name of the node with this public id, unless it already has that value.</summary>
-    public Transaction UpdateIfDifferentDisplayName(Guid nodeId, string value) {
-        return UpdateIfDifferentProperty(nodeId, NodeConstants.SystemDisplayNamePropertyId, value);
-    }
-    /// <summary>Sets the display name of the node with this internal id, unless it already has that value.</summary>
-    public Transaction UpdateIfDifferentDisplayName(int nodeId, string value) {
-        return UpdateIfDifferentProperty(nodeId, NodeConstants.SystemDisplayNamePropertyId, value);
-    }
     /// <summary>Sets the address of a node object, unless it already has that value.</summary>
     public Transaction UpdateIfDifferentAddress(object node, string value) {
         return UpdateIfDifferentProperty(node, NodeConstants.SystemAddressPropertyId, value);

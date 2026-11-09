@@ -68,8 +68,8 @@ setting you need on day one. `IndexedByWords = true` adds a word index to one pr
 | Links | `Reference<T>`, `References<T>`, and relation properties (below) |
 
 A few marker attributes are worth knowing: `[PublicIdProperty]` (the Guid id), `[InternalIdProperty]`
-(the fast int id), `[DisplayNameProperty]`, `[AddressProperty]` (the URL slug), `[CreatedUtcProperty]`
-and `[ChangedUtcProperty]`.
+(the fast int id), `[AddressProperty]` (the URL slug), `[CreatedUtcProperty]` and `[ChangedUtcProperty]`.
+A node's name is the `Name` of `IName`, which a type inherits to have one.
 
 ### Relations: two levels
 

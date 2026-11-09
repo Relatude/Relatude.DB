@@ -27,14 +27,10 @@ public interface ILocatable {
     string CountryCode { get; set; }
 }
 
-// A thing with an identity, a name and a slug.
-public interface INamedNode {
+// A thing with an identity, a name and a slug. IName gives it Name, the node's name.
+public interface INamedNode : IName {
     Guid Id { get; set; }
     NodeMeta Meta { get; }
-
-    [DisplayNameProperty]
-    [StringProperty(Indexed = true, IndexedByWords = true, PrefixSearch = true)]
-    string Title { get; set; }
 
     [AddressProperty]
     [StringProperty(Indexed = true, UniqueValues = true)]
@@ -78,16 +74,19 @@ var nearby = db.Query<ILocatable>()
 
 foreach (var x in nearby) {
     Console.WriteLine(x switch {
-        IVenue v    => $"Venue: {v.Title}",
-        IAttendee a => $"Attendee: {a.Title}",
+        IVenue v    => $"Venue: {v.Name}",
+        IAttendee a => $"Attendee: {a.Name}",
         _           => "Something else"
     });
 }
 
-// One search box over everything that has a title
+// One search box over everything that has a name
 var hits = db.Query<INamedNode>()
     .WhereSearch("outdoor jazz", semanticRatio: 0.5)
     .Execute();
+
+// One A to Z list over everything that has a name
+var az = db.Query<INamedNode>().OrderBy(x => x.Name).Page(0, 50).Execute();
 
 // One tag cloud over everything taggable
 var tagCloud = db.Query<ITagged>().Facets().AddValueFacet(x => x.Tags).Execute();
@@ -108,7 +107,7 @@ The model builder is strict about ambiguity, and both rules bite exactly where y
 1. **Two parent interfaces may not declare the same property name.** If `ILocatable` and `ITagged` both declared `CountryCode`, any type implementing both fails to build. Keep facets disjoint, or hoist the shared member into a base interface that both extend.
 2. **Property overriding is not supported.** A property is defined once, on the type that first declares it. You cannot redeclare it further down to change its attributes.
 
-The practical consequence when designing facets: decide early which interface owns each cross-cutting name, and treat that as final. Because `INamedNode` declares `Title`, no other facet may declare `Title`, and no composed type may redeclare it.
+The practical consequence when designing facets: decide early which interface owns each cross-cutting name, and treat that as final. Because `IName` declares `Name`, no other facet may declare `Name`, and no composed type may redeclare it.
 
 ## Choosing between relation, reference and embedded
 
@@ -140,11 +139,12 @@ Applied to the example domain below:
 
 ## The complete example model — flat form
 
-Every property is declared directly on each type, so each type reads as a self-contained unit. Useful for teaching and for small models; compare with the composed version below.
+Every property is declared directly on each type, so each type reads as a self-contained unit. Useful for teaching and for small models; compare with the composed version below. Organizers and venues take their `Name` from `IName`, the node's name (`datamodels.md`, "Node names"); `Event.Title`, `Attendee.FullName` and `MediaAsset.FileName` are ordinary properties, which the composed version makes one name.
 
 ```csharp
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
+using Relatude.DB.Native.Models;   // IName
 using Relatude.DB.Nodes;
 
 namespace VenueApp.Models;
@@ -154,13 +154,9 @@ public enum VenueKind { Indoor = 0, Outdoor = 1, Hybrid = 2 }
 
 // ── Node types ──────────────────────────────────────────────────────────────
 
-public interface IOrganizer {
+public interface IOrganizer : IName {    // Name comes from IName
     Guid Id { get; set; }
     NodeMeta Meta { get; }
-
-    [DisplayNameProperty]
-    [StringProperty(Indexed = true, MaxLength = 200, IndexedByWords = true)]
-    string Name { get; set; }
 
     [StringProperty(StringType = StringValueType.Email, UniqueValues = true)]
     string ContactEmail { get; set; }
@@ -174,13 +170,9 @@ public interface IOrganizer {
     OrganizerEvents.Events Events { get; }
 }
 
-public interface IVenue {
+public interface IVenue : IName {
     Guid Id { get; set; }
     NodeMeta Meta { get; }
-
-    [DisplayNameProperty]
-    [StringProperty(Indexed = true, IndexedByWords = true, PrefixSearch = true)]
-    string Name { get; set; }
 
     [AddressProperty]
     [StringProperty(Indexed = true, UniqueValues = true)]
@@ -219,9 +211,8 @@ public interface IEvent {
     Guid Id { get; set; }
     NodeMeta Meta { get; }
 
-    [DisplayNameProperty]
     [StringProperty(Indexed = true, IndexedByWords = true, IndexedBySemantic = true, PrefixSearch = true)]
-    string Title { get; set; }
+    string Title { get; set; }       // a property of its own, not the node's name
 
     [HtmlProperty(IndexedByWords = true, IndexedBySemantic = true)]
     string Description { get; set; }
@@ -257,7 +248,6 @@ public interface IAttendee {
     Guid Id { get; set; }
     NodeMeta Meta { get; }
 
-    [DisplayNameProperty]
     [StringProperty(Indexed = true, IndexedByWords = true)]
     string FullName { get; set; }
 
@@ -275,7 +265,6 @@ public interface IMediaAsset {
     Guid Id { get; set; }
     NodeMeta Meta { get; }
 
-    [DisplayNameProperty]
     [StringProperty(Indexed = true)]
     string FileName { get; set; }
 
@@ -324,18 +313,14 @@ public class VenueTree : OneToMany<IVenue, IVenue> {
 
 **This is the shape to reach for in a real project.** Notice how much duplication disappears — and what it buys at query time.
 
-One deliberate change along the way: `Venue.Name`, `Event.Title` and `Attendee.FullName` all become a single `INamedNode.Title`. Unifying the name is the price of the shared facet, and it is usually worth paying — it is what makes a single search box and a single "recently changed" feed possible. Flag this trade-off explicitly when proposing a composed model to a user, because it is a real modelling concession, not a free win.
+One deliberate change along the way: `Event.Title`, `Attendee.FullName` and `MediaAsset.FileName` all become the node's name, `IName.Name`, which `INamedNode` inherits (organizers and venues have it already). Unifying the name is the price of the shared facet, and it is usually worth paying — it is what makes a single search box and a single "recently changed" feed possible. Flag this trade-off explicitly when proposing a composed model to a user, because it is a real modelling concession, not a free win. `IName.Name` has a value index only (no `IndexedByWords`, no `PrefixSearch`), so `MatchesSearch` on the name is out; `WhereSearch` still finds names through the node's text index.
 
 ```csharp
 // ── Facets ──────────────────────────────────────────────────────────────────
 
-public interface INamedNode {
+public interface INamedNode : IName {
     Guid Id { get; set; }
     NodeMeta Meta { get; }
-
-    [DisplayNameProperty]
-    [StringProperty(Indexed = true, IndexedByWords = true, PrefixSearch = true)]
-    string Title { get; set; }
 
     [AddressProperty]
     [StringProperty(Indexed = true, UniqueValues = true)]
@@ -416,7 +401,7 @@ public interface IMediaAsset : INamedNode {
 }
 ```
 
-`Id`, `Meta`, `Title`, `Slug` and the timestamps are now written once, in `INamedNode`, and the whole model inherits them. `Location` is written once and shared by venues and attendees.
+`Id`, `Meta`, `Slug` and the timestamps are now written once, in `INamedNode`, which brings `Name` from `IName`, and the whole model inherits them. `Location` is written once and shared by venues and attendees.
 
 And the payoff at query time — each of these is a single indexed query:
 
@@ -432,6 +417,9 @@ db.Query<ITagged>().Facets().AddValueFacet(x => x.Tags).Execute();
 
 // Global "recently changed" feed
 db.Query<INamedNode>().OrderByDescending(x => x.ChangedUtc).Page(0, 50).Execute();
+
+// One A to Z list across every type
+db.Query<INamedNode>().OrderBy(x => x.Name).Page(0, 50).Execute();
 ```
 
 After any modelling change, open the admin UI datamodel browser and check the parent chain of each type. It is the fastest way to confirm that facet interfaces actually landed as parent node types and that a property you expected to be indexed really is.

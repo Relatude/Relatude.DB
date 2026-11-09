@@ -16,23 +16,23 @@ public interface IId {
 public interface IMeta {
     public NodeMeta Meta { get; }
 }
-[Node(Id = "643071df-8b38-4ad2-9940-aae8282f032e", NameProperty = nameof(Name), Abstract = true)]
+// a node's name: the one property lists show, sort and search by, across every type that has a name (NodeName)
+[Node(Id = "643071df-8b38-4ad2-9940-aae8282f032e", Abstract = true)]
 public interface IName{
-    [StringProperty(Id = NodeConstants.NativeCollectionPropertyNameString, Indexed = true)]
+    [StringProperty(Id = NodeConstants.NamePropertyIdString, Indexed = true)]
     public string Name { get; set; }
 }
 
 [Node(Id = NodeConstants.BaseUserIdString, TextIndex = BoolValue.False, SemanticIndex = BoolValue.False)]
-public interface ISystemUser: IId {    
+public interface ISystemUser: IId, IName {    
     [IntegerProperty(Id = NodeConstants.NativeUserPropertyUserTypeString)]
     SystemUserType UserType { get; set; }
     [RelationProperty(Id = NodeConstants.NativeUserPropertyMembershipsString)]
     UsersToGroups.Groups Memberships { get; }
 }
 [Node(Id = NodeConstants.BaseUserGroupIdString, TextIndex = BoolValue.False, SemanticIndex = BoolValue.False)]
-public interface ISystemUserGroup : IId {
-    [StringProperty(Id = NodeConstants.NativeUserGroupPropertyGroupNameString)]
-    string GroupName { get; set; }
+[FormerProperty(NodeConstants.NativeUserGroupPropertyGroupNameString, nameof(IName.Name))]
+public interface ISystemUserGroup : IId, IName {
     [RelationProperty(Id = NodeConstants.NativeUserGroupPropertyUserMembersString)]
     UsersToGroups.Users UserMembers { get; }
     [RelationProperty(Id = NodeConstants.NativeUserGroupPropertyGroupMembershipsString)]
@@ -46,13 +46,12 @@ public interface ISystemCollection : IId, IName {
     CollectionsToCultures.Cultures Cultures { get; }
 }
 [Node(Id = NodeConstants.BaseCultureIdString, TextIndex = BoolValue.False, SemanticIndex = BoolValue.False)]
-public interface ISystemCulture : IId {    
+[FormerProperty(NodeConstants.NativeCulturePropertyEnglishNameString, nameof(IName.Name))]
+public interface ISystemCulture : IId, IName {    
     [StringProperty(Id = NodeConstants.NativeCulturePropertyCultureCodeString, UniqueValues = true)]
     string CultureCode { get; set; }
     [StringProperty(Id = NodeConstants.NativeCulturePropertyNativeNameString)]
     string NativeName { get; set; }
-    [StringProperty(Id = NodeConstants.NativeCulturePropertyEnglishNameString)]
-    string EnglishName { get; set; }
     [RelationProperty(Id = NodeConstants.NativeCulturePropertyCollectionsString)]
     CollectionsToCultures.Collections Collections { get; }
 }

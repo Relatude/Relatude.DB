@@ -303,7 +303,7 @@ export function GraphQLExplorer({ source, fullWindow, tools }: { source: Explore
       const items = fields.find((f) => f.name === "items")!;
       return [newField("totalCount"), newField("items", [], defaultSelection(namedType(items.type), depth + 1))];
     }
-    if (has("id") && has("displayName")) return [newField("id"), newField("displayName")];
+    if (has("id") && has("name")) return [newField("id"), newField("name")];
     const leaves = fields.filter((f) => !schema.isComposite(namedType(f.type)) && !f.args.some(isRequired)).slice(0, 3);
     return leaves.length > 0 ? leaves.map((f) => newField(f.name)) : [newField("__typename")];
   }
@@ -896,7 +896,7 @@ function nodeQuery(schema: Schema, typeName: string): string | null {
     if (!schema.isComposite(named)) return f.name;
     const sub = schema.fields(named);
     const top = f.args.some((a) => a.name === "top") ? "(top: 10)" : "";
-    if (sub.some((x) => x.name === "id") && sub.some((x) => x.name === "displayName")) return `${f.name}${top} { __typename id displayName }`;
+    if (sub.some((x) => x.name === "id") && sub.some((x) => x.name === "name")) return `${f.name}${top} { __typename id name }`;
     const leaves = sub.filter((x) => !schema.isComposite(namedType(x.type)) && !x.args.some(isRequired)).map((x) => x.name);
     return leaves.length > 0 ? `${f.name}${top} { ${leaves.join(" ")} }` : null;
   };

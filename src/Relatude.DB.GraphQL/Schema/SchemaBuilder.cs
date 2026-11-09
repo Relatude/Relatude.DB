@@ -21,7 +21,7 @@ internal sealed class SchemaBuilder {
         public bool ReadOnly;
     }
 
-    static readonly string[] _systemFieldNames = ["id", "displayName", "createdUtc", "changedUtc"];
+    static readonly string[] _systemFieldNames = ["id", "name", "createdUtc", "changedUtc"];
 
     readonly Datamodel _dm;
     readonly GraphQLEndpointDefinition _def;
@@ -259,8 +259,9 @@ internal sealed class SchemaBuilder {
 
     // ---- field names ----
 
+    string baseFieldName(PropertyModel p) => _exact ? NameRegistry.Sanitize(p.CodeName) : NameRegistry.CamelCase(p.CodeName);
     string derivedFieldName(PropertyModel p) {
-        var n = _exact ? NameRegistry.Sanitize(p.CodeName) : NameRegistry.CamelCase(p.CodeName);
+        var n = baseFieldName(p);
         return _systemFieldNames.Contains(n) ? n + "Value" : n;
     }
 
@@ -277,6 +278,8 @@ internal sealed class SchemaBuilder {
             var own = e.OwnProperties.Keys.Select(id => e.Type.AllProperties[id]).OrderBy(p => p.CodeName, StringComparer.Ordinal).ThenBy(p => p.Id);
             foreach (var p in own) {
                 var wanted = e.OwnProperties[p.Id];
+                // the node's name (IName.Name) is the field name every node has, unless the endpoint names it otherwise
+                if (p.Id == NodeConstants.NamePropertyId && wanted == null && baseFieldName(p) == "name") { e.FieldNames[p.Id] = "name"; continue; }
                 if (e.FieldNames.TryGetValue(p.Id, out var inherited)) {
                     if (wanted != null && NameRegistry.Sanitize(wanted) != inherited) warn($"{e.Name}.{wanted}: the field is named {inherited} by the base type that also exposes it, so that name is used.");
                     continue;
@@ -312,6 +315,8 @@ internal sealed class SchemaBuilder {
 
     List<GqlField> buildNodeFields(ExposedType e) {
         var fields = systemFields();
+        // a type with a name has its property as the field name, so it sorts, filters and is written; one without, the system field, null
+        if (e.FieldNames.TryGetValue(NodeConstants.NamePropertyId, out var named) && named == "name") fields.RemoveAll(f => f.Source == FieldSource.Name);
         foreach (var p in e.Properties) {
             var f = buildPropertyField(e, p, e.FieldNames[p.Id]);
             if (f != null) fields.Add(f);
@@ -321,7 +326,7 @@ internal sealed class SchemaBuilder {
 
     List<GqlField> systemFields() => [
         new GqlField { Name = "id", Type = nn(_scalars.Id), Source = FieldSource.Id, Description = "The node's public id." },
-        new GqlField { Name = "displayName", Type = _scalars.String, Source = FieldSource.DisplayName, Description = "The node's display name." },
+        new GqlField { Name = "name", Type = _scalars.String, Source = FieldSource.Name, Description = "The node's name (IName.Name); null for a type without one." },
         new GqlField { Name = "createdUtc", Type = nn(_scalars.DateTime), Source = FieldSource.CreatedUtc },
         new GqlField { Name = "changedUtc", Type = nn(_scalars.DateTime), Source = FieldSource.ChangedUtc },
     ];

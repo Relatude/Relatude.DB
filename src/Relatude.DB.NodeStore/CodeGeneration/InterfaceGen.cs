@@ -74,13 +74,6 @@ internal static class InterfaceGen {
             // sb.AppendLine("set { " + shellName + "." + nameof(NodeDataShell.NodeData) + "." + nameof(NodeDataShell.NodeData.ChangedUtc) + " = value; } ");
             sb.AppendLine(" }");
         }
-        // display name
-        if (!string.IsNullOrEmpty(nodeDef.NameOfDisplayNameProperty)) {
-            sb.AppendLine("public string " + nodeDef.NameOfDisplayNameProperty + "{ ");
-            sb.AppendLine("get { return " + shellName + "." + nameof(NodeDataShell.NodeData) + "." + nameof(NodeDataShell.NodeData.DisplayName) + "; } ");
-            // sb.AppendLine("set { " + shellName + "." + nameof(NodeDataShell.NodeData) + "." + nameof(NodeDataShell.NodeData.DisplayName) + " = value; } ");
-            sb.AppendLine(" }");
-        }
         // address
         if (!string.IsNullOrEmpty(nodeDef.NameOfAddressProperty)) {
             sb.AppendLine("public string " + nodeDef.NameOfAddressProperty + "{ ");

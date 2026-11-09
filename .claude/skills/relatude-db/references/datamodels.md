@@ -8,6 +8,7 @@ Full detail on declaring node types, properties, embedded data, references and r
 - [Type-level attributes](#type-level-attributes)
 - [Scalar property attributes](#scalar-property-attributes)
 - [Marker properties](#marker-properties)
+- [Node names: IName](#node-names-iname)
 - [What lives in NodeMeta](#what-lives-in-nodemeta)
 - [Writing meta: UpdateMeta](#writing-meta-updatemeta)
 - [Geo coordinates](#geo-coordinates)
@@ -22,9 +23,10 @@ Full detail on declaring node types, properties, embedded data, references and r
 ## Namespaces to import
 
 ```csharp
-using Relatude.DB.Common;      // FileValue, GeoCoordinate, IdKey
-using Relatude.DB.Datamodels;  // NodeMeta, RevisionType
-using Relatude.DB.Nodes;       // attributes, relation bases, Reference, References, EmbeddedMap
+using Relatude.DB.Common;         // FileValue, GeoCoordinate, IdKey
+using Relatude.DB.Datamodels;     // NodeMeta, RevisionType, NodeName
+using Relatude.DB.Native.Models;  // IName, ISystemUser
+using Relatude.DB.Nodes;          // attributes, relation bases, Reference, References, EmbeddedMap
 ```
 
 ## Type-level attributes
@@ -67,6 +69,10 @@ Also accepts `SourceTypes` / `TargetTypes` as full type-name strings, but the ge
 
 On a type or a property, tells the datamodel to skip it.
 
+### `[FormerProperty]`
+
+On a node type (`AllowMultiple`): `[FormerProperty("<old property id>", nameof(Member))]` reads values its nodes stored under a property the type no longer has as the member named, a property of its own or one it inherits. Its use is moving a type's own `Name` or `Title` onto `IName` without losing what is stored; see [Node names](#node-names-iname).
+
 ## Scalar property attributes
 
 Declaring a property with no attribute at all works — the engine infers a property model from the CLR type. Attributes exist to add indexing, validation, faceting and search behaviour.
@@ -103,7 +109,6 @@ public abstract class PropertyAttribute : Attribute {
     public string? WriteAccess { get; set; }
     public bool ExcludeFromTextIndex { get; set; }
     public int TextIndexBoost { get; set; }
-    public bool DisplayName { get; set; }
     public TitleLayout TitleLayout { get; set; } // editor presentation: Default (unset), Left, Above or None
     public string? Unit { get; set; }            // editor presentation: shown right of the control, "kg"
     public string? Height { get; set; }          // editor presentation: the control's CSS height, "300px", "50%"
@@ -206,6 +211,17 @@ public TimeSpan Duration { get; set; }
 public Guid ExternalRef { get; set; }
 ```
 
+### Ids of node types, properties and relations
+
+`GuidType` on `[GuidProperty]` and `[GuidArrayProperty]` says that the ids are from the datamodel itself, so an editing interface such as the CMS offers them by name in a drop-down:
+
+```csharp
+[GuidArrayProperty(GuidType = GuidValueType.NodeType)]   // also Property, Relation; AnyGuid is the default
+public Guid[] NodeTypes { get; set; } = [];
+```
+
+It only affects how the ids are shown. The store does not check or follow them, and changing `GuidType` rebuilds nothing. A database can override it, and the datamodel editor shows it as **Id of**.
+
 ### Enums
 
 Declare the property as your enum type and use `[IntegerProperty]`. The engine stores it as an integer and auto-populates the enum metadata (`FullEnumTypeName`, `LegalValues`, `LegalValueNames`) so the admin UI and facets show names rather than numbers:
@@ -231,11 +247,10 @@ public AccessibilityFeature[] Accessibility { get; set; } = [];
 
 ## Marker properties
 
-Six attributes tag a property as playing a special structural role. At most one property per type per role.
+Five attributes tag a property as playing a special structural role. At most one property per type per role.
 
 | Attribute | Meaning |
 |---|---|
-| `[DisplayNameProperty]` | The human-readable name. Surfaces in the admin UI, search highlighting and `Meta.DisplayName`. |
 | `[AddressProperty]` | The URL slug / address. Used for routing and `Meta.Address`. |
 | `[PublicIdProperty]` | The external id used in URLs and APIs. Defaults to `Id` (`Guid`). |
 | `[InternalIdProperty]` | The internal `int` id. Defaults to `__Id`. |
@@ -243,10 +258,6 @@ Six attributes tag a property as playing a special structural role. At most one 
 | `[ChangedUtcProperty]` | Stamped with the last-change time. |
 
 ```csharp
-[DisplayNameProperty]
-[StringProperty(Indexed = true, IndexedByWords = true)]
-public string Title { get; set; } = string.Empty;
-
 [AddressProperty]
 [StringProperty(Indexed = true, UniqueValues = true)]
 public string Address { get; set; } = string.Empty;
@@ -255,18 +266,54 @@ public string Address { get; set; } = string.Empty;
 [ChangedUtcProperty] public DateTime ChangedUtc { get; set; }
 ```
 
-Marker attributes must sit on a compatible type — `[DisplayNameProperty]` and `[AddressProperty]` on `string`, `[CreatedUtcProperty]` and `[ChangedUtcProperty]` on `DateTime`.
+Marker attributes must sit on a compatible type — `[AddressProperty]` on `string`, `[CreatedUtcProperty]` and `[ChangedUtcProperty]` on `DateTime`. The node's name is not a marker: it is the ordinary property `IName.Name` (next section).
+
+## Node names: IName
+
+A node's name is one property, `IName.Name` (namespace `Relatude.DB.Native.Models`; `[StringProperty(Indexed = true)]`, id `NodeConstants.NamePropertyId`). A type has a name if and only if it inherits `IName` (`NodeTypeModel.HasName`). An interface inherits it and declares no `Name` again (two interfaces declaring `Name` fail the build); a class implements it with a plain `Name` and no attribute of its own:
+
+```csharp
+public interface IVenue : IName { Guid Id { get; set; } /* ... */ }
+
+public class Brand : IName {
+    public Guid Id { get; set; }
+    public string Name { get; set; } = "";
+}
+```
+
+- **One property across types.** Every named type shares it, so one value index holds all their names: `db.Query<IName>().OrderBy(n => n.Name)` sorts, and `.Where(n => n.Name == "Oslo")` filters, nodes of every named type in one query.
+- **Nothing is guessed.** A node of a type without `IName`, or with an empty `Name`, has no name. `NodeName.Of(node)` (static, `Relatude.DB.Datamodels`) gives the name of an `INodeData`, or null.
+- **Who uses it.** The admin UI shows a node by its name, else its address, else its id, and puts `Name` first in a type's table (a model without `IName` shows ids). GraphQL has it as the system field `name` on every node type (null for a type without one); filters, `orderBy` and mutation inputs call it `name` too, and a property of a type's own whose field would be `name` (a `Name` that is not `IName.Name`) is named `nameValue`, as properties clashing with `id`, `createdUtc` and `changedUtc` are. A reference, references or relation facet labels each bucket with the related node's name, read in the context's version, else its id. `[RelationProperty(TextIndexRelatedName = true)]` puts related nodes' names into this node's text.
+- **The datamodel must contain `IName`**, as it must every type a node type inherits: `dm.Add<IName>()`, or `dm.AddNamespace<ISystemUser>()` for the engine's whole model. A settings file written by `relatude new` / `relatude init` has a `CompiledTypes` source for `Relatude.DB.Native.Models` (assembly `Relatude.DB.NodeStore`).
+- **The engine's own types inherit it:** `ISystemUser`, `ISystemUserGroup`, `ISystemCollection`, `ISystemCulture`. A culture's `Name` is its English name, beside `NativeName` and `CultureCode`; `db.EnsureCultures(codes)` fills both names from .NET's culture.
+
+**Keeping names stored under another property.** A type moving from a `Name` or `Title` of its own to `IName` reads what its nodes stored with `[FormerProperty]` on the type:
+
+```csharp
+[Node]
+[FormerProperty("42c0ded9-2148-eff3-b91f-d686f8b2b3da", nameof(IName.Name))] // its own Name, stored before
+public class Brand : IName {
+    public Guid Id { get; set; }
+    public string Name { get; set; } = "";
+}
+```
+
+- The id is the old property's: the one pinned with `Id =`, or the one derived from its type's id and member name, which the datamodel JSON in the database's `datamodels` folder shows.
+- The property named is one of the type's own or one it inherits. A node that also holds a value under it keeps that one.
+- A node read holds the value under the new property and is stored so when next written; types inheriting the type read their nodes the same way (`NodeTypeModel.FormerPropertyIds`). `AllowMultiple`: one attribute per old id.
+- The datamodel editor's validator warns (`own-name`) about a type with a property of its own called `Name` and suggests this.
+- The node records on disk keep their format; the change rebuilds the indexes once at the next open, like any change to the datamodel's state.
 
 ## What lives in NodeMeta
 
-Every node carries system metadata. **Never construct or assign one** — default to `NodeMeta.Empty`. The store keeps it; change it through the store: `UpdateMeta` for the fields that can be written (below), `UpdateAddress` and `UpdateDisplayName` for the address and display name.
+Every node carries system metadata. **Never construct or assign one** — default to `NodeMeta.Empty`. The store keeps it; change it through the store: `UpdateMeta` for the fields that can be written (below), `UpdateAddress` for the address.
 
 | Field | Meaning |
 |---|---|
 | `Id`, `InternalId` | Public `Guid` and internal `int` id. |
 | `NodeTypeId` | The type id from `[Node(Id = …)]`. |
 | `CreatedUtc`, `ChangedUtc` | Timestamps. |
-| `DisplayName`, `Address` | Sourced from the marker properties above. |
+| `Address` | Sourced from the `[AddressProperty]` marker, set with `UpdateAddress`. |
 | `CultureId` | Culture of this revision. |
 | `RevisionId`, `RevisionType` | Revision tracking — `Draft`, `Published`, `Archived`, … |
 | `CollectionId` | Logical grouping. |
@@ -662,7 +709,7 @@ This is how you make a venue findable by the names of the events held there:
 
 ```csharp
 [RelationProperty(
-    TextIndexRelatedDisplayName = true,
+    TextIndexRelatedName = true,          // the related nodes' names (IName.Name)
     TextIndexRelatedContent = false,
     TextIndexRecursiveLevelLimit = 1,
     Facet = true                          // opt in to faceting on this relation
@@ -693,8 +740,10 @@ Nodes of their own, a relation's or a reference's, are shown `Inline` only where
 **At build time** — you find out on startup:
 
 - Non-interface node types must have a parameterless constructor.
-- Two parent interfaces may not declare the same property name.
+- Every type a node type inherits must be in the datamodel — `IName` included.
+- Two parent interfaces may not declare the same property name (so an interface inheriting `IName` does not declare `Name` again).
 - Two classes may not declare the same property name — overriding is not supported.
+- A `[FormerProperty]` must give a property id and name a member the type declares or inherits, not a system member (id, meta, dates, address), and a type gives each old id once.
 - Nullable value types (`int?`, `DateTime?`, `GeoCoordinate?`) are not supported.
 - Only these value types are allowed: `bool`, `byte`, `int`, `long`, `double`, `float`, `decimal`, `DateTime`, `DateTimeOffset`, `Guid`, `TimeSpan`, `GeoCoordinate` and any enum.
 - `Id` must be `Guid` or `string`; the internal id must be `int`, `long` or `string`.
@@ -711,4 +760,4 @@ Nodes of their own, a relation's or a reference's, are shown `Inline` only where
 
 ## Native types you must not redefine
 
-The engine ships its own model in `Relatude.DB.Native.Models` — `ISystemUser`, `ISystemUserGroup`, `ISystemCollection`, `ISystemCulture`. They back the admin UI, auth and culture handling. **Do not redefine them.** If your domain needs a "user", model your own type and relate it to `ISystemUser` if you need the link.
+The engine ships its own model in `Relatude.DB.Native.Models` — `ISystemUser`, `ISystemUserGroup`, `ISystemCollection`, `ISystemCulture`. They back the admin UI, auth and culture handling. **Do not redefine them.** If your domain needs a "user", model your own type and relate it to `ISystemUser` if you need the link. All four inherit `IName`, which lives in the same namespace and is what your own named types inherit ([Node names](#node-names-iname)).

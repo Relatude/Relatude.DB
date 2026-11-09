@@ -133,7 +133,6 @@ public class NodeDataRevisions : INodeDataInternal {
     public void RemoveIfPresent(Guid propertyId) => throw new NA();
     public bool TryGetValue(Guid propertyId, [MaybeNullWhen(false)] out object value) => throw new NA();
     public bool TryGetValue<T>(Guid propertyId, [MaybeNullWhen(false)] out T value) => throw new NA();
-    public string? DisplayName { get => throw new NA(); set => throw new NA(); }
     public string? Address { get => throw new NA(); set => throw new NA(); }
     public bool AutoAddress { get => throw new NA(); set => throw new NA(); }
 

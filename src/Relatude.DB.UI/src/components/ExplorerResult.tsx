@@ -224,7 +224,7 @@ function TableView({
                         <td>
                           <button
                             className="gx-node-link"
-                            onClick={() => onOpenNode(type, row.id as string, typeof row.displayName === "string" && row.displayName ? row.displayName : null)}
+                            onClick={() => onOpenNode(type, row.id as string, typeof row.name === "string" && row.name ? row.name : null)}
                           >
                             {type} with all its fields <IconArrowUpRight size={12} stroke={1.8} />
                           </button>
@@ -266,7 +266,7 @@ function TableView({
                         <button
                           className="icon-button small"
                           title={`Open this ${type} with all its fields`}
-                          onClick={() => onOpenNode(type, row.id as string, typeof row.displayName === "string" && row.displayName ? row.displayName : null)}
+                          onClick={() => onOpenNode(type, row.id as string, typeof row.name === "string" && row.name ? row.name : null)}
                         >
                           <IconArrowUpRight size={13} stroke={1.8} />
                         </button>
@@ -311,7 +311,7 @@ function Cell({
   const node = (v: unknown) => {
     if (!isRecord(v)) return <span className="gx-json">{JSON.stringify(v)}</span>;
     const t = typeof v.__typename === "string" ? v.__typename : type;
-    const name = typeof v.displayName === "string" && v.displayName ? v.displayName : typeof v.name === "string" && v.name ? v.name : null;
+    const name = typeof v.name === "string" && v.name ? v.name : null;
     const text = name ?? (typeof v.id === "string" ? v.id : JSON.stringify(v));
     if (schema && t && typeof v.id === "string" && schema.singleFieldFor(t)) {
       return (

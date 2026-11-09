@@ -61,9 +61,6 @@ public class DemoArticle {
     [AddressProperty]
     public string Address { get; set; } = string.Empty;
 
-    [DisplayNameProperty]
-    public string DisplayName { get; set; } = string.Empty;
-
     public Reference<IDemoArticle> Site { get; } = [];
 
 }

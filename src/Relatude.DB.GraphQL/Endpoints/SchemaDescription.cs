@@ -80,7 +80,7 @@ public static class SchemaDescription {
 
     static FieldInfo field(GqlField f) {
         var (kind, many) = f.Source switch {
-            FieldSource.Id or FieldSource.DisplayName or FieldSource.CreatedUtc or FieldSource.ChangedUtc => ("system", false),
+            FieldSource.Id or FieldSource.Name or FieldSource.CreatedUtc or FieldSource.ChangedUtc => ("system", false),
             FieldSource.ScalarProperty => ("property", false),
             FieldSource.EnumProperty or FieldSource.EnumArrayProperty => ("enum", false),
             FieldSource.FileProperty => ("file", false),

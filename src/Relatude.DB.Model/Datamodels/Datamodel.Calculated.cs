@@ -95,7 +95,8 @@ public partial class Datamodel {
                     }
                 }
             }
-            resolvePropertySettingsPerType(); // DisplayProperties, TextIndexProperties and the per type defaults
+            resolvePropertySettingsPerType(); // TextIndexProperties and the per type defaults
+            resolveFormerPropertyIds();
             identifyNameOfPropertyFromInheritance();
             initializeRelations();
 
@@ -196,6 +197,23 @@ public partial class Datamodel {
         }
     }
 
+    // what a node of each type reads in place of a former property: the type's own FormerPropertyIds first, then those
+    // of the types it inherits from; the property read must be one the type has, and the former one none it has
+    void resolveFormerPropertyIds() {
+        foreach (var t in NodeTypes.Values) {
+            foreach (var source in t.ThisAndAllInheritedTypes.Values.OrderBy(s => s.Id == t.Id ? 0 : 1)) {
+                if (source.FormerPropertyIds == null) continue;
+                foreach (var (former, now) in source.FormerPropertyIds) {
+                    if (!t.AllProperties.TryGetValue(now, out var property)) throw new Exception("The node type " + source.FullName + " reads its former property " + former
+                        + " as the property " + now + ", which " + t.FullName + " does not have. Name a property the type declares or inherits. ");
+                    if (t.AllProperties.ContainsKey(former)) throw new Exception("The node type " + source.FullName + " reads its former property " + former + " as " + property.CodeName
+                        + ", but " + t.FullName + " still has a property with the former id. A former property is one the type no longer has. ");
+                    t.AllFormerPropertyIds.TryAdd(former, now);
+                }
+            }
+        }
+    }
+
     void identifyNameOfPropertyFromInheritance() {
         foreach (var nodeType in NodeTypes.Values) {
 
@@ -206,7 +224,6 @@ public partial class Datamodel {
             nodeType.NameOfCreatedUtcProperty = getBestSystemPropNameInParents(nodeType, n => n.NameOfCreatedUtcProperty);
             nodeType.NameOfChangedUtcProperty = getBestSystemPropNameInParents(nodeType, n => n.NameOfChangedUtcProperty);
             nodeType.NameOfMetaProperty = getBestSystemPropNameInParents(nodeType, n => n.NameOfMetaProperty);
-            nodeType.NameOfDisplayNameProperty = getBestSystemPropNameInParents(nodeType, n => n.NameOfDisplayNameProperty);
             nodeType.NameOfAddressProperty = getBestSystemPropNameInParents(nodeType, n => n.NameOfAddressProperty);
         }
     }
@@ -392,15 +409,6 @@ public partial class Datamodel {
             Internal = true,
         };
         props.Add(autoAddress);
-        var displayName = new StringPropertyModel() {
-            Id = NodeConstants.SystemDisplayNamePropertyId,
-            CodeName = NodeConstants.SystemDisplayNamePropertyName,
-            ExcludeFromTextIndex = false,
-            Indexed = false,
-            DisplayName = true,
-            Internal = true,
-        };
-        props.Add(displayName);
         // filled from the node record, not from its values (see NodeConstants.SystemCreatedUtcPropertyId);
         // no facets, as a timestamp per node is a bucket per node
         var createdUtc = new DateTimePropertyModel() {

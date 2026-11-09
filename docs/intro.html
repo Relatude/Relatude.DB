@@ -498,8 +498,8 @@ setting you need on day one. <code>IndexedByWords = true</code> adds a word inde
 </tbody>
 </table>
 <p>A few marker attributes are worth knowing: <code>[PublicIdProperty]</code> (the Guid id), <code>[InternalIdProperty]</code>
-(the fast int id), <code>[DisplayNameProperty]</code>, <code>[AddressProperty]</code> (the URL slug), <code>[CreatedUtcProperty]</code>
-and <code>[ChangedUtcProperty]</code>.</p>
+(the fast int id), <code>[AddressProperty]</code> (the URL slug), <code>[CreatedUtcProperty]</code> and <code>[ChangedUtcProperty]</code>.
+A node's name is the <code>Name</code> of <code>IName</code>, which a type inherits to have one.</p>
 <h3 id="relations-two-levels">Relations: two levels<a class="anchor" href="#relations-two-levels" aria-label="Link to this section">#</a></h3>
 <p>A reference property is enough for most links. It is saved with the node:</p>
 <div class="codehilite"><pre><span></span><code><span class="n">product</span><span class="p">.</span><span class="n">Brand</span><span class="p">.</span><span class="n">Set</span><span class="p">(</span><span class="n">brand</span><span class="p">.</span><span class="n">Id</span><span class="p">);</span>

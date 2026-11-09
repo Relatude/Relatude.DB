@@ -273,7 +273,7 @@ function build(
       key: "id/" + node.id,
       group: idMatches.length === 1 ? "Node by id" : "Nodes by id",
       icon: term.kind === "int" ? <IconHash size={16} stroke={1.8} /> : <IconId size={16} stroke={1.8} />,
-      label: node.displayName,
+      label: node.name,
       hint: node.typeName + " · #" + node.intId + " · open in query & edit",
       open: () => openInQuery({ typeId: node.typeId, nodeId: node.id }),
     });

@@ -265,9 +265,6 @@ internal static class CodeUtils {
     public static bool IsFirstClassUsingName_NameOfMetaProperty(NodeTypeModel nodeDef, Datamodel datamodel) {
         return isFirstClassInParentsThatUseThisName(nodeDef.NameOfMetaProperty!, nodeDef, datamodel, n => n.NameOfMetaProperty!);
     }
-    public static bool IsFirstClassUsingName_NameOfDisplayNameProperty(NodeTypeModel nodeDef, Datamodel datamodel) {
-        return isFirstClassInParentsThatUseThisName(nodeDef.NameOfDisplayNameProperty!, nodeDef, datamodel, n => n.NameOfDisplayNameProperty!);
-    }
     public static bool IsFirstClassUsingName_NameOfAddressProperty(NodeTypeModel nodeDef, Datamodel datamodel) {
         return isFirstClassInParentsThatUseThisName(nodeDef.NameOfAddressProperty!, nodeDef, datamodel, n => n.NameOfAddressProperty!);
     }

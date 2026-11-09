@@ -209,7 +209,6 @@ internal static class MapperGen {
             }
             h1(nodeDef.NameOfCreatedUtcProperty, nameof(INodeDataExternal.CreatedUtc));
             h1(nodeDef.NameOfChangedUtcProperty, nameof(INodeDataExternal.ChangedUtc));
-            h1(nodeDef.NameOfDisplayNameProperty, nameof(INodeDataExternal.DisplayName));
             h1(nodeDef.NameOfAddressProperty, nameof(INodeDataExternal.Address));
 
             if (!string.IsNullOrEmpty(nodeDef.NameOfMetaProperty)) {

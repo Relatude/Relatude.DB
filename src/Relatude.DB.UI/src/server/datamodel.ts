@@ -22,7 +22,6 @@ export interface PropertyJson {
   NodeType?: string;
   Indexed?: boolean;
   Internal?: boolean;
-  DisplayName?: boolean;
   IndexedByWords?: boolean;
   IndexedBySemantic?: boolean;
   UniqueValues?: boolean;

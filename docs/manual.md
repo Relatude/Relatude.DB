@@ -22,7 +22,7 @@ each concept builds on the last.
 1. [The mental model](#1-the-mental-model)
 2. [Your first node type — and why interfaces win](#2-your-first-node-type)
 3. [Scalar properties and their attributes](#3-scalar-properties-and-their-attributes) · [3.1 overriding attributes](#31-overriding-attributes)
-4. [Marker properties](#4-marker-properties)
+4. [Marker properties](#4-marker-properties) · [node names](#node-names-iname)
 5. [Geo coordinates](#5-geo-coordinates)
 6. [Files](#6-files) · [6.1 file analysis](#61-file-analysis)
 7. [Embedded data](#7-embedded-data)
@@ -83,7 +83,7 @@ Everything in Relatude.DB is a **node**. A node has:
 | Ingredient | What it is |
 |---|---|
 | `Guid Id` | The public identity. The engine also keeps an internal `int` id (`__Id`) for its indexes. |
-| `NodeMeta Meta` | Metadata the system manages: timestamps, culture, revision, access, display name, address. |
+| `NodeMeta Meta` | Metadata the system manages: timestamps, culture, revision, access, address. |
 | **Scalar properties** | `string`, `int`, `decimal`, `DateTime`, `bool`, `Guid`, `GeoCoordinate`, `FileValue`, `PasswordValue`, arrays… |
 | **Embedded data** | Sub-objects stored inside the node: `Embedded<T>`, `EmbeddedMap<TKey,TValue>`. |
 | **References** | A stored `Guid` (or `Guid[]`) pointing at other nodes. One-directional, with no reverse index. |
@@ -111,12 +111,13 @@ Interfaces also give you multiple inheritance: every interface a node type imple
 
 ## 2. Your first node type
 
-The three namespaces a model file usually imports:
+The namespaces a model file usually imports:
 
 ```csharp
-using Relatude.DB.Common;       // FileValue, GeoCoordinate, NodeKey
-using Relatude.DB.Datamodels;   // NodeMeta, RevisionType
-using Relatude.DB.Nodes;        // attributes, relation bases, Reference, References, EmbeddedMap
+using Relatude.DB.Common;         // FileValue, GeoCoordinate, NodeKey
+using Relatude.DB.Datamodels;     // NodeMeta, RevisionType
+using Relatude.DB.Native.Models;  // IName
+using Relatude.DB.Nodes;          // attributes, relation bases, Reference, References, EmbeddedMap
 ```
 
 Here is `IOrganizer`, a company that runs events. **The interface is the whole node type.** There is
@@ -125,11 +126,8 @@ no class, and none is needed:
 ```csharp
 namespace VenueApp.Models;
 
-public interface IOrganizer {
+public interface IOrganizer : IName {   // IName gives it its Name
     Guid Id { get; set; }
-
-    [StringProperty(Indexed = true, IndexedByWords = true, MaxLength = 200, DisplayName = true)]
-    string Name { get; set; }
 
     [StringProperty(UniqueValues = true, MaxLength = 254)]
     string ContactEmail { get; set; }
@@ -167,6 +165,9 @@ Three rules for interface node types:
    attributes on a class member that implements it are ignored. The one exception is
    `[PropertyOverride]` ([§3.1](#31-overriding-attributes)).
 
+`Name` comes from `IName`, the engine's interface for a node's name. The admin UI, GraphQL and facets
+show a node by it, and the datamodel must hold `IName` ([Node names](#node-names-iname)).
+
 `[Exclude]` leaves a type or a property out of the datamodel.
 
 ### Why interfaces are the better default
@@ -198,12 +199,9 @@ public interface ILocatable {
 }
 
 // A thing with an identity, a name and a slug.
-public interface INamedNode {
+public interface INamedNode : IName {
     Guid Id { get; set; }
     NodeMeta Meta { get; }
-
-    [StringProperty(Indexed = true, IndexedByWords = true, PrefixSearch = true, DisplayName = true)]
-    string Title { get; set; }
 
     [AddressProperty]
     string Slug { get; }          // the node's address, set with db.UpdateAddress
@@ -250,13 +248,13 @@ var nearby = db.Query<ILocatable>()
 
 foreach (var x in nearby) {
     Console.WriteLine(x switch {
-        IVenue v    => $"Venue: {v.Title}",
-        IAttendee a => $"Attendee: {a.Title}",
+        IVenue v    => $"Venue: {v.Name}",
+        IAttendee a => $"Attendee: {a.Name}",
         _           => "Something else"
     });
 }
 
-// One search box over everything that has a title
+// One search box over everything that has a name
 var hits = db.Query<INamedNode>()
              .WhereSearch("outdoor jazz", semanticRatio: 0.5)
              .Execute();
@@ -301,7 +299,7 @@ and the class a form you can create. A class has four extra obligations:
 public class Organizer : IOrganizer {
     public Guid Id { get; set; }
 
-    // The attributes are on IOrganizer: repeating them here has no effect.
+    // The attributes are on IOrganizer and IName: repeating them here has no effect.
     public string Name { get; set; } = string.Empty;
     public string ContactEmail { get; set; } = string.Empty;
     public string Slug { get; set; } = string.Empty;
@@ -338,7 +336,9 @@ public interface IOrganizer { /* ... */ }
 ```
 
 A property's id is derived from its declaring type's id and its own name, so a pinned type id keeps
-the property ids too. To rename a property, pin its id with the `Id` of its attribute.
+the property ids too. To rename a property, pin its id with the `Id` of its attribute. When the
+values are to be read as another property, one the type declares or inherits, name the old id with
+`[FormerProperty]` on the type ([Node names](#node-names-iname) shows it).
 
 `BoolValue` has three values: `Default` (take it from the base types, else the database default),
 `True` and `False`. `TextIndex`, `SemanticIndex` and `InstantTextIndexing` are inherited by derived
@@ -381,10 +381,8 @@ public interface IArticle : INamedNode, IDescribed { /* ... */ }
 ```
 
 Both belong to the type alone and are not inherited. Without a title, an application makes one from
-the type name (`IArticlePage` reads "Article page"). `NameProperty = nameof(Title)` names the property
-that holds a node's name, which an editor such as the CMS shows at the top of a node's form; a type
-without one takes its base type's. Like an icon, these only change how a type is shown, and the
-datamodel editor saves them as overrides on a type from compiled code.
+the type name (`IArticlePage` reads "Article page"). Like an icon, these only change how a type is
+shown, and the datamodel editor saves them as overrides on a type from compiled code.
 
 ### Optional: abstract types and inner node types
 
@@ -465,7 +463,6 @@ public abstract class PropertyAttribute : Attribute {
     public string? WriteAccess { get; set; }     // the user group that may write it
     public bool ExcludeFromTextIndex { get; set; }
     public int TextIndexBoost { get; set; }      // extra times the value goes into the text index
-    public bool DisplayName { get; set; }        // part of the node's display name
     public TitleLayout TitleLayout { get; set; } // where an editor puts the title: Default, Left, Above or None
     public string? Unit { get; set; }            // shown by an editor right of the control: "kg"
     public string? Height { get; set; }          // how tall an editor makes the control: "300px", "50%"
@@ -602,6 +599,27 @@ public TimeSpan Duration { get; set; }
 public Guid ExternalRef { get; set; }
 ```
 
+### Ids of node types, properties and relations
+
+A `Guid` or `Guid[]` property can hold ids from the datamodel itself. `GuidType` says what kind of id
+it holds, so an editing interface such as the CMS can offer them by name in a drop-down instead of as
+Guids:
+
+```csharp
+[GuidArrayProperty(GuidType = GuidValueType.NodeType)]
+public Guid[] NodeTypes { get; set; } = [];
+
+[GuidProperty(GuidType = GuidValueType.Property)]
+public Guid SortBy { get; set; }
+
+[GuidProperty(GuidType = GuidValueType.Relation)]
+public Guid Tree { get; set; }
+```
+
+`GuidValueType` is in `Relatude.DB.Datamodels.Properties`. The default, `AnyGuid`, means any id. The
+store does not check the ids or follow them, so an id can still name a type after that type has been
+removed. The datamodel editor shows `GuidType` as **Id of**, under the property's name.
+
 ### Enums
 
 Declare the property as your enum type. The engine stores it as an integer and fills in the enum's
@@ -692,7 +710,7 @@ If two unrelated base types disagree, the type gets the database default, and th
 warning naming both. Set the switch on the type itself to choose. Semantic indexing needs the text
 index, so a type that is semantically indexed stays text indexed whatever its `TextIndex` says.
 
-**Inherited properties: `[PropertyOverride]`.** A derived type can set six things for a property it
+**Inherited properties: `[PropertyOverride]`.** A derived type can set five things for a property it
 inherits:
 
 | On `[PropertyOverride]` | What it does for the type |
@@ -700,7 +718,6 @@ inherits:
 | `DefaultValue` | The value a new node starts with, and what a stored node reads while it has no value |
 | `ExcludeFromTextIndex` | `BoolValue.True` leaves the property out of the type's text index; `False` puts it back |
 | `TextIndexBoost` | Extra times the value goes into the type's text index; `0` cancels an inherited boost |
-| `DisplayName` | `BoolValue.True` makes the property part of the type's display name; `False` takes it out |
 | `Indexed` | `BoolValue.True` asks for the property's value index, to filter, sort and facet on it |
 | `NotFacet` | `BoolValue.False` asks for a facet where the declaration says `NotFacet` |
 
@@ -713,7 +730,7 @@ public enum ContentStatus { Draft = 0, Published = 1, Archived = 2 }
 [Node(TextIndex = BoolValue.True)]
 public interface IContent {
     Guid Id { get; set; }
-    [StringProperty(DefaultValue = "Untitled", DisplayName = true)] string Title { get; set; }
+    [StringProperty(DefaultValue = "Untitled")] string Title { get; set; }
     [HtmlProperty] string Body { get; set; }
     [IntegerProperty] ContentStatus Status { get; set; }
 }
@@ -758,23 +775,22 @@ startup, with a message naming the type and the property. It fails when the attr
 
 - names a property the type declares itself (set that property's own attribute instead);
 - names no member of the type (use `nameof` to avoid typos), or a member marked `[Exclude]`;
-- names a system member: the id, `NodeMeta`, the created or changed date, or the display-name or
-  address marker;
+- names a system member: the id, `NodeMeta`, the created or changed date, or the address marker;
 - gives a `DefaultValue` that does not convert to the property's type, or gives a default to a
   property that has none (arrays, files, references and the like);
 - sits on a type without naming a property, or sits on a member and names another property;
 - names a property that another `[PropertyOverride]` on the same type also names. Combine them.
 
-**What can be overridden.** In code, `[PropertyOverride]` takes the six attributes above. In the
+**What can be overridden.** In code, `[PropertyOverride]` takes the five attributes above. In the
 database you can override these:
 
 | What | Attributes |
 |---|---|
-| Node type, inherited by derived types | `TextIndex`, `SemanticIndex`, `InstantTextIndexing`, `Icon`, `NameProperty` |
+| Node type, inherited by derived types | `TextIndex`, `SemanticIndex`, `InstantTextIndexing`, `Icon` |
 | Node type, that type only | `Hidden`, `Title`, `Description`, `DefaultReadAccess`, `DefaultEditViewAccess`, `DefaultEditAccess`, `DefaultPublishAccess`, `MinNoInstances`, `MaxNoInstances`, `TextIndexBoost` |
-| Property, per type | `DefaultValue`, `ExcludeFromTextIndex`, `IndexBoost` (`TextIndexBoost` on the attributes), `DisplayName` |
+| Property, per type | `DefaultValue`, `ExcludeFromTextIndex`, `IndexBoost` (`TextIndexBoost` on the attributes) |
 | Property, asked for by any type | `Indexed`, `NotFacet` |
-| Property, on the declaring type only | `IndexType`, `IndexedByWords`, `TextIndexType`, `CultureSensitive`, `MinLength`, `MaxLength`, `RegularExpression`, `RegularExpressionMessage`, `LegalCharacters`, `Trim`, `CaseTransform`, `MinValue`, `MaxValue`, `FacetRangePowerBase`, `FacetRangeCount`, `Facet`, `TextIndexRelatedContent`, `TextIndexRelatedDisplayName`, `TextIndexRecursiveLevelLimit`, `Display` and `AllowInlineEditing` ([§10](#how-an-editor-shows-them-display)), `TitleLayout`, `Unit`, `Height`, `Width`, `Title`, `TextLines`, `StringType`, `UniqueValues`, `CaseSensitive`, `IgnoreDuplicateEmptyValues`, `PrefixSearch`, `InfixSearch`, `IndexedBySemantic`, `PropertyIdForEmbeddings`, `MinWordLength`, `MaxWordLength`, `LegalValues`, `LegalValueNames`, `ReadAccess`, `WriteAccess`, `IncludeTypes`, `PrependOnAdd`, `FileStorageProviderId`, `ImageMetaAnalysis`, `ImageCropModeAnalysis`, `FileTextIndexing`, `VideoAndAudioFileTextIndexing`, and a password's `AllowHashed`, `AllowEncrypted`, `AllowPlainText`, `RequireUppercase`, `RequireLowercase`, `RequireDigit`, `RequireSymbol` |
+| Property, on the declaring type only | `IndexType`, `IndexedByWords`, `TextIndexType`, `CultureSensitive`, `MinLength`, `MaxLength`, `RegularExpression`, `RegularExpressionMessage`, `LegalCharacters`, `Trim`, `CaseTransform`, `MinValue`, `MaxValue`, `FacetRangePowerBase`, `FacetRangeCount`, `Facet`, `TextIndexRelatedContent`, `TextIndexRelatedName`, `TextIndexRecursiveLevelLimit`, `Display` and `AllowInlineEditing` ([§10](#how-an-editor-shows-them-display)), `TitleLayout`, `Unit`, `Height`, `Width`, `Title`, `TextLines`, `GuidType`, `StringType`, `UniqueValues`, `CaseSensitive`, `IgnoreDuplicateEmptyValues`, `PrefixSearch`, `InfixSearch`, `IndexedBySemantic`, `PropertyIdForEmbeddings`, `MinWordLength`, `MaxWordLength`, `LegalValues`, `LegalValueNames`, `ReadAccess`, `WriteAccess`, `IncludeTypes`, `PrependOnAdd`, `FileStorageProviderId`, `ImageMetaAnalysis`, `ImageCropModeAnalysis`, `FileTextIndexing`, `VideoAndAudioFileTextIndexing`, and a password's `AllowHashed`, `AllowEncrypted`, `AllowPlainText`, `RequireUppercase`, `RequireLowercase`, `RequireDigit`, `RequireSymbol` |
 
 What the compiled code depends on cannot be overridden: ids and names, the property type, what a type
 inherits, the shape of a member (`ReferenceValueType`, `RelationValueType`, `EmbeddedValueType`), the
@@ -836,8 +852,8 @@ Before you change a value on a running installation:
 - **Index changes rebuild.** Turning on `Indexed` or `IndexedByWords`, or asking for an index from a
   derived type, changes the model. The database then rebuilds its state and indexes from the log at
   the next open. When text indexing changes for a type, its nodes are queued for text indexing.
-  Settings that only change how a type is shown (`Icon`, `Title`, `Description`, `NameProperty`,
-  `Display`, `TitleLayout`, `Unit`, `Height`, `TextLines`) rebuild nothing.
+  Settings that only change how a type is shown (`Icon`, `Title`, `Description`, `Display`,
+  `TitleLayout`, `Unit`, `Height`, `TextLines`, `GuidType`) rebuild nothing.
 
 ### Passwords
 
@@ -881,8 +897,7 @@ m.Password.Clear();                 // removed when the node is next written
   `{"clear": true}` to change it. A value that holds no change, like a stale object saved again,
   leaves the stored password as it is.
 - **A query can only ask `IsSet`**: `Where(m => m.Password.IsSet)`. Comparing, sorting, grouping or
-  selecting a password throws. A password is never in an index, the text index, the display name,
-  GraphQL or a facet.
+  selecting a password throws. A password is never in an index, the text index, GraphQL or a facet.
 - **`NeedsRehash`** is true when a password was kept with other hash settings, pepper or key than the
   store's current ones. Set the password again after a successful `Verify` at sign-in.
 
@@ -908,9 +923,9 @@ each hash keeps the settings it was made with.
 The property's options, in the attribute and the datamodel editor: `AllowHashed` (on),
 `AllowEncrypted` and `AllowPlainText` (off), `MinLength` (8), `MaxLength` (128), `RequireUppercase`,
 `RequireLowercase`, `RequireDigit`, `RequireSymbol`, and `RegularExpression` with
-`RegularExpressionMessage`. A password property cannot be indexed, unique, part of the display name
-or per culture, or sit on a type kept inside another node's embedded property. A remote store cannot
-set a password: only the store that keeps the node has the keys.
+`RegularExpressionMessage`. A password property cannot be indexed, unique or per culture, or sit on
+a type kept inside another node's embedded property. A remote store cannot set a password: only the
+store that keeps the node has the keys.
 
 ---
 
@@ -926,15 +941,11 @@ ignored. Use each marker at most once per type.
 | `[InternalIdProperty]` | `int`, `long` or `string` | The node's internal id. |
 | `[CreatedUtcProperty]` | `DateTime` | When the node was created. |
 | `[ChangedUtcProperty]` | `DateTime` | When the node's values last changed. |
-| `[DisplayNameProperty]` | `string` | The display name you set with `UpdateDisplayName`. |
 | `[AddressProperty]` | `string` | The node's address: one URL segment, not the whole path ([§18](#18-urls-and-the-url-manager)). |
 
 ```csharp
-public interface IArticle {
+public interface IArticle : IName {                  // Name: the node's name (below)
     Guid Id { get; set; }
-
-    [StringProperty(Indexed = true, IndexedByWords = true, DisplayName = true)]
-    string Title { get; set; }                       // an ordinary property that names the node
 
     [AddressProperty]    string Address { get; }
     [CreatedUtcProperty] DateTime CreatedUtc { get; }
@@ -946,16 +957,14 @@ public interface IArticle {
   code, and a `{ get; set; }` marker member stops the store from starting.
 - **Set the address with `UpdateAddress`**, in the same transaction as the insert if you like. On a
   class, you can also set an `[AddressProperty]` member before you save.
-- **Name nodes with `DisplayName = true` on a property**, like `Title` above. The admin UI, GraphQL
-  and facets show nodes by these properties ([§3.1](#31-overriding-attributes)). The
-  `[DisplayNameProperty]` member and `Meta.DisplayName` hold a separate name, which stays empty until
-  you call `UpdateDisplayName`.
+- **The name is not a marker.** It is the ordinary property `IName.Name`, which you set, index and
+  query like any other ([Node names](#node-names-iname)).
 
 Inserting a node together with its address:
 
 ```csharp
 var article = db.Create<IArticle>();
-article.Title = "Winter Session";
+article.Name = "Winter Session";
 
 db.CreateTransaction()
   .Insert(article)
@@ -963,19 +972,94 @@ db.CreateTransaction()
   .Execute();
 ```
 
+### Node names: `IName`
+
+A node's name is one property, `IName.Name`, in the engine's own model (namespace
+`Relatude.DB.Native.Models`). A type has a name when it inherits `IName`. An interface inherits the
+property and declares nothing more; a class implements it with a plain `Name`, with no attribute of
+its own:
+
+```csharp
+using Relatude.DB.Native.Models;   // IName
+
+public interface IVenue : IName {
+    Guid Id { get; set; }
+    // ...
+}
+
+public class Brand : IName {
+    public Guid Id { get; set; }
+    public string Name { get; set; } = "";
+}
+```
+
+`IName.Name` is a string with a value index (`[StringProperty(Indexed = true)]`), and its id is
+`NodeConstants.NamePropertyId`. It has no word index of its own, so `MatchesSearch` does not apply
+to it; `WhereSearch` finds names through the node's text index ([§21](#21-text-and-semantic-search)).
+Every named type shares that one property, so one index holds the names of all of them. A query over
+`IName` sorts and filters nodes of every named type by name:
+
+```csharp
+var all  = db.Query<IName>().OrderBy(n => n.Name).Page(0, 50).Execute();   // every named type, A to Z
+var oslo = db.Query<IName>().Where(n => n.Name == "Oslo").Execute();
+```
+
+The datamodel must hold `IName`, as it holds every type a node type inherits. Add it with
+`dm.Add<IName>()`, or the engine's whole model with `dm.AddNamespace<ISystemUser>()`
+([§12](#two-ways-to-register-a-datamodel)).
+
+Nothing else is a name, and nothing is guessed from other properties. A node of a type without
+`IName`, or with an empty `Name`, has no name. What uses the name:
+
+- **The admin UI** shows a node by its name, else its address, else its id. A type's table puts
+  `Name` first.
+- **GraphQL** has it as the system field `name` on every node type ([§33.3](#333-the-schema)).
+- **Facets** on a relation or a reference label each bucket with the related node's name
+  ([§28](#28-faceted-search)).
+- **The text index** of a node takes in its related nodes' names with
+  `[RelationProperty(TextIndexRelatedName = true)]` ([Relation options](#relation-options)).
+
+Code that works with a node's raw data (`INodeData`) gets the name with `NodeName.Of(node)`
+(namespace `Relatude.DB.Datamodels`): the name, or `null` when the type has none or it is empty.
+`NodeTypeModel.HasName` says whether a type has a name.
+
+**Names stored under another property.** A type that moves from a `Name` or `Title` of its own to
+`IName` keeps its stored names with `[FormerProperty(id, property)]`. On a node type, it reads the
+values its nodes stored under a property the type no longer has, the one with that id, as the
+property named: one of the type's own or one it inherits.
+
+```csharp
+[Node]
+[FormerProperty("42c0ded9-2148-eff3-b91f-d686f8b2b3da", nameof(IName.Name))] // its own Name, stored before
+public class Brand : IName {
+    public Guid Id { get; set; }
+    public string Name { get; set; } = "";
+}
+```
+
+- The id is the old property's: the one pinned with `Id =`, or the one derived from its type's id
+  and member name. The datamodel JSON in the database's `datamodels` folder shows it.
+- A node that also holds a value under the new property keeps that one.
+- A node read holds the value under the new property, and stores it there when it is next written.
+  The indexes are rebuilt once at the next open, as for any change to the model.
+- Types inheriting the type read their nodes the same way. A type may carry several
+  `[FormerProperty]` attributes, one per old id (`NodeTypeModel.FormerPropertyIds`).
+
+The datamodel editor warns (`own-name`) about a type that has a property of its own called `Name`,
+which is not the node's name, and suggests `IName` with `[FormerProperty]`.
+
 ### What lives in `NodeMeta`
 
 Every node carries system data, which a `NodeMeta Meta { get; }` member reads. Never create or
 assign a `NodeMeta` yourself. Change the writable fields with `UpdateMeta`
-([Writing meta](#writing-meta-updatemeta)), and the address and display name with `UpdateAddress` and
-`UpdateDisplayName`.
+([Writing meta](#writing-meta-updatemeta)), and the address with `UpdateAddress`.
 
 | Field | Meaning |
 |---|---|
 | `Id`, `InternalId` | The public `Guid` id and the internal `int` id. |
 | `NodeTypeId` | The id of the node's type. |
 | `CreatedUtc`, `ChangedUtc` | When the node was created, and when its values last changed. |
-| `DisplayName`, `Address` | The display name set with `UpdateDisplayName`, and the address. |
+| `Address` | The node's address, set with `UpdateAddress`. |
 | `CultureId` | The culture of this revision. |
 | `RevisionId`, `RevisionType` | The revision read, and its type: `Published`, `Preliminary` (a draft), `Archived`, … |
 | `CollectionId` | The collection the node is in. |
@@ -1585,7 +1669,7 @@ found by the names of its events, and makes the relation a facet:
 
 ```csharp
 [RelationProperty(
-    TextIndexRelatedDisplayName = true,   // index the related nodes' names
+    TextIndexRelatedName = true,          // index the related nodes' names (IName.Name)
     TextIndexRelatedContent = false,      // true indexes their text as well
     TextIndexRecursiveLevelLimit = 1,     // how far related content is followed
     Facet = true)]                        // facets are opt-in for relations
@@ -1682,13 +1766,16 @@ type from compiled code, the change is saved as an override in the database
 
 Here is the whole running domain in one place. Parts II and III query this model.
 
-Two details follow from [§4](#4-marker-properties). Names are ordinary properties marked
-`DisplayName = true`, so you set, index and query them like any other. `Slug` is the node's address,
-so it is read-only here: give a node its slug with `UpdateAddress`.
+Two details follow from [§4](#4-marker-properties). Organizers and venues inherit `IName`, so their
+`Name` is the node's name ([Node names](#node-names-iname)). An event's `Title`, an attendee's
+`FullName` and an asset's `FileName` are properties of their own, which
+[§11.1](#111-the-same-model-with-facet-interfaces) makes one name. `Slug` is the node's address, so
+it is read-only here: give a node its slug with `UpdateAddress`.
 
 ```csharp
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
+using Relatude.DB.Native.Models;
 using Relatude.DB.Nodes;
 
 namespace VenueApp.Models;
@@ -1698,12 +1785,9 @@ public enum VenueKind   { Indoor = 0, Outdoor = 1, Hybrid = 2 }
 
 // ── Node types ───────────────────────────────────
 
-public interface IOrganizer {
+public interface IOrganizer : IName {
     Guid Id { get; set; }
     NodeMeta Meta { get; }
-
-    [StringProperty(Indexed = true, MaxLength = 200, IndexedByWords = true, DisplayName = true)]
-    string Name { get; set; }
 
     [StringProperty(UniqueValues = true, IgnoreDuplicateEmptyValues = true)]   // unique, but may be empty
     string ContactEmail { get; set; }
@@ -1714,12 +1798,9 @@ public interface IOrganizer {
     OrganizerEvents.Events Events { get; }
 }
 
-public interface IVenue {
+public interface IVenue : IName {
     Guid Id { get; set; }
     NodeMeta Meta { get; }
-
-    [StringProperty(Indexed = true, IndexedByWords = true, PrefixSearch = true, DisplayName = true)]
-    string Name { get; set; }
 
     [AddressProperty] string Slug { get; }
 
@@ -1756,8 +1837,7 @@ public interface IEvent {
     Guid Id { get; set; }
     NodeMeta Meta { get; }
 
-    [StringProperty(Indexed = true, IndexedByWords = true, IndexedBySemantic = true, PrefixSearch = true,
-                    DisplayName = true)]
+    [StringProperty(Indexed = true, IndexedByWords = true, IndexedBySemantic = true, PrefixSearch = true)]
     string Title { get; set; }
 
     [HtmlProperty(IndexedByWords = true, IndexedBySemantic = true)]
@@ -1794,7 +1874,7 @@ public interface IAttendee {
     Guid Id { get; set; }
     NodeMeta Meta { get; }
 
-    [StringProperty(Indexed = true, IndexedByWords = true, DisplayName = true)]
+    [StringProperty(Indexed = true, IndexedByWords = true)]
     string FullName { get; set; }
 
     [StringProperty(Indexed = true, UniqueValues = true)]
@@ -1811,7 +1891,7 @@ public interface IMediaAsset {
     Guid Id { get; set; }
     NodeMeta Meta { get; }
 
-    [StringProperty(Indexed = true, DisplayName = true)]
+    [StringProperty(Indexed = true)]
     string FileName { get; set; }
 
     [FileProperty]
@@ -1861,19 +1941,17 @@ The model above declares everything on each type, so each type reads on its own.
 you would move the shared properties into facet interfaces, as in [§2](#2-your-first-node-type). Most
 of the repetition goes, and queries across types get simple.
 
-One change comes with it: the names (`Name`, `Title`, `FullName`, `FileName`) become one
-`INamedNode.Title`. A shared name is worth it: it is what makes one search box and one "recently
-changed" feed possible. The enums, `OpeningHours` and the relation classes stay as above.
+One change comes with it: the names (`Title`, `FullName`, `FileName`) become one name, `IName.Name`,
+which `INamedNode` inherits. A shared name is worth it: it is what makes one search box, one list
+sorted by name and one "recently changed" feed possible. The enums, `OpeningHours` and the relation
+classes stay as above.
 
 ```csharp
 // ── Facets ───────────────────────────────────────
 
-public interface INamedNode {
+public interface INamedNode : IName {
     Guid Id { get; set; }
     NodeMeta Meta { get; }
-
-    [StringProperty(Indexed = true, IndexedByWords = true, PrefixSearch = true, DisplayName = true)]
-    string Title { get; set; }
 
     [AddressProperty]    string Slug { get; }
     [CreatedUtcProperty] DateTime CreatedUtc { get; }
@@ -1951,14 +2029,18 @@ public interface IMediaAsset : INamedNode {
 }
 ```
 
-`Id`, `Meta`, `Title`, `Slug` and the timestamps are now written once, in `INamedNode`, and every
-type inherits them. `Location` is written once and shared by venues and attendees.
+`Id`, `Meta`, `Slug` and the timestamps are now written once, in `INamedNode`, which brings `Name`
+from `IName`, and every type inherits them. `Location` is written once and shared by venues and
+attendees.
 
 The payoff comes at query time:
 
 ```csharp
 // one search box across venues, events, organizers and assets
 db.Query<INamedNode>().WhereSearch("nordic jazz", semanticRatio: 0.5).Execute();
+
+// one A to Z list across them
+db.Query<INamedNode>().OrderBy(x => x.Name).Page(0, 50).Execute();
 
 // one map query across venues and attendees
 db.Query<ILocatable>().Where(x => x.Location.IsWithin(oslo, 5_000)).Execute();
@@ -1973,8 +2055,8 @@ db.Query<INamedNode>().OrderByDescending(x => x.ChangedUtc).Page(0, 50).Execute(
 Each of these is a single indexed query. Without the facet interfaces, each would be one query per
 type, merged and sorted again in memory, and changed every time you add a type.
 
-Mind the [two constraints](#two-constraints-to-design-around): because `INamedNode` declares
-`Title`, no other facet may declare a `Title`, and no composed type may declare it again.
+Mind the [two constraints](#two-constraints-to-design-around): because `IName` declares `Name`, no
+other facet may declare a `Name`, and no composed type may declare it again.
 
 ---
 
@@ -2959,6 +3041,7 @@ and a mistake fails at compile time:
 
 ```csharp
 options.OnDatamodelInit = (dm, database) => {
+    dm.AddNamespace<ISystemUser>();  // the engine's own model: users, groups, cultures, IName
     dm.AddNamespace<IVenue>();       // every node and relation type in IVenue's namespace
     dm.Add<IEvent>();                // one type, and the types it references (not embedded ones)
     dm.Add(typeof(IAttendee));
@@ -2969,7 +3052,12 @@ options.OnDatamodelInit = (dm, database) => {
 - `AddNamespace<T>` adds the types in exactly `T`'s namespace, from `T`'s assembly. It skips enums,
   static classes and anything marked `[Exclude]`.
 - `Add<T>` also adds every type `T` references, unless you pass `includeAllReferencedModels: false`.
+  It does not add the types `T` inherits.
 - `AddAssembly` takes one namespace, or a pattern in which `*` stands for any run of characters.
+- Every type a node type inherits must be in the datamodel, or the build fails. That includes
+  `IName` ([Node names](#node-names-iname)): `dm.Add<IName>()` adds it alone, and
+  `dm.AddNamespace<ISystemUser>()` the engine's whole model, `Relatude.DB.Native.Models`. A
+  `relatude.db.json` made by `relatude new` or `relatude init` has a source for that namespace.
 
 With more than one database, branch on the database the callback is given:
 
@@ -2992,6 +3080,13 @@ deployments of the same build. You can also edit the sources in the admin UI, on
     "Type": "CompiledTypes",
     "Reference": "VenueApp",           // the assembly; empty means the application itself
     "Namespace": "VenueApp.Models.*"   // required: one namespace, or a pattern
+  },
+  {
+    "Id": "ff05…",
+    "Name": "Native",                  // the engine's own model, IName among it
+    "Type": "CompiledTypes",
+    "Reference": "Relatude.DB.NodeStore",
+    "Namespace": "Relatude.DB.Native.Models"
   }
 ]
 ```
@@ -3115,6 +3210,7 @@ with the same methods, then open a store on it:
 
 ```csharp
 var datamodel = new Datamodel();
+datamodel.AddNamespace<ISystemUser>();   // the engine's own model, IName among it
 datamodel.AddNamespace<IVenue>();
 datamodel.Add<IEvent>();
 
@@ -3132,17 +3228,21 @@ At **build time** (you find out at startup):
 
 - A node type that is a class needs a public parameterless constructor.
 - Two parent interfaces may not declare the same property name, and neither may two classes.
-  Re-declaring an inherited property with `override` or `new` is not supported. To give a derived type
-  its own default, text index or display name setting for an inherited property, or to ask for its
-  value index or a facet, use `[PropertyOverride]` ([§3.1](#31-overriding-attributes)).
+  Re-declaring an inherited property with `override` or `new` is not supported, so an interface
+  inheriting `IName` does not declare `Name` again. To give a derived type its own default or text index setting
+  for an inherited property, or to ask for its value index or a facet, use `[PropertyOverride]`
+  ([§3.1](#31-overriding-attributes)).
 - A `[PropertyOverride]` must name a property the type inherits (not a system member), with a default
   the property's type can hold.
+- A `[FormerProperty]` must give a property id and name a property the type declares or inherits,
+  not a system member, and a type gives each old id once ([Node names](#node-names-iname)).
+- Every type a node type inherits must be in the datamodel, `IName` included.
 - Nullable value types (`int?`, `DateTime?`, `GeoCoordinate?`) are not supported.
 - The allowed value types are `bool`, `byte`, `int`, `long`, `double`, `float`, `decimal`, `DateTime`,
   `DateTimeOffset`, `Guid`, `TimeSpan`, `GeoCoordinate` and enums.
 - `Id` must be `Guid` or `string`, and the internal id `int`, `long` or `string`.
-- Marker attributes need a matching type: `[DisplayNameProperty]` and `[AddressProperty]` on
-  `string`, `[CreatedUtcProperty]` and `[ChangedUtcProperty]` on `DateTime`.
+- Marker attributes need a matching type: `[AddressProperty]` on `string`, `[CreatedUtcProperty]`
+  and `[ChangedUtcProperty]` on `DateTime`.
 - Two types with the same `[Node(Id = …)]` but different full names are an error.
 - A relation class needs the right nested side classes for its shape.
 - A `RegularExpression` must be valid, and `MaxNoInstances` can be neither negative nor below
@@ -3164,6 +3264,11 @@ At **write time** (the transaction fails):
 Relatude.DB has its own model in `Relatude.DB.Native.Models`: `ISystemUser`, `ISystemUserGroup`,
 `ISystemCollection` and `ISystemCulture`. The admin UI, authentication and cultures depend on them.
 If your domain needs users, model your own type, and relate it to `ISystemUser` if you need the link.
+
+All four inherit `IName` ([Node names](#node-names-iname)), so a user's, a group's and a
+collection's name is its `Name`. A culture's `Name` is its English name, beside `NativeName` and
+`CultureCode`. `db.EnsureCultures(codes)` makes the culture nodes that are missing and fills in both
+names from .NET's culture.
 
 ---
 ---
@@ -4315,7 +4420,7 @@ Both take the same optional settings after the text: `semanticRatio`, `minimumVe
   does the same for the vector index. Subtypes inherit the setting.
 - Every property goes in except those with `ExcludeFromTextIndex = true`. Dates, booleans, ids and
   coordinates are out by default. `TextIndexBoost` adds a property's text that many extra times.
-- `[RelationProperty(TextIndexRelatedDisplayName = true)]` adds the related nodes' display names, so
+- `[RelationProperty(TextIndexRelatedName = true)]` adds the related nodes' names (`IName.Name`), so
   a venue can be found by the names of its events.
 
 `IndexedByWords` and `IndexedBySemantic` give one string property an index of its own. Search that
@@ -4696,6 +4801,10 @@ Each method takes the property as an expression, a name or an id. **Faceting nee
 `Indexed = true`.** `NotFacet = true` keeps a property out, and a relation takes part only with
 `[RelationProperty(Facet = true)]`.
 
+A relation, reference or references facet labels each bucket with the related node's name
+(`IName.Name`, [Node names](#node-names-iname)), read in the version the query's context reads, else
+with the node's id.
+
 ### Where the un-named facets come from
 
 With no facet named, a facet query counts every facetable property of every node type in the result.
@@ -5070,30 +5179,33 @@ What the indexes hold:
     safe.
 15. **Pin `[Node(Id = …)]` and `[Relation(Id = …)]` early.** Without them the id is a hash of the
     full type name, so a rename creates a new, empty type.
+16. **A node's name is `IName.Name` and nothing else.** A `Name` or `Title` a type declares itself is
+    an ordinary property: inherit `IName`, and read stored names with `[FormerProperty]`
+    ([Node names](#node-names-iname)).
 
 **Geo**
 
-16. **`GeoCoordinate.Empty` never matches `IsWithin`,** and its distance to anything is infinite.
-17. **`OrderBy` on a `GeoCoordinate` throws.** Filter by radius, then
+17. **`GeoCoordinate.Empty` never matches `IsWithin`,** and its distance to anything is infinite.
+18. **`OrderBy` on a `GeoCoordinate` throws.** Filter by radius, then
     `OrderBy(v => v.Location.DistanceTo(center))`.
-18. **Coordinates snap to a grid of about 1 cm,** so a stored value is not bit for bit the input.
+19. **Coordinates snap to a grid of about 1 cm,** so a stored value is not bit for bit the input.
 
 **Querying**
 
-19. **Use the query an operator returns: `q = q.Where(...)`.** Queries are immutable.
-20. **Filter, sort and facet on `Indexed = true` properties.** Anything else is checked node by
+20. **Use the query an operator returns: `q = q.Where(...)`.** Queries are immutable.
+21. **Filter, sort and facet on `Indexed = true` properties.** Anything else is checked node by
     node.
-21. **Use builder methods, not LINQ on the result.** Use `Count()` and `SelectId()` rather than
+22. **Use builder methods, not LINQ on the result.** Use `Count()` and `SelectId()` rather than
     loading nodes to count them or read their ids.
-22. **The last `OrderBy` is the main sort key.** Earlier ones only break ties.
-23. **`Query<T>()` includes subtypes.** Narrow it with `WhereTypes` when you want one type only.
-24. **Name the node type when you go through a relation end:** `Traverse<IVenue>(v => v.Halls, …)`
+23. **The last `OrderBy` is the main sort key.** Earlier ones only break ties.
+24. **`Query<T>()` includes subtypes.** Narrow it with `WhereTypes` when you want one type only.
+25. **Name the node type when you go through a relation end:** `Traverse<IVenue>(v => v.Halls, …)`
     and `Include<IEvent>(v => v.Events).ThenInclude(…)`.
-25. **Include filters never shrink the main result.** Parents with no matching children still come
+26. **Include filters never shrink the main result.** Parents with no matching children still come
     back.
-26. **`Traverse` and `ShortestPath` work only over relations.** If you need traversal, model the
+27. **`Traverse` and `ShortestPath` work only over relations.** If you need traversal, model the
     link as a relation.
-27. **`Get` and `TryGet` ignore read access.** To check what a user may read, use a query.
+28. **`Get` and `TryGet` ignore read access.** To check what a user may read, use a query.
 
 ---
 ---
@@ -5946,8 +6058,9 @@ Every exposed node type gets a GraphQL type and two root fields on `Query`:
   `events(filter, search, orderBy, descending, page, pageSize, ids)`.
 
 Every node type implements the `Node` interface and its four system fields: `id` (the node's
-`Guid`), `displayName`, `createdUtc` and `changedUtc`. Here is the schema of the endpoint above,
-trimmed:
+`Guid`), `name` (its `IName.Name`, null for a type without a name,
+[Node names](#node-names-iname)), `createdUtc` and `changedUtc`. Here is the schema of the endpoint
+above, trimmed:
 
 ```text
 type Query {
@@ -5963,7 +6076,7 @@ type Query {
 
 interface Event implements Node {
   id: ID!
-  displayName: String
+  name: String
   createdUtc: DateTime!
   changedUtc: DateTime!
   price: Decimal!
@@ -5976,11 +6089,10 @@ interface Event implements Node {
 type EventNode implements Node & Event { ... }   # the same fields
 
 interface Venue implements Node {
-  ...
+  ...                            # the system fields; name is the venue's IName.Name
   capacity: Int!
   events(top: Int): [Event!]!
   location: GeoCoordinate
-  name: String
 }
 
 type EventResult {
@@ -6016,8 +6128,11 @@ are used as they are:
 | Root fields | `article`, `articles` | `Article`, `Articles` |
 | Mutations | `createArticle`, … | `CreateArticle`, … |
 
-- System fields keep their names. A property that would clash with one gets `Value` added:
-  `DisplayName` becomes `displayNameValue`.
+- `IName.Name` is the field `name` itself, so filters, `orderBy` and mutation inputs call it `name`
+  too. Under exact names, or named otherwise by the endpoint, it is a field of its own beside `name`.
+- System fields keep their names. A property that would clash with one gets `Value` added: a type's
+  own `Name`, one that is not `IName.Name`, becomes `nameValue`, as properties clashing with `id`,
+  `createdUtc` and `changedUtc` do.
 - A name that is taken gets `_2` added, with a warning.
 - An inherited property keeps the field name its base type gives it. A different name set on the
   subtype is ignored, with a warning.

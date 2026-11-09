@@ -10,7 +10,11 @@ public enum RelationValueType {
 }
 public class RelationPropertyModel : PropertyModel {
     public override bool ExcludeFromTextIndex { get; set; }
-    public bool TextIndexRelatedDisplayName { get; set; }
+    /// <summary>The names of the related nodes (<see cref="NodeName"/>) are part of this node's text.</summary>
+    public bool TextIndexRelatedName { get; set; }
+    // saved before it was named TextIndexRelatedName
+    [JsonInclude, JsonPropertyName("TextIndexRelatedDisplayName"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    bool formerTextIndexRelatedName { get => false; set { if (value) TextIndexRelatedName = true; } }
     public bool TextIndexRelatedContent { get; set; }
     public int TextIndexRecursiveLevelLimit { get; set; } = 1;
     public override string? GetDefaultDeclaration() {

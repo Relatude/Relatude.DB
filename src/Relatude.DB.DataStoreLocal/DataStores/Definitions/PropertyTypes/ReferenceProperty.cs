@@ -69,20 +69,23 @@ internal class ReferenceProperty : ValueProperty<Guid> {
         var facets = base.GetDefaultFacets(given, ctx); // buckets are the referenced node guids
         foreach (var v in facets.Values) {
             if (v.ExplicitDisplayName != null) continue;
-            if (v.Value is Guid guid) v.DisplayName = displayNameOfNode(guid);
-            else if (v.Value is string s && Guid.TryParse(s, out var parsed)) v.DisplayName = displayNameOfNode(parsed); // given buckets may arrive as guid strings
+            if (v.Value is Guid guid) v.DisplayName = nameOfNode(guid, ctx);
+            else if (v.Value is string s && Guid.TryParse(s, out var parsed)) v.DisplayName = nameOfNode(parsed, ctx); // given buckets may arrive as guid strings
         }
         return facets;
     }
-    string displayNameOfNode(Guid guid) {
+    // the referenced node's name in the version the context reads
+    string nameOfNode(Guid guid, QueryContext ctx) {
         if (guid == Guid.Empty) return "(none)";
         var db = Definition.Store;
         if (db._guids.TryGetId(guid, out var id) && db._nodes.TryGet(id, out var node, out _)) {
-            var sb = new System.Text.StringBuilder();
-            Definition.Datamodel.NodeTypes[node.NodeType].BuildDisplayName(node, sb);
-            if (sb.Length > 0) return sb.ToString();
+            try {
+                if (NodeName.Of(db.ToOuter(node, ctx)) is { } name) return name;
+            } catch {
+                // no version of it this context reads
+            }
         }
-        return guid.ToString(); // referenced node gone (stale index value): fall back to the raw guid
+        return guid.ToString(); // referenced node gone (stale index value), unread or unnamed: the raw guid
     }
     public override bool SatisfyValueRequirement(object? value1, object? value2, ValueRequirement requirement) {
         var v1 = (Guid)value1!;

@@ -92,16 +92,12 @@ internal static class BuildUtilsProperties {
         if (p is PasswordPropertyModel pwp && RegularExpressionErrors.Validate(pwp.RegularExpression) is string passwordRegexError) {
             throw new Exception("The RegularExpression of the member \"" + m.DeclaringType?.FullName + "." + m.Name + "\" is not valid. " + passwordRegexError);
         }
-        if (p is PasswordPropertyModel && a.DisplayName) {
-            throw new Exception("The password member \"" + m.DeclaringType?.FullName + "." + m.Name + "\" cannot be part of the display name. ");
-        }
         p.Id = string.IsNullOrEmpty(a.Id) ? Guid.Empty : Guid.Parse(a.Id);
         p.CodeName = m.Name;
         p.ReadAccess = string.IsNullOrEmpty(a.ReadAccess) ? Guid.Empty : Guid.Parse(a.ReadAccess);
         p.WriteAccess = string.IsNullOrEmpty(a.WriteAccess) ? Guid.Empty : Guid.Parse(a.WriteAccess);
         p.ExcludeFromTextIndex = a.ExcludeFromTextIndex;
         p.IndexBoost = a.TextIndexBoost;
-        p.DisplayName = a.DisplayName;
         // presentation: where an editor puts the title, the unit beside the control and the control's height; Default (0)
         // and empty say nothing
         p.TitleLayout = a.TitleLayout != TitleLayout.Default && Enum.IsDefined(a.TitleLayout) ? a.TitleLayout : null;
@@ -265,7 +261,6 @@ internal static class BuildUtilsProperties {
         p.MaxLength = a.MaxLength;
         p.MaxWordLength = a.MaxWordLength;
         p.IgnoreDuplicateEmptyValues = a.IgnoreDuplicateEmptyValues;
-        p.DisplayName = a.DisplayName;
         p.MinLength = a.MinLength;
         p.MinWordLength = a.MinWordLength;
         p.PrefixSearch = a.PrefixSearch;
@@ -341,6 +336,7 @@ internal static class BuildUtilsProperties {
         var p = new GuidPropertyModel();
         if (!string.IsNullOrEmpty(a.DefaultValue)) p.DefaultValue = Guid.Parse(a.DefaultValue);
         p.Indexed = a.Indexed;
+        p.GuidType = a.GuidType;
         return p;
     }
     static ByteArrayPropertyModel getByteArrayPropertyModel(ByteArrayPropertyAttribute a) {
@@ -535,6 +531,7 @@ internal static class BuildUtilsProperties {
     static GuidArrayPropertyModel getGuidArrayPropertyModel(GuidArrayPropertyAttribute a) {
         var p = new GuidArrayPropertyModel();
         p.Indexed = a.Indexed;
+        p.GuidType = a.GuidType;
         return p;
     }
     static EnumArrayPropertyModel getEnumArrayPropertyModel(EnumArrayPropertyAttribute a) {
@@ -595,7 +592,7 @@ internal static class BuildUtilsProperties {
     static RelationPropertyModel getRelationPropertyModel(RelationPropertyAttribute attr, MemberInfo m, Type valueType) {
         var r = new RelationPropertyModel();
         r.TextIndexRelatedContent = attr.TextIndexRelatedContent;
-        r.TextIndexRelatedDisplayName = attr.TextIndexRelatedDisplayName;
+        r.TextIndexRelatedName = attr.TextIndexRelatedName;
         r.TextIndexRecursiveLevelLimit = attr.TextIndexRecursiveLevelLimit;
         r.Facet = attr.Facet;
         r.Display = attr.Display;

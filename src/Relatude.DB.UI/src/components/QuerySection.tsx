@@ -1583,8 +1583,8 @@ function QueryTab({
                   onClick={(e) => selectHit(e, hit)}
                 >
                   <div className="query-hit-head">
-                    <span className="query-hit-name" title={hit.displayName}>
-                      <Sampled sample={hit.nameSample} plain={hit.displayName} />
+                    <span className="query-hit-name" title={hit.name}>
+                      <Sampled sample={hit.nameSample} plain={hit.name} />
                     </span>
                     <span className="query-hit-type">
                       <NodeTypeGlyph typeId={hit.typeId} size={13} />

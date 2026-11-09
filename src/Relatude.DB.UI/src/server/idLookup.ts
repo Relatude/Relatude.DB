@@ -146,7 +146,7 @@ export function hitOfMatch(match: IdMatch, columns: Column[] | null, edit: boole
     intId: node.intId,
     typeId: node.typeId,
     typeName: node.typeName,
-    displayName: node.displayName,
+    name: node.name,
     nameSample: null,
     snippet: { codeName: snippet.codeName, value: snippet.value, sample: { fragments: snippet.fragments, cutAtStart: false, cutAtEnd: false } },
     address: node.address,
@@ -164,9 +164,9 @@ function summaryOf(node: NodeView): HitSummaryValue[] {
   const summary: HitSummaryValue[] = [];
   for (const property of node.properties) {
     if (summary.length >= maxSummaryValues) break;
-    if (!summaryTypes.has(property.type) || property.notes.includes("display name")) continue;
+    if (!summaryTypes.has(property.type) || property.notes.includes("name")) continue;
     const text = textOf(property);
-    if (text.trim() === "" || text === node.displayName) continue;
+    if (text.trim() === "" || text === node.name) continue;
     summary.push({ codeName: property.name, value: truncate(text, summaryValueLength) });
   }
   return summary;
@@ -177,7 +177,7 @@ function cellOf(node: NodeView, column: Column): string {
     case "__type":
       return node.typeName;
     case "__name":
-      return node.displayName;
+      return node.name;
     case "__id":
       return node.id;
     case "__address":

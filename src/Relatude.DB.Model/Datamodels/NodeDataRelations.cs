@@ -39,7 +39,6 @@ public class NodeDataWithRelations : INodeDataExternal { // readonly node data w
     public void EnsureReadOnly() => _node.EnsureReadOnly();
     public bool TryGetValue(Guid propertyId, [MaybeNullWhen(false)] out object value) => _node.TryGetValue(propertyId, out value);
     public override string ToString() => $"NodeDataWithRelations: {Id} {NodeType} {CreatedUtc} {ChangedUtc} {ValueCount}";
-    public string? DisplayName { get => _node.DisplayName; set => throwReadOnlyError(); }
     public string? Address { get => _node.Address; set => throwReadOnlyError(); }
     public bool AutoAddress { get => _node.AutoAddress; set => throwReadOnlyError(); }
 }

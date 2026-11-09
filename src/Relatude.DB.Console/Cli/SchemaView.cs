@@ -131,7 +131,6 @@ public static class SchemaView {
             t.IsInnerNode,
             t.IsAbstract,
             IdMember = t.NameOfPublicIdProperty,
-            DisplayNameMember = t.NameOfDisplayNameProperty,
             AddressMember = t.NameOfAddressProperty,
             MetaMember = t.NameOfMetaProperty,
             Properties = t.Properties.Values.Where(p => !p.Internal).OrderBy(p => p.CodeName).Select(p => propertyJson(p, t, dm)).ToArray(),
@@ -163,7 +162,6 @@ public static class SchemaView {
         Facet = p.Indexed && !p.NotFacet,
         p.UniqueValues,
         p.CultureSensitive,
-        p.DisplayName,
         Notes = PropertyNotes(p, t, dm),
         Relation = p is RelationPropertyModel rp && dm.Relations.TryGetValue(rp.RelationId, out var rel) ? rel.FullName() : null,
         RelatedTypes = p is RelationPropertyModel r ? RelatedTypes(r, dm).Select(x => x.FullName).ToArray()
@@ -252,7 +250,7 @@ public static class SchemaView {
     /// <summary>Everything about a property that changes how it behaves: indexes, constraints, markers; and how an editor shows it.</summary>
     public static string[] PropertyNotes(PropertyModel p, NodeTypeModel t, Datamodel dm) {
         var notes = new List<string>();
-        if (p.CodeName == t.NameOfDisplayNameProperty) notes.Add("display name");
+        if (p.Id == NodeConstants.NamePropertyId) notes.Add("name");
         if (p.CodeName == t.NameOfAddressProperty) notes.Add("address");
         if (p.CodeName == t.NameOfCreatedUtcProperty) notes.Add("created utc");
         if (p.CodeName == t.NameOfChangedUtcProperty) notes.Add("changed utc");
@@ -290,7 +288,7 @@ public static class SchemaView {
                 if (dm.Relations.TryGetValue(r.RelationId, out var relation)) notes.Add("relation " + relation.CodeName);
                 if (r.FromTargetToSource) notes.Add("inbound side");
                 if (r.TextIndexRelatedContent) notes.Add("indexes related content");
-                else if (r.TextIndexRelatedDisplayName) notes.Add("indexes related display name");
+                else if (r.TextIndexRelatedName) notes.Add("indexes related names");
                 break;
             case ReferencePropertyModel or ReferencesPropertyModel:
                 notes.Add("reference, not a graph edge");

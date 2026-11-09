@@ -149,9 +149,6 @@ public sealed class NodeTypeOverride {
     /// <summary>The icon the type is shown with (<see cref="NodeTypeModel.Icon"/>), which the types inheriting from it without one of their own show too.</summary>
     [OverrideScope(OverrideScope.Inherited), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Icon { get; set; }
-    /// <summary>The property that is a node's name (<see cref="NodeTypeModel.NameProperty"/>), which the types inheriting from it without one of their own take too.</summary>
-    [OverrideScope(OverrideScope.Inherited), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public Guid? NameProperty { get; set; }
     /// <summary>What people call the type (<see cref="NodeTypeModel.Title"/>): this type's alone.</summary>
     [OverrideScope(OverrideScope.ThisType), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Title { get; set; }
@@ -223,8 +220,6 @@ public sealed class PropertyOverride {
     public bool? ExcludeFromTextIndex { get; set; }
     [OverrideScope(OverrideScope.Inherited), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public int? IndexBoost { get; set; }
-    [OverrideScope(OverrideScope.Inherited), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public bool? DisplayName { get; set; }
 
     // the property as a whole, but any type that has it can ask for them:
     /// <summary>
@@ -275,7 +270,10 @@ public sealed class PropertyOverride {
     [OverrideScope(OverrideScope.WholeProperty), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public bool? Facet { get; set; }
     [OverrideScope(OverrideScope.WholeProperty), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public bool? TextIndexRelatedDisplayName { get; set; }
+    public bool? TextIndexRelatedName { get; set; }
+    // saved before it was named TextIndexRelatedName
+    [JsonInclude, JsonPropertyName("TextIndexRelatedDisplayName"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    bool? formerTextIndexRelatedName { get => null; set => TextIndexRelatedName ??= value; }
     [OverrideScope(OverrideScope.WholeProperty), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public bool? TextIndexRelatedContent { get; set; }
     /// <summary>Whether the property has an index per culture rather than one for all of them (<see cref="PropertyModel.CultureSensitive"/>).</summary>
@@ -296,6 +294,9 @@ public sealed class PropertyOverride {
     /// <summary>How many lines a text area shows before it is resized (<see cref="StringPropertyModel.TextLines"/>).</summary>
     [OverrideScope(OverrideScope.WholeProperty), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public int? TextLines { get; set; }
+    /// <summary>What a Guid or Guid[] property's ids are ids of, for an editing interface (<see cref="GuidPropertyModel.GuidType"/>).</summary>
+    [OverrideScope(OverrideScope.WholeProperty), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public GuidValueType? GuidType { get; set; }
     /// <summary>Whether no two nodes may hold the same value (<see cref="PropertyModel.UniqueValues"/>). Checked as values are written: values held already are left as they are.</summary>
     [OverrideScope(OverrideScope.WholeProperty), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public bool? UniqueValues { get; set; }

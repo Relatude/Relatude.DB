@@ -40,10 +40,7 @@ internal static class Projector {
     static object? projectField(ExecutionContext ctx, INodeData node, NodeTypeModel typeModel, GqlField field, CollectedField cf, List<object> path) {
         switch (field.Source) {
             case FieldSource.Id: return node.Id.ToString();
-            case FieldSource.DisplayName: {
-                    if (!string.IsNullOrEmpty(node.DisplayName)) return node.DisplayName;
-                    try { return typeModel.GetDisplayName(node); } catch { return null; }
-                }
+            case FieldSource.Name: return NodeName.Of(node);
             case FieldSource.CreatedUtc: return Iso(node.CreatedUtc);
             case FieldSource.ChangedUtc: return Iso(node.ChangedUtc);
             case FieldSource.ScalarProperty: {

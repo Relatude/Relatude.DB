@@ -9,7 +9,6 @@ namespace Relatude.DB.Datamodels {
         public readonly Dictionary<Guid, NodeTypeModel> ThisAndAllInheritedTypes = [];
         public readonly Dictionary<Guid, NodeTypeModel> ThisAndDescendingTypes = [];
         // per type, so they honour what this type and its base types override (PropertyOverrides):
-        public readonly List<PropertyModel> DisplayProperties = [];
         public readonly List<PropertyModel> TextIndexProperties = [];
         internal readonly Dictionary<Guid, object?> DefaultValues = [];
         internal readonly Dictionary<Guid, int> IndexBoosts = [];
@@ -24,31 +23,10 @@ namespace Relatude.DB.Datamodels {
         public bool TryGetOverriddenDefaultValue(Guid propertyId, out object? value) => DefaultValues.TryGetValue(propertyId, out value);
         /// <summary>How many extra times the property's text goes into this type's text index: the property's boost, unless the type overrides it.</summary>
         public int GetIndexBoost(PropertyModel property) => IndexBoosts.TryGetValue(property.Id, out var boost) ? boost : property.IndexBoost;
-        public void BuildDisplayName(INodeData node, StringBuilder sb) {
-            var i = 0;
-            foreach (var prop in DisplayProperties) {
-                if (node.TryGetValue(prop.Id, out var value)) {
-                    var text = prop.GetTextIndex(value);
-                    if (string.IsNullOrEmpty(text)) continue;
-                    var isFirst = i++ == 0;
-                    if (!isFirst) sb.Append(" ");
-                    sb.Append(text);
-                }
-            }
-        }
-        public string GetDisplayName(INodeData node) {
-            var parts = new string[DisplayProperties.Count];
-            var i = 0;
-            foreach (var prop in DisplayProperties) {
-                if (node.TryGetValue(prop.Id, out var value)) {
-                    var text = prop.GetTextIndex(value);
-                    if (string.IsNullOrEmpty(text)) continue;
-                    parts[i++] = text;
-                }
-            }
-            if (i == 0) return string.Empty;
-            return string.Join(" ", parts, 0, i);
-        }
+        /// <summary>Whether nodes of the type have a name: it inherits IName (<see cref="NodeConstants.NamePropertyId"/>).</summary>
+        public bool HasName => AllProperties.ContainsKey(NodeConstants.NamePropertyId);
+        /// <summary>What a node of this type stored under a former property is read as: this type's <see cref="FormerPropertyIds"/> and those of the types it inherits from.</summary>
+        public readonly Dictionary<Guid, Guid> AllFormerPropertyIds = [];
         public override string ToString() {
             return (string.IsNullOrEmpty(Namespace) ? string.Empty : Namespace + ".") + CodeName;
         }

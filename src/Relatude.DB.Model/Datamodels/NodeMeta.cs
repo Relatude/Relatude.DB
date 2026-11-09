@@ -20,7 +20,6 @@ public class NodeMeta {
     public readonly IInnerNodeMeta InnerMeta;
     NodeMeta() {
         InnerMeta = IInnerNodeMeta.Empty;
-        DisplayName = string.Empty;
     }
     public static NodeMeta Empty { get; } = new NodeMeta();
     public NodeMeta(INodeDataExternal node) {
@@ -29,7 +28,6 @@ public class NodeMeta {
         CreatedUtc = node.CreatedUtc;
         ChangedUtc = node.ChangedUtc;
         NodeTypeId = node.NodeType;
-        DisplayName = node.DisplayName;
         Address = node.Address;
         // AutoAddress = node.AutoAddress;
         Id = node.Id;
@@ -42,8 +40,6 @@ public class NodeMeta {
     public int InternalId { get; }
     public Guid Id { get; }
 
-    public bool? AutoDisplayName { get; }
-    public string? DisplayName { get; } // null, means not having any displayName
     public string? Address { get; } // null, means not having any address
     public bool? AutoAddress { get; } // null mean defaults to type default
 
@@ -82,7 +78,7 @@ public class NodeMeta {
 /// <summary>
 /// Inner meta is the part of the node meta that is stored in the node data, and can be shared between different 
 /// revisions and cultures of the same node. It is designed to be immutable and reusable, so that it can be easily 
-/// cached and compared for equality. It does not contain revision specific properties like DisplayName, or Address
+/// cached and compared for equality. It does not contain revision specific properties like Address
 /// It also does not contain the revision key, as it is an internal implementation detail that can be the same for 
 /// different cultures of the same revision, and therefore not useful for caching or equality comparison. 
 /// The revision type can be derived from the revision key using a utility method, so it is included in the inner 

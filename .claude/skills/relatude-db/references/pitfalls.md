@@ -21,6 +21,7 @@ Read this before finishing any non-trivial Relatude.DB answer. These are the thi
 - **`[EmbeddedMapProperty(KeyProperty = …)]` requires the named property to exist on the value type** and to match the map's key type.
 - **You cannot read an embedded map by key until the parent is persisted.** Before insert, only `Add` is safe.
 - **Pin `[Node(Id = …)]` and `[Relation(Id = …)]` early.** Without them the id is a hash of the full type name, so a rename or namespace move creates a new, empty type.
+- **A node's name is `IName.Name` and nothing else.** A `Name` or `Title` a type declares itself is an ordinary property, which the admin UI, GraphQL's `name` and facet labels ignore (the datamodel editor warns `own-name`). Inherit `IName`, keep the values already stored with `[FormerProperty("<old property id>", nameof(IName.Name))]` on the type, and keep `IName` in the datamodel (`dm.Add<IName>()` or `dm.AddNamespace<ISystemUser>()`), or every type inheriting it fails the build.
 
 ## Geo
 
@@ -89,6 +90,7 @@ The public documentation is thin and the API is pre-1.0. **When something disagr
 | Topic | Source path |
 |---|---|
 | Attributes | `src/Relatude.DB.NodeStore/Nodes/Attributes.cs` |
+| Node names (`IName`, `NodeName`, `[FormerProperty]`) | `src/Relatude.DB.NodeStore/Native/Models/Models.cs`, `src/Relatude.DB.Model/Datamodels/NodeName.cs`, `readFormerProperties` in `src/Relatude.DB.NodeStore/Datamodels/BuildUtils.cs` |
 | How types, inheritance and properties are built | `src/Relatude.DB.NodeStore/Datamodels/BuildUtils.cs`, `BuildUtilsProperties.cs` |
 | Proxy / interface generation | `src/Relatude.DB.NodeStore/CodeGeneration/InterfaceGen.cs`, `ModelGen.cs` |
 | Server wiring and the admin UI | `src/Relatude.DB.NodeServer/`, `src/Relatude.DB.UI/` |

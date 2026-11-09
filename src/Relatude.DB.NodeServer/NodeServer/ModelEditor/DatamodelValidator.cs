@@ -166,6 +166,9 @@ public sealed class DatamodelValidator {
                 if (propertyOwners.TryGetValue(p.Id, out var other)) issues.Add(DatamodelIssue.Error("duplicate-property-id", "The properties " + other.CodeName + "." + other.Properties[p.Id].CodeName + " and " + t.CodeName + "." + p.CodeName + " have the same id " + p.Id + ". Property ids must be unique across the model.", nodeType: t.Id, property: p.Id));
                 else propertyOwners[p.Id] = t;
                 if (string.Equals(p.CodeName, t.CodeName, StringComparison.Ordinal)) issues.Add(DatamodelIssue.Error("property-named-as-type", t.CodeName + "." + p.CodeName + ": a member cannot have the same name as its type.", nodeType: t.Id, property: p.Id));
+                if (p.Id != NodeConstants.NamePropertyId && string.Equals(p.CodeName, "Name", StringComparison.OrdinalIgnoreCase) && !t.IsInnerNode)
+                    issues.Add(DatamodelIssue.Warning("own-name", t.FullName + "." + p.CodeName + " is a property of its own, not the node's name: lists show, sort and search nodes by IName.Name. "
+                        + "Inherit IName instead, and read what is stored with [FormerProperty(\"" + p.Id + "\", nameof(IName.Name))].", nodeType: t.Id, property: p.Id));
                 checkProperty(dm, t, p, issues);
             }
         }
@@ -255,8 +258,6 @@ public sealed class DatamodelValidator {
                     issues.Add(DatamodelIssue.Info("message-without-pattern", where + " has a pattern message but no pattern, so the message is never shown.", nodeType: t.Id, property: p.Id));
                 if (pw.Indexed || pw.UniqueValues)
                     issues.Add(DatamodelIssue.Error("password-indexed", where + " is a password, which is never indexed nor unique: a query can only ask whether it is set.", nodeType: t.Id, property: p.Id));
-                if (pw.DisplayName)
-                    issues.Add(DatamodelIssue.Error("password-display-name", where + " is a password, which cannot be part of the display name.", nodeType: t.Id, property: p.Id));
                 if (pw.CultureSensitive || pw.CultureSpecific)
                     issues.Add(DatamodelIssue.Error("password-culture", where + " is a password, which is one for every culture.", nodeType: t.Id, property: p.Id));
                 if (t.IsInnerNode || dm.Properties.Values.OfType<EmbeddedPropertyModel>().Any(e => e.InnerNodeTypes.Contains(t.Id)))
@@ -481,9 +482,8 @@ public sealed class DatamodelValidator {
     // what decides the text a node of the type is indexed with
     static string textSignature(NodeTypeModel t) => (t.TextIndex == true) + "|" + (t.SemanticIndex == true) + "|"
         + string.Join(",", t.TextIndexProperties.Select(p => p.Id + ":" + t.GetIndexBoost(p)
-            + (p is RelationPropertyModel r ? ":" + r.TextIndexRelatedContent + ":" + r.TextIndexRelatedDisplayName : "")
-            + (p is FilePropertyModel f ? ":" + f.ImageMetaAnalysis + ":" + f.ImageCropModeAnalysis + ":" + f.FileTextIndexing + ":" + f.VideoAndAudioFileTextIndexing : "")))
-        + "|" + string.Join(",", t.DisplayProperties.Select(p => p.Id));
+            + (p is RelationPropertyModel r ? ":" + r.TextIndexRelatedContent + ":" + r.TextIndexRelatedName : "")
+            + (p is FilePropertyModel f ? ":" + f.ImageMetaAnalysis + ":" + f.ImageCropModeAnalysis + ":" + f.FileTextIndexing + ":" + f.VideoAndAudioFileTextIndexing : "")));
     // A default is late bound: a node with no value stored for a property reads whatever the default is
     // now. That is the point of changing it, but it reaches nodes that already exist.
     void checkDefaults(Datamodel active, Datamodel draft, List<DatamodelIssue> issues) {

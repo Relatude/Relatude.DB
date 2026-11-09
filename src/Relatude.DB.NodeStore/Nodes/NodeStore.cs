@@ -1230,12 +1230,6 @@ public class NodeStore : IDisposable {
     /// <summary>Writes several properties of one node in a single transaction, each given as a property lambda and a value.</summary>
     public void UpdateProperties<T>(Guid nodeId, params Tuple<Expression<Func<T, object?>>, object>[] propertyValuePairs) where T : notnull => Execute(new Transaction(this).UpdateProperties(nodeId, propertyValuePairs));
 
-    /// <summary>Sets the display name, the built in label used by the admin UI and by automatic address generation.</summary>
-    public void UpdateDisplayName(Guid nodeId, string newDisplayName, bool flushToDisk = false) => Execute(new Transaction(this).UpdateDisplayName(nodeId, newDisplayName), flushToDisk);
-    /// <summary>Sets the display name of the node with this internal id.</summary>
-    public void UpdateDisplayName(int nodeId, string newDisplayName, bool flushToDisk = false) => Execute(new Transaction(this).UpdateDisplayName(nodeId, newDisplayName), flushToDisk);
-    /// <summary>Sets the display name of the node this object represents.</summary>
-    public void UpdateDisplayName(object node, string newDisplayName, bool flushToDisk = false) => Execute(new Transaction(this).UpdateDisplayName(node, newDisplayName), flushToDisk);
     /// <summary>Sets the address (URL path) of a node. If it is taken, the store adjusts it, see the overload reporting the result.</summary>
     public void UpdateAddress(Guid nodeId, string newAddress, bool flushToDisk = false) => Execute(new Transaction(this).UpdateAddress(nodeId, newAddress), flushToDisk);
     /// <summary>Sets the address of the node with this internal id.</summary>
@@ -1618,7 +1612,7 @@ public class NodeStore : IDisposable {
 
     /// <summary>
     /// Makes sure the given cultures exist as culture nodes, creating the missing ones and correcting codes that
-    /// have changed. Native and English names are filled in from the .NET culture. Call it at start up, the store
+    /// have changed. Its native name and its name, the English one, are filled in from the .NET culture. Call it at start up, the store
     /// must be open. An unknown culture code throws.
     /// </summary>
     public void EnsureCultures(SystemCulture[] cultures) {
@@ -1632,7 +1626,7 @@ public class NodeStore : IDisposable {
                 try {
                     var cultureInfo = new CultureInfo(cult.Code);
                     newCult.NativeName = cultureInfo.NativeName;
-                    newCult.EnglishName = cultureInfo.EnglishName;
+                    newCult.Name = cultureInfo.EnglishName;
                 } catch {
                     throw new Exception("Invalid culture code: " + cult.Code);
                 }
@@ -1653,7 +1647,7 @@ public class NodeStore : IDisposable {
                 try {
                     var cultureInfo = new CultureInfo(cultureCode);
                     c.NativeName = cultureInfo.NativeName;
-                    c.EnglishName = cultureInfo.EnglishName;
+                    c.Name = cultureInfo.EnglishName;
                 } catch {
                     throw new Exception("Invalid culture code: " + cultureCode);
                 }

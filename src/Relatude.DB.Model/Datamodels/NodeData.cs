@@ -68,7 +68,6 @@ public interface INodeData {
     bool Contains(Guid propertyId);
     void EnsureReadOnly();
     bool TryGetValue(Guid propertyId, [MaybeNullWhen(false)] out object value);
-    string? DisplayName { get; set; }
     string? Address { get; set; }
     bool AutoAddress { get; set; }
 }
@@ -154,10 +153,6 @@ public abstract class NodeDataAbstract : INodeData {  // permanently readonly on
     public override string ToString() {
         return Id.ToString();
     }
-    public string? DisplayName {
-        get => _values.GetOrFallback<string?>(NodeConstants.SystemDisplayNamePropertyId, null);
-        set => _values.SetOrRemoveIfNull(NodeConstants.SystemDisplayNamePropertyId, string.IsNullOrEmpty(value) ? null : value);
-    }
     public string? Address {
         get => _values.GetOrFallback<string?>(NodeConstants.SystemAddressPropertyId, null);
         set => _values.SetOrRemoveIfNull(NodeConstants.SystemAddressPropertyId, value);
@@ -230,7 +225,6 @@ public class NodeDataOnlyId : INodeDataExternal { // readonly node data with pos
     public INodeDataInternal Copy() => throw new NA();
     public INodeDataExternal CopyExternal() => throw new NA();
     public override string ToString() => $"NodeDataOnlyId: {Id}";
-    public string? DisplayName { get => throw new NA(); set => throw new NA(); }
     public string? Address { get => throw new NA(); set => throw new NA(); }
     public bool AutoAddress { get => throw new NA(); set => throw new NA(); }
 }
@@ -267,7 +261,6 @@ public class NodeDataOnlyTypeAndId : INodeDataExternal { // readonly node data w
     public INodeDataInternal Copy() => throw new NA();
     public INodeDataExternal CopyExternal() => throw new NA();
     public override string ToString() => $"NodeDataOnlyTypeAndUId: {NodeType} {__Id}";
-    public string? DisplayName { get => throw new NA(); set => throw new NA(); }
     public string? Address { get => throw new NA(); set => throw new NA(); }
     public bool AutoAddress { get => throw new NA(); set => throw new NA(); }
 }
@@ -304,7 +297,6 @@ public class NodeDataOnlyTypeAndGuid : INodeDataExternal { // readonly node data
     public INodeDataInternal Copy() => throw new NA();
     public INodeDataExternal CopyExternal() => throw new NA();
     public override string ToString() => $"NodeDataOnlyTypeAndUId: {NodeType} {_id}";
-    public string? DisplayName { get => throw new NA(); set => throw new NA(); }
     public string? Address { get => throw new NA(); set => throw new NA(); }
     public bool AutoAddress { get => throw new NA(); set => throw new NA(); }
 }

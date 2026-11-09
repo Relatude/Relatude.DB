@@ -103,28 +103,4 @@ public partial class Datamodel {
         return null;
     }
 
-    /// <summary>
-    /// The property that is a node's name (<see cref="NodeTypeModel.NameProperty"/>): the type's own, else that of
-    /// the closest type it inherits from that names one, found as <see cref="GetIcon"/> finds an icon, so of two base
-    /// types as close as each other the first the type lists wins. One the type does not have is passed over. Null
-    /// when no type in its line names one.
-    /// </summary>
-    public PropertyModel? GetNameProperty(NodeTypeModel type) {
-        Dictionary<Guid, (PropertyModel property, NodeTypeModel declaring)>? has = null;
-        var seen = new HashSet<Guid> { type.Id };
-        var level = new List<NodeTypeModel> { type };
-        while (level.Count > 0) {
-            foreach (var t in level) {
-                if (t.NameProperty is not { } id || id == Guid.Empty) continue;
-                has ??= propertiesOf(type);
-                if (has.TryGetValue(id, out var found)) return found.property;
-            }
-            var next = new List<NodeTypeModel>();
-            foreach (var t in level) {
-                foreach (var id in t.Parents) if (seen.Add(id) && NodeTypes.TryGetValue(id, out var parent)) next.Add(parent);
-            }
-            level = next;
-        }
-        return null;
-    }
 }

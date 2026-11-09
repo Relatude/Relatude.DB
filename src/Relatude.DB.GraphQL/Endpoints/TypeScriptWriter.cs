@@ -267,7 +267,7 @@ public static class TypeScriptWriter {
         }
         var relation = type.Fields.FirstOrDefault(f => f.Source is FieldSource.RelationOne or FieldSource.ReferenceOne)
             ?? type.Fields.FirstOrDefault(f => f.Source is FieldSource.RelationMany or FieldSource.ReferenceMany);
-        if (relation != null) fields.Add(relation.Name + " { id displayName }");
+        if (relation != null) fields.Add(relation.Name + " { id name }");
         return fields;
     }
 }

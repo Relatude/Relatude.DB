@@ -461,7 +461,7 @@ export function NodeEditor({
     const one = count === 1 ? (nodes?.[0] ?? null) : null;
     if (count === 0) return;
     const confirmed = await showConfirm(
-      one ? `Delete ${one.displayName || "this node"}?` : `Delete ${formatCount(count)} nodes?`,
+      one ? `Delete ${one.name || "this node"}?` : `Delete ${formatCount(count)} nodes?`,
       one
         ? `The ${one.typeName} node is removed from the database. Relations and references to it are cleared with it. This cannot be undone from here - a revert window can take it back.`
         : `${formatCount(count)} nodes are removed from the database, all at once. Relations and references to them are cleared with them. This cannot be undone from here - a revert window can take it back.`,
@@ -580,7 +580,7 @@ export function NodeEditor({
           <div className="node-editor-title">
             <h3>
               <NodeTypeGlyph typeId={node.typeId} size={18} />
-              {node.displayName}
+              {node.name}
             </h3>
             <span className="muted">
               <button className="link-button" title={`Open ${node.fullName} in the data model`} onClick={() => openInDatamodel({ typeId: node.typeId })}>
@@ -623,7 +623,7 @@ export function NodeEditor({
           {nodes.slice(0, maxChips).map((n) => (
             <span className="node-chip" key={n.id} title={`${n.typeName} · id ${n.id} · #${n.intId}`}>
               <NodeTypeGlyph typeId={n.typeId} size={12} />
-              {n.displayName || n.typeName}
+              {n.name || n.typeName}
               <em>{n.typeName}</em>
               {onDeselect && selection.kind === "ints" && (
                 <button className="icon-button" title="Take this node out of the selection" onClick={() => onDeselect(n.intId)}>

@@ -61,10 +61,7 @@ internal class RelationProperty : Property {
         else { id = 0; return false; }
         return Definition.Store._guids.TryGetId(guid, out id);
     }
-    string displayNameOfNode(INodeData node) {
-        var name = Definition.Datamodel.NodeTypes[node.NodeType].GetDisplayName(node);
-        return string.IsNullOrEmpty(name) ? node.Id.ToString() : name;
-    }
+    static string nameOfNode(INodeData node) => NodeName.Of(node) ?? node.Id.ToString();
 
     public override Facets GetDefaultFacets(Facets? given, QueryContext ctx) {
         var facets = new Facets(Model);
@@ -80,7 +77,7 @@ internal class RelationProperty : Property {
                 if (clone.Value != null && tryCoerceToNodeId(clone.Value, out var id) && db._nodes.TryGet(id, out var node, out _)
                     && tryToOuter(node, ctx, out var outer)) {
                     clone.Value = outer;
-                    if (clone.ExplicitDisplayName == null) clone.DisplayName = displayNameOfNode(outer);
+                    if (clone.ExplicitDisplayName == null) clone.DisplayName = nameOfNode(outer);
                 }
                 facets.AddValue(clone); // unresolvable values stay as given and count 0
             }
@@ -92,7 +89,7 @@ internal class RelationProperty : Property {
                 // revision/context correct, same as include queries; a node with no revision
                 // visible in this context (e.g. unpublished) is simply not a bucket
                 if (!tryToOuter(node, ctx, out var outer)) continue;
-                values.Add(new FacetValue(outer) { DisplayName = displayNameOfNode(outer) });
+                values.Add(new FacetValue(outer) { DisplayName = nameOfNode(outer) });
             }
             // deterministic order: Facets.Sort() cannot sort node data values (not IComparable)
             foreach (var fv in values.OrderBy(v => v.DisplayName, StringComparer.Ordinal)) facets.AddValue(fv);

@@ -23,7 +23,6 @@ public abstract class PropertyModel {
     public bool NotFacet { get; set; } // opt-out: an indexed property is facetable unless set (relations opt IN via RelationPropertyModel.Facet instead)
     public bool CultureSensitive { get; set; }
     public IndexStorageType IndexType { get; set; }
-    public bool DisplayName { get; set; }
     public bool UniqueValues { get; set; }
     public abstract bool ExcludeFromTextIndex { get; set; }
     public string CodeName { get; set; } = string.Empty;

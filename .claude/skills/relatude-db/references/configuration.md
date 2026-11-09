@@ -341,6 +341,13 @@ Two ways, and they **compose** — the JSON sources are loaded first, then `OnDa
     "Type": "CompiledTypes",
     "Namespace": "VenueApp.Models",   // or a pattern: "VenueApp.Models.*" takes it and every namespace under it
     "Reference": "VenueApp"           // assembly name; null means the current project (the entry assembly)
+  },
+  {
+    "Id": "…",
+    "Name": "Native",                 // the engine's own model, IName among it; relatude new/init write it
+    "Type": "CompiledTypes",
+    "Namespace": "Relatude.DB.Native.Models",
+    "Reference": "Relatude.DB.NodeStore"
   }
 ]
 ```
@@ -359,6 +366,7 @@ Two ways, and they **compose** — the JSON sources are loaded first, then `OnDa
 ```csharp
 builder.AddRelatudeDB(options => {
     options.OnDatamodelInit = (dm, container) => {
+        dm.AddNamespace<ISystemUser>();     // the engine's own model: users, groups, cultures, IName
         dm.AddNamespace<IVenue>();          // every node & relation type in IVenue's namespace
         dm.Add<IEvent>();                   // one type, plus everything it references
         dm.Add(typeof(IAttendee));
@@ -389,7 +397,8 @@ A static, process-wide flag: `DatamodelSource.AutoDeduceRelations`, off by defau
 
 ### Other rules
 
-- `Add<T>(includeAllReferencedModels: true)` is the default, so adding one type pulls in the types it points at.
+- `Add<T>(includeAllReferencedModels: true)` is the default, so adding one type pulls in the types it points at — not the types it inherits.
+- Every type a node type inherits must be in the datamodel, or the build fails. That includes the engine's `IName`, which every named type inherits (`datamodels.md`, "Node names"): `dm.Add<IName>()` adds it alone, `dm.AddNamespace<ISystemUser>()` or the `Relatude.DB.Native.Models` source above the engine's whole model.
 - Static classes, enums and anything marked `[Exclude]` are skipped.
 - A non-interface node type **must** have a parameterless constructor, or `Add` throws naming the type.
 - Two types hashing to the same id throw `Different types have same Id` — that is the signal to pin `[Node(Id = …)]`.

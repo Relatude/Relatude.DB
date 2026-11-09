@@ -59,7 +59,7 @@ Everything is a **node**. A node has:
 | Ingredient | What it is |
 |---|---|
 | `Guid Id` | The public identity. The engine also keeps an internal `int __Id` for fast indexing. |
-| `NodeMeta Meta` | System-managed metadata: timestamps, culture, revision, ACL, display name, address. Never assign it; write it with `db.UpdateMeta(id, nameof(IInnerNodeMeta.ReadAccess), groupId)` (`references/datamodels.md`). |
+| `NodeMeta Meta` | System-managed metadata: timestamps, culture, revision, ACL, address. Never assign it; write it with `db.UpdateMeta(id, nameof(IInnerNodeMeta.ReadAccess), groupId)` (`references/datamodels.md`). |
 | Scalar properties | `string`, `int`, `decimal`, `DateTime`, `bool`, `Guid`, `GeoCoordinate`, `FileValue`, arrays… |
 | Embedded data | Owned sub-objects stored inline in the parent — `Embedded<T>`, `EmbeddedMap<TKey,TValue>`. |
 | References | A stored `Guid` (or `Guid[]`) pointing at other nodes — one-directional, no reverse index. |
@@ -74,18 +74,15 @@ A node type can be an interface, class, record or struct — but **default to in
 The reason goes beyond saving a file. The engine records **every interface a node type implements as a parent node type**, and C# lets a type implement any number of interfaces. So interface modelling gives you real multiple inheritance in the datamodel — shared, queryable facets that cut across the hierarchy. Classes, limited to one base, cannot express this. See `references/modelling-patterns.md`; this is the single highest-leverage thing to get right in a Relatude model.
 
 ```csharp
-using Relatude.DB.Common;      // FileValue, GeoCoordinate, IdKey
-using Relatude.DB.Datamodels;  // NodeMeta, RevisionType
-using Relatude.DB.Nodes;       // attributes, relation bases, Reference, References, EmbeddedMap
+using Relatude.DB.Common;         // FileValue, GeoCoordinate, IdKey
+using Relatude.DB.Datamodels;     // NodeMeta, RevisionType
+using Relatude.DB.Native.Models;  // IName
+using Relatude.DB.Nodes;          // attributes, relation bases, Reference, References, EmbeddedMap
 
 namespace VenueApp.Models;
 
-public interface IOrganizer {
+public interface IOrganizer : IName {   // IName gives it Name, the node's name
     Guid Id { get; set; }
-
-    [DisplayNameProperty]
-    [StringProperty(Indexed = true, MaxLength = 200, IndexedByWords = true)]
-    string Name { get; set; }
 
     [StringProperty(StringType = StringValueType.Email, UniqueValues = true)]
     string ContactEmail { get; set; }
@@ -131,7 +128,7 @@ Writing a class adds four obligations:
 public class Organizer : IOrganizer {
     public Guid Id { get; set; }
 
-    // Attributes live on IOrganizer — repeating them here has no effect.
+    // Attributes live on IOrganizer and IName — repeating them here has no effect.
     public string Name { get; set; } = string.Empty;
     public string ContactEmail { get; set; } = string.Empty;
     public string Slug { get; set; } = string.Empty;
@@ -150,7 +147,7 @@ Records work with the `record Foo() { … }` form (to satisfy the parameterless-
 
 ### Pin stable ids early
 
-Without an explicit id the engine hashes the type's full name, so renaming a type or moving its namespace creates a **brand-new type with no data**. Pin `[Node(Id = …)]` and `[Relation(Id = …)]` at the start of a project — it costs nothing then and is painful later.
+Without an explicit id the engine hashes the type's full name, so renaming a type or moving its namespace creates a **brand-new type with no data**. Pin `[Node(Id = …)]` and `[Relation(Id = …)]` at the start of a project — it costs nothing then and is painful later. A property's id is derived from its type's id and member name; pin it with the attribute's `Id` to rename it, or read values stored under an id the type no longer has as another property with `[FormerProperty]` on the type (see "Node names" below).
 
 ```csharp
 [Node(
@@ -195,7 +192,29 @@ Two details that trip people up, both in `references/datamodels.md`:
 
 `LegalValues`, `RegularExpression`, min/max, length bounds, `UniqueValues` and `MinNoInstances`/`MaxNoInstances` are all **enforced at write time** — a violating transaction fails rather than silently storing bad data. A `RegularExpression` also has to match the empty string, so the `Slug` above is required; write `^([a-z0-9-]+)?$` for an optional value. String `LegalValues` always let the empty string through, and enums are not held to their `LegalValues`. On strings, `Trim` and `CaseTransform` rewrite the value before these checks (and before it is stored), `LegalCharacters` restricts the characters, `RegularExpressionMessage` is the error text for a pattern, and `UniqueValues` ignores case unless `CaseSensitive = true`. Refused values throw `ValueConstraintException` with a message fit for end users.
 
-Six marker attributes tag structural roles, at most one property per type per role: `[DisplayNameProperty]`, `[AddressProperty]`, `[PublicIdProperty]`, `[InternalIdProperty]`, `[CreatedUtcProperty]`, `[ChangedUtcProperty]`.
+Five marker attributes tag structural roles, at most one property per type per role: `[AddressProperty]`, `[PublicIdProperty]`, `[InternalIdProperty]`, `[CreatedUtcProperty]`, `[ChangedUtcProperty]`.
+
+### Node names: `IName`
+
+**A node's name is the one property `IName.Name`** (`Relatude.DB.Native.Models`, `[StringProperty(Indexed = true)]`, id `NodeConstants.NamePropertyId`). A type has a name if and only if it inherits `IName` (`NodeTypeModel.HasName`): an interface inherits it and declares no `Name` of its own (redeclaring it fails the build), a class implements it with a plain `public string Name { get; set; } = "";` and no attribute. Nothing is guessed from other properties: a type without `IName`, or an empty `Name`, has no name. The admin UI shows a node by its name, else its address, else its id; GraphQL has it as the system field `name`; relation and reference facets label buckets with it (else the related node's id); `[RelationProperty(TextIndexRelatedName = true)]` puts related nodes' names into a node's text. `NodeName.Of(nodeData)` (`Relatude.DB.Datamodels`) gives it from an `INodeData`, or null. It has a value index only, so `MatchesSearch` does not apply to it (`WhereSearch` finds names through the node's text index). That one value index holds every named type's names, so one query sorts or filters across types:
+
+```csharp
+db.Query<IName>().OrderBy(n => n.Name).Page(0, 50).Execute();   // every named type, A to Z
+db.Query<IName>().Where(n => n.Name == "Oslo").Execute();
+```
+
+The datamodel must contain `IName`, like every type a node type inherits: `dm.Add<IName>()`, or `dm.AddNamespace<ISystemUser>()` for the engine's whole model (`relatude new` / `relatude init` write a source for `Relatude.DB.Native.Models`). The engine's `ISystemUser`, `ISystemUserGroup`, `ISystemCollection` and `ISystemCulture` inherit it (a culture's `Name` is its English name, beside `NativeName` and `CultureCode`).
+
+To move a type that stored its own `Name` or `Title` onto `IName` without losing the values, name the old property's id with `[FormerProperty]` (`AllowMultiple`): values its nodes stored under a property the type no longer has are read as the property named, one of its own or inherited; a node that also has a value under the new property keeps that one; nodes are stored under the new property when next written; types inheriting it read the same way. The id is the one pinned with `Id =`, or the one derived from the type's id and member name, as the datamodel JSON in the database's `datamodels` folder shows. The datamodel editor warns (`own-name`) about a property of a type's own called `Name` and suggests exactly this.
+
+```csharp
+[Node]
+[FormerProperty("42c0ded9-2148-eff3-b91f-d686f8b2b3da", nameof(IName.Name))] // its own Name, stored before
+public class Brand : IName {
+    public Guid Id { get; set; }
+    public string Name { get; set; } = "";
+}
+```
 
 ## Relations, references, embedded — the decision you make most often
 
@@ -399,16 +418,23 @@ They are additive: JSON sources load first, then `OnDatamodelInit` adds to the s
   "Type": "CompiledTypes",           // or RuntimeTypes (model files on disk, always JSON)
   "Namespace": "VenueApp.Models",    // matched exactly, not by prefix
   "Reference": "VenueApp"            // assembly name; null = the entry assembly
+}, {
+  "Type": "CompiledTypes",           // the engine's own model, IName among it
+  "Namespace": "Relatude.DB.Native.Models",
+  "Reference": "Relatude.DB.NodeStore"
 }]
 ```
 
 ```csharp
 // Program.cs — refactor-safe, fails at compile time instead of at boot
 options.OnDatamodelInit = (dm, container) => {
-    dm.AddNamespace<IVenue>();     // every node & relation type in that namespace
-    dm.Add<IEvent>();              // one type plus everything it references
+    dm.AddNamespace<ISystemUser>(); // the engine's own model: users, groups, cultures, IName
+    dm.AddNamespace<IVenue>();      // every node & relation type in that namespace
+    dm.Add<IEvent>();               // one type plus everything it references (not the types it inherits)
 };
 ```
+
+Every type a node type inherits must be in the datamodel, `IName` included, or the build fails.
 
 Prefer code when the model ships with the app; prefer JSON when the model must change without a rebuild or differs per deployment. The kinds are `CompiledTypes` (compiled classes, by assembly + namespace) and `RuntimeTypes` (model files on disk read at open, always JSON). The older names `TypeReference`/`AssemblyNameReference` and `TextFiles`/`JsonFile`/`CSharpCodeFile` still read, but on load a settings file's `TypeReference` is rewritten to `CompiledTypes` and its file-based sources are dropped — compiling C# model files at open is gone. A `CompiledTypes` source with `SourceCodePath` can be written by the admin UI model editor; with `GenerateModelFile` too, the editor owns that folder and regenerates every file in it at activation.
 
@@ -472,6 +498,7 @@ The full checklist is `references/pitfalls.md` — read it before finishing any 
 - **`Reference`/`References` `foreach` yields nothing unless preloaded.** Use `.Get()` / `.TryGet(out …)` or `.Preload(...)`.
 - **Never construct a `NodeMeta`.** Default to `NodeMeta.Empty` and never assign it; write meta through `db.UpdateMeta`.
 - **Put attributes on the interface, not the implementing class.**
+- **A node's name is `IName.Name` alone.** A `Name` or `Title` a type declares itself is an ordinary property; inherit `IName` (and keep stored values with `[FormerProperty]`), and keep `IName` in the datamodel.
 - **Two parent interfaces may not declare the same property name**, and **property overriding is not supported.** Both are caught at model-build time.
 - **Nullable value types are not supported** — no `int?`, `DateTime?`, `GeoCoordinate?`. Use the type's empty value; that is what `GeoCoordinate.Empty` and `FileValue.Empty` are for.
 - **Never `OrderBy` a `GeoCoordinate`.** Storage order follows a Z-order curve — spatially coherent, meaningless to a human. Filter by radius in the engine, then sort by `DistanceTo` on the materialised page.
@@ -493,7 +520,7 @@ The full checklist is `references/pitfalls.md` — read it before finishing any 
 ## How to behave with this skill
 
 1. **Default to interface-only node types.** Offer a paired class only when the user has a stated reason (instantiation without a store, behaviour on the type, external deserialisation), and explain the four extra obligations when you do.
-2. **Reach for facet interfaces when the model has more than two or three node types.** Cross-cutting properties like a title, a slug, timestamps or a location belong in a small shared interface. Read `references/modelling-patterns.md` and show the user the query-time payoff — one indexed query across heterogeneous types instead of one query per type merged in memory.
+2. **Reach for facet interfaces when the model has more than two or three node types.** Cross-cutting properties like a slug, timestamps or a location belong in a small shared interface; the name is `IName`, which such an interface inherits. Read `references/modelling-patterns.md` and show the user the query-time payoff — one indexed query across heterogeneous types instead of one query per type merged in memory.
 3. **Set `Indexed = true` deliberately** on everything you filter, sort or facet, and say why when you do.
 4. **Prefer builder methods to LINQ on result sets**, `Page` to `Skip`/`Take`, builder `Count()` to `Execute().Count()`, and `SelectId()` when only ids are needed.
 5. **Use the expression overloads** of `Relate`, `WhereRelates`, `Include`, `Preload` and `FileUploadAsync` — they are readable and type-checked.

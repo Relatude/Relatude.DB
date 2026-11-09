@@ -387,10 +387,9 @@ sealed class UIQuery {
     /// </summary>
     static Column[] tableColumns(Datamodel dm, NodeTypeModel type) => [.. metaColumns, .. propertyColumns(dm, type).Take(maxTableColumns)];
     static IEnumerable<Column> propertyColumns(Datamodel dm, NodeTypeModel type) {
-        var display = type.DisplayProperties.Select(p => p.Id).ToHashSet();
         return type.AllProperties.Values
             .Where(p => !p.Internal)
-            .OrderBy(p => display.Contains(p.Id) ? 0 : 1)
+            .OrderBy(p => p.Id == NodeConstants.NamePropertyId ? 0 : 1)
             .ThenBy(p => p.NodeType == type.Id ? 0 : 1)
             .ThenBy(p => p.CodeName, StringComparer.OrdinalIgnoreCase)
             .Select(p => new Column(p.Id.ToString(), p.CodeName, typeNameOf(dm, p), p));
@@ -478,7 +477,7 @@ sealed class UIQuery {
         if (column.Property == null) {
             return column.Key switch {
                 "__type" => typeName(dm, n),
-                "__name" => displayNameOf(dm, n),
+                "__name" => nameTextOf(dm, n),
                 "__id" => n.Id.ToString(),
                 "__address" => n.Address ?? "",
                 "__created" => utc(n.CreatedUtc),
@@ -505,7 +504,7 @@ sealed class UIQuery {
     }
     static string referenceName(NodeStore s, Datamodel dm, Guid id) {
         if (id == Guid.Empty) return "";
-        return s.Datastore.TryGet(id, out var n, adminContext) ? displayNameOf(dm, n) : id.ToString();
+        return s.Datastore.TryGet(id, out var n, adminContext) ? nameTextOf(dm, n) : id.ToString();
     }
     static string utc(DateTime value) => value == default ? "" : value.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
 
@@ -760,7 +759,7 @@ sealed class UIQuery {
         var summary = new List<object>();
         object? snippet = null;
         if (type != null && columns == null) {
-            var shown = type.DisplayProperties.Select(p => p.Id).ToHashSet(); // already in the title
+            var shown = new HashSet<Guid>(); // already in the title
             if (nameProperty.HasValue) shown.Add(nameProperty.Value);
             var candidates = new List<(PropertyModel Property, string Text)>();
             foreach (var property in type.AllProperties.Values.OrderBy(p => p.CodeName, StringComparer.OrdinalIgnoreCase)) {
@@ -800,7 +799,7 @@ sealed class UIQuery {
             IntId = n.__Id,
             TypeId = n.NodeType,
             TypeName = type?.CodeName ?? n.NodeType.ToString(),
-            DisplayName = name,
+            Name = name,
             NameSample = nameSample != null && matched(nameSample) ? sampleView(nameSample) : null,
             Snippet = snippet,
             n.Address,
@@ -849,45 +848,19 @@ sealed class UIQuery {
         or PropertyType.Long or PropertyType.Double or PropertyType.Float or PropertyType.Decimal
         or PropertyType.Boolean or PropertyType.DateTime or PropertyType.DateTimeOffset or PropertyType.TimeSpan;
     static string truncate(string s, int max) => s.Length <= max ? s : s[..max] + "…";
-    static string displayNameOf(Datamodel dm, INodeData n) => nameOf(dm, n).Name;
+    static string nameTextOf(Datamodel dm, INodeData n) => nameOf(dm, n).Name;
 
-    // Names a node has to be recognized by even when the model never said how. A model that marks
-    // its display name properties gets exactly what it asked for; one that does not (most models
-    // that were never written for a UI) would otherwise leave every row reading as a guid, so a
-    // likely looking text property is used instead - and the caller is told which one, to keep it
-    // out of the summary line underneath.
-    static readonly string[] likelyNameProperties = ["Name", "Title", "Heading", "Subject", "Code", "Key"];
-    const int maxFallbackNameLength = 120;
+    // What a node is shown by: its name (IName.Name, NodeName), and the caller is told it came from that property, to
+    // keep it out of the summary line underneath. Nothing is guessed: a node without one shows its address or its id.
     internal static (string Name, Guid? FromProperty) nameOf(Datamodel dm, INodeData n, Func<Guid, bool>? shown = null) {
-        if (dm.NodeTypes.TryGetValue(n.NodeType, out var type)) {
-            var declared = type.GetDisplayName(n);
-            if (!string.IsNullOrWhiteSpace(declared)) return (declared, null);
-        }
-        if (!string.IsNullOrWhiteSpace(n.DisplayName)) return (n.DisplayName!, null);
-        if (type != null) {
-            foreach (var likely in likelyNameProperties) {
-                if (!type.AllPropertiesByName.TryGetValue(likely, out var property)) continue;
-                if (shown != null && !shown(property.Id)) continue;
-                if (shortText(n, property) is string byName) return (byName, property.Id);
-            }
-            foreach (var property in type.AllProperties.Values.OrderBy(p => p.CodeName, StringComparer.OrdinalIgnoreCase)) {
-                if (property.Internal || property is not StringPropertyModel || !property.Indexed) continue;
-                if (shown != null && !shown(property.Id)) continue;
-                if (shortText(n, property) is string indexed) return (indexed, property.Id);
-            }
+        if (shown == null || shown(NodeConstants.NamePropertyId)) {
+            if (NodeName.Of(n) is { } name) return (name.Trim(), NodeConstants.NamePropertyId);
         }
         // a reader limited to the properties it is shown (an endpoint's facet search) gets no address, which
         // no endpoint exposes, and no guid in place of a name: a card with nothing to say says nothing
         if (shown != null) return ("", null);
         if (!string.IsNullOrWhiteSpace(n.Address)) return (n.Address!, null);
         return (n.Id.ToString(), null);
-    }
-    // a usable name: a string property with a short enough value to be one
-    static string? shortText(INodeData n, PropertyModel property) {
-        if (property.Internal || property is not StringPropertyModel) return null;
-        if (!n.TryGetValue(property.Id, out var value) || value is not string s) return null;
-        s = s.Trim();
-        return s.Length == 0 || s.Length > maxFallbackNameLength ? null : s;
     }
 
     // ---- one node, as a form ----
@@ -909,7 +882,7 @@ sealed class UIQuery {
             TypeId = type.Id,
             TypeName = type.CodeName,
             type.FullName,
-            DisplayName = displayNameOf(dm, n),
+            Name = nameTextOf(dm, n),
             n.Address,
             CreatedUtc = n.CreatedUtc,
             ChangedUtc = n.ChangedUtc,
@@ -965,7 +938,7 @@ sealed class UIQuery {
             n.Id,
             IntId = n.__Id,
             TypeName = type?.CodeName,
-            DisplayName = displayNameOf(dm, n),
+            Name = nameTextOf(dm, n),
             n.Address,
             n.AutoAddress,
             n.CreatedUtc,
@@ -1001,7 +974,7 @@ sealed class UIQuery {
     static string? nameOfId(NodeStore s, Guid id) {
         if (id == Guid.Empty) return null;
         if (wellKnownGroup(id) is string group) return group;
-        return s.Datastore.TryGetNodeMeta(id, out var meta, adminContext) && !string.IsNullOrEmpty(meta.DisplayName) ? meta.DisplayName : null;
+        return s.Datastore.TryGet(id, out var n, adminContext) ? NodeName.Of(n) : null;
     }
     static object idView(NodeStore s, Guid id) => new { Value = id == Guid.Empty ? null : id.ToString(), Name = nameOfId(s, id) };
     // mirrors NodeTypesByIds.findUserGroup: the node's own value, else the type's default, else the database's
@@ -1136,7 +1109,7 @@ sealed class UIQuery {
             Utc = data?.EstimatedCreationUtc ?? node.ChangedUtc,
             data?.Source,
             TypeName = type?.CodeName ?? node.NodeType.ToString(),
-            DisplayName = displayNameOf(dm, node),
+            Name = nameTextOf(dm, node),
             Values = values,
             Changes = changes,
         };
@@ -1196,7 +1169,7 @@ sealed class UIQuery {
                     view.Editor = "relation";
                     view.IsMany = relation.IsMany;
                     view.TargetTypes = [.. relatedTypes(dm, relation).Select(t => (object)new { t.Id, Name = t.CodeName })];
-                    view.Targets = [.. related(s, property.Id, n.Id).Select(r => (object)new { r.Id, Name = displayNameOf(dm, r), TypeName = typeName(dm, r) })];
+                    view.Targets = [.. related(s, property.Id, n.Id).Select(r => (object)new { r.Id, Name = nameTextOf(dm, r), TypeName = typeName(dm, r) })];
                     break;
                 }
             case ReferencesPropertyModel references: {
@@ -1428,7 +1401,7 @@ sealed class UIQuery {
         return [.. values.Select((v, i) => (object)new { Value = v, Label = names != null && i < names.Length ? names[i] : v.ToString(CultureInfo.InvariantCulture) })];
     }
     static IEnumerable<string> notes(PropertyModel property, NodeTypeModel type) {
-        if (property.CodeName == type.NameOfDisplayNameProperty) yield return "display name";
+        if (property.Id == NodeConstants.NamePropertyId) yield return "name";
         if (property.CodeName == type.NameOfAddressProperty) yield return "address";
         if (property.CodeName == type.NameOfCreatedUtcProperty) yield return "created utc";
         if (property.CodeName == type.NameOfChangedUtcProperty) yield return "changed utc";
@@ -1467,7 +1440,7 @@ sealed class UIQuery {
         foreach (var id in ids) {
             if (id == Guid.Empty) continue;
             if (s.Datastore.TryGet(id, out var n, adminContext)) {
-                yield return new { Id = id, Name = displayNameOf(dm, n), TypeName = typeName(dm, n) };
+                yield return new { Id = id, Name = nameTextOf(dm, n), TypeName = typeName(dm, n) };
             } else {
                 yield return new { Id = id, Name = id.ToString(), TypeName = (string?)null }; // a reference to a node that is gone
             }
@@ -1732,7 +1705,7 @@ sealed class UIQuery {
         transaction.Insert(node, out var id);
         await transaction.ExecuteAsync();
         // as a node reference, so a picker that made this node can show it without reading it back
-        return new { Id = id, Name = s.Datastore.TryGet(id, out var written, adminContext) ? displayNameOf(dm, written) : type.CodeName, TypeName = type.CodeName };
+        return new { Id = id, Name = s.Datastore.TryGet(id, out var written, adminContext) ? nameTextOf(dm, written) : type.CodeName, TypeName = type.CodeName };
     }
 
     /// <summary>
@@ -1952,7 +1925,7 @@ sealed class UIQuery {
             if (s.Datastore.Query(paged(q, 0, take), [], adminContext) is not IStoreNodeDataCollection nodes) return [];
             return [.. nodes.NodeValues.Select(n => (object)new {
                 n.Id,
-                Name = displayNameOf(dm, n),
+                Name = nameTextOf(dm, n),
                 TypeName = typeName(dm, n),
                 TypeId = n.NodeType,
                 Icon = dm.NodeTypes.TryGetValue(n.NodeType, out var type) ? dm.GetIcon(type) : null,
@@ -1978,7 +1951,7 @@ sealed class UIQuery {
             foreach (var n in nodes.NodeValues) {
                 if (found.Count >= take) break;
                 if (!seen.Add(n.Id)) continue; // the same node can match through two of the given types
-                found.Add(new { n.Id, Name = displayNameOf(dm, n), TypeName = typeName(dm, n) });
+                found.Add(new { n.Id, Name = nameTextOf(dm, n), TypeName = typeName(dm, n) });
             }
         }
         return found;
@@ -2017,7 +1990,7 @@ sealed class UIQuery {
             case DateTimeOffset dto: return dto == default ? "" : dto.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
             case TimeSpan ts: return ts.ToString("c", CultureInfo.InvariantCulture);
             case Guid g: return g == Guid.Empty ? "" : g.ToString();
-            case INodeData n: return string.IsNullOrEmpty(n.DisplayName) ? n.Id.ToString() : n.DisplayName!;
+            case INodeData n: return NodeName.Of(n) ?? n.Id.ToString();
             case FileValue file: return file.IsEmpty ? "" : file.Name;
             case PasswordValue password: return password.IsSet ? password.ToString() : ""; // never the password nor its stored form
             case GeoCoordinate geo: return geo.IsEmpty ? "" : geo.ToString();
@@ -3046,7 +3019,7 @@ sealed class UIQuery {
                     break;
                 }
             }
-            result.Add(new { Id = id, Name = rules != null ? rules.Name(dm, n) : displayNameOf(dm, n), Image = image, Version = version, Width = width, Height = height });
+            result.Add(new { Id = id, Name = rules != null ? rules.Name(dm, n) : nameTextOf(dm, n), Image = image, Version = version, Width = width, Height = height });
         }
         return new { Cards = result };
     }

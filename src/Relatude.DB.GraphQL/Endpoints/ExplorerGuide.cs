@@ -95,7 +95,7 @@ public static class ExplorerGuide {
                 {
                   {{L}}(pageSize: 5) {
                     totalCount
-                    items { id displayName }
+                    items { id name }
                   }
                 }
                 """, note: $"{L} returns a page of {T} nodes; totalCount counts every match, not only the page.");
@@ -107,7 +107,7 @@ public static class ExplorerGuide {
                     pageIndex
                     pageSize
                     durationMs
-                    items { id displayName }
+                    items { id name }
                   }
                 }
                 """, new { page = 1, pageSize = 3 },
@@ -168,7 +168,7 @@ public static class ExplorerGuide {
                     {
                       {{range.Root.List.Name}}(filter: { {{range.Field.Name}}: { gte: {{lo}}, lte: {{hi}} } }, pageSize: 5) {
                         totalCount
-                        items { id displayName {{leaf(range.Root.Type, range.Field.Name)}} }
+                        items { id name {{leaf(range.Root.Type, range.Field.Name)}} }
                       }
                     }
                     """, note: range.Value != null ? $"The range is drawn around the {range.Field.Name} of a stored {range.Root.Type.Name}." : null);
@@ -185,7 +185,7 @@ public static class ExplorerGuide {
                     {
                       either: {{logicRoot.List.Name}}(filter: { or: [{ {{a.Name}}: { eq: {{av}} } }, {{second}}] }, pageSize: 5) {
                         totalCount
-                        items { id displayName }
+                        items { id name }
                       }
                       allBut: {{logicRoot.List.Name}}(filter: { not: { {{a.Name}}: { eq: {{av}} } } }, pageSize: 5) {
                         totalCount
@@ -203,7 +203,7 @@ public static class ExplorerGuide {
                         {
                           {{enumFilter.Root.List.Name}}(filter: { {{enumFilter.Field.Name}}: { eq: {{name}} } }, pageSize: 5) {
                             totalCount
-                            items { id displayName {{leaf(enumFilter.Root.Type, enumFilter.Field.Name)}} }
+                            items { id name {{leaf(enumFilter.Root.Type, enumFilter.Field.Name)}} }
                           }
                         }
                         """, note: $"{et.Name} has the values {string.Join(", ", et.Values.Take(8).Select(v => v.Name))}{(et.Values.Count > 8 ? "…" : "")}.");
@@ -215,7 +215,7 @@ public static class ExplorerGuide {
                 query Search($text: String!) {
                   {{searchRoot.List.Name}}(search: $text, pageSize: 5) {
                     totalCount
-                    items { id displayName }
+                    items { id name }
                   }
                 }
                 """, new { text = wordOf(searchRoot) ?? "example" },
@@ -235,7 +235,7 @@ public static class ExplorerGuide {
                 add("order", $$"""
                     {
                       {{orderRoot.List.Name}}(orderBy: {{by.Name}}, descending: true, pageSize: 5) {
-                        items { id displayName {{leaf(orderRoot.Type, by.Name)}} }
+                        items { id name {{leaf(orderRoot.Type, by.Name)}} }
                       }
                     }
                     """, note: $"{orderRoot.OrderBy.Name} lists what {orderRoot.List.Name} can be ordered by: {string.Join(", ", orderRoot.OrderBy.Values.Take(8).Select(v => v.Name))}{(orderRoot.OrderBy.Values.Count > 8 ? "…" : "")}.");
@@ -246,14 +246,14 @@ public static class ExplorerGuide {
                 var rel = relationOf(relRoot.Type)!;
                 var target = rel.Type.UnwrapNamed() as IGqlCompositeType;
                 var deeper = target == null ? null : relationOf(target);
-                var inner = new List<string> { "id", "displayName" };
-                if (deeper != null) inner.Add($"{deeper.Name}{top(deeper)} {{ id displayName }}");
+                var inner = new List<string> { "id", "name" };
+                if (deeper != null) inner.Add($"{deeper.Name}{top(deeper)} {{ id name }}");
                 add("relations", $$"""
                     {
                       {{relRoot.List.Name}}(pageSize: 3) {
                         items {
                           id
-                          displayName
+                          name
                           {{rel.Name}}{{top(rel)}} {
                             {{lines(inner, 8)}}
                           }
@@ -275,7 +275,7 @@ public static class ExplorerGuide {
                     query RelatedTo($id: ID!) {
                       {{r.List.Name}}(filter: { {{f.Name}}: { eq: $id } }, pageSize: 5) {
                         totalCount
-                        items { id displayName{{(output != null ? " " + f.Name + " { id displayName }" : "")}} }
+                        items { id name{{(output != null ? " " + f.Name + " { id name }" : "")}} }
                       }
                     }
                     """, new { id = targetNode?.Id.ToString() ?? IdPlaceholder.Replace("a node", "a related node") },
@@ -286,7 +286,7 @@ public static class ExplorerGuide {
                 query ByIds($ids: [ID!]) {
                   {{L}}(ids: $ids) {
                     totalCount
-                    items { id displayName }
+                    items { id name }
                   }
                 }
                 """, new { ids = new[] { main.Node?.Id.ToString() ?? IdPlaceholder } },
@@ -299,7 +299,7 @@ public static class ExplorerGuide {
                       {{fileRoot.Root.List.Name}}(pageSize: 5) {
                         items {
                           id
-                          displayName
+                          name
                           {{fileRoot.Field.Name}} {
                             name size contentType width height
                             url
@@ -318,7 +318,7 @@ public static class ExplorerGuide {
                       {{geoRoot.Root.List.Name}}(pageSize: 5) {
                         items {
                           id
-                          displayName
+                          name
                           {{geoRoot.Field.Name}} { latitude longitude }
                         }
                       }
@@ -331,7 +331,7 @@ public static class ExplorerGuide {
                   {{L}}(page: $page, pageSize: $pageSize) {
                     pageIndex
                     pageSize
-                    items { id displayName }
+                    items { id name }
                   }
                 }
                 """, new { pageSize = 2 }, "pageSize comes from the variables; page is not given there, so its default 0 is used.");
@@ -340,19 +340,19 @@ public static class ExplorerGuide {
             add("aliases", by2 != null ? $$"""
                 {
                   lowest: {{L}}(orderBy: {{by2.Name}}, pageSize: 3) {
-                    items { id displayName {{leaf(main.Type, by2.Name)}} }
+                    items { id name {{leaf(main.Type, by2.Name)}} }
                   }
                   highest: {{L}}(orderBy: {{by2.Name}}, descending: true, pageSize: 3) {
-                    items { id displayName {{leaf(main.Type, by2.Name)}} }
+                    items { id name {{leaf(main.Type, by2.Name)}} }
                   }
                 }
                 """ : $$"""
                 {
                   firstPage: {{L}}(pageSize: 3) {
-                    items { id displayName }
+                    items { id name }
                   }
                   secondPage: {{L}}(page: 1, pageSize: 3) {
-                    items { id displayName }
+                    items { id name }
                   }
                 }
                 """, note: "An alias names a field in the result, so the same field can be asked for twice with different arguments.");
@@ -381,7 +381,7 @@ public static class ExplorerGuide {
                         items {
                           __typename
                           id
-                          displayName
+                          name
                           ... on {{sub!.Name}} {
                             {{own!.Name}}{{subselection(own)}}
                           }
@@ -397,7 +397,7 @@ public static class ExplorerGuide {
                     totalCount @skip(if: $withDetails)
                     items {
                       id
-                      displayName
+                      name
                       createdUtc @include(if: $withDetails)
                       changedUtc @include(if: $withDetails)
                     }
@@ -410,7 +410,7 @@ public static class ExplorerGuide {
                   __typename
                   {{L}}(pageSize: 2) {
                     __typename
-                    items { __typename id displayName }
+                    items { __typename id name }
                   }
                 }
                 """, note: "__typename can be asked for on any object, the root included.");
@@ -420,18 +420,18 @@ public static class ExplorerGuide {
                 {
                   {{L}}(pageSize: 2) {
                     totalCount
-                    items { id displayName }
+                    items { id name }
                   }
                   {{other.List.Name}}(pageSize: 2) {
                     totalCount
-                    items { id displayName }
+                    items { id name }
                   }
                 }
                 """ : $$"""
                 {
                   {{L}}(pageSize: 2) {
                     totalCount
-                    items { id displayName }
+                    items { id name }
                   }
                   __typename
                 }
@@ -446,7 +446,7 @@ public static class ExplorerGuide {
 
                 query FirstThree {
                   {{L}}(pageSize: 3) {
-                    items { id displayName createdUtc }
+                    items { id name createdUtc }
                   }
                 }
                 """, note: "A request with several operations names the one to run in operationName.");
@@ -463,7 +463,7 @@ public static class ExplorerGuide {
                 {
                   {{view.Name}}(pageSize: 5) {
                     totalCount
-                    items { id displayName }
+                    items { id name }
                   }
                 }
                 """, note: $"{view.Name} starts from the query {view.ViewQuery}; filter, search, orderBy and paging work on top of it.");
@@ -509,7 +509,7 @@ public static class ExplorerGuide {
                 .FirstOrDefault(x => x.Create != null);
             if (writable.Create?.GetArgument("input")?.Type.UnwrapNamed() is GqlInputObjectType input) {
                 var r = writable.Root;
-                var sel = "id displayName";
+                var sel = "id name";
                 add("create", $$"""
                     mutation Create($input: {{input.Name}}!) {
                       {{writable.Create.Name}}(input: $input) { {{sel}} }
@@ -612,7 +612,7 @@ public static class ExplorerGuide {
     }
 
     static string subselection(GqlField f) => f.Type.UnwrapNamed() switch {
-        IGqlCompositeType c when c.Fields.Any(x => x.Name == "displayName") => " { id displayName }",
+        IGqlCompositeType c when c.Fields.Any(x => x.Name == "name") => " { id name }",
         IGqlCompositeType c => " { " + string.Join(" ", c.Fields.Where(x => x.Type.UnwrapNamed() is not IGqlCompositeType).Take(3).Select(x => x.Name)) + " }",
         _ => "",
     };
@@ -644,18 +644,13 @@ public static class ExplorerGuide {
     };
 
     static string named(NodeTypeModel type, INodeData node) {
-        var name = DisplayName(type, node);
+        var name = NameOf(node);
         return string.IsNullOrWhiteSpace(name) ? "" : $" ({name})";
     }
 
-    /// <summary>The node's display name, as the endpoint's displayName field gives it.</summary>
-    public static string? DisplayName(NodeTypeModel type, INodeData node) {
-        string? name;
-        if (!string.IsNullOrWhiteSpace(node.DisplayName)) name = node.DisplayName;
-        else {
-            try { name = type.GetDisplayName(node); } catch { name = null; }
-        }
-        name = name?.Trim();
+    /// <summary>The node's name, as the endpoint's name field gives it, cut short for a label.</summary>
+    public static string? NameOf(INodeData node) {
+        var name = NodeName.Of(node)?.Trim();
         return string.IsNullOrEmpty(name) ? null : name.Length > 60 ? name[..60] + "…" : name;
     }
 

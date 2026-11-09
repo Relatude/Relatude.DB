@@ -2,6 +2,9 @@ namespace Relatude.DB.Datamodels.Properties;
 public class GuidArrayPropertyModel : PropertyModel, IPropertyModelUniqueContraints {
     public override bool ExcludeFromTextIndex { get; set; } = true;
     public override PropertyType PropertyType { get => PropertyType.GuidArray; }
+    /// <summary>What each Guid is the id of, as <see cref="GuidPropertyModel.GuidType"/> says for one.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public GuidValueType GuidType { get; set; }
     public override string? GetDefaultDeclaration() => "[]";
     public override object GetDefaultValue() => Array.Empty<Guid>();
     public static Guid[] ForceValueType(object? value, out bool changed) {

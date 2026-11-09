@@ -172,18 +172,22 @@ internal static class BuildUtils {
             }
         }
         readPropertyOverrides(c, type, all);
-        if (!string.IsNullOrWhiteSpace(nodeAttr.NameProperty)) c.NameProperty = namePropertyId(type, nodeAttr.NameProperty.Trim());
+        readFormerProperties(c, type);
         return c;
     }
-    // [Node(NameProperty = ...)]: the id of the property the member is, one the type declares or inherits
-    static Guid namePropertyId(Type type, string name) {
-        var where = "The [Node] attribute of " + type.FullName + " names " + name + " as the NameProperty";
-        var member = findMember(type, name) ?? throw new Exception(where + ", but the type has no member of that name. ");
-        if (member.GetCustomAttribute<ExcludeAttribute>() != null) throw new Exception(where + ", which is marked [Exclude] and so is not a property of the model. ");
-        var declaringMember = findMember(GetBaseDeclaringType(member), name) ?? member;
-        var valueType = declaringMember is PropertyInfo pi ? pi.PropertyType : ((FieldInfo)declaringMember).FieldType;
-        if (isSystemMember(declaringMember, valueType)) throw new Exception(where + ", which is a system member of the node (its id, meta, dates, display name or address) rather than a property. ");
-        return BuildUtilsProperties.GetPropertyId(declaringMember);
+    // [FormerProperty]: the former property's id, and the id of the property it is read as, one the type declares or inherits
+    static void readFormerProperties(NodeTypeModel c, Type type) {
+        foreach (var a in type.GetCustomAttributes<FormerPropertyAttribute>(false)) {
+            var where = "The [FormerProperty] of " + type.FullName + " reads " + a.Id + " as " + a.Property;
+            if (!Guid.TryParse(a.Id, out var former)) throw new Exception(where + ", but " + a.Id + " is not a property id. ");
+            var member = findMember(type, a.Property) ?? throw new Exception(where + ", but the type has no member of that name. ");
+            if (member.GetCustomAttribute<ExcludeAttribute>() != null) throw new Exception(where + ", which is marked [Exclude] and so is not a property of the model. ");
+            var declaringMember = findMember(GetBaseDeclaringType(member), a.Property) ?? member;
+            var valueType = declaringMember is PropertyInfo pi ? pi.PropertyType : ((FieldInfo)declaringMember).FieldType;
+            if (isSystemMember(declaringMember, valueType)) throw new Exception(where + ", which is a system member of the node (its id, meta, dates or address) rather than a property. ");
+            c.FormerPropertyIds ??= [];
+            if (!c.FormerPropertyIds.TryAdd(former, BuildUtilsProperties.GetPropertyId(declaringMember))) throw new Exception("There is more than one [FormerProperty] for " + a.Id + " on " + type.FullName + ". ");
+        }
     }
     // [PropertyOverride]: attributes this type gives properties it inherits. On the type the attribute
     // names the property; on a member - one implementing an interface property, in this type's own code
@@ -212,7 +216,7 @@ internal static class BuildUtils {
             var declaringMember = findMember(declaring, name) ?? member;
             var valueType = declaringMember is PropertyInfo pi ? pi.PropertyType : ((FieldInfo)declaringMember).FieldType;
             if (isSystemMember(declaringMember, valueType)) throw new Exception("The [PropertyOverride] " + where + " names " + name
-                + ", which is a system member of the node (its id, meta, dates, display name or address) rather than a property, so it has no attributes to override. ");
+                + ", which is a system member of the node (its id, meta, dates or address) rather than a property, so it has no attributes to override. ");
             var propertyId = BuildUtilsProperties.GetPropertyId(declaringMember);
             c.PropertyOverrides ??= new();
             if (c.PropertyOverrides.ContainsKey(propertyId)) throw new Exception("There is more than one [PropertyOverride] for " + name + " on " + type.FullName + ". Combine them into one. ");
@@ -220,7 +224,6 @@ internal static class BuildUtils {
             if (a.DefaultValue != null) o.DefaultValue = overriddenDefault(a.DefaultValue, valueType, where, name);
             if (a.ExcludeFromTextIndex != BoolValue.Default) o.ExcludeFromTextIndex = a.ExcludeFromTextIndex == BoolValue.True;
             if (a.TextIndexBoost != PropertyOverrideAttribute.NotSet) o.IndexBoost = a.TextIndexBoost;
-            if (a.DisplayName != BoolValue.Default) o.DisplayName = a.DisplayName == BoolValue.True;
             if (a.Indexed != BoolValue.Default) o.Indexed = a.Indexed == BoolValue.True;
             if (a.NotFacet != BoolValue.Default) o.NotFacet = a.NotFacet == BoolValue.True;
             c.PropertyOverrides[propertyId] = o;
@@ -243,7 +246,7 @@ internal static class BuildUtils {
     static bool isSystemMember(MemberInfo member, Type valueType) {
         if (valueType == typeof(NodeMeta)) return true;
         if (hasAttr<PublicIdPropertyAttribute>(member) || hasAttr<InternalIdPropertyAttribute>(member) || hasAttr<ChangedUtcPropertyAttribute>(member)
-            || hasAttr<CreatedUtcPropertyAttribute>(member) || hasAttr<DisplayNamePropertyAttribute>(member) || hasAttr<AddressPropertyAttribute>(member)) return true;
+            || hasAttr<CreatedUtcPropertyAttribute>(member) || hasAttr<AddressPropertyAttribute>(member)) return true;
         // the default id members, the way isIdPropertyThenAssignIt recognises them
         return member.Name == NodeTypeModel.DefaultPublicIdPropertyName
             && (valueType == typeof(Guid) || valueType == typeof(string) || valueType == typeof(int) || valueType == typeof(long));
@@ -421,13 +424,6 @@ internal static class BuildUtils {
                 return true;
             }
             throw wrongType(pInfo, "CreatedUtcProperty", valueType, "DateTime");
-        }
-        if (hasAttr<DisplayNamePropertyAttribute>(pInfo)) {
-            if (valueType == typeof(string)) {
-                c.NameOfDisplayNameProperty = pInfo.Name;
-                return true;
-            }
-            throw wrongType(pInfo, "DisplayNameProperty", valueType, "string");
         }
         if (hasAttr<AddressPropertyAttribute>(pInfo)) {
             if (valueType == typeof(string)) {

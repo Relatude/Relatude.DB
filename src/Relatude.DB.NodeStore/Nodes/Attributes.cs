@@ -48,12 +48,6 @@ public class NodeAttribute : Attribute {
     /// </summary>
     public string? Icon { get; set; }
     /// <summary>
-    /// The member that is a node's name, which an editing interface such as a CMS shows as a text field at the top
-    /// of the node's form: one of the type's own or one it inherits, <c>NameProperty = nameof(Title)</c>. Unset
-    /// takes the closest type it inherits from that names one.
-    /// </summary>
-    public string? NameProperty { get; set; }
-    /// <summary>
     /// What people call the type, where an interface built on the model names it, such as a CMS asking which kind of
     /// content to create: <c>Title = "Article page"</c>. Unset leaves the interface to make one from the type's name.
     /// </summary>
@@ -91,8 +85,8 @@ public class NodeAttribute : Attribute {
 /// public class NewsArticle : IContent { ... }
 /// </code>
 /// Only the attributes that may differ between the types that have a property can be overridden here:
-/// the default value, whether the value is in the text index and with what boost, and whether it is
-/// part of the display name. A type that sets its own value wins over its base types; a node type's own
+/// the default value, and whether the value is in the text index and with what boost. A type that sets
+/// its own value wins over its base types; a node type's own
 /// switches (TextIndex and the like) are set with <see cref="NodeAttribute"/> on the derived type, as
 /// they are inherited too.
 /// <para>
@@ -126,7 +120,6 @@ public class PropertyOverrideAttribute : Attribute {
     public object? DefaultValue { get; set; }
     public BoolValue ExcludeFromTextIndex { get; set; }
     public int TextIndexBoost { get; set; } = NotSet;
-    public BoolValue DisplayName { get; set; }
     /// <summary>
     /// True asks for the property's value index (see the class remarks: one index, kept when any type
     /// asks). False asks for nothing; it cannot take the index away from a declaration that has one.
@@ -146,10 +139,21 @@ public class ChangedUtcPropertyAttribute : Attribute {
 public class CreatedUtcPropertyAttribute : Attribute {
 }
 [AttributeUsage(AttributeTargets.Property, AllowMultiple = false, Inherited = true)]
-public class DisplayNamePropertyAttribute : Attribute {
-}
-[AttributeUsage(AttributeTargets.Property, AllowMultiple = false, Inherited = true)]
 public class AddressPropertyAttribute : Attribute {
+}
+/// <summary>
+/// Values the type's nodes stored under a property the type no longer has are read as one of its properties, so a
+/// property renamed, or merged into one the type inherits, keeps what was stored: <c>[FormerProperty("49fd9384-…",
+/// nameof(Name))]</c>. Give the former property's id, the one it had or was derived from its type's id and member name.
+/// A node read holds the value under the property named, unless it has a value of its own there, and is written so.
+/// The types inheriting from the type read their nodes so too.
+/// </summary>
+[AttributeUsage(AttributeTargets.Interface | AttributeTargets.Class | AttributeTargets.Struct, AllowMultiple = true, Inherited = false)]
+public class FormerPropertyAttribute(string id, string property) : Attribute {
+    /// <summary>The id of the property the values were stored under.</summary>
+    public string Id { get; } = id;
+    /// <summary>The member, of the type or one it inherits, the values are now read as, best given with nameof.</summary>
+    public string Property { get; } = property;
 }
 [AttributeUsage(AttributeTargets.Property, AllowMultiple = false, Inherited = true)]
 public class PublicIdPropertyAttribute : Attribute {
@@ -163,7 +167,6 @@ public abstract class PropertyAttribute : Attribute {
     public string? WriteAccess { get; set; }
     public bool ExcludeFromTextIndex { get; set; }
     public int TextIndexBoost { get; set; }
-    public bool DisplayName { get; set; }
     /// <summary>
     /// Where an editing interface puts the property's title beside its control: Default (what suits the control: a CMS
     /// puts it left of most controls and above a text area or an HTML field), Left, Above or None. Left out, Default.
@@ -242,6 +245,8 @@ public class GuidPropertyAttribute : PropertyAttribute, IAttrWithUniqueContraint
     public string? DefaultValue { get; set; }
     public bool Indexed { get; set; }
     public bool UniqueValues { get; set; }
+    /// <summary>What the Guid is the id of, for an editing interface (<see cref="GuidPropertyModel.GuidType"/>).</summary>
+    public GuidValueType GuidType { get; set; }
 }
 [AttributeUsage(AttributeTargets.Property)]
 public class DateTimePropertyAttribute : PropertyAttribute, IAttrWithUniqueContraints, IAttrScalarProperty, IAttrWithNotFacet {
@@ -353,6 +358,8 @@ public class GuidArrayPropertyAttribute : PropertyAttribute, IAttrWithUniqueCont
     public bool Indexed { get; set; }
     public bool NotFacet { get; set; } // excluded from faceting even when indexed
     public bool UniqueValues { get; set; }
+    /// <summary>What each Guid is the id of, for an editing interface (<see cref="GuidArrayPropertyModel.GuidType"/>).</summary>
+    public GuidValueType GuidType { get; set; }
 }
 [AttributeUsage(AttributeTargets.Property)]
 public class EnumArrayPropertyAttribute : PropertyAttribute, IAttrWithUniqueContraints, IAttrWithNotFacet {
@@ -437,7 +444,8 @@ public class RelationPropertyAttribute : PropertyAttribute {
     public string? Relation { get; set; }
     public bool RightToLeft { get; set; }
 
-    public bool TextIndexRelatedDisplayName { get; set; }
+    /// <summary>The names of the related nodes (IName.Name) are part of this node's text.</summary>
+    public bool TextIndexRelatedName { get; set; }
     public bool TextIndexRelatedContent { get; set; }
     public int TextIndexRecursiveLevelLimit { get; set; }
     public bool Facet { get; set; } // opt-in: enables faceting on this relation property

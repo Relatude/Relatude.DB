@@ -151,7 +151,7 @@ public static class ExampleQueries {
             var relatedSelection = string.Join(" ", TypeScriptWriter.SampleFields(relatedType).Where(s => !s.Contains('{')));
             group.Examples.Add(new GraphQLExample {
                 Id = "related", Title = $"With {related.Name}",
-                Query = $"{{\n  {list.Name}(pageSize: 3) {{\n    items {{\n      id displayName\n      {related.Name}{(many ? "(top: 3)" : "")} {{ {relatedSelection} }}\n    }}\n  }}\n}}\n",
+                Query = $"{{\n  {list.Name}(pageSize: 3) {{\n    items {{\n      id name\n      {related.Name}{(many ? "(top: 3)" : "")} {{ {relatedSelection} }}\n    }}\n  }}\n}}\n",
             });
         }
 

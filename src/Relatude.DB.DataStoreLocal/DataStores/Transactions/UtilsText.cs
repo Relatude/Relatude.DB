@@ -57,13 +57,12 @@ public static class UtilsText {
                         }
                     }
                     if (callCountLimit <= 0) break;
-                } else if (rm.TextIndexRelatedDisplayName) {
+                } else if (rm.TextIndexRelatedName) {
                     var relatedIds = db._definition.Relations[rm.RelationId].GetRelated(node.__Id, rm.FromTargetToSource).ToArray();
                     var relatedNodes = db._nodes.Get(relatedIds);
                     foreach (var relatedNode in relatedNodes) {
-                        if (valuesOf(db, relatedNode, cultureId) is not { } related) continue;
-                        dm.NodeTypes[related.NodeType].BuildDisplayName(related, sb); // use the related node's own type, not the parent's
-                        sb.AppendLine();
+                        if (valuesOf(db, relatedNode, cultureId) is not { } related || NodeName.Of(related) is not { } name) continue;
+                        sb.AppendLine(name);
                     }
                 }
             }
@@ -77,7 +76,7 @@ public static class UtilsText {
                 if (node.TryGetValue(prop.Id, out var value)) {
                     var str = prop.GetSemanticIndex(value);
                     if (string.IsNullOrEmpty(str)) continue;
-                    // labelled by name: DisplayName is the flag marking the display name property
+                    // labelled by its code name
                     sb.Append(prop.CodeName + ": ");
                     sb.AppendLine(str);
                     sb.AppendLine();
@@ -102,15 +101,14 @@ public static class UtilsText {
                     }
                     sb.AppendLine();
                     if (callCountLimit <= 0) break;
-                } else if (rm.TextIndexRelatedDisplayName) {
+                } else if (rm.TextIndexRelatedName) {
                     var relatedIds = db._definition.Relations[rm.RelationId].GetRelated(node.__Id, rm.FromTargetToSource).ToArray();
                     var relatedNodes = db._nodes.Get(relatedIds);
                     if (relatedNodes.Length == 0) continue;
                     sb.AppendLine(rm.CodeName + ":");
                     foreach (var relatedNode in relatedNodes) {
-                        if (valuesOf(db, relatedNode, cultureId) is not { } related) continue;
-                        dm.NodeTypes[related.NodeType].BuildDisplayName(related, sb); // use the related node's own type, not the parent's
-                        sb.AppendLine();
+                        if (valuesOf(db, relatedNode, cultureId) is not { } related || NodeName.Of(related) is not { } name) continue;
+                        sb.AppendLine(name);
                     }
                     sb.AppendLine();
                 }

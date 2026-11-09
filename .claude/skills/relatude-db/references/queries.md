@@ -236,7 +236,7 @@ A property participates in search only if it opted in:
 - `IndexedBySemantic = true` → vector index
 - `TextIndexBoost` on the property, or `TextIndexBoost` on `[Node]`, weights it
 - `ExcludeFromTextIndex = true` keeps a property out
-- `[RelationProperty(TextIndexRelatedDisplayName = true)]` pulls related nodes' display names into this node's text index — so a venue becomes findable by the events held there
+- `[RelationProperty(TextIndexRelatedName = true)]` pulls related nodes' names (`IName.Name`) into this node's text index — so a venue becomes findable by the events held there
 
 ## Geo queries
 
@@ -609,7 +609,7 @@ The returned `ResultSetFacets<T>` is a normal `ResultSet<T>` plus `Facets` and `
 
 Every method has expression, property-name and `Guid` overloads, plus `<TChild>` variants for subtypes.
 
-**Faceting requires `Indexed = true`.** `NotFacet = true` excludes an indexed property from faceting. Relation properties need `[RelationProperty(Facet = true)]` to opt in. Numeric range bucketing is tuned by `FacetRangePowerBase` and `FacetRangeCount` on the property attribute.
+**Faceting requires `Indexed = true`.** `NotFacet = true` excludes an indexed property from faceting. Relation properties need `[RelationProperty(Facet = true)]` to opt in. A relation, reference or references facet labels each bucket with the related node's name (`IName.Name`), read in the version the query's context reads, else with its id. Numeric range bucketing is tuned by `FacetRangePowerBase` and `FacetRangeCount` on the property attribute.
 
 ## Pivot tables
 
@@ -632,7 +632,7 @@ var pivot = db.Query<IEvent>()
               .Execute();
 
 foreach (var row in pivot.EnumerateRows()) {
-    Console.Write(row.Group.DisplayName);                        // the venue's display name
+    Console.Write(row.Group.DisplayName);                        // the venue's name
     foreach (var cell in row.Cells) Console.Write("\t" + (cell?.Get("revenue") ?? 0));
     Console.WriteLine("\t" + row.Total!.Get("revenue"));         // the row total
 }
@@ -818,7 +818,7 @@ nodes grouped). `Count()` on the query is the number of groups.
 #### Without a Select
 
 `Execute()` straight after `GroupBy` gives `NodeGroup<TKey>` rows: `Key`, `Count`, `Label` (the
-engine's name — the related node's display name, the enum name, `2026-03`), `Labels` per key
+engine's name — the related node's name (`IName.Name`, else its id), the enum name, `2026-03`), `Labels` per key
 property, and `IsMissing`. For code that does not know the properties when it is written — a
 dynamic report, the admin UI — the keys and the aggregates are chosen at runtime instead:
 

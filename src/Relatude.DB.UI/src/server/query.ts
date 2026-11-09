@@ -92,8 +92,8 @@ export interface Hit {
   intId: number;
   typeId: string;
   typeName: string;
-  displayName: string;
-  /** the display name with the searched words marked; null when the search did not match it */
+  name: string;
+  /** the name with the searched words marked; null when the search did not match it */
   nameSample: TextSample | null;
   snippet: HitSnippet | null;
   address: string | null;
@@ -354,7 +354,7 @@ export interface NodeView {
   typeId: string;
   typeName: string;
   fullName: string;
-  displayName: string;
+  name: string;
   address: string | null;
   createdUtc: string;
   changedUtc: string;
@@ -383,7 +383,7 @@ export interface NodeMetaView {
   id: string;
   intId: number;
   typeName: string | null;
-  displayName: string;
+  name: string;
   address: string | null;
   autoAddress: boolean;
   createdUtc: string;
@@ -446,7 +446,7 @@ export interface VersionRow {
   /** The log file the version was read from; null on the current version. */
   source: string | null;
   typeName: string;
-  displayName: string;
+  name: string;
   values: VersionValue[];
   changes: VersionChange[] | null;
 }

@@ -9,7 +9,7 @@ namespace Relatude.DB.GraphQL.Schema;
 /// </summary>
 public enum FieldSource {
     // system fields available on every node (from INodeData)
-    Id, DisplayName, CreatedUtc, ChangedUtc,
+    Id, Name, CreatedUtc, ChangedUtc,
     // property-backed fields
     ScalarProperty,      // INodeData.TryGetValue + scalar conversion
     EnumProperty,        // int -> enum value name

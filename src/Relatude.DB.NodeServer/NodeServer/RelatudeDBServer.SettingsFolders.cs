@@ -10,8 +10,8 @@ namespace Relatude.DB.NodeServer;
 /// <item>SETTINGS - its folder in relatude.settings, part of the application, kept in source control and
 /// deployed to every installation: relatude.settings/ for the database without a short name,
 /// relatude.settings/{short name}/ for the others (<see cref="DatabaseShortName"/>). It holds the
-/// definitions of the custom logs (logs/), of the GraphQL endpoints (graphql/) and the datamodel overrides
-/// (datamodel.json).</item>
+/// definitions of the custom logs (logs/), of the GraphQL endpoints (graphql/), the templates (templates/)
+/// and the datamodel overrides (datamodel.json).</item>
 /// <item>DATA - the overrides folder on the database's own storage, this installation's: what the admin UI
 /// saves goes there (overrides/logs/, overrides/graphql/, overrides/datamodel.overrides.json), and is moved
 /// into the SETTINGS folder from there.</item>
@@ -93,9 +93,29 @@ public partial class RelatudeDBServer {
         return new LayeredDefinitionFolders(new DefinitionFolder(io, [name], display + "/" + name), data);
     }
 
+    /// <summary>
+    /// The two folders of a library of text files a database keeps by name, one file per text in folders of their own
+    /// (<see cref="LayeredFiles"/>): {name}/ in its SETTINGS folder, shared through source control, and
+    /// overrides/{name}/ in its DATA, this installation's. The templates are kept so
+    /// (<see cref="DatabaseShortName.TemplatesFolderName"/>). Null when the database has no storage for the DATA one.
+    /// </summary>
+    public LayeredFileFolders? FileFoldersFor(NodeStoreContainerSettingsBase settings, string name) {
+        if (string.IsNullOrWhiteSpace(name) || name.IndexOfAny(['/', '\\']) >= 0 || name.StartsWith('.')
+            || name.Equals(DatabaseShortName.LogsFolderName, StringComparison.OrdinalIgnoreCase)
+            || name.Equals(DatabaseShortName.GraphQLFolderName, StringComparison.OrdinalIgnoreCase)) {
+            throw new ArgumentException("\"" + name + "\" cannot name a library of files: one folder name, not logs or graphql.", nameof(name));
+        }
+        var data = DataFolderFor(settings, name);
+        if (data == null) return null;
+        var (io, display) = SettingsFolderFor(settings);
+        return new LayeredFileFolders(new DefinitionFolder(io, [name], display + "/" + name), data);
+    }
+
     // the files a database's SETTINGS folder holds; its folder may be relatude.settings itself, which holds
     // relatude.db.json and the folders of the other databases too, so only these are ever moved
     static readonly string[] settingsFolderItems = [DatabaseShortName.LogsFolderName, DatabaseShortName.GraphQLFolderName];
+    // libraries of files in folders of their own: everything below them is moved
+    static readonly string[] settingsFolderLibraries = [DatabaseShortName.TemplatesFolderName];
 
     void followShortName(NodeStoreContainerSettingsBase settings, string? before, string? after) {
         // only the case changed: the same folder where names are compared without case, and nothing to
@@ -114,6 +134,11 @@ public partial class RelatudeDBServer {
             var folder = Path.Combine(from, item);
             if (!Directory.Exists(folder)) continue;
             foreach (var file in Directory.GetFiles(folder, "*.json")) files.Add((file, Path.Combine(to, item, Path.GetFileName(file))));
+        }
+        foreach (var library in settingsFolderLibraries) {
+            var folder = Path.Combine(from, library);
+            if (!Directory.Exists(folder)) continue;
+            foreach (var file in Directory.GetFiles(folder, "*", SearchOption.AllDirectories)) files.Add((file, Path.Combine(to, library, Path.GetRelativePath(folder, file))));
         }
         var datamodel = Path.Combine(from, DatabaseShortName.DatamodelFileName);
         if (File.Exists(datamodel)) files.Add((datamodel, Path.Combine(to, DatabaseShortName.DatamodelFileName)));
@@ -146,8 +171,15 @@ public partial class RelatudeDBServer {
                 + ": " + DatabaseShortName.SettingsFolder(after) + " already has files with those names, and only those are read.");
         }
         foreach (var item in settingsFolderItems) removeIfEmpty(Path.Combine(from, item));
+        foreach (var library in settingsFolderLibraries) removeEmptyFolders(Path.Combine(from, library));
         // a database's own folder left with nothing in it goes too: relatude.settings/{old short name}
         if (before != null) removeIfEmpty(from);
+    }
+
+    static void removeEmptyFolders(string folder) {
+        if (!Directory.Exists(folder)) return;
+        foreach (var sub in Directory.GetDirectories(folder)) removeEmptyFolders(sub);
+        removeIfEmpty(folder);
     }
 
     static void removeIfEmpty(string folder) {

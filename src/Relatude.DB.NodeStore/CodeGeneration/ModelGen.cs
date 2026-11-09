@@ -94,15 +94,15 @@ public static class ModelGen {
             if (!string.IsNullOrWhiteSpace(nodeDef.Description)) sb.Append(", " + nameof(NodeAttribute.Description) + " = " + stringLiteral(nodeDef.Description));
             if (nodeDef.IsAbstract) sb.Append(", " + nameof(NodeAttribute.Abstract) + " = true");
             if (nodeDef.IsInnerNode) sb.Append(", " + nameof(NodeAttribute.InnerNode) + " = true");
-            // by the member's name, as the attribute takes it: a property of the type's own or one it inherits
-            if (nodeDef.NameProperty is { } nameId && datamodel.NodeTypes.Values.SelectMany(t => t.Properties.Values).FirstOrDefault(p => p.Id == nameId) is { } nameProperty) {
-                sb.Append(", " + nameof(NodeAttribute.NameProperty) + " = " + stringLiteral(nameProperty.CodeName));
-            }
             // instance limits are only written when set: the attribute and the model disagree on what
             // "unset" is (0 and int.MinValue), and the model builder treats an unset attribute as no limit
             if (nodeDef.MinNoInstances != int.MinValue && nodeDef.MinNoInstances != 0) sb.Append(", " + nameof(NodeAttribute.MinNoInstances) + " = " + nodeDef.MinNoInstances.ToString(CultureInfo.InvariantCulture));
             if (nodeDef.MaxNoInstances != int.MaxValue) sb.Append(", " + nameof(NodeAttribute.MaxNoInstances) + " = " + nodeDef.MaxNoInstances.ToString(CultureInfo.InvariantCulture));
             sb.AppendLine(")]");
+            // by the member's name, as the attribute takes it: a property of the type's own or one it inherits
+            if (nodeDef.FormerPropertyIds != null) foreach (var (former, now) in nodeDef.FormerPropertyIds) {
+                    if (datamodel.Properties.TryGetValue(now, out var property)) sb.AppendLine("    [" + nameAtt<FormerPropertyAttribute>() + "(\"" + former + "\", " + stringLiteral(property.CodeName) + ")]");
+                }
             appendPropertyOverrides(nodeDef, datamodel, sb);
         }
         var inheritance = string.Join(", ", nodeDef.Parents
@@ -134,11 +134,6 @@ public static class ModelGen {
             if (addAttributes) sb.AppendLine("        [" + nameAtt<ChangedUtcPropertyAttribute>() + "()]");
             sb.Append("        ");
             sb.AppendLine(CodeUtils.FieldOrProperty("DateTime", nodeDef.NameOfChangedUtcProperty, nodeDef.ModelType));
-        }
-        if (!string.IsNullOrEmpty(nodeDef.NameOfDisplayNameProperty) && CodeUtils.IsFirstClassUsingName_NameOfDisplayNameProperty(nodeDef, datamodel)) {
-            if (addAttributes) sb.AppendLine("        [" + nameAtt<DisplayNamePropertyAttribute>() + "()]");
-            sb.Append("        ");
-            sb.AppendLine(CodeUtils.FieldOrProperty("string", nodeDef.NameOfDisplayNameProperty, nodeDef.ModelType));
         }
         if (!string.IsNullOrEmpty(nodeDef.NameOfAddressProperty) && CodeUtils.IsFirstClassUsingName_NameOfAddressProperty(nodeDef, datamodel)) {
             if (addAttributes) sb.AppendLine("        [" + nameAtt<AddressPropertyAttribute>() + "()]");
@@ -186,7 +181,6 @@ public static class ModelGen {
             if (o.DefaultValue != null) args.Add(nameof(PropertyOverrideAttribute.DefaultValue) + " = " + attributeConstant(p, o.DefaultValue));
             if (o.ExcludeFromTextIndex.HasValue) args.Add(nameof(PropertyOverrideAttribute.ExcludeFromTextIndex) + " = " + addAttributeBool(o.ExcludeFromTextIndex.Value ? BoolValue.True : BoolValue.False));
             if (o.IndexBoost.HasValue) args.Add(nameof(PropertyOverrideAttribute.TextIndexBoost) + " = " + o.IndexBoost.Value.ToString(CultureInfo.InvariantCulture));
-            if (o.DisplayName.HasValue) args.Add(nameof(PropertyOverrideAttribute.DisplayName) + " = " + addAttributeBool(o.DisplayName.Value ? BoolValue.True : BoolValue.False));
             if (o.Indexed.HasValue) args.Add(nameof(PropertyOverrideAttribute.Indexed) + " = " + addAttributeBool(o.Indexed.Value ? BoolValue.True : BoolValue.False));
             if (o.NotFacet.HasValue) args.Add(nameof(PropertyOverrideAttribute.NotFacet) + " = " + addAttributeBool(o.NotFacet.Value ? BoolValue.True : BoolValue.False));
             sb.AppendLine("    [" + nameAtt<PropertyOverrideAttribute>() + "(" + string.Join(", ", args) + ")]");
@@ -250,7 +244,6 @@ public static class ModelGen {
         sb.Append("        [" + attributeName + "(");
         sb.Append(nameof(PropertyAttribute.Id) + " = \"" + p.Id + "\"");
         if (p.ExcludeFromTextIndex) sb.Append(", " + nameof(PropertyAttribute.ExcludeFromTextIndex) + " = true");
-        if (p.DisplayName) sb.Append(", " + nameof(PropertyAttribute.DisplayName) + " = true");
         if (p.IndexBoost != 0) sb.Append(", " + nameof(PropertyAttribute.TextIndexBoost) + " = " + p.IndexBoost);
         if (p.ReadAccess != Guid.Empty) sb.Append(", " + nameof(PropertyAttribute.ReadAccess) + " = \"" + p.ReadAccess + "\"");
         if (p.WriteAccess != Guid.Empty) sb.Append(", " + nameof(PropertyAttribute.WriteAccess) + " = \"" + p.WriteAccess + "\"");
@@ -273,7 +266,6 @@ public static class ModelGen {
         var nodeType = dm.NodeTypes[p.NodeType];
         if (nodeType.NameOfChangedUtcProperty == p.CodeName) sb.AppendLine("        [" + nameAtt<ChangedUtcPropertyAttribute>() + "()]");
         if (nodeType.NameOfCreatedUtcProperty == p.CodeName) sb.AppendLine("        [" + nameAtt<CreatedUtcPropertyAttribute>() + "()]");
-        if (nodeType.NameOfDisplayNameProperty == p.CodeName) sb.AppendLine("        [" + nameAtt<DisplayNamePropertyAttribute>() + "()]");
         if (nodeType.NameOfAddressProperty == p.CodeName) sb.AppendLine("        [" + nameAtt<AddressPropertyAttribute>() + "()]");
         //if(nodeType.NameOfIsDerivedProperty == p.CodeName) {
         //    sb.AppendLine("[" + nameAtt<IsDerivedPropertyAttribute>() + "()]");
@@ -300,6 +292,7 @@ public static class ModelGen {
                     if (b.Indexed) sb.Append(", " + nameof(GuidPropertyAttribute.Indexed) + " = true"); // the attribute member is a plain bool
                     if (b.DefaultValue != Guid.Empty) sb.Append(", " + nameof(GuidPropertyAttribute.DefaultValue) + " = \"" + b.DefaultValue + "\"");
                     if (b.UniqueValues) sb.Append(", " + nameof(GuidPropertyAttribute.UniqueValues) + " = true");
+                    appendGuidType(b.GuidType, sb);
                     sb.AppendLine(")]");
                 }
                 break;
@@ -472,6 +465,7 @@ public static class ModelGen {
                     if (s.Indexed) sb.Append(", " + nameof(GuidArrayPropertyAttribute.Indexed) + " = true"); // the attribute member is a plain bool
                     if (s.NotFacet) sb.Append(", " + nameof(GuidArrayPropertyAttribute.NotFacet) + " = true");
                     if (s.UniqueValues) sb.Append(", " + nameof(GuidArrayPropertyAttribute.UniqueValues) + " = true");
+                    appendGuidType(s.GuidType, sb);
                     sb.AppendLine(")]");
                 }
                 break;
@@ -508,7 +502,7 @@ public static class ModelGen {
                     addBaseAttributes<RelationPropertyAttribute>(p, dm, sb, attributeName);
                     if (r.FromTargetToSource) sb.Append(", " + nameof(RelationPropertyAttribute.RightToLeft) + " = true");
                     if (r.TextIndexRelatedContent) sb.Append(", " + nameof(RelationPropertyAttribute.TextIndexRelatedContent) + " = true");
-                    if (r.TextIndexRelatedDisplayName) sb.Append(", " + nameof(RelationPropertyAttribute.TextIndexRelatedDisplayName) + " = true");
+                    if (r.TextIndexRelatedName) sb.Append(", " + nameof(RelationPropertyAttribute.TextIndexRelatedName) + " = true");
                     if (r.TextIndexRecursiveLevelLimit != 1) sb.Append(", " + nameof(RelationPropertyAttribute.TextIndexRecursiveLevelLimit) + " = " + r.TextIndexRecursiveLevelLimit);
                     if (r.Facet) sb.Append(", " + nameof(RelationPropertyAttribute.Facet) + " = true");
                     appendDisplay(r.Display, sb);
@@ -603,6 +597,9 @@ public static class ModelGen {
     // the attributes of every property holding other nodes name it the same
     static void appendDisplay(DisplayMode display, StringBuilder sb) {
         if (display != DisplayMode.List) sb.Append(", " + nameof(RelationPropertyAttribute.Display) + " = " + typeof(DisplayMode).Namespace + "." + nameof(DisplayMode) + "." + display);
+    }
+    static void appendGuidType(GuidValueType kind, StringBuilder sb) {
+        if (kind != GuidValueType.AnyGuid) sb.Append(", " + nameof(GuidPropertyAttribute.GuidType) + " = " + typeof(GuidValueType).Namespace + "." + nameof(GuidValueType) + "." + kind);
     }
     static void appendAllowInline(bool allow, StringBuilder sb) {
         if (allow) sb.Append(", " + nameof(RelationPropertyAttribute.AllowInlineEditing) + " = true");

@@ -273,7 +273,6 @@ function TypesTable({ ctx, visibleTypes, ghostTypes, query, selection, diff, jus
                       </td>
                       <td colSpan={4} className="dm-cell-flags">
                         {p.UniqueValues && <span className="badge">unique</span>}
-                        {p.DisplayName && <span className="badge">display name</span>}
                       </td>
                     </tr>
                   )),
