@@ -23,7 +23,6 @@ public class NativeVideoConverter : IFileConverter {
     static readonly FileFormat[] _imageIns = [FileFormat.Jpeg, FileFormat.Png, FileFormat.Webp, FileFormat.Avif];
     static readonly FileFormat[] _imageOuts = [FileFormat.Jpeg, FileFormat.Png, FileFormat.Webp, FileFormat.Avif];
     static readonly FileFormat[] _metaOuts = [FileFormat.FileMetaJson];
-    static string _ffmpegBinDir = Path.Combine(AppContext.BaseDirectory, "ffmpeg");
     public bool SupportsConversion(FileType inBase, FileFormat inDetailed, FileType outBase, FileFormat outDetailed) {
         if (inBase == FileType.Video) {
             if (!_videoIns.Contains(inDetailed)) return false; // unsupported input video format
@@ -44,10 +43,6 @@ public class NativeVideoConverter : IFileConverter {
         return false;
     }
 
-    static readonly SemaphoreSlim _downloadLock = new(1, 1);
-    static bool _ffmpegBinReady;
-    static string? _ffmpegBinProgressInfo;
-
     readonly ConcurrentDictionary<Guid, CancellationTokenSource> _cancellations = new();
     readonly ConcurrentDictionary<Guid, FileConversionProgressInfo> _conversionProgress = new();
 
@@ -62,25 +57,8 @@ public class NativeVideoConverter : IFileConverter {
         return Path.Combine(engine.LocalTempFolderPath, $"{Guid.NewGuid()}{FileFormatUtil.GetExtensionWithDot(format)}");
     }
 
-    static async Task ensureFFMpegBinAsync() {
-        if (_ffmpegBinReady) return;
-        await _downloadLock.WaitAsync();
-        try {
-            if (_ffmpegBinReady) return;
-            FFmpegProcess.BinaryFolder = _ffmpegBinDir; // its binaries when there, else the ones on the PATH
-            Directory.CreateDirectory(_ffmpegBinDir);
-            _ffmpegBinProgressInfo = "Downloading FFmpeg...";
-            await FFmpegBinaryDownloader.EnsureAsync(_ffmpegBinDir,
-                (name, downloadedBytes, totalBytes) => _ffmpegBinProgressInfo = totalBytes > 0
-                    ? $"Downloading {name}: {downloadedBytes / 1024} KB / {totalBytes / 1024} KB"
-                    : $"Downloading {name}: {downloadedBytes / 1024} KB");
-            _ffmpegBinReady = true;
-        } catch (Exception ex) {
-            _ffmpegBinProgressInfo = "Error downloading FFmpeg: " + ex.Message;
-        } finally {
-            _downloadLock.Release();
-        }
-    }
+    /// <summary>The binaries, shared with every other user of ffmpeg (<see cref="FFmpeg"/>): downloaded on first use.</summary>
+    static Task ensureFFMpegBinAsync() => FFmpeg.EnsureAsync();
 
     public Task<bool> CancelAsync(Guid key) {
         if (_cancellations.TryRemove(key, out var cts)) {
@@ -422,7 +400,7 @@ public class NativeVideoConverter : IFileConverter {
 
     public bool TryGetLiveStatus(Guid key, [MaybeNullWhen(false)] out FileConversionProgressInfo status) {
         if (_conversionProgress.TryGetValue(key, out var liveProgress)) status = liveProgress;
-        else if (!_ffmpegBinReady) status = new(FileConversionStatus.InProgress, 0, message: _ffmpegBinProgressInfo);
+        else if (!FFmpeg.IsReady) status = new(FileConversionStatus.InProgress, 0, message: FFmpeg.Status);
         else status = null;
         return status != null;
     }

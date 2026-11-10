@@ -199,6 +199,15 @@ public interface IDataStore : IDisposable {
     /// of a node in the transaction log, say, whose file is still in the store because replacing a
     /// file leaves the old one behind. The value carries the store it is in.</summary>
     Task<Stream> GetFileStream(FileValue value);
+    /// <summary>
+    /// Where the bytes behind a file value lie on this machine's drive, when they lie there as they are (a store of
+    /// files on a local disk): for a tool that reads a file by its path, such as ffmpeg. Read it, never write it. False
+    /// for a store elsewhere or one that keeps files otherwise; read <see cref="GetFileStream(FileValue)"/> then.
+    /// </summary>
+    bool TryGetLocalFilePath(FileValue value, [MaybeNullWhen(false)] out string path) {
+        path = null;
+        return false;
+    }
     /// <summary>Whether the store still holds the file this value names.</summary>
     Task<bool> FileExistsAsync(FileValue value);
     Task<bool> IsFileUploadedAndAvailableAsync(PropertyPath target, QueryContext? ctx = null);

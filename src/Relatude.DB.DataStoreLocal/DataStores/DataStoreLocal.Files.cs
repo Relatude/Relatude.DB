@@ -259,6 +259,11 @@ public sealed partial class DataStoreLocal : IDataStore {
         if (value.IsEmpty) throw new Exception("File value is empty");
         return getFileStore(value.StorageId).GetFileStream(value);
     }
+    public bool TryGetLocalFilePath(FileValue value, [System.Diagnostics.CodeAnalysis.MaybeNullWhen(false)] out string path) {
+        path = null;
+        if (value.IsEmpty) return false;
+        return getFileStore(value.StorageId).TryGetLocalFilePath(value, out path) && File.Exists(path);
+    }
     public Task<bool> FileExistsAsync(FileValue value) {
         if (value.IsEmpty) return Task.FromResult(false);
         return getFileStore(value.StorageId).ContainsFileAsync(value);
