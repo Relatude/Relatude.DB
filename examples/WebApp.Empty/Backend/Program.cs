@@ -23,12 +23,13 @@ app.UseStaticFiles();                      // the built client in wwwroot (see C
 // whenever an endpoint is already selected - serving index.html for the client's own js and css.
 app.UseRouting();
 
-// API endpoints. The client calls them same-origin under /api. Inject RelatudeDBContext to reach the
-// database: ctx.Database.Query<T>(), Get<T>(id), Insert(node), Update(node), Delete(id).
-app.MapGet("/api/hello", (RelatudeDBContext ctx) => new {
+// API endpoints. The client calls them same-origin under /api. Inject IRelatudeDB to reach the
+// database: relatude.AdminDB.Query<T>(), Get<T>(id), Insert(node), Update(node), Delete(id). AdminDB reads as the
+// master admin, with no access checks; relatude.AsUser(id) and relatude.AsAnonymous() read as a visitor.
+app.MapGet("/api/hello", (IRelatudeDB relatude) => new {
     Message = "Hello from WebApp.Empty!",
     Utc = DateTime.UtcNow,
-    NodesInDatabase = ctx.Database.Count(),
+    NodesInDatabase = relatude.AdminDB.Count(),
 });
 
 // Client side routes resolve to the SPA in production; /api paths still return 404 when unknown.

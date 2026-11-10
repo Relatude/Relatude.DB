@@ -879,4 +879,4 @@ nb.Query<IEvent>().Execute();
 nb.Get<IVenue>(venueId);
 ```
 
-`db.Context.Admin()` returns a store that **bypasses ACL filtering**. Use it in trusted server code only — never hand it to a request handler.
+`db.Context.Admin()` returns a store that **bypasses ACL filtering**. Use it in trusted server code only — never hand it to a request handler. The master admin skips access checks and nothing else: it still reads only published content, in the context's culture, and no hidden types. `db.Context.AllContent()` (as a context: `QueryContext.AllContent`) adds drafts, every culture and hidden types, for imports, migrations and maintenance.

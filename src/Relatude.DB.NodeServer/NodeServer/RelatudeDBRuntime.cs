@@ -12,7 +12,8 @@ public static class RelatudeDBRuntime {
         _server = server ?? throw new ArgumentNullException(nameof(server));
     }
     static public RelatudeDBServer Server => _server ?? throw new InvalidOperationException("RelatudeDBServerContext not initialized. ");
-    static public NodeStore Database {
+    /// <summary>The default database as the master admin: no access checks. Injected code takes <see cref="IRelatudeDB"/> instead.</summary>
+    static public NodeStore AdminDB {
         get {
             var store = Server.DefaultContainer?.Store;
             if (store == null) {
@@ -34,10 +35,5 @@ public static class RelatudeDBRuntime {
     static public bool IsReady =>
         Server.DefaultContainer?.Store != null
         && Server.DefaultContainer?.Store.Datastore.State == Relatude.DB.Common.DataStoreState.Open;
-}
-
-public class RelatudeDBContext() {
-    public RelatudeDBServer Server => RelatudeDBRuntime.Server;
-    public NodeStore Database => RelatudeDBRuntime.Database;
 }
 

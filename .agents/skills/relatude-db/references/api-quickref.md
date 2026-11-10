@@ -1,6 +1,6 @@
 # NodeStore + Transaction cheatsheet
 
-The write surface. `db` is `ctx.Database`, a `NodeStore`. Query methods are in `queries.md`.
+The write surface. `db` is `relatude.AdminDB`, a `NodeStore`. Query methods are in `queries.md`.
 
 ## Contents
 

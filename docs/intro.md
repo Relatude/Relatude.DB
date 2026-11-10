@@ -148,7 +148,7 @@ builder.AddRelatudeDB();          // no using needed
 var app = builder.Build();
 
 app.UseRelatudeDB();              // opens the database and serves the admin UI at /relatude.db
-app.MapGet("/", (RelatudeDBContext ctx) => $"{ctx.Database.Count()} objects");
+app.MapGet("/", (IRelatudeDB relatude) => $"{relatude.AdminDB.Count()} objects");
 app.Run();
 ```
 
@@ -204,7 +204,7 @@ the manual explains
 One fluent builder, LINQ-style expressions, and `Execute()` at the end:
 
 ```csharp
-var db = ctx.Database;
+var db = relatude.AdminDB;
 
 var p = db.Get<Product>(id);
 

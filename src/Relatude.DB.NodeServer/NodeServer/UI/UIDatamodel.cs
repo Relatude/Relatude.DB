@@ -19,7 +19,7 @@ namespace Relatude.DB.NodeServer.UI;
 /// </summary>
 sealed class UIDatamodel {
     readonly RelatudeDBServer _server;
-    static readonly QueryContext countContext = QueryContext.Default.Admin().Hidden().Unpublished().CultureFallbacks();
+    static readonly QueryContext countContext = QueryContext.AllContent;
     internal UIDatamodel(RelatudeDBServer server) => _server = server;
 
     internal void Register(UICommands commands) {

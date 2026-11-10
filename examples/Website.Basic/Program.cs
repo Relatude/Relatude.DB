@@ -39,12 +39,12 @@ var app = builder.Build();
 app.UseCors("AllowALL"); // FOR VS CODE DEVELOPMENT ONLY - NEVER ALLOW ALL CORS
 
 
-app.MapGet("/", (RelatudeDBContext ctx) => {
-    var count = ctx.Database.Count(); //.Query<DemoArticle>().Count();
+app.MapGet("/", (IRelatudeDB relatude) => {
+    var count = relatude.AdminDB.Count(); //.Query<DemoArticle>().Count();
 
     var html = "<html><body>"
     + $@"<h1>Welcome to Relatude.DB</h1><p>Database has {count} objects.</p>"
-    + $@"<p><a href='{ctx.Server.ApiUrlRoot}'>Admin UI</a></p>"
+    + $@"<p><a href='{RelatudeDBRuntime.Server.ApiUrlRoot}'>Admin UI</a></p>"
     + $@"<p><a href='/search.html'>Facet search example</a></p>"
     + $@"<p><a href='/list'>List images and videos</a></p>"
     + $@"<p><a href='/upload.html'>Upload images and videos</a></p>"
@@ -52,14 +52,14 @@ app.MapGet("/", (RelatudeDBContext ctx) => {
     return Results.Content(html, "text/html; charset=utf-8");
 });
 
-app.MapPost("/CancelConversion", async (RelatudeDBContext ctx, Guid conversionKey, bool permanently) => {
-    var db = ctx.Database;
+app.MapPost("/CancelConversion", async (IRelatudeDB relatude, Guid conversionKey, bool permanently) => {
+    var db = relatude.AdminDB;
     await db.Datastore.CancelConversion(conversionKey, permanently);
     return Results.Ok();
 });
 
-app.MapGet("/List", (RelatudeDBContext ctx, HttpResponse res) => {
-    var db = ctx.Database;
+app.MapGet("/List", (IRelatudeDB relatude, HttpResponse res) => {
+    var db = relatude.AdminDB;
     var articles = db.Query<DemoArticle>().Execute().ToArray();
     var html = new StringBuilder();
     html.Append("<html><body style='background-color:#f0f000'>");
@@ -114,31 +114,31 @@ app.MapGet("/List", (RelatudeDBContext ctx, HttpResponse res) => {
     return html.ToString();
 });
 
-app.MapPost("/StartUpload", async (RelatudeDBContext ctx, string fileName) => {
-    var db = ctx.Database;
+app.MapPost("/StartUpload", async (IRelatudeDB relatude, string fileName) => {
+    var db = relatude.AdminDB;
     var article = db.CreateAndInsert<DemoArticle>(a => { a.Title = "Uploaded file"; });
     var uploadId = await db.InitiateMultipartUploadAsync(article.File, fileName);
     return Results.Json(uploadId);
 });
-app.MapPost("/UploadPart", async (RelatudeDBContext ctx, Guid uploadId, HttpRequest req) => {
-    var db = ctx.Database;
+app.MapPost("/UploadPart", async (IRelatudeDB relatude, Guid uploadId, HttpRequest req) => {
+    var db = relatude.AdminDB;
 
     using var ms = new MemoryStream();
     await req.Body.CopyToAsync(ms);
     var part = ms.ToArray();
     await db.AppendMultipartUploadAsync(uploadId, part, part.Length);
 });
-app.MapPost("/CompleteUpload", async (RelatudeDBContext server, Guid uploadId) => {
-    var db = server.Database;
+app.MapPost("/CompleteUpload", async (IRelatudeDB relatude, Guid uploadId) => {
+    var db = relatude.AdminDB;
     await db.FinalizeMultipartUploadAsync(uploadId);
 });
 
 // Facet search example used by wwwroot/search.html. The facets are computed from the free text
 // search result, so counts and range buckets adapt to the query as you type.
-app.MapPost("/shop/search", (RelatudeDBContext ctx, ShopSearchRequest req) => {
+app.MapPost("/shop/search", (IRelatudeDB relatude, ShopSearchRequest req) => {
     var iterations = 0;
     var swQuery = System.Diagnostics.Stopwatch.StartNew();
-    var db = ctx.Database;
+    var db = relatude.AdminDB;
     const int pageSize = 10;
     var query = db.Query<Product>();
 

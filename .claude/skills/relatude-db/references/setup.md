@@ -49,14 +49,14 @@ builder.AddRelatudeDB(options => {
 
 var app = builder.Build();
 
-app.MapGet("/", (RelatudeDBContext ctx) => $"{ctx.Database.Count()} nodes.");
+app.MapGet("/", (IRelatudeDB relatude) => $"{relatude.AdminDB.Count()} nodes.");
 
 app.UseRelatudeDB();     // mounts the admin UI at /relatude.db
 app.Run();
 ```
 
 - `AddRelatudeDB` lives in the **default global namespace** — no `using` required.
-- `RelatudeDBContext` is injected by DI; **`ctx.Database` is the `NodeStore`**, which is the API surface for everything in `api-quickref.md` and `queries.md`.
+- `IRelatudeDB` is injected by DI, and each store it hands out is named for who it reads as: **`relatude.AdminDB` is the `NodeStore` as the master admin** (no access checks, published content, no culture; trusted code only), `relatude.AsUser(userId, cultureCode)` and `relatude.AsAnonymous(cultureCode)` read as a visitor, and `relatude.IsOpen` is false while the database starts. A `NodeStore` is the API surface for everything in `api-quickref.md` and `queries.md`. Without DI, `RelatudeDBRuntime.AdminDB` is the same store; a test passes `new RelatudeDB(store)`. Never dispose a store you are handed: that closes the database.
 - File converters are registered here, at startup. They are what make image and video conversion work when serving files.
 - Runtime settings live in `relatude.settings/relatude.db.json` in the app's folder; a `RelatudeDB` section in standard configuration (appsettings.json, `appsettings.{Environment}.json`, environment variables, user secrets) overrides it key by key and is never written back to the file — the right place for credentials and per-environment differences. Details in `configuration.md`.
 

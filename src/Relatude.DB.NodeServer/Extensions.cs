@@ -1,4 +1,5 @@
-﻿using Relatude.DB.Nodes;
+﻿using Microsoft.Extensions.DependencyInjection.Extensions;
+using Relatude.DB.Nodes;
 using Relatude.DB.NodeServer;
 using Relatude.DB.NodeServer.Json;
 public static class DBBuilderExtensions {
@@ -11,7 +12,7 @@ public static class DBBuilderExtensions {
         if (options == null) {
             options = new ServerOptions();
             builder.Services.ConfigureHttpJsonOptions(o => RelatudeDBJsonOptions.ConfigureDefault(o.SerializerOptions));
-            builder.Services.AddSingleton<RelatudeDBContext>();
+            builder.Services.TryAddSingleton<IRelatudeDB>(_ => new RelatudeDB()); // a factory: a host that registers a NodeStore would otherwise pick the wrong constructor
             builder.Services.AddSingleton(options);
         }
         configureOptions?.Invoke(options);

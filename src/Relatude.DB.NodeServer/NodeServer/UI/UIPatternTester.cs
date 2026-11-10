@@ -9,7 +9,7 @@ namespace Relatude.DB.NodeServer.UI;
 
 sealed class UIPatternTester {
     readonly RelatudeDBServer _server;
-    static readonly QueryContext adminContext = QueryContext.Default.Admin().Hidden().Unpublished().CultureFallbacks();
+    static readonly QueryContext adminContext = QueryContext.AllContent;
     static readonly TimeSpan matchTimeout = TimeSpan.FromSeconds(1);
     const int maxTestedValues = 200;
     const int maxStoredNodesChecked = 5000;

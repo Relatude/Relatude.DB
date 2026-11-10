@@ -9,10 +9,10 @@ namespace WebAppEmpty.Middleware;
 /// including node URLs, passes through to the API endpoints and the client.
 /// </summary>
 public class RelatudeDBMiddleware(RequestDelegate next) {
-    public async Task Invoke(HttpContext http, RelatudeDBContext ctx) {
+    public async Task Invoke(HttpContext http, IRelatudeDB relatude) {
         if (RelatudeDBRuntime.IsReady && http.Request.Path != "/") {
             var url = http.Request.Scheme + "://" + http.Request.Host + http.Request.Path.Value + http.Request.QueryString;
-            if (ctx.Database.TryParseUrlForContent(url, out var content)
+            if (relatude.AdminDB.TryParseUrlForContent(url, out var content)
                 && content.Id.Target is UrlTarget.Property or UrlTarget.PropertyAdjusted) {
                 var result = await FileHandler.HandleFileAsync(http, content.Stream, content.FileName, content.Attachment, content.ContentType, content.Cacheable);
                 await result.ExecuteAsync(http);

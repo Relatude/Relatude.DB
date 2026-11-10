@@ -158,7 +158,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.AddRelatudeDB();          // no using needed
 var app = builder.Build();
 
-app.MapGet("/", (RelatudeDBContext ctx) => $"{ctx.Database.Count()} objects");
+app.MapGet("/", (IRelatudeDB relatude) => $"{relatude.AdminDB.Count()} objects");
 
 app.StartRelatudeDB();
 app.MapRelatudeDBAdmin();         // admin UI at /relatude.db
@@ -200,7 +200,7 @@ per-environment differences go there, not in `relatude.db.json`.
 One fluent builder, LINQ-style expressions, `Execute()` at the end.
 
 ```csharp
-var db = ctx.Database;
+var db = relatude.AdminDB;
 
 var p = db.Get<Product>(id);
 

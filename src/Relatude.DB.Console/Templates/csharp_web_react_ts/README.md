@@ -79,18 +79,18 @@ pinned with an attribute; `relatude validate` warns about that.
 
 ## Add an endpoint
 
-Endpoints live in `Backend/Program.cs`. Inject `RelatudeDBContext` and use `ctx.Database`:
+Endpoints live in `Backend/Program.cs`. Inject `IRelatudeDB` and use `relatude.AdminDB`:
 
 ```csharp
-app.MapGet("/api/products", (RelatudeDBContext ctx) =>
-    ctx.Database.Query<Product>().Where(p => p.InStock).OrderBy(p => p.Name).Page(0, 50).Execute().ToList());
+app.MapGet("/api/products", (IRelatudeDB relatude) =>
+    relatude.AdminDB.Query<Product>().Where(p => p.InStock).OrderBy(p => p.Name).Page(0, 50).Execute().ToList());
 
-app.MapGet("/api/products/search", (RelatudeDBContext ctx, string q) =>
-    ctx.Database.Query<Product>().WhereSearch(q).Take(20).Execute().ToList());
+app.MapGet("/api/products/search", (IRelatudeDB relatude, string q) =>
+    relatude.AdminDB.Query<Product>().WhereSearch(q).Take(20).Execute().ToList());
 
-app.MapPost("/api/products", (RelatudeDBContext ctx, Product product) => {
-    ctx.Database.Insert(product, out var id);
-    return Results.Created("/api/products/" + id, ctx.Database.Get<Product>(id));
+app.MapPost("/api/products", (IRelatudeDB relatude, Product product) => {
+    relatude.AdminDB.Insert(product, out var id);
+    return Results.Created("/api/products/" + id, relatude.AdminDB.Get<Product>(id));
 });
 ```
 

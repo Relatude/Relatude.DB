@@ -11,13 +11,13 @@ public class RelatudeDBMiddleware {
     public RelatudeDBMiddleware(RequestDelegate next) {
         _next = next;
     }
-    public async Task Invoke(HttpContext http, RelatudeDBContext ctx) {
+    public async Task Invoke(HttpContext http, IRelatudeDB relatude) {
         // the demo start page owns "/", so the Site One root page is not served there
         if (RelatudeDBRuntime.IsReady && http.Request.Path != "/") {
             // the complete URL, host included, so the url manager can route per domain
             var url = http.Request.Scheme + "://" + http.Request.Host + http.Request.Path.Value + http.Request.QueryString;
-            if (ctx.Database.TryParseUrlForContent(url, out var content, firstInQueue: true)) { // a browser waits for it: ahead of background conversions
-                var result = await handleRequest(http, ctx, content);
+            if (relatude.AdminDB.TryParseUrlForContent(url, out var content, firstInQueue: true)) { // a browser waits for it: ahead of background conversions
+                var result = await handleRequest(http, relatude, content);
                 if (result != null) {
                     await result.ExecuteAsync(http);
                     return;
@@ -26,19 +26,19 @@ public class RelatudeDBMiddleware {
         }
         await _next.Invoke(http);
     }
-    async Task<IResult?> handleRequest(HttpContext http, RelatudeDBContext ctx, UrlContent content) {
+    async Task<IResult?> handleRequest(HttpContext http, IRelatudeDB relatude, UrlContent content) {
         return content.Id.Target switch {
             UrlTarget.Property or UrlTarget.PropertyAdjusted => await handleFile(http, content),
-            UrlTarget.Node or UrlTarget.EmbeddedNode => handlePage(http, ctx, content),
+            UrlTarget.Node or UrlTarget.EmbeddedNode => handlePage(http, relatude, content),
             _ => null,
         };
     }
     async Task<IResult?> handleFile(HttpContext http, UrlContent c) {
         return await FileHandler.HandleFileAsync(http, c.Stream, c.FileName, c.Attachment, c.ContentType, c.Cacheable);
     }
-    IResult? handlePage(HttpContext http, RelatudeDBContext ctx, UrlContent c) {
+    IResult? handlePage(HttpContext http, IRelatudeDB relatude, UrlContent c) {
         // SitePage nodes (the dynamic URL example) render as HTML; any other node type is returned as JSON
-        var db = ctx.Database;
+        var db = relatude.AdminDB;
         var pageType = db.Datastore.Datamodel.NodeTypesByFullName[typeof(SitePage).FullName!];
         if (c.NodeData != null && c.NodeData.NodeType == pageType.Id) {
             var page = db.Get<SitePage>(c.NodeData.Id); // the Body arrives with current public URLs, not the stored rdb: tokens

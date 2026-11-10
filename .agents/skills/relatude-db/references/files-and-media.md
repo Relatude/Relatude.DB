@@ -27,7 +27,7 @@ Everything between "a node has a `FileValue` property" and "a browser renders a 
 using Relatude.DB.Common;          // FileValue, FileFormat, FileType, PropertyPath
 using Relatude.DB.FileConversion;  // FileAdjustment, FileAdjustmentImage/Video/Meta, ImageCropMode
 using Relatude.DB.Web;             // UrlContent, UrlKeys, UrlTarget, FileHandler
-using Relatude.DB.NodeServer;      // RelatudeDBContext, RelatudeDBRuntime
+using Relatude.DB.NodeServer;      // IRelatudeDB, RelatudeDBRuntime
 ```
 
 ## The file property
@@ -130,22 +130,22 @@ await db.CancelMultipartUploadAsync(uploadId);
 Three endpoints are enough. Keep the chunk in memory only for the length of the request:
 
 ```csharp
-app.MapPost("/upload/start", async (RelatudeDBContext ctx, string fileName) => {
-    var db = ctx.Database;
+app.MapPost("/upload/start", async (IRelatudeDB relatude, string fileName) => {
+    var db = relatude.AdminDB;
     var article = db.CreateAndInsert<IArticle>(a => a.Title = fileName);
     var uploadId = await db.InitiateMultipartUploadAsync(article.Photo, fileName);
     return Results.Json(uploadId);
 });
 
-app.MapPost("/upload/part", async (RelatudeDBContext ctx, Guid uploadId, HttpRequest req) => {
+app.MapPost("/upload/part", async (IRelatudeDB relatude, Guid uploadId, HttpRequest req) => {
     using var ms = new MemoryStream();
     await req.Body.CopyToAsync(ms);
     var part = ms.ToArray();
-    await ctx.Database.AppendMultipartUploadAsync(uploadId, part, part.Length);
+    await relatude.AdminDB.AppendMultipartUploadAsync(uploadId, part, part.Length);
 });
 
-app.MapPost("/upload/complete", async (RelatudeDBContext ctx, Guid uploadId) => {
-    await ctx.Database.FinalizeMultipartUploadAsync(uploadId);
+app.MapPost("/upload/complete", async (IRelatudeDB relatude, Guid uploadId) => {
+    await relatude.AdminDB.FinalizeMultipartUploadAsync(uploadId);
 });
 ```
 
@@ -358,10 +358,10 @@ using Relatude.DB.Web;
 
 public class RelatudeDBMiddleware(RequestDelegate next) {
 
-    public async Task Invoke(HttpContext http, RelatudeDBContext ctx) {
+    public async Task Invoke(HttpContext http, IRelatudeDB relatude) {
         if (RelatudeDBRuntime.IsReady) {                       // store may still be opening
             var url = http.Request.Path.Value + http.Request.QueryString;
-            if (ctx.Database.TryParseUrlForContent(url, out var content, firstInQueue: true)) { // a browser waits: ahead of background conversions
+            if (relatude.AdminDB.TryParseUrlForContent(url, out var content, firstInQueue: true)) { // a browser waits: ahead of background conversions
                 var result = await handleRequest(http, content);
                 if (result != null) {
                     await result.ExecuteAsync(http);

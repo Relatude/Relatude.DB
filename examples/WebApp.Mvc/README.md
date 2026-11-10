@@ -78,8 +78,8 @@ loses the data stored under the old name unless its id is pinned with an attribu
 
 ## Add a page
 
-A page is a controller action plus a view. Controllers take `RelatudeDBContext` in their
-constructor; `ctx.Database` is the database.
+A page is a controller action plus a view. Controllers take `IRelatudeDB` in their
+constructor; `relatude.AdminDB` is the database.
 
 ```csharp
 // Controllers/ProductsController.cs
@@ -89,16 +89,16 @@ using WebAppMvc.Models;
 
 namespace WebAppMvc.Controllers;
 
-public class ProductsController(RelatudeDBContext ctx) : Controller {
+public class ProductsController(IRelatudeDB relatude) : Controller {
     public IActionResult Index() {                       // /products
         ViewData["Title"] = "Products";
         ViewData["Description"] = "Everything we have in stock.";
-        var products = ctx.Database.Query<Product>().Where(p => p.InStock).OrderBy(p => p.Name).Page(0, 50).Execute().ToList();
+        var products = relatude.AdminDB.Query<Product>().Where(p => p.InStock).OrderBy(p => p.Name).Page(0, 50).Execute().ToList();
         return View(products);
     }
 
     public IActionResult Details(Guid id) {              // /products/details/<id>
-        var product = ctx.Database.Get<Product>(id);
+        var product = relatude.AdminDB.Get<Product>(id);
         ViewData["Title"] = product.Name;
         ViewData["Description"] = product.Description;
         return View(product);
@@ -106,7 +106,7 @@ public class ProductsController(RelatudeDBContext ctx) : Controller {
 
     public IActionResult Search(string q) {              // /products/search?q=wool
         ViewData["Title"] = "Search: " + q;
-        return View("Index", ctx.Database.Query<Product>().WhereSearch(q).Take(20).Execute().ToList());
+        return View("Index", relatude.AdminDB.Query<Product>().WhereSearch(q).Take(20).Execute().ToList());
     }
 }
 ```

@@ -98,7 +98,7 @@ sealed class UIQuery {
 
     // Reading and writing as an administrator: hidden and unpublished nodes are part of what this
     // page is for. Deleted ones are not - they are not editable and would only be confusing here.
-    static readonly QueryContext adminContext = QueryContext.Default.Admin().Hidden().Unpublished().CultureFallbacks();
+    static readonly QueryContext adminContext = QueryContext.AllContent;
     // the same, for a query the page can stop: its Stop button, a newer query taking over, or the request
     // given up on all cancel the token (see UICommandContext.Cancellation), and the store stops at its next check
     static QueryContext readContext(CancellationToken cancel) => cancel.CanBeCanceled ? adminContext.WithCancellation(cancel) : adminContext;

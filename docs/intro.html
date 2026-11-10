@@ -583,7 +583,7 @@ project you already have. Either way, the result is one call and one file:</p>
 <span class="kt">var</span><span class="w"> </span><span class="n">app</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">builder</span><span class="p">.</span><span class="n">Build</span><span class="p">();</span>
 
 <span class="n">app</span><span class="p">.</span><span class="n">UseRelatudeDB</span><span class="p">();</span><span class="w">              </span><span class="c1">// opens the database and serves the admin UI at /relatude.db</span>
-<span class="n">app</span><span class="p">.</span><span class="n">MapGet</span><span class="p">(</span><span class="s">&quot;/&quot;</span><span class="p">,</span><span class="w"> </span><span class="p">(</span><span class="n">RelatudeDBContext</span><span class="w"> </span><span class="n">ctx</span><span class="p">)</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="s">$&quot;{ctx.Database.Count()} objects&quot;</span><span class="p">);</span>
+<span class="n">app</span><span class="p">.</span><span class="n">MapGet</span><span class="p">(</span><span class="s">&quot;/&quot;</span><span class="p">,</span><span class="w"> </span><span class="p">(</span><span class="n">IRelatudeDB</span><span class="w"> </span><span class="n">relatude</span><span class="p">)</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="s">$&quot;{relatude.AdminDB.Count()} objects&quot;</span><span class="p">);</span>
 <span class="n">app</span><span class="p">.</span><span class="n">Run</span><span class="p">();</span>
 </code></pre></div>
 
@@ -629,7 +629,7 @@ the manual explains
 <hr />
 <h2 id="4-querying">4. Querying<a class="anchor" href="#4-querying" aria-label="Link to this section">#</a></h2>
 <p>One fluent builder, LINQ-style expressions, and <code>Execute()</code> at the end:</p>
-<div class="codehilite"><pre><span></span><code><span class="kt">var</span><span class="w"> </span><span class="n">db</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ctx</span><span class="p">.</span><span class="n">Database</span><span class="p">;</span>
+<div class="codehilite"><pre><span></span><code><span class="kt">var</span><span class="w"> </span><span class="n">db</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">relatude</span><span class="p">.</span><span class="n">AdminDB</span><span class="p">;</span>
 
 <span class="kt">var</span><span class="w"> </span><span class="n">p</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">Get</span><span class="o">&lt;</span><span class="n">Product</span><span class="o">&gt;</span><span class="p">(</span><span class="n">id</span><span class="p">);</span>
 

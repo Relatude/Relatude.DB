@@ -110,6 +110,8 @@ public class QueryContext {
         CollectionIds = null,
         NowUtc = null
     };
+    /// <summary>Everything stored: the master admin, with drafts, every culture and hidden types. Deleted nodes stay out.</summary>
+    public static readonly QueryContext AllContent = MasterAdmin.Unpublished().CultureFallbacks().Hidden();
     static bool equalCollectionIds(Guid[]? a, Guid[]? b) {
         if (a == null && b == null) return true;
         if (a == null || b == null) return false;

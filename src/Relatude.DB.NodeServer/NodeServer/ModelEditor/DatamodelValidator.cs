@@ -19,7 +19,7 @@ namespace Relatude.DB.NodeServer.ModelEditor;
 public sealed class DatamodelValidator {
     readonly RelatudeDBServer _server;
     readonly NodeStoreContainer _container;
-    static readonly QueryContext countContext = QueryContext.Default.Admin().Hidden().Unpublished().CultureFallbacks();
+    static readonly QueryContext countContext = QueryContext.AllContent;
     public DatamodelValidator(RelatudeDBServer server, NodeStoreContainer container) {
         _server = server;
         _container = container;

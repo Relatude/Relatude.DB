@@ -2654,7 +2654,7 @@ other facet may declare a <code>Name</code>, and no composed type may declare it
 <h2 id="12-registering-the-model-the-admin-ui">12. Registering the model &amp; the admin UI<a class="anchor" href="#12-registering-the-model-the-admin-ui" aria-label="Link to this section">#</a></h2>
 <h3 id="server-hosted-the-usual-case">Server-hosted (the usual case)<a class="anchor" href="#server-hosted-the-usual-case" aria-label="Link to this section">#</a></h3>
 <div class="codehilite"><pre><span></span><code><span class="c1">// Program.cs</span>
-<span class="k">using</span><span class="w"> </span><span class="nn">Relatude.DB.NodeServer</span><span class="p">;</span><span class="w">   </span><span class="c1">// RelatudeDBContext</span>
+<span class="k">using</span><span class="w"> </span><span class="nn">Relatude.DB.NodeServer</span><span class="p">;</span><span class="w">   </span><span class="c1">// IRelatudeDB</span>
 
 <span class="kt">var</span><span class="w"> </span><span class="n">builder</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">WebApplication</span><span class="p">.</span><span class="n">CreateBuilder</span><span class="p">(</span><span class="n">args</span><span class="p">);</span>
 <span class="n">builder</span><span class="p">.</span><span class="n">AddRelatudeDB</span><span class="p">(</span><span class="n">options</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="p">{</span>
@@ -2662,14 +2662,52 @@ other facet may declare a <code>Name</code>, and no composed type may declare it
 <span class="p">});</span>
 
 <span class="kt">var</span><span class="w"> </span><span class="n">app</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">builder</span><span class="p">.</span><span class="n">Build</span><span class="p">();</span>
-<span class="n">app</span><span class="p">.</span><span class="n">MapGet</span><span class="p">(</span><span class="s">&quot;/&quot;</span><span class="p">,</span><span class="w"> </span><span class="p">(</span><span class="n">RelatudeDBContext</span><span class="w"> </span><span class="n">ctx</span><span class="p">)</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="s">$&quot;{ctx.Database.Count()} nodes.&quot;</span><span class="p">);</span>
+<span class="n">app</span><span class="p">.</span><span class="n">MapGet</span><span class="p">(</span><span class="s">&quot;/&quot;</span><span class="p">,</span><span class="w"> </span><span class="p">(</span><span class="n">IRelatudeDB</span><span class="w"> </span><span class="n">relatude</span><span class="p">)</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="s">$&quot;{relatude.AdminDB.Count()} nodes.&quot;</span><span class="p">);</span>
 <span class="n">app</span><span class="p">.</span><span class="n">UseRelatudeDB</span><span class="p">();</span><span class="w">   </span><span class="c1">// starts the server and mounts the admin UI at /relatude.db</span>
 <span class="n">app</span><span class="p">.</span><span class="n">Run</span><span class="p">();</span>
 </code></pre></div>
 
-<p><code>AddRelatudeDB</code> and <code>UseRelatudeDB</code> are in the global namespace. Inject <code>RelatudeDBContext</code> wherever
-you need the database: <code>ctx.Database</code> is the <code>NodeStore</code> that the rest of this manual works with. The
-options are described in <a href="#options-and-events-in-programcs">Options and events in Program.cs</a>.</p>
+<p><code>AddRelatudeDB</code> and <code>UseRelatudeDB</code> are in the global namespace. Inject <code>IRelatudeDB</code> wherever
+you need the database. Each store it hands out is named for who it reads as:</p>
+<table>
+<thead>
+<tr>
+<th>Member</th>
+<th>Reads as</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>relatude.AdminDB</code></td>
+<td>the master admin: no access checks, published content, no culture. For trusted code.</td>
+</tr>
+<tr>
+<td><code>relatude.AsUser(userId, cultureCode)</code></td>
+<td>that user: their read access applies</td>
+</tr>
+<tr>
+<td><code>relatude.AsAnonymous(cultureCode)</code></td>
+<td>a visitor who is not signed in</td>
+</tr>
+<tr>
+<td><code>relatude.IsOpen</code></td>
+<td>false while the database is still starting; the stores throw until it is open</td>
+</tr>
+</tbody>
+</table>
+<p>Each is a <code>NodeStore</code>, the type the rest of this manual works with, and <code>relatude.AdminDB</code> is the one
+its examples call <code>db</code>. Code with no dependency injection reads the same store as
+<code>RelatudeDBRuntime.AdminDB</code>. Never dispose a store you are handed: that closes the database.</p>
+<div class="codehilite"><pre><span></span><code><span class="k">public</span><span class="w"> </span><span class="k">class</span><span class="w"> </span><span class="nf">Sitemap</span><span class="p">(</span><span class="n">IRelatudeDB</span><span class="w"> </span><span class="n">relatude</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">public</span><span class="w"> </span><span class="n">List</span><span class="o">&lt;</span><span class="kt">string</span><span class="o">&gt;</span><span class="w"> </span><span class="n">Urls</span><span class="p">()</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="kt">var</span><span class="w"> </span><span class="n">db</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">relatude</span><span class="p">.</span><span class="n">AsAnonymous</span><span class="p">();</span><span class="w">   </span><span class="c1">// only what a visitor may read</span>
+<span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">Query</span><span class="o">&lt;</span><span class="n">Page</span><span class="o">&gt;</span><span class="p">().</span><span class="n">Execute</span><span class="p">().</span><span class="n">Select</span><span class="p">(</span><span class="n">p</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">GetUrl</span><span class="p">(</span><span class="n">p</span><span class="p">)).</span><span class="n">ToList</span><span class="p">();</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<p>A test hands the same interface a store of its own: <code>new RelatudeDB(store)</code>.</p>
+<p>The options are described in <a href="#options-and-events-in-programcs">Options and events in Program.cs</a>.</p>
 <h3 id="relatudedbjson">relatude.db.json<a class="anchor" href="#relatudedbjson" aria-label="Link to this section">#</a></h3>
 <p>Everything that is not code goes in <code>relatude.settings/relatude.db.json</code>: the databases, where they
 keep their data, the index engines, file stores, AI providers, the admin login and where the
@@ -2703,7 +2741,7 @@ what to commit.</p>
 <p>A typical file, with one database on local disk:</p>
 <div class="codehilite"><pre><span></span><code><span class="p">{</span>
 <span class="w">  </span><span class="s2">&quot;MasterUserName&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;admin&quot;</span><span class="p">,</span><span class="w">                  </span><span class="o">//</span><span class="w"> </span><span class="n">the</span><span class="w"> </span><span class="n">password</span><span class="w"> </span><span class="n">comes</span><span class="w"> </span><span class="n">from</span><span class="w"> </span><span class="n">configuration</span>
-<span class="w">  </span><span class="s2">&quot;DefaultStoreId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;8f6b…&quot;</span><span class="p">,</span><span class="w">                  </span><span class="o">//</span><span class="w"> </span><span class="n">the</span><span class="w"> </span><span class="n">database</span><span class="w"> </span><span class="n">ctx</span><span class="o">.</span><span class="n">Database</span><span class="w"> </span><span class="n">returns</span>
+<span class="w">  </span><span class="s2">&quot;DefaultStoreId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;8f6b…&quot;</span><span class="p">,</span><span class="w">                  </span><span class="o">//</span><span class="w"> </span><span class="n">the</span><span class="w"> </span><span class="n">database</span><span class="w"> </span><span class="n">relatude</span><span class="o">.</span><span class="n">AdminDB</span><span class="w"> </span><span class="n">returns</span>
 <span class="w">  </span><span class="s2">&quot;ContainerSettings&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
 <span class="w">    </span><span class="p">{</span>
 <span class="w">      </span><span class="s2">&quot;Id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;8f6b…&quot;</span><span class="p">,</span>
@@ -2752,7 +2790,7 @@ when the key is left out.</p>
 <tr>
 <td><code>DefaultStoreId</code></td>
 <td>–</td>
-<td>The <code>Id</code> of the database <code>ctx.Database</code> returns. Required.</td>
+<td>The <code>Id</code> of the database <code>relatude.AdminDB</code> returns. Required.</td>
 </tr>
 <tr>
 <td><code>ContainerSettings</code></td>
@@ -4722,7 +4760,7 @@ names from .NET's culture.</p>
 <hr />
 <h1 id="part-ii-writing-data">Part II — Writing data<a class="anchor" href="#part-ii-writing-data" aria-label="Link to this section">#</a></h1>
 <h2 id="13-create-insert-update-delete">13. Create, insert, update, delete<a class="anchor" href="#13-create-insert-update-delete" aria-label="Link to this section">#</a></h2>
-<p>In the examples, <code>db</code> is <code>ctx.Database</code>, the <code>NodeStore</code>.</p>
+<p>In the examples, <code>db</code> is <code>relatude.AdminDB</code>, the <code>NodeStore</code>.</p>
 <p><code>Create&lt;T&gt;()</code> makes a node object in memory and gives it a new id. Nothing is stored until you insert
 it:</p>
 <div class="codehilite"><pre><span></span><code><span class="kt">var</span><span class="w"> </span><span class="n">venue</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">Create</span><span class="o">&lt;</span><span class="n">IVenue</span><span class="o">&gt;</span><span class="p">();</span><span class="w">     </span><span class="c1">// in memory only</span>
@@ -5720,13 +5758,13 @@ deeplinks arrive encoded, and the manager only places them.</p>
 <p>Nothing maps an endpoint for these URLs: you add a middleware. It is about thirty lines around
 <code>TryParseUrlForContent</code> and <code>FileHandler.HandleFileAsync</code>:</p>
 <div class="codehilite"><pre><span></span><code><span class="k">public</span><span class="w"> </span><span class="k">class</span><span class="w"> </span><span class="nf">RelatudeDBMiddleware</span><span class="p">(</span><span class="n">RequestDelegate</span><span class="w"> </span><span class="n">next</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="k">public</span><span class="w"> </span><span class="k">async</span><span class="w"> </span><span class="n">Task</span><span class="w"> </span><span class="nf">Invoke</span><span class="p">(</span><span class="n">HttpContext</span><span class="w"> </span><span class="n">http</span><span class="p">,</span><span class="w"> </span><span class="n">RelatudeDBContext</span><span class="w"> </span><span class="n">ctx</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">public</span><span class="w"> </span><span class="k">async</span><span class="w"> </span><span class="n">Task</span><span class="w"> </span><span class="nf">Invoke</span><span class="p">(</span><span class="n">HttpContext</span><span class="w"> </span><span class="n">http</span><span class="p">,</span><span class="w"> </span><span class="n">IRelatudeDB</span><span class="w"> </span><span class="n">relatude</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
 <span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">RelatudeDBRuntime</span><span class="p">.</span><span class="n">IsReady</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
 <span class="w">            </span><span class="c1">// scheme and host included, so domain routing can see them</span>
 <span class="w">            </span><span class="kt">var</span><span class="w"> </span><span class="n">url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">http</span><span class="p">.</span><span class="n">Request</span><span class="p">.</span><span class="n">Scheme</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s">&quot;://&quot;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">http</span><span class="p">.</span><span class="n">Request</span><span class="p">.</span><span class="n">Host</span>
 <span class="w">                    </span><span class="o">+</span><span class="w"> </span><span class="n">http</span><span class="p">.</span><span class="n">Request</span><span class="p">.</span><span class="n">Path</span><span class="p">.</span><span class="n">Value</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">http</span><span class="p">.</span><span class="n">Request</span><span class="p">.</span><span class="n">QueryString</span><span class="p">;</span>
 <span class="w">            </span><span class="c1">// firstInQueue: a browser waits, so this goes ahead of background conversions</span>
-<span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">ctx</span><span class="p">.</span><span class="n">Database</span><span class="p">.</span><span class="n">TryParseUrlForContent</span><span class="p">(</span><span class="n">url</span><span class="p">,</span><span class="w"> </span><span class="k">out</span><span class="w"> </span><span class="kt">var</span><span class="w"> </span><span class="n">content</span><span class="p">,</span><span class="w"> </span><span class="n">firstInQueue</span><span class="p">:</span><span class="w"> </span><span class="k">true</span><span class="p">))</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">relatude</span><span class="p">.</span><span class="n">AdminDB</span><span class="p">.</span><span class="n">TryParseUrlForContent</span><span class="p">(</span><span class="n">url</span><span class="p">,</span><span class="w"> </span><span class="k">out</span><span class="w"> </span><span class="kt">var</span><span class="w"> </span><span class="n">content</span><span class="p">,</span><span class="w"> </span><span class="n">firstInQueue</span><span class="p">:</span><span class="w"> </span><span class="k">true</span><span class="p">))</span><span class="w"> </span><span class="p">{</span>
 <span class="w">                </span><span class="kt">var</span><span class="w"> </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">content</span><span class="p">.</span><span class="n">Id</span><span class="p">.</span><span class="n">Target</span><span class="w"> </span><span class="k">switch</span><span class="w"> </span><span class="p">{</span>
 <span class="w">                    </span><span class="n">UrlTarget</span><span class="p">.</span><span class="n">Property</span><span class="w"> </span><span class="k">or</span><span class="w"> </span><span class="n">UrlTarget</span><span class="p">.</span><span class="n">PropertyAdjusted</span>
 <span class="w">                        </span><span class="o">=&gt;</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="n">FileHandler</span><span class="p">.</span><span class="n">HandleFileAsync</span><span class="p">(</span><span class="n">http</span><span class="p">,</span><span class="w"> </span><span class="n">content</span><span class="p">.</span><span class="n">Stream</span><span class="p">,</span><span class="w"> </span><span class="n">content</span><span class="p">.</span><span class="n">FileName</span><span class="p">,</span>
@@ -6627,6 +6665,10 @@ shares the data and indexes, and only reads differently:</p>
 <td>Check release and expiry dates against this time</td>
 </tr>
 <tr>
+<td><code>AllContent()</code></td>
+<td>Everything stored: <code>Admin()</code> with <code>Unpublished()</code>, <code>CultureFallbacks()</code> and <code>Hidden()</code></td>
+</tr>
+<tr>
 <td><code>With(queryContext)</code></td>
 <td>Use a context built elsewhere</td>
 </tr>
@@ -6634,6 +6676,13 @@ shares the data and indexes, and only reads differently:</p>
 </table>
 <p><code>db.Context.Admin()</code> bypasses access control. Use it only in trusted server code, and <strong>never hand
 it to a request handler</strong>.</p>
+<p>The master admin skips access checks and nothing else: it still reads only published content, in
+the context's culture, and no hidden types. An import, a migration or a maintenance job that must
+see every node asks for all of it. <code>QueryContext.AllContent</code> is the same as a context:</p>
+<div class="codehilite"><pre><span></span><code><span class="kt">var</span><span class="w"> </span><span class="n">everything</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">Context</span><span class="p">.</span><span class="n">AllContent</span><span class="p">().</span><span class="n">Create</span><span class="p">();</span>
+<span class="kt">var</span><span class="w"> </span><span class="n">drafts</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">everything</span><span class="p">.</span><span class="n">Query</span><span class="o">&lt;</span><span class="n">IArticle</span><span class="o">&gt;</span><span class="p">().</span><span class="n">Execute</span><span class="p">();</span><span class="w">   </span><span class="c1">// drafts, every culture, hidden types</span>
+</code></pre></div>
+
 <p><code>Get</code> and <code>TryGet</code> by id apply the context's culture but <strong>not its read access</strong>. Queries and
 relation properties do apply it. To check what a visitor may read, query:</p>
 <div class="codehilite"><pre><span></span><code><span class="kt">bool</span><span class="w"> </span><span class="n">canRead</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">visitor</span><span class="p">.</span><span class="n">Query</span><span class="p">().</span><span class="n">Where</span><span class="p">(</span><span class="n">id</span><span class="p">).</span><span class="n">Count</span><span class="p">()</span><span class="w"> </span><span class="o">&gt;</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span>
@@ -7647,7 +7696,7 @@ queries against it. See <a href="#331-an-endpoint-in-the-admin-ui">§33.1</a>.</
 
 <span class="n">app</span><span class="p">.</span><span class="n">UseRelatudeDB</span><span class="p">();</span>
 <span class="n">app</span><span class="p">.</span><span class="n">MapRelatudeDBGraphQL</span><span class="p">(</span><span class="s">&quot;/graphql&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">o</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="n">o</span><span class="p">.</span><span class="n">StoreResolver</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">RelatudeDBRuntime</span><span class="p">.</span><span class="n">Database</span><span class="p">.</span><span class="n">Datastore</span><span class="p">;</span>
+<span class="w">    </span><span class="n">o</span><span class="p">.</span><span class="n">StoreResolver</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">RelatudeDBRuntime</span><span class="p">.</span><span class="n">AdminDB</span><span class="p">.</span><span class="n">Datastore</span><span class="p">;</span>
 <span class="w">    </span><span class="n">o</span><span class="p">.</span><span class="n">EnableExplorer</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">true</span><span class="p">;</span><span class="w">   </span><span class="c1">// open /graphql in a browser to try it</span>
 <span class="p">});</span>
 </code></pre></div>
@@ -8446,12 +8495,12 @@ with its options set in code. An interface <code>IEvent</code> gives the root fi
 <span class="n">app</span><span class="p">.</span><span class="n">UseRelatudeDB</span><span class="p">();</span>
 <span class="n">app</span><span class="p">.</span><span class="n">MapRelatudeDBGraphQL</span><span class="p">(</span><span class="s">&quot;/graphql&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">o</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="c1">// the store to answer from</span>
-<span class="w">    </span><span class="n">o</span><span class="p">.</span><span class="n">StoreResolver</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">RelatudeDBRuntime</span><span class="p">.</span><span class="n">Database</span><span class="p">.</span><span class="n">Datastore</span><span class="p">;</span>
+<span class="w">    </span><span class="n">o</span><span class="p">.</span><span class="n">StoreResolver</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">_</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">RelatudeDBRuntime</span><span class="p">.</span><span class="n">AdminDB</span><span class="p">.</span><span class="n">Datastore</span><span class="p">;</span>
 <span class="w">    </span><span class="c1">// read as an anonymous visitor, in the culture the request names</span>
 <span class="w">    </span><span class="n">o</span><span class="p">.</span><span class="n">QueryContextFactory</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">http</span><span class="w"> </span><span class="o">=&gt;</span>
 <span class="w">        </span><span class="n">QueryContext</span><span class="p">.</span><span class="n">Anonymous</span><span class="p">.</span><span class="n">Culture</span><span class="p">(</span><span class="n">http</span><span class="p">.</span><span class="n">Request</span><span class="p">.</span><span class="n">Query</span><span class="p">[</span><span class="s">&quot;culture&quot;</span><span class="p">].</span><span class="n">FirstOrDefault</span><span class="p">());</span>
 <span class="w">    </span><span class="c1">// for mutations: run them through the NodeStore, so transaction plugins see them</span>
-<span class="w">    </span><span class="n">o</span><span class="p">.</span><span class="n">TransactionExecutor</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">_</span><span class="p">,</span><span class="w"> </span><span class="n">transaction</span><span class="p">,</span><span class="w"> </span><span class="n">_</span><span class="p">)</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">RelatudeDBRuntime</span><span class="p">.</span><span class="n">Database</span><span class="p">.</span><span class="n">Execute</span><span class="p">(</span><span class="n">transaction</span><span class="p">);</span>
+<span class="w">    </span><span class="n">o</span><span class="p">.</span><span class="n">TransactionExecutor</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="n">_</span><span class="p">,</span><span class="w"> </span><span class="n">transaction</span><span class="p">,</span><span class="w"> </span><span class="n">_</span><span class="p">)</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">RelatudeDBRuntime</span><span class="p">.</span><span class="n">AdminDB</span><span class="p">.</span><span class="n">Execute</span><span class="p">(</span><span class="n">transaction</span><span class="p">);</span>
 <span class="w">    </span><span class="n">o</span><span class="p">.</span><span class="n">TypeFilter</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">type</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">type</span><span class="p">.</span><span class="n">CodeName</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="s">&quot;IAttendee&quot;</span><span class="p">;</span><span class="w">   </span><span class="c1">// keep a type out of the schema</span>
 <span class="w">    </span><span class="n">o</span><span class="p">.</span><span class="n">EnableExplorer</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">true</span><span class="p">;</span>
 <span class="w">    </span><span class="n">o</span><span class="p">.</span><span class="n">EnableFacetSearch</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">true</span><span class="p">;</span>

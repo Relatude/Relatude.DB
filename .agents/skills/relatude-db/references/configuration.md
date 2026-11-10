@@ -49,7 +49,7 @@ One server, N containers (databases), each with its own IO providers, file store
   "MasterPassword": "…",                  // plain text; prefer setting these from config, see below
   "TokenEncryptionSecret": "…",           // without it, logins do not survive a restart
   "Name": "Relatude.DB Server",
-  "DefaultStoreId": "8f6b…",              // which container RelatudeDBContext.Database resolves to
+  "DefaultStoreId": "8f6b…",              // which container IRelatudeDB.AdminDB resolves to
   "DBAdminUIUrlPath": "/relatude.db",     // overrides the argument passed to UseRelatudeDB()
 
   "ContainerSettings": [
@@ -114,7 +114,7 @@ For `AzureBlobStorage`, the entry carries `BlobConnectionString`, `BlobContainer
 | `TokenCookieName`, `TokenCookieMaxAgeInSec`, `TokenCookieSecure`, `TokenCookieSameSite`, `TokenLockedToIP` | Cookie behaviour. Defaults are secure (`Secure`, `SameSite=Strict`, 10 days). |
 | `Id` | Server id. Also the HMAC key for signed file URLs. |
 | `Name`, `Description` | Cosmetic. |
-| `DefaultStoreId` | Which container `RelatudeDBContext.Database` resolves to. |
+| `DefaultStoreId` | Which container `IRelatudeDB.AdminDB` resolves to. |
 | `DBAdminUIUrlPath` | Admin UI path. **Applied after** `UseRelatudeDB("/x")`, so the file wins. |
 | `ContainerSettings` | The databases. |
 | `DBSettingsFilePath` | Declared but never read in the current build. Ignore it. |

@@ -2066,7 +2066,7 @@ other facet may declare a `Name`, and no composed type may declare it again.
 
 ```csharp
 // Program.cs
-using Relatude.DB.NodeServer;   // RelatudeDBContext
+using Relatude.DB.NodeServer;   // IRelatudeDB
 
 var builder = WebApplication.CreateBuilder(args);
 builder.AddRelatudeDB(options => {
@@ -2074,14 +2074,37 @@ builder.AddRelatudeDB(options => {
 });
 
 var app = builder.Build();
-app.MapGet("/", (RelatudeDBContext ctx) => $"{ctx.Database.Count()} nodes.");
+app.MapGet("/", (IRelatudeDB relatude) => $"{relatude.AdminDB.Count()} nodes.");
 app.UseRelatudeDB();   // starts the server and mounts the admin UI at /relatude.db
 app.Run();
 ```
 
-`AddRelatudeDB` and `UseRelatudeDB` are in the global namespace. Inject `RelatudeDBContext` wherever
-you need the database: `ctx.Database` is the `NodeStore` that the rest of this manual works with. The
-options are described in [Options and events in Program.cs](#options-and-events-in-programcs).
+`AddRelatudeDB` and `UseRelatudeDB` are in the global namespace. Inject `IRelatudeDB` wherever
+you need the database. Each store it hands out is named for who it reads as:
+
+| Member | Reads as |
+|---|---|
+| `relatude.AdminDB` | the master admin: no access checks, published content, no culture. For trusted code. |
+| `relatude.AsUser(userId, cultureCode)` | that user: their read access applies |
+| `relatude.AsAnonymous(cultureCode)` | a visitor who is not signed in |
+| `relatude.IsOpen` | false while the database is still starting; the stores throw until it is open |
+
+Each is a `NodeStore`, the type the rest of this manual works with, and `relatude.AdminDB` is the one
+its examples call `db`. Code with no dependency injection reads the same store as
+`RelatudeDBRuntime.AdminDB`. Never dispose a store you are handed: that closes the database.
+
+```csharp
+public class Sitemap(IRelatudeDB relatude) {
+    public List<string> Urls() {
+        var db = relatude.AsAnonymous();   // only what a visitor may read
+        return db.Query<Page>().Execute().Select(p => db.GetUrl(p)).ToList();
+    }
+}
+```
+
+A test hands the same interface a store of its own: `new RelatudeDB(store)`.
+
+The options are described in [Options and events in Program.cs](#options-and-events-in-programcs).
 
 ### relatude.db.json
 
@@ -2123,7 +2146,7 @@ A typical file, with one database on local disk:
 ```jsonc
 {
   "MasterUserName": "admin",                  // the password comes from configuration
-  "DefaultStoreId": "8f6b…",                  // the database ctx.Database returns
+  "DefaultStoreId": "8f6b…",                  // the database relatude.AdminDB returns
   "ContainerSettings": [
     {
       "Id": "8f6b…",
@@ -2166,7 +2189,7 @@ when the key is left out.
 
 | Key | Default | What it does |
 |---|---|---|
-| `DefaultStoreId` | – | The `Id` of the database `ctx.Database` returns. Required. |
+| `DefaultStoreId` | – | The `Id` of the database `relatude.AdminDB` returns. Required. |
 | `ContainerSettings` | – | The databases, one entry each. Each has its own datamodel, storage, indexes and files. |
 | `Id` | new Guid | Identifies the server. Only matters when several servers share settings. |
 | `Name`, `Description` | null | Labels shown in the admin UI. |
@@ -3277,7 +3300,7 @@ names from .NET's culture.
 
 ## 13. Create, insert, update, delete
 
-In the examples, `db` is `ctx.Database`, the `NodeStore`.
+In the examples, `db` is `relatude.AdminDB`, the `NodeStore`.
 
 `Create<T>()` makes a node object in memory and gives it a new id. Nothing is stored until you insert
 it:
@@ -4172,13 +4195,13 @@ Nothing maps an endpoint for these URLs: you add a middleware. It is about thirt
 
 ```csharp
 public class RelatudeDBMiddleware(RequestDelegate next) {
-    public async Task Invoke(HttpContext http, RelatudeDBContext ctx) {
+    public async Task Invoke(HttpContext http, IRelatudeDB relatude) {
         if (RelatudeDBRuntime.IsReady) {
             // scheme and host included, so domain routing can see them
             var url = http.Request.Scheme + "://" + http.Request.Host
                     + http.Request.Path.Value + http.Request.QueryString;
             // firstInQueue: a browser waits, so this goes ahead of background conversions
-            if (ctx.Database.TryParseUrlForContent(url, out var content, firstInQueue: true)) {
+            if (relatude.AdminDB.TryParseUrlForContent(url, out var content, firstInQueue: true)) {
                 var result = content.Id.Target switch {
                     UrlTarget.Property or UrlTarget.PropertyAdjusted
                         => await FileHandler.HandleFileAsync(http, content.Stream, content.FileName,
@@ -5079,10 +5102,20 @@ var visitor = db.Context.Culture(cultureCode).User(userId ?? Guid.Empty).Create(
 | `EditView()` | Also require edit-view access, as for an editor |
 | `Hidden()` | Include nodes of hidden types |
 | `Now(utc)` | Check release and expiry dates against this time |
+| `AllContent()` | Everything stored: `Admin()` with `Unpublished()`, `CultureFallbacks()` and `Hidden()` |
 | `With(queryContext)` | Use a context built elsewhere |
 
 `db.Context.Admin()` bypasses access control. Use it only in trusted server code, and **never hand
 it to a request handler**.
+
+The master admin skips access checks and nothing else: it still reads only published content, in
+the context's culture, and no hidden types. An import, a migration or a maintenance job that must
+see every node asks for all of it. `QueryContext.AllContent` is the same as a context:
+
+```csharp
+var everything = db.Context.AllContent().Create();
+var drafts = everything.Query<IArticle>().Execute();   // drafts, every culture, hidden types
+```
 
 `Get` and `TryGet` by id apply the context's culture but **not its read access**. Queries and
 relation properties do apply it. To check what a visitor may read, query:
@@ -5912,7 +5945,7 @@ using Relatude.DB.NodeServer;
 
 app.UseRelatudeDB();
 app.MapRelatudeDBGraphQL("/graphql", o => {
-    o.StoreResolver = _ => RelatudeDBRuntime.Database.Datastore;
+    o.StoreResolver = _ => RelatudeDBRuntime.AdminDB.Datastore;
     o.EnableExplorer = true;   // open /graphql in a browser to try it
 });
 ```
@@ -6469,12 +6502,12 @@ using Relatude.DB.NodeServer;
 app.UseRelatudeDB();
 app.MapRelatudeDBGraphQL("/graphql", o => {
     // the store to answer from
-    o.StoreResolver = _ => RelatudeDBRuntime.Database.Datastore;
+    o.StoreResolver = _ => RelatudeDBRuntime.AdminDB.Datastore;
     // read as an anonymous visitor, in the culture the request names
     o.QueryContextFactory = http =>
         QueryContext.Anonymous.Culture(http.Request.Query["culture"].FirstOrDefault());
     // for mutations: run them through the NodeStore, so transaction plugins see them
-    o.TransactionExecutor = (_, transaction, _) => RelatudeDBRuntime.Database.Execute(transaction);
+    o.TransactionExecutor = (_, transaction, _) => RelatudeDBRuntime.AdminDB.Execute(transaction);
     o.TypeFilter = type => type.CodeName != "IAttendee";   // keep a type out of the schema
     o.EnableExplorer = true;
     o.EnableFacetSearch = true;

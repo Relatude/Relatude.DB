@@ -21,7 +21,7 @@ app.UseRouting();                          // by hand, and after the static file
                                            // a matched route stops UseStaticFiles serving at all
 
 // Pages are controller actions rendering Razor views: /products lists, /products/details/<id> shows one.
-// Controllers take RelatudeDBContext in their constructor; ctx.Database is the database.
+// Controllers take IRelatudeDB in their constructor; relatude.AdminDB is the database, read as the master admin.
 app.MapControllerRoute(name: "default", pattern: "{controller=Home}/{action=Index}/{id?}");
 
 app.Run();

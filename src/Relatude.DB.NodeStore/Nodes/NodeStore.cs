@@ -47,26 +47,28 @@ namespace Relatude.DB.Nodes;
 /// (culture, visibility, user) differs. Start from <see cref="NodeStore.Context"/>:
 /// <code>var norwegian = store.Context.Culture("nb-NO").Create();</code>
 /// </summary>
-public class DbContext(NodeStore store) {
+public class ContextBuilder(NodeStore store) {
     /// <summary>Reads text and other culture dependent values in the given culture. Null selects the store default.</summary>
-    public DbContext Culture(string? cultureCode) => change(store.QueryContext.Culture(cultureCode));
+    public ContextBuilder Culture(string? cultureCode) => change(store.QueryContext.Culture(cultureCode));
     /// <summary>Includes nodes flagged as hidden. They are left out of query results by default.</summary>
-    public DbContext Hidden(bool includeHidden = true) => change(store.QueryContext.Hidden(includeHidden));
+    public ContextBuilder Hidden(bool includeHidden = true) => change(store.QueryContext.Hidden(includeHidden));
     /// <summary>When a node has no content in the requested culture, falls back to another culture rather than skipping the node.</summary>
-    public DbContext CultureFallbacks(bool includeFallbacks = true) => change(store.QueryContext.CultureFallbacks(includeFallbacks));
+    public ContextBuilder CultureFallbacks(bool includeFallbacks = true) => change(store.QueryContext.CultureFallbacks(includeFallbacks));
     /// <summary>Reads as the built in master admin user, so no permission or visibility filtering is applied.</summary>
-    public DbContext Admin() => change(store.QueryContext.Admin());
+    public ContextBuilder Admin() => change(store.QueryContext.Admin());
     /// <summary>Reads as the user with this id, so read access is filtered by the user's group memberships. Guid.Empty reads as an anonymous visitor.</summary>
-    public DbContext User(Guid userId) => change(store.QueryContext.User(userId));
+    public ContextBuilder User(Guid userId) => change(store.QueryContext.User(userId));
     /// <summary>Includes nodes that are not released yet, or expired. They are left out by default.</summary>
-    public DbContext Unpublished(bool includeUnpublished = true) => change(store.QueryContext.Unpublished(includeUnpublished));
+    public ContextBuilder Unpublished(bool includeUnpublished = true) => change(store.QueryContext.Unpublished(includeUnpublished));
     /// <summary>Reads as an editor: nodes also have to grant edit view access.</summary>
-    public DbContext EditView(bool editView = true) => change(store.QueryContext.EditViewMode(editView));
+    public ContextBuilder EditView(bool editView = true) => change(store.QueryContext.EditViewMode(editView));
     /// <summary>Evaluates release and expire dates against this time instead of now. Null means now.</summary>
-    public DbContext Now(DateTime? nowUtc) => change(store.QueryContext.Now(nowUtc));
+    public ContextBuilder Now(DateTime? nowUtc) => change(store.QueryContext.Now(nowUtc));
     /// <summary>Reads with this context, replacing every setting of the builder so far.</summary>
-    public DbContext With(QueryContext queryContext) => change(queryContext);
-    DbContext change(QueryContext queryContext) => new DbContext(store.NewStoreWithDifferentContext(queryContext));
+    /// <summary>Reads everything stored: as the master admin, with drafts, every culture and hidden types. Deleted nodes stay out.</summary>
+    public ContextBuilder AllContent() => change(store.QueryContext.Admin().Unpublished().CultureFallbacks().Hidden());
+    public ContextBuilder With(QueryContext queryContext) => change(queryContext);
+    ContextBuilder change(QueryContext queryContext) => new ContextBuilder(store.NewStoreWithDifferentContext(queryContext));
     /// <summary>Returns the <see cref="NodeStore"/> configured by the preceding calls. Cheap: it is a thin wrapper around the original store.</summary>
     public NodeStore Create() => store;
 }
@@ -101,8 +103,8 @@ public class NodeStore : IDisposable {
 
     /// <summary>The underlying low level store. Use it for advanced operations that this class does not expose.</summary>
     public readonly IDataStore Datastore;
-    /// <summary>Entry point for getting a store that reads in another culture, as another user, or with hidden nodes included. See <see cref="DbContext"/>.</summary>
-    public DbContext Context => new DbContext(this);
+    /// <summary>Entry point for getting a store that reads in another culture, as another user, or with hidden nodes included. See <see cref="ContextBuilder"/>.</summary>
+    public ContextBuilder Context => new ContextBuilder(this);
     /// <summary>The context (culture, user, visibility) that this store reads with unless a query overrides it.</summary>
     public QueryContext QueryContext => Datastore.QueryContext;
     /// <summary>Translates between node objects and the store's internal node data, and resolves property expressions to property ids.</summary>
