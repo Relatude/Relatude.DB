@@ -11,9 +11,12 @@ internal class ActionConverter {
     public ResultingOperation LastResultingOperation => _lastResultingOperation ?? ResultingOperation.None; // NB: only valid after the primitives returned by Convert have been enumerated
     // who writes: the transaction's user, stamped on what a write changes with its change time (none for a write with no user)
     Guid _writer;
+    // the transaction's context: which revision of a node an update written as an object goes to
+    QueryContext? _ctx;
     public IEnumerable<PrimitiveActionBase> Convert(DataStoreLocal db, ActionBase complexAction, bool transformValues, List<KeyValuePair<TaskData, string?>> newTasks, QueryContext ctx) {
         _lastResultingOperation = null; // reset for each action, set during enumeration of the returned primitives
         _writer = ctx.UserId;
+        _ctx = ctx;
         var src = complexAction switch {
             RelationAction relationAction => toPrimitiveActions(db, relationAction, newTasks),
             NodeAction nodeAction => toPrimitiveActions(db, nodeAction, transformValues, newTasks),
@@ -169,9 +172,12 @@ internal class ActionConverter {
                             // ignore if node does not exist
                         }
                     } else {
+                        // a node written as an object names no revision (the mapper makes it without meta): it goes to
+                        // the one the transaction's context reads, as a property write does
+                        if (oldNode is NodeDataRevisions held && node is not NodeDataRevision) node = revisionRead(db, held, node);
                         var performUpdate = nodeAction.Operation switch {
                             NodeOperation.UpdateIfExists
-                            or NodeOperation.UpdateOrFail => Utils.AreDifferentIgnoringGeneratedPropsAndMeta(node, oldNode, db._definition),
+                            or NodeOperation.UpdateOrFail => isChanged(db, node, oldNode),
                             NodeOperation.ForceUpdate => true,
                             _ => throw new NotImplementedException(),
                         };
@@ -276,6 +282,23 @@ internal class ActionConverter {
             default:
                 throw new NotImplementedException();
         }
+    }
+    NodeDataRevision revisionRead(DataStoreLocal db, NodeDataRevisions held, INodeDataExternal node) {
+        if (node is not NodeData plain) throw new Exception("Cannot determine revision to update. ");
+        if (!db.GetOuterConverter(_ctx).TryToOuter(held, out var outer) || outer is not NodeDataRevision read) {
+            throw new Exception("Node " + node.Id + " has revisions, and the transaction's context reads none of them, so there is no revision to update. "
+                + "Write in a context that reads the revision to change, or selects it. ");
+        }
+        return plain.CopyAndConvertToNodeDataRevision(read.Meta, read.RevisionId);
+    }
+    // a revision container holds no values of its own: a revision is compared with the one it replaces
+    static bool isChanged(DataStoreLocal db, INodeData node, INodeData stored) {
+        if (stored is NodeDataRevisions held) {
+            var replaced = node is NodeDataRevision rev ? held.Revisions.FirstOrDefault(r => r.RevisionKey == rev.RevisionKey) : null;
+            if (replaced == null) return true; // written, and refused there for the revision it names
+            stored = replaced;
+        }
+        return Utils.AreDifferentIgnoringGeneratedPropsAndMeta(node, stored, db._definition);
     }
     /// <summary>A node inserted without a change time is changed when it was made; one given (an import) keeps it.</summary>
     static void stampIfNotGiven(INodeData node) {

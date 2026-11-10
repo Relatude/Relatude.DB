@@ -19,7 +19,33 @@ internal sealed class SkiaImage : IImage {
     public static SkiaImage Load(Stream stream) {
         using var codec = SKCodec.Create(stream) ?? throw new InvalidOperationException("Failed to decode image.");
         ImageLimits.ThrowIfTooLarge(codec.Info.Width, codec.Info.Height);
-        return new(SKBitmap.Decode(codec) ?? throw new InvalidOperationException("Failed to decode image."));
+        var decoded = SKBitmap.Decode(codec) ?? throw new InvalidOperationException("Failed to decode image.");
+        return new(Oriented(decoded, codec.EncodedOrigin));
+    }
+
+    // turned as the file's EXIF orientation says, as the native decoder and browsers do: SKBitmap.Decode leaves it as stored
+    static SKBitmap Oriented(SKBitmap src, SKEncodedOrigin origin) {
+        if (origin == SKEncodedOrigin.TopLeft) return src;
+        float w = src.Width, h = src.Height;
+        // where a stored pixel goes: x' = a x + b y + c, y' = d x + e y + f
+        var (a, b, c, d, e, f) = origin switch {
+            SKEncodedOrigin.TopRight => (-1f, 0f, w, 0f, 1f, 0f),     // mirrored
+            SKEncodedOrigin.BottomRight => (-1f, 0f, w, 0f, -1f, h),  // upside down
+            SKEncodedOrigin.BottomLeft => (1f, 0f, 0f, 0f, -1f, h),   // mirrored upside down
+            SKEncodedOrigin.LeftTop => (0f, 1f, 0f, 1f, 0f, 0f),      // across the diagonal
+            SKEncodedOrigin.RightTop => (0f, -1f, h, 1f, 0f, 0f),     // a quarter turn clockwise
+            SKEncodedOrigin.RightBottom => (0f, -1f, h, -1f, 0f, w),  // across the other diagonal
+            SKEncodedOrigin.LeftBottom => (0f, 1f, 0f, -1f, 0f, w),   // a quarter turn counterclockwise
+            _ => (1f, 0f, 0f, 0f, 1f, 0f),
+        };
+        var swaps = origin >= SKEncodedOrigin.LeftTop;
+        var dst = new SKBitmap(src.Info.WithSize(swaps ? src.Height : src.Width, swaps ? src.Width : src.Height));
+        using (var canvas = new SKCanvas(dst)) {
+            canvas.SetMatrix(new SKMatrix(a, b, c, d, e, f, 0, 0, 1));
+            canvas.DrawBitmap(src, 0, 0);
+        }
+        src.Dispose();
+        return dst;
     }
 
     // ── Metadata  ──────────────────────────────────────────────────────────
