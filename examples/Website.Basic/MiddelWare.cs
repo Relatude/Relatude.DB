@@ -44,13 +44,13 @@ public class RelatudeDBMiddleware {
             var page = db.Get<SitePage>(c.NodeData.Id); // the Body arrives with current public URLs, not the stored rdb: tokens
             var html = new StringBuilder();
             html.Append("<html><body>");
-            html.Append("<h1>").Append(page.Title).Append("</h1>");
+            html.Append("<h1>").Append(page.Name).Append("</h1>");
             html.Append(page.Body);
             var childIds = db.Datastore.GetRelatedNodeIdsFromRelationId(db.Mapper.GetRelationId<PageTree>(), page.Id, false);
             var children = childIds.Select(db.Get<SitePage>).ToList();
             if (children.Count > 0) {
                 html.Append("<ul>");
-                foreach (var child in children) html.Append($"<li><a href='{db.GetUrl(child)}'>{child.Title}</a></li>");
+                foreach (var child in children) html.Append($"<li><a href='{db.GetUrl(child)}'>{child.Name}</a></li>");
                 html.Append("</ul>");
             }
             html.Append("<p><a href='/'>Demo start page</a></p>");

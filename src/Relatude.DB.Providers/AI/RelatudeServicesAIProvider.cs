@@ -154,7 +154,20 @@ public class RelatudeServicesAIProvider : IAIProvider {
     /// a key the service publishes, sent as it is, or null for the service's own default; the settings'
     /// local model keys are <see cref="GetCompletionAsync"/>'s business.
     /// </summary>
-    public async Task<RelatudeServicesCompletion> CompleteAsync(string prompt, string? model = null, int? maxOutputTokens = null) {
+    public Task<RelatudeServicesCompletion> CompleteAsync(string prompt, string? model = null, int? maxOutputTokens = null)
+        => completeAsync(prompt, model, maxOutputTokens, [], default);
+
+    /// <summary>The service looks at up to 8 pictures of at most 5 MB each, 16 MB together, priced as prompt text.</summary>
+    public bool SupportsImages => true;
+
+    /// <summary>
+    /// The service takes one prompt, so the instructions and the messages are sent as
+    /// <see cref="AIChatRequest.ToPrompt"/>, and the pictures of every message in order as <c>images</c>.
+    /// </summary>
+    public async Task<string> GetChatCompletionAsync(AIChatRequest request, CancellationToken cancellationToken = default)
+        => (await completeAsync(request.ToPrompt(), resolveModel(request.ModelKey), request.MaxOutputTokens ?? _settings.MaxOutputTokens, [.. request.AllImages], cancellationToken)).Text;
+
+    async Task<RelatudeServicesCompletion> completeAsync(string prompt, string? model, int? maxOutputTokens, AIImage[] images, CancellationToken cancellationToken) {
         string body;
         using (var ms = new MemoryStream()) {
             using (var w = new Utf8JsonWriter(ms)) {
@@ -162,11 +175,21 @@ public class RelatudeServicesAIProvider : IAIProvider {
                 w.WriteString("prompt", prompt);
                 if (!string.IsNullOrEmpty(model)) w.WriteString("model", model);
                 if (maxOutputTokens.HasValue) w.WriteNumber("maxOutputTokens", maxOutputTokens.Value);
+                if (images.Length > 0) {
+                    w.WriteStartArray("images");
+                    foreach (var image in images) {
+                        w.WriteStartObject();
+                        w.WriteBase64String("data", image.Bytes);
+                        w.WriteString("detail", OpenAIWire.ImageDetail(image));
+                        w.WriteEndObject();
+                    }
+                    w.WriteEndArray();
+                }
                 w.WriteEndObject();
             }
             body = Encoding.UTF8.GetString(ms.ToArray());
         }
-        var json = await postAsync(_completionsUrl, body);
+        var json = await postAsync(_completionsUrl, body, cancellationToken);
         using var doc = JsonDocument.Parse(json);
         var root = doc.RootElement;
         if (!root.TryGetProperty("text", out var text) || text.ValueKind != JsonValueKind.String) {
@@ -241,7 +264,7 @@ public class RelatudeServicesAIProvider : IAIProvider {
     /// it got. Five attempts at the five-minute timeout would also hold the caller for close to half an
     /// hour. The caller is told, and decides.</para>
     /// </summary>
-    async Task<string> postAsync(string url, string jsonBody) {
+    async Task<string> postAsync(string url, string jsonBody, CancellationToken cancellationToken = default) {
         // settled before the first attempt, so a missing key is said plainly rather than as the service's 401
         var key = apiKey();
         using var response = await HttpRetry.SendAsync(_http, () => {
@@ -250,8 +273,8 @@ public class RelatudeServicesAIProvider : IAIProvider {
             };
             request.Headers.TryAddWithoutValidation("Authorization", "Bearer " + key);
             return request;
-        }, retryOnTimeout: false, isTransient: answeredBeforeCharging, retryOnConnectionError: false);
-        var body = await response.Content.ReadAsStringAsync();
+        }, retryOnTimeout: false, isTransient: answeredBeforeCharging, retryOnConnectionError: false, cancellationToken: cancellationToken);
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
         if (!response.IsSuccessStatusCode) {
             throw new Exception($"The Relatude AI service at {url} returned {(int)response.StatusCode} {response.StatusCode}: {readError(body)}");
         }

@@ -208,6 +208,14 @@ public interface IDataStore : IDisposable {
         path = null;
         return false;
     }
+    /// <summary>
+    /// What the context's user may write of a node, by the database's write access, for an interface to offer only what
+    /// it may; every write is checked whatever this says. Null for a node the store does not have, and from a store that
+    /// does not say (one elsewhere).
+    /// </summary>
+    NodeWriteRights? GetWriteRights(Guid nodeId, QueryContext? ctx = null) => null;
+    /// <summary>What the context's user may write of nodes of a type, as <see cref="GetWriteRights"/> says of a node.</summary>
+    TypeWriteRights? GetTypeWriteRights(Guid nodeTypeId, QueryContext? ctx = null) => null;
     /// <summary>Whether the store still holds the file this value names.</summary>
     Task<bool> FileExistsAsync(FileValue value);
     Task<bool> IsFileUploadedAndAvailableAsync(PropertyPath target, QueryContext? ctx = null);

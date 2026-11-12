@@ -27,7 +27,16 @@ import { TypeChart, otherSliceId, shade, type TypeChartShape, type TypeSlice } f
 import { TypeGlyph } from "./TypeIcon";
 import { openInDatamodel, openInQuery } from "../navigate";
 import { showConfirm, showError, showInfo } from "../dialogs";
-import { fetchDashboard, type DashboardInfo, type DashboardLive, type LiveCacheCounters, type ScheduledRecovery, type TypeCount } from "../server/dashboard";
+import {
+  breakDatabaseLeases,
+  fetchDashboard,
+  fetchDatabaseLeases,
+  type DashboardInfo,
+  type DashboardLive,
+  type LiveCacheCounters,
+  type ScheduledRecovery,
+  type TypeCount,
+} from "../server/dashboard";
 import { codeSourceGuid, sourceColors } from "../server/datamodel";
 import type { TraceInfo } from "../server/logs";
 import { useLive } from "../live";
@@ -198,6 +207,56 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
       showError("Could not restart the database", e instanceof Error ? e.message : String(e));
     } finally {
       setOpenBusy(false);
+    }
+  }
+
+  // An open that waited out a lease on the database's blob storage. A lease is how a running process
+  // keeps others from writing its files, so breaking one is only safe once its holder is gone: the
+  // dialog lists them, says which are being renewed, and wants the other instances ruled out first.
+  async function onBreakLeases() {
+    let found: Awaited<ReturnType<typeof fetchDatabaseLeases>>;
+    try {
+      found = await fetchDatabaseLeases(db.id);
+    } catch (e) {
+      showError("Could not list the leases", e instanceof Error ? e.message : String(e));
+      return;
+    }
+    const others = found.leases.filter((l) => !l.heldHere);
+    if (others.length === 0) {
+      showInfo("No leases to break", "Nothing on the blob storage of this database is leased by another process any more. Start the database again.");
+      return;
+    }
+    const n = others.length;
+    const forever = others.filter((l) => l.infinite).length;
+    const renewed = n - forever;
+    const { ok } = await showConfirm(
+      `Break ${n} lease${n === 1 ? "" : "s"} and start the database?`,
+      `${n === 1 ? "One blob" : n + " blobs"} of this database ${n === 1 ? "is" : "are"} leased by another process` +
+        (found.blockedBy ? `, among them ${found.blockedBy}, which the last open waited for` : "") +
+        ". " +
+        (forever > 0
+          ? `${forever === n ? (n === 1 ? "The lease never ends" : "None of these leases ends") : forever + " of them never end"} by itself: left by an older version of Relatude.DB, or taken by another tool. `
+          : "") +
+        (renewed > 0
+          ? `${renewed === n ? (n === 1 ? "The lease is" : "They are") : renewed + " are"} being renewed, so the process holding ${renewed === 1 ? "it" : "them"} is still running: another instance of the application on the same storage, or the previous process of a recycle that has not stopped. `
+          : "") +
+        "Breaking the lease of a process that is still running lets two processes write the same database, which can corrupt it. Break them only when no other instance uses this storage.",
+      {
+        confirmLabel: "Break leases and start",
+        danger: true,
+        details: others.map((l) => `${l.storage}: ${l.key}` + (l.infinite ? " · never ends" : l.state === "breaking" ? " · breaking" : " · renewed")),
+        option: { label: "No other instance of the application uses this storage", required: true },
+      },
+    );
+    if (!ok) return;
+    try {
+      const result = await breakDatabaseLeases(db.id, others.map((l) => ({ ioId: l.ioId, key: l.key })), true);
+      if (result.errors.length > 0) showError("Not every lease could be broken", `${result.broken} broken. The database was not started.`, result.errors);
+      if (result.opening) setStarting(true);
+      setKick((k) => k + 1);
+      await loadInfo();
+    } catch (e) {
+      showError("Could not break the leases", e instanceof Error ? e.message : String(e));
     }
   }
 
@@ -405,6 +464,17 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
           </div>
           {info.startupError && <div>{info.startupError.message}</div>}
           {info.recovery?.dueUtc && <div className="startup-exception-restart">{describeRecovery(info.recovery)}</div>}
+          {info.startupError?.heldBy === "lease" && !info.open && (
+            <div className="startup-exception-actions">
+              <button
+                className="action-button danger"
+                onClick={onBreakLeases}
+                title="Lists the leases another process holds on this database's blob storage, and breaks them once you have confirmed that no other instance uses it"
+              >
+                Break leases…
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -509,6 +579,9 @@ const inheritedKey = "dashTypeInherited";
 function describeRecovery(recovery: ScheduledRecovery): string {
   const at = recovery.dueUtc ? formatTime(recovery.dueUtc) : "shortly";
   const count = `incident ${recovery.incident} of ${recovery.incidents} in 24 hours`;
+  if (recovery.waitingForRelease) {
+    return `Another process still holds files of this database, so automatic recovery opens it again at ${at}, and keeps trying until they are released (${count}).`;
+  }
   switch (recovery.step) {
     case "RestartDatabase":
       return `Automatic recovery restarts the database at ${at} (${count}).`;

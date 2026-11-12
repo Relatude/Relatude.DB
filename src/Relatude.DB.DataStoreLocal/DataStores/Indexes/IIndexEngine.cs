@@ -69,6 +69,14 @@ public interface IIndexEngine : IDisposable {
     void OptimizeDisk();
     long GetTotalDiskSpace();
 
+    // ---- corruption -----------------------------------------------------------------------------
+    /// <summary>An index found the engine's persisted data inconsistent: the next open should
+    /// discard it and rebuild from the log. A no-op for engines that cannot do that.</summary>
+    void MarkCorrupt(string reason) { }
+    /// <summary>Set when the engine found its files corrupt at open and started empty; the store
+    /// logs it as a critical error.</summary>
+    string? OpenRecoveryNotice => null;
+
     // ---- memory ---------------------------------------------------------------------------------
     /// <summary>What the engine holds in memory right now, or null when it cannot measure it.</summary>
     long? GetMemoryUsage();

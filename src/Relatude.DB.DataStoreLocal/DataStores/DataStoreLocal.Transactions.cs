@@ -143,6 +143,8 @@ public sealed partial class DataStoreLocal : IDataStore {
             giveBackTimestamp(transaction, clockBefore, timestampTakenHere);
             if (err is NodeLockedException) {
                 // LogWarning(err.Message); // no logging as outer call wil log exception
+            } else if (err is WriteAccessException) {
+                LogWarning("Write refused. " + err.Message); // the store is fine: it was asked for what the user may not do
             } else {
                 LogError("Transaction Error. ", err);
             }
@@ -203,6 +205,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         // will attempt to execute all actions, if any fails, it will reverse all executed actions and throw ExceptionWithoutIntegrityLoss
         var executed = new List<PrimitiveActionBase>();
         _nodeJustRemoved = null;
+        Writer? writer = transaction.SystemWrite ? null : writerOf(ctx);
         try {
             _guids.BeginTransaction(); // can be cancelled later in case transaction fails so that new IDs are not wasted
             _addresses.BeginTransaction();
@@ -237,6 +240,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                 resultingOperations[i - 1] = _converter.LastResultingOperation; // must be read after enumeration, as it is set during enumeration
 
             }
+            if (writer is { } w) validateWriteAccess(executed, w);
             validateInstanceCounts(executed);
             validateCultureRemovals(executed);
             if (transaction.InnerCallbackBeforeCommitting != null) {

@@ -40,6 +40,8 @@ public abstract class PersistedIndexBase {
 
     public void FlagFirstCommit() => _justCreated = false;
 
+    protected void ReportCorruption(string reason) => _engine.MarkCorrupt(reason);
+
     // A persisted index does not use the memory-index state files; its engine persists its data.
     public void ReadStateForMemoryIndexes(Guid walFileId) { }
     public void SaveStateForMemoryIndexes(long logTimestamp, Guid walFileId) { }

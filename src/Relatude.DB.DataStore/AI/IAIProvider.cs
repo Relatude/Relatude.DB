@@ -4,7 +4,18 @@ namespace Relatude.DB.AI;
 public interface IAIProvider : IDisposable {
     Task<float[][]> GetEmbeddingsAsync(string[] paragraphs);
     Task<string> GetCompletionAsync(string prompt, string? modelKey = null);
-    //Task<string> GetChatCompletionAsync(ChatMessage[] conversation);
+    /// <summary>Whether <see cref="GetChatCompletionAsync"/> can send pictures.</summary>
+    bool SupportsImages => false;
+    /// <summary>
+    /// A completion of a conversation, with the instructions apart from the messages, and pictures where
+    /// <see cref="SupportsImages"/> says so. A provider that does not implement it sends the request as one
+    /// prompt (<see cref="AIChatRequest.ToPrompt"/>) through <see cref="GetCompletionAsync"/>, without
+    /// <see cref="AIChatRequest.MaxOutputTokens"/>, and throws <see cref="NotSupportedException"/> for pictures.
+    /// </summary>
+    Task<string> GetChatCompletionAsync(AIChatRequest request, CancellationToken cancellationToken = default) {
+        if (request.HasImages) throw new NotSupportedException($"The AI provider {GetType().Name} cannot send pictures. ");
+        return GetCompletionAsync(request.ToPrompt(), request.ModelKey);
+    }
 }
 public class AIProviderSettings {
     public string? TypeName { get; set; }

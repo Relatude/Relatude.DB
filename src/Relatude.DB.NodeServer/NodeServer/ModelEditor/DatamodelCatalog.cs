@@ -94,9 +94,9 @@ public static class DatamodelCatalog {
         ["MinNoInstances"] = new() { Label = "Minimum instances", Help = "How few nodes of the type, its descendants included, there may be: a transaction that takes the count below it fails. The count may start below it, so 1 keeps the last node from being deleted. Leave at 0 or the minimum value for no limit.", Group = "Constraints", Order = 1 },
         ["MaxNoInstances"] = new() { Label = "Maximum instances", Help = "How many nodes of the type, its descendants included, there may be: a transaction that takes the count above it fails. Leave at the maximum value for no limit.", Group = "Constraints", Order = 2 },
         ["DefaultReadAccess"] = new() { Label = "Default read access", Help = "The user group new nodes of this type are readable by, as a group id. The unspecified group leaves it to the node.", Group = "Access", Order = 1 },
-        ["DefaultEditAccess"] = new() { Label = "Default edit access", Help = "The user group new nodes of this type are editable by.", Group = "Access", Order = 2 },
+        ["DefaultEditAccess"] = new() { Label = "Default edit access", Help = "The user group that may make nodes of this type and change those that name no edit group of their own. Unspecified leaves it to the database's default write access.", Group = "Access", Order = 2 },
         ["DefaultEditViewAccess"] = new() { Label = "Default edit view access", Help = "The user group that may view the edit form of new nodes of this type.", Group = "Access", Order = 3 },
-        ["DefaultPublishAccess"] = new() { Label = "Default publish access", Help = "The user group that may publish new nodes of this type.", Group = "Access", Order = 4 },
+        ["DefaultPublishAccess"] = new() { Label = "Default publish access", Help = "The user group that may change what readers see of nodes of this type (publishing, published values, deleting) when a node names none of its own. Unspecified leaves it to the database's default write access.", Group = "Access", Order = 4 },
     };
     static readonly Dictionary<string, Entry> relation = new(StringComparer.Ordinal) {
         ["CodeName"] = new() { Label = "Name", Help = "The relation class name. Application code refers to the relation by it.", Order = 1 },

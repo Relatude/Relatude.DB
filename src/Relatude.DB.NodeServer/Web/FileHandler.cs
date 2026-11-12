@@ -9,6 +9,7 @@ public static class FileHandler {
     public static async Task<IResult> HandleFileAsync(HttpContext http, Stream? stream, string? fileName = null, bool? attachment = null, string? contentType = null, bool? cached = null) {
         var rangeHeader = http.Request.Headers.Range.ToString();
         if (!cached.HasValue) {
+
         } else if (cached.Value) {
             http.Response.GetTypedHeaders().CacheControl = new() { Public = true, MaxAge = TimeSpan.FromDays(30) };
         } else {

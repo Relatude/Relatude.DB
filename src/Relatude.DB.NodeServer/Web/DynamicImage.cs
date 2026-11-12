@@ -32,7 +32,7 @@ public sealed record DynamicImageOptions {
     public string? Style { get; init; }
     /// <summary>More attributes of the box (not class or style). An attribute whose value is null is left out.</summary>
     public IReadOnlyDictionary<string, string?>? Attributes { get; init; }
-    /// <summary>Whether the browser loads the picture only as it comes near the screen (<c>loading="lazy"</c>). True by default.</summary>
+    /// <summary>Whether the browser loads the picture only as it comes near the screen (<c></c>). True by default.</summary>
     public bool Lazy { get; init; } = true;
     /// <summary>Whether the picture's URL is absolute.</summary>
     public bool Absolute { get; init; }

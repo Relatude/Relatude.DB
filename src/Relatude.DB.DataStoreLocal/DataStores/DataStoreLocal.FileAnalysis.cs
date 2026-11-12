@@ -122,7 +122,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         if (!Datamodel.Properties.TryGetValue(task.PropertyPath.PropertyId, out var property) || property is not FilePropertyModel fileProperty) return new(true, "The property is no longer a file property. ");
         var kinds = task.Kinds & missingFileAnalyses(fileProperty, value);
         if (kinds == FileAnalysisKinds.None) return new(true, "Nothing left to analyse. ");
-        var steps = await analyseAsync(task.PropertyPath, value, kinds, false, ctx, cancellationToken);
+        var steps = await analyseAsync(task.PropertyPath, value, kinds, false, ctx, cancellationToken, system: true);
         return new(!steps.Any(s => s.State == FileAnalysisStepState.Failed), string.Join("; ", steps.Select(s => s.Summary.TrimEnd(' ', '.'))) + ". ");
     }
 
@@ -131,6 +131,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         ctx ??= _defaultQueryCtx;
         if (!Datamodel.Properties.TryGetValue(propertyPath.PropertyId, out var property) || property is not FilePropertyModel) throw new Exception("Property is not a file");
         if (!TryGetValue<FileValue>(propertyPath, out var value, ctx) || value.IsEmpty) throw new Exception("The property holds no file. ");
+        ensureMayWriteFile(propertyPath, ctx);
         var steps = await analyseAsync(propertyPath, value, kinds, force, ctx, cancellationToken);
         return new(TryGetValue<FileValue>(propertyPath, out var now, ctx) && !now.IsEmpty && now.FileId == value.FileId ? now : null, steps);
     }
@@ -142,7 +143,8 @@ public sealed partial class DataStoreLocal : IDataStore {
     /// force only those not done before; with it, again, the results replacing what was set by hand (a title, a crop
     /// mode), which a run without it leaves.
     /// </summary>
-    async Task<FileAnalysisStepReport[]> analyseAsync(PropertyPath path, FileValue value, FileAnalysisKinds kinds, bool force, QueryContext ctx, CancellationToken cancellationToken) {
+    // system: the queue's analysis of a file written before, not a user's asking, so not checked for write access
+    async Task<FileAnalysisStepReport[]> analyseAsync(PropertyPath path, FileValue value, FileAnalysisKinds kinds, bool force, QueryContext ctx, CancellationToken cancellationToken, bool system = false) {
         var possible = possibleFileAnalyses(value);
         var done = GetCompletedFileAnalyses(value);
         // one picture for both of the picture's analyses
@@ -154,9 +156,9 @@ public sealed partial class DataStoreLocal : IDataStore {
             if (!possible.HasFlag(kind)) steps.Add(Task.FromResult(new FileAnalysisStepReport(kind, FileAnalysisStepState.NotPossible, nameOf(kind) + ": not for this file here")));
             else if (!force && done.HasFlag(kind)) steps.Add(Task.FromResult(new FileAnalysisStepReport(kind, FileAnalysisStepState.DoneBefore, nameOf(kind) + ": done before")));
             else steps.Add(analyseOnceAsync(path + "|" + value.FileId + "|" + kind, kind, cancellationToken, () => kind switch {
-                FileAnalysisKinds.ImageMeta => imageMetaStepAsync(path, value, pictureOnce, force, ctx, cancellationToken),
-                FileAnalysisKinds.ImageCropMode => cropModeStepAsync(path, value, pictureOnce, force, ctx, cancellationToken),
-                _ => textStepAsync(path, value, ctx, cancellationToken),
+                FileAnalysisKinds.ImageMeta => imageMetaStepAsync(path, value, pictureOnce, force, ctx, system, cancellationToken),
+                FileAnalysisKinds.ImageCropMode => cropModeStepAsync(path, value, pictureOnce, force, ctx, system, cancellationToken),
+                _ => textStepAsync(path, value, ctx, system, cancellationToken),
             }));
         }
         return await Task.WhenAll(steps);
@@ -205,11 +207,11 @@ public sealed partial class DataStoreLocal : IDataStore {
     static FileAnalysisStepReport failed(FileAnalysisKinds kind, Exception error) => new(kind, FileAnalysisStepState.Failed, nameOf(kind) + " failed: " + error.Message);
     static FileAnalysisStepReport replaced(FileAnalysisKinds kind) => new(kind, FileAnalysisStepState.Failed, nameOf(kind) + ": the file was replaced before the result could be kept");
 
-    async Task<FileAnalysisStepReport> imageMetaStepAsync(PropertyPath path, FileValue value, Func<long, Task<byte[]?>> picture, bool force, QueryContext ctx, CancellationToken cancellationToken) {
+    async Task<FileAnalysisStepReport> imageMetaStepAsync(PropertyPath path, FileValue value, Func<long, Task<byte[]?>> picture, bool force, QueryContext ctx, bool system, CancellationToken cancellationToken) {
         const FileAnalysisKinds kind = FileAnalysisKinds.ImageMeta;
         try {
             var (step, result) = await analyseImageAsync(value, picture, cancellationToken);
-            if (!await storeFileAnalysisAsync(path, value.FileId, ctx, (_, meta) => applyImageAnalysis(meta, step, result, force))) return replaced(kind);
+            if (!await storeFileAnalysisAsync(path, value.FileId, ctx, system, (_, meta) => applyImageAnalysis(meta, step, result, force))) return replaced(kind);
             return step.Succeeded
                 ? new(kind, FileAnalysisStepState.Done, "image meta analysis: " + (result?.Keywords.Length ?? 0) + " keywords" + (result?.Focus != null ? ", a focus point" : ""), result?.Credits)
                 : new(kind, FileAnalysisStepState.Skipped, "image meta analysis skipped: " + step.Error);
@@ -218,7 +220,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
     }
 
-    async Task<FileAnalysisStepReport> cropModeStepAsync(PropertyPath path, FileValue value, Func<long, Task<byte[]?>> picture, bool force, QueryContext ctx, CancellationToken cancellationToken) {
+    async Task<FileAnalysisStepReport> cropModeStepAsync(PropertyPath path, FileValue value, Func<long, Task<byte[]?>> picture, bool force, QueryContext ctx, bool system, CancellationToken cancellationToken) {
         const FileAnalysisKinds kind = FileAnalysisKinds.ImageCropMode;
         try {
             var (step, mode, image, credits) = await analyseCropModeAsync(value, picture, cancellationToken);
@@ -226,7 +228,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             var background = step.Succeeded && mode != ImageCropMode.Fill && image != null ? await edgeColourAsync(value, image) : null;
             ImageCropMode? kept = null;
             var backgroundSet = false;
-            var stored = await storeFileAnalysisAsync(path, value.FileId, ctx, (_, meta) => {
+            var stored = await storeFileAnalysisAsync(path, value.FileId, ctx, system, (_, meta) => {
                 if (meta is not ImageFileMeta pictureMeta) return;
                 pictureMeta.CropModeAnalysis = step;
                 if (mode != null && (force || pictureMeta.CropMode == null)) pictureMeta.CropMode = mode;
@@ -247,11 +249,11 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
     }
 
-    async Task<FileAnalysisStepReport> textStepAsync(PropertyPath path, FileValue value, QueryContext ctx, CancellationToken cancellationToken) {
+    async Task<FileAnalysisStepReport> textStepAsync(PropertyPath path, FileValue value, QueryContext ctx, bool system, CancellationToken cancellationToken) {
         const FileAnalysisKinds kind = FileAnalysisKinds.Text;
         try {
             var (step, text) = await extractTextAsync(value, cancellationToken);
-            var stored = await storeFileAnalysisAsync(path, value.FileId, ctx, (file, meta) => {
+            var stored = await storeFileAnalysisAsync(path, value.FileId, ctx, system, (file, meta) => {
                 meta.TextExtraction = step;
                 if (text != null) applyText(file, meta, text);
             });
@@ -264,7 +266,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
     }
 
-    async Task<bool> storeFileAnalysisAsync(PropertyPath path, Guid fileId, QueryContext ctx, Action<FileValue, FileValueMeta> apply) {
+    async Task<bool> storeFileAnalysisAsync(PropertyPath path, Guid fileId, QueryContext ctx, bool system, Action<FileValue, FileValueMeta> apply) {
         var nodeId = _guids.ValidateAndReturnIntId(path.NodePath.NodeKey);
         var lockId = await RequestLockAsync(nodeId, 10_000, 30_000);
         try {
@@ -273,7 +275,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             var meta = updated.GetMeta().AsKindFor(updated.FileType);
             apply(updated, meta);
             updated.SetMeta(meta);
-            var t = new TransactionData { LockExcemptions = [lockId] };
+            var t = new TransactionData { LockExcemptions = [lockId], SystemWrite = system };
             t.ForceUpdateProperty(path, updated);
             Execute(t, false, false, ctx);
             return true;

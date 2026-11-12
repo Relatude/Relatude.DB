@@ -8,6 +8,8 @@ public class NativeKvIndexStore : ValueIndexEngineBase {
     readonly BPlusTreeStorageEngine _fileStorage;
     readonly ISortedIntIndex<string> _settings;
     readonly string? _kvFolder;
+    readonly string? _filePath;
+    readonly string? _openRecoveryNotice;
     readonly Dictionary<string, byte[]>? _pendingFacetSets; // sidecar sections awaiting their index, see FacetSetsFile
     readonly Dictionary<string, IValueIdsCachePersistence> _cachePersistableIndexes = [];
     long _lastPersistedCacheTimestamp = 0;
@@ -50,9 +52,16 @@ public class NativeKvIndexStore : ValueIndexEngineBase {
                 ValueCacheEntries = 0,
             };
         _budgetBytes = maxMemoryBytes;
-        _fileStorage = new BPlusTreeStorageEngine(filePath, options);
-        _settings = _fileStorage.OpenOrCreateSortedIntIndex<string>("settings");
-        if (_kvFolder != null) _pendingFacetSets = FacetSetsFile.TryRead(Path.Combine(_kvFolder, FileKeyUtility.IndexEngine_FacetSetsFileKey), _fileStorage.GetTimestamp(), _log, out _lastPersistedCacheTimestamp);
+        _filePath = filePath;
+        _fileStorage = NativeKvFileRecovery.Open(filePath, options, Name, out _openRecoveryNotice);
+        if (_openRecoveryNotice != null) log(_openRecoveryNotice);
+        try {
+            _settings = _fileStorage.OpenOrCreateSortedIntIndex<string>("settings");
+            if (_kvFolder != null) _pendingFacetSets = FacetSetsFile.TryRead(Path.Combine(_kvFolder, FileKeyUtility.IndexEngine_FacetSetsFileKey), _fileStorage.GetTimestamp(), _log, out _lastPersistedCacheTimestamp);
+        } catch {
+            _fileStorage.Dispose(); // nothing else would close the file before the next open in this process
+            throw;
+        }
     }
     protected override IValueIndex<T> CreateValueIndex<T>(SetRegister sets, string id, string friendlyName, PropertyType type, out bool justCreated) {
         var index = new NativeKvValueIndex<T>(id, this, _fileStorage, sets, friendlyName);
@@ -84,9 +93,9 @@ public class NativeKvIndexStore : ValueIndexEngineBase {
     // between the two rolls the engine back to the last durable point, which is always at or behind
     // the durable WAL, so the indexes can never durably contain transactions the log is missing.
     protected override void CommitTransactionCore(long timestamp) => _fileStorage.PublishTransaction(timestamp);
-    // deepFlush false: the engine's fsync-based durability suffices; a deep (FlushFileBuffers-style)
-    // flush could be wired from SettingsLocal.DeepFlushDisk via the constructor if ever needed
-    protected override void MakeDurableCore() => _fileStorage.MakeDurable(deepDiskFlush: false);
+    // deep: shadow paging needs the data pages on disk before the meta page that points at them, and
+    // only a deep flush orders them; without it a lost machine or share leaves a meta over missing pages
+    protected override void MakeDurableCore() => _fileStorage.MakeDurable(deepDiskFlush: true);
     protected override void RollbackTransactionCore() => _fileStorage.RollbackTransaction();
     protected override Guid ReadWalFileId() {
         if (_settings.TryGetValue((int)SettingKey.WalId, out var s) && Guid.TryParse(s, out var walFileId)) return walFileId;
@@ -97,7 +106,7 @@ public class NativeKvIndexStore : ValueIndexEngineBase {
         _fileStorage.BeginTransaction();
         try {
             _settings.Set((int)SettingKey.WalId, walFileId.ToString());
-            _fileStorage.CommitTransaction(timestamp ?? _fileStorage.GetTimestamp(), deepDiskFlush: false);
+            _fileStorage.CommitTransaction(timestamp ?? _fileStorage.GetTimestamp(), deepDiskFlush: true);
         } catch {
             // roll back so the engine transaction is not left open, which would make every later
             // BeginTransaction fail and wedge the store
@@ -105,6 +114,11 @@ public class NativeKvIndexStore : ValueIndexEngineBase {
             throw;
         }
     }
+    public override void MarkCorrupt(string reason) {
+        _log?.Invoke(Name + ": " + reason + " It is rebuilt from the log on the next open.");
+        NativeKvFileRecovery.MarkCorrupt(_filePath, reason);
+    }
+    public override string? OpenRecoveryNotice => _openRecoveryNotice;
     public override long GetTimestamp() => _fileStorage.GetTimestamp();
     public override long? GetMemoryUsage() => _fileStorage.GetMemoryUsage();
     public override (long Count, string UnitPlural)? GetMemoryCount() => (_fileStorage.GetMemoryPageCount(), "pages");
@@ -127,6 +141,7 @@ public class NativeKvIndexStore : ValueIndexEngineBase {
         // DeleteAll keeps the opened indexes (including settings) as empty, uncataloged definitions;
         // the base re-persists the WAL id and a timestamp of 0 immediately after this returns.
         _fileStorage.DeleteAll();
+        NativeKvFileRecovery.ClearCorruptFlag(_filePath); // the reset already discarded what the flag asked to discard
     }
     public override void SaveIndexCaches(bool force) {
         if (_kvFolder != null) {

@@ -15,8 +15,9 @@ public class UrlKeys {
     /// <summary>The culture code of CultureId, null when the URL is culture neutral.</summary>
     public string? CultureCode { get; set; }
 }
-public class UrlContent(UrlKeys keys) {
-    public UrlKeys Id { get; } = keys;
+public class UrlContent {
+    public UrlContent(UrlKeys keys) { Id = keys; }
+    public UrlKeys Id { get; }
     public INodeDataExternal? NodeData { get; set; } = null;
     public bool? Attachment { get; set; }
     public string? ContentType { get; set; }

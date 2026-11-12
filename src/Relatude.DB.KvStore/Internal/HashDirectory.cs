@@ -177,6 +177,51 @@ internal static class HashDirectoryStore
     private const int RootHeader = 12;
     private const int PagesPerRoot = (Pager.PageSize - RootHeader) / 4;
 
+    /// <summary>
+    /// Bounded structural check of a directory for <see cref="BPlusTreeStorageEngine.VerifyRoots"/>:
+    /// the root chain, the chunk page ids and the first bucket, without reading every bucket.
+    /// </summary>
+    public static void Verify(IPageSource src, uint rootPage, uint pageCount, string name)
+    {
+        if (rootPage == 0)
+            return;
+        int maxRootPages = HashDirectory.ChunkCount(HashDirectory.MaxGlobalDepth) / PagesPerRoot + 1;
+        int globalDepth = 0, chunks = 0;
+        uint firstChunk = 0;
+        uint page = rootPage;
+        for (int n = 0; page != 0; n++)
+        {
+            if (page >= pageCount || n > maxRootPages)
+                throw new InvalidDataException($"Hash index '{name}': the directory reaches page {page}, past the {pageCount} pages of the file.");
+            byte[] buf = src.GetPage(page);
+            int count = (int)BinaryPrimitives.ReadUInt32LittleEndian(buf.AsSpan(4));
+            if (n == 0)
+                globalDepth = (int)BinaryPrimitives.ReadUInt32LittleEndian(buf.AsSpan(8));
+            if (count < 0 || count > PagesPerRoot || globalDepth < 0 || globalDepth > HashDirectory.MaxGlobalDepth)
+                throw new InvalidDataException($"Hash index '{name}': directory page {page} is not a directory page (count {count}, depth {globalDepth}).");
+            for (int i = 0; i < count; i++)
+            {
+                uint chunk = BinaryPrimitives.ReadUInt32LittleEndian(buf.AsSpan(RootHeader + 4 * i));
+                if (chunk == 0 || chunk >= pageCount)
+                    throw new InvalidDataException($"Hash index '{name}': directory chunk page {chunk} is out of range.");
+                if (chunks == 0)
+                    firstChunk = chunk;
+                chunks++;
+            }
+            page = BinaryPrimitives.ReadUInt32LittleEndian(buf);
+        }
+        if (chunks != HashDirectory.ChunkCount(globalDepth))
+            throw new InvalidDataException($"Hash index '{name}': {chunks} directory chunks for a depth of {globalDepth}.");
+        uint bucket = BinaryPrimitives.ReadUInt32LittleEndian(src.GetPage(firstChunk));
+        if (bucket == 0)
+            return;
+        if (bucket >= pageCount)
+            throw new InvalidDataException($"Hash index '{name}': bucket page {bucket} is out of range.");
+        byte[] b = src.GetPage(bucket);
+        if (b[0] != HashPage.TypeHashBucket || HashPage.LocalDepth(b) > globalDepth)
+            throw new InvalidDataException($"Hash index '{name}': page {bucket} is not a bucket page (type {b[0]}).");
+    }
+
     public static HashDirectory Load(IPageSource src, uint rootPage)
     {
         if (rootPage == 0)

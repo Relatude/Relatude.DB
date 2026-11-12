@@ -2546,6 +2546,10 @@ a {
   color: var(--text-soft);
 }
 
+.startup-exception-actions {
+  margin-top: 8px;
+}
+
 .critical-log {
   margin-top: 14px;
   padding-top: 10px;
@@ -3297,6 +3301,18 @@ a {
 .backup-row.db-table-head {
   border-top: none;
   padding-top: 0;
+}
+
+.badge.backup-verified {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: color-mix(in srgb, var(--ok) 14%, transparent);
+  color: var(--ok);
+}
+
+.file-name .badge.backup-verified svg {
+  color: inherit;
 }
 
 /* A database that has been backed up nightly for a year has a lot of these. The list scrolls on its

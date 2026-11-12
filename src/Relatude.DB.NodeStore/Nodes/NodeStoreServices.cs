@@ -14,6 +14,7 @@ namespace Relatude.DB.Nodes;
 /// The services a database offers application code beside its data, reached as <see cref="NodeStore.Services"/>:
 /// <code>
 /// var summary = await db.Services.AI.GetCompletionAsync("Summarise in one sentence: " + article.Body);
+/// var seen = await db.Services.AI.GetChatCompletionAsync(new AIChatRequest("What does this show?", AIImage.FromBytes(photo)) { Instructions = "Answer in Norwegian." });
 /// var cutout = await db.Services.Imaging.RemoveBackgroundAsync(photo);
 /// var text = await db.Services.FileToText.ExtractTextAsync(bytes, "contract.pdf", ["nb", "en"]);
 /// var norwegian = await db.Services.Translation.TranslateAsync("Good morning", "nb");
@@ -53,7 +54,8 @@ public sealed class NodeStoreServices {
 
     /// <summary>
     /// The AI engine - embeddings and completions - as configured for this database. Semantic search uses
-    /// it by itself; application code can use it for completions and embeddings of its own.
+    /// it by itself; application code can use it for completions and embeddings of its own, and
+    /// <see cref="AIEngine.GetChatCompletionAsync"/> for instructions kept apart from the user's text, and pictures.
     /// <para>Throws when no AI is configured, so check <see cref="HasAI"/> first on a path that has to work either way.</para>
     /// </summary>
     public AIEngine AI => _datastore.AI;

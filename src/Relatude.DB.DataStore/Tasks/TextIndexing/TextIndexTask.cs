@@ -21,7 +21,7 @@ public class TextIndexTaskRunner(IDataStore db) : TaskRunner<TextIndexTask> {
     public override async Task ExecuteAsync(Batch<TextIndexTask> batch, TaskLogger? taskLogger) {
         var ids = batch.Tasks.Select(t => t.NodeId).ToArray();
         var extracts = db.GetTextExtract(ids, TextIndexType.PlainTextSearch);
-        var t = new TransactionData();
+        var t = new TransactionData { SystemWrite = true };
         foreach (var extract in extracts) {
             t.ForceUpdateProperty(extract.NodeId, NodeConstants.SystemTextIndexPropertyId, extract.RevisionId, extract.Text);
         }

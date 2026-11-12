@@ -49,7 +49,14 @@ public abstract class PersistedValueArrayIndexBase<T> : PersistedIndexBase, IVal
             if (_loaded) return;
             var arrays = new ValueArrayInternTable<T>();
             var nodeIdByValue = new IdByValue<T>(_sets);
-            foreach (var kv in ReadAllPersisted()) addToMemory(arrays, nodeIdByValue, kv.Key, kv.Value);
+            foreach (var kv in ReadAllPersisted()) {
+                if (arrays.Contains(kv.Key)) {
+                    var reason = "The persisted array index \"" + FriendlyName + "\" holds node " + kv.Key + " twice.";
+                    ReportCorruption(reason);
+                    throw new InvalidDataException(reason);
+                }
+                addToMemory(arrays, nodeIdByValue, kv.Key, kv.Value);
+            }
             _arrays = arrays;
             _nodeIdByValue = nodeIdByValue;
             _loaded = true;

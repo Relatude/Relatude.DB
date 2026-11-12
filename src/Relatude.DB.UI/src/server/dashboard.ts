@@ -39,6 +39,8 @@ export interface ScheduledRecovery {
   step: "RestartDatabase" | "RestartServer" | "RestartProcess";
   incident: number;
   incidents: number;
+  /** the regular steps are used up and the database is opened again until another process lets go of its files */
+  waitingForRelease?: boolean;
 }
 
 export interface DashboardInfo {
@@ -49,6 +51,8 @@ export interface DashboardInfo {
   startupError: {
     timeUtc: string | null;
     message: string;
+    /** what held it: a lease on its blob storage (which can be broken here), a file, or neither */
+    heldBy?: "lease" | "file" | null;
   } | null;
   recovery?: ScheduledRecovery | null;
   files: FileSizes;
@@ -200,4 +204,30 @@ export interface ClearCacheResult {
  */
 export function clearCaches(storeId: string): Promise<ClearCacheResult> {
   return send<ClearCacheResult>("dashboard-clear-cache", { storeId });
+}
+
+/** A blob on one of the database's storages that someone holds a lease on. */
+export interface DatabaseLease {
+  ioId: string;
+  storage: string;
+  key: string;
+  state: string; // leased | breaking
+  /** never ends by itself: left by an older version, or taken by another tool */
+  infinite: boolean;
+  /** held by this server for a file it has open */
+  heldHere: boolean;
+}
+
+/** The leased blobs on every blob storage of the database, and the one its last open waited for. */
+export function fetchDatabaseLeases(storeId: string): Promise<{ open: boolean; blockedBy: string | null; leases: DatabaseLease[] }> {
+  return send<{ open: boolean; blockedBy: string | null; leases: DatabaseLease[] }>("dashboard-leases", { storeId });
+}
+
+/** Breaks these leases (never the server's own) and, with open, starts the database again. */
+export function breakDatabaseLeases(
+  storeId: string,
+  leases: { ioId: string; key: string }[],
+  open: boolean,
+): Promise<{ broken: number; skipped: number; errors: string[]; opening: boolean }> {
+  return send<{ broken: number; skipped: number; errors: string[]; opening: boolean }>("dashboard-break-leases", { storeId, leases, open });
 }

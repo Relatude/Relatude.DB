@@ -736,7 +736,7 @@ public static class SettingsCatalog {
                         },
                         new() {
                             Path = "LocalSettings.DefaultWriteAccess", Label = "Default write access",
-                            Help = "Who may create, change or delete a node type that does not declare its own write access. Leaving this at Everyone means unauthenticated callers can write.",
+                            Help = "Who may make, change, publish or delete nodes when neither the node nor its type names an edit or publish group. Leaving this at Everyone means unauthenticated callers can write. Administrators always may.",
                         },
                         new() {
                             Path = "LocalSettings.DefaultFileStore", Label = "Default FileValue provider", Picker = "fileStores",

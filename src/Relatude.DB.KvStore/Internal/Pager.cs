@@ -82,9 +82,13 @@ internal sealed class Pager : IPageSource, IDisposable
 
         public void Release()
         {
-            View.SafeMemoryMappedViewHandle.ReleasePointer();
-            View.Dispose();
-            Mmf.Dispose();
+            // a mapping left behind keeps the file in use after its handle is closed
+            try { View.SafeMemoryMappedViewHandle.ReleasePointer(); }
+            finally
+            {
+                try { View.Dispose(); }
+                finally { Mmf.Dispose(); }
+            }
         }
     }
 
@@ -141,7 +145,8 @@ internal sealed class Pager : IPageSource, IDisposable
     /// </param>
     /// <param name="cacheBytes"></param>
     /// <param name="pendingWriteBytes">Budget for published-but-unwritten pages; past it they are written out early (without becoming durable).</param>
-    public Pager(string? path, long cacheBytes, long pendingWriteBytes = 128L * 1024 * 1024)
+    /// <param name="lockTimeout">How long to wait while another process holds the file; null for the default, zero for one attempt.</param>
+    public Pager(string? path, long cacheBytes, long pendingWriteBytes = 128L * 1024 * 1024, TimeSpan? lockTimeout = null)
     {
         Cache = new PageCache(cacheBytes, PageSize);
         _spillPages = (int)Math.Max(64, pendingWriteBytes / PageSize);
@@ -163,7 +168,7 @@ internal sealed class Pager : IPageSource, IDisposable
         // contends with while the previous process is still stopping. Wait it out rather than failing
         // the whole database open - see FileOpenRetry.
         var handle = FileOpenRetry.Open(path, () => File.OpenHandle(path, FileMode.OpenOrCreate, FileAccess.ReadWrite,
-            FileShare.Read, FileOptions.RandomAccess));
+            FileShare.Read, FileOptions.RandomAccess), lockTimeout);
         _handle = handle;
         _flushStream = new FileStream(handle, FileAccess.ReadWrite, bufferSize: 1);
 
@@ -171,25 +176,36 @@ internal sealed class Pager : IPageSource, IDisposable
         // readers sharing one handle bottleneck in the kernel. Stripe cache misses across
         // several read-only handles (each gets its own file object) by thread id.
         _readHandles = new SafeFileHandle[Math.Clamp(Environment.ProcessorCount, 2, 8)];
-        for (int i = 0; i < _readHandles.Length; i++)
-            _readHandles[i] = File.OpenHandle(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite,
-                FileOptions.RandomAccess);
+        try
+        {
+            for (int i = 0; i < _readHandles.Length; i++)
+                _readHandles[i] = File.OpenHandle(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite,
+                    FileOptions.RandomAccess);
 
-        if (isNew)
-        {
-            InitializeEmptyFile();
+            if (isNew)
+            {
+                InitializeEmptyFile();
+            }
+            else if (IsSupersededFormat())
+            {
+                // A valid file in an older page format: it cannot be read, but index data is derived —
+                // start empty and let the store rebuild everything from the data-store WAL.
+                _flushStream.SetLength(2L * PageSize);
+                InitializeEmptyFile();
+            }
+            else
+            {
+                _meta = LoadNewestValidMeta(out _durableSlot);
+                LoadFreelist(_meta.FreelistHead);
+            }
         }
-        else if (IsSupersededFormat())
+        catch
         {
-            // A valid file in an older page format: it cannot be read, but index data is derived —
-            // start empty and let the store rebuild everything from the data-store WAL.
-            _flushStream.SetLength(2L * PageSize);
-            InitializeEmptyFile();
-        }
-        else
-        {
-            _meta = LoadNewestValidMeta(out _durableSlot);
-            LoadFreelist(_meta.FreelistHead);
+            // Left to the finalizer, the writer handle would make every reopen in this process
+            // wait out its lock budget and report the file as held by another process.
+            _disposed = true;
+            CloseFiles(trim: false);
+            throw;
         }
         _pageCount = _meta.PageCount;
         _durableTxId = _meta.TxId;
@@ -878,23 +894,42 @@ internal sealed class Pager : IPageSource, IDisposable
         return h;
     }
 
+    private bool _disposed;
+
     public void Dispose()
     {
-        ReleaseMap();
-        if (_flushStream is not null)
+        if (_disposed) return;
+        _disposed = true;
+        try { ReleaseMap(); }
+        finally { CloseFiles(trim: true); }
+    }
+
+    // Every handle is closed whatever fails before it: one left open holds the file until finalization.
+    private void CloseFiles(bool trim)
+    {
+        try
         {
-            try
+            if (_flushStream is not null)
             {
-                // Trim the mapped-write growth padding so the file on disk is its logical size.
-                if (RandomAccess.GetLength(_handle!) > (long)_pageCount * PageSize)
-                    _flushStream.SetLength((long)_pageCount * PageSize);
+                if (trim)
+                {
+                    try
+                    {
+                        // Trim the mapped-write growth padding so the file on disk is its logical size.
+                        if (RandomAccess.GetLength(_handle!) > (long)_pageCount * PageSize)
+                            _flushStream.SetLength((long)_pageCount * PageSize);
+                    }
+                    catch (Exception e) when (e is IOException or UnauthorizedAccessException) { /* trimming is cosmetic */ }
+                }
+                _flushStream.Dispose();
             }
-            catch (IOException) { /* trimming is cosmetic; never fail a dispose over it */ }
-            _flushStream.Dispose();
         }
-        if (_readHandles is not null)
-            foreach (var h in _readHandles)
-                h.Dispose();
-        _handle?.Dispose();
+        finally
+        {
+            if (_readHandles is not null)
+                foreach (var h in _readHandles)
+                    h?.Dispose();
+            _handle?.Dispose();
+        }
     }
 }

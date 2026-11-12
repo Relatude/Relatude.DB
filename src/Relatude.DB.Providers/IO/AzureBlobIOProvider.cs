@@ -16,6 +16,17 @@ public class LeasedBlob {
 }
 
 /// <summary>
+/// A blob another process holds a lease on, still after the wait. A file lock like any other, so the
+/// open retries and auto-recovery treat it as one; its own type so the admin UI can offer to break it.
+/// </summary>
+public class BlobLeasedException(string message, Exception? innerException, string blobName, bool infinite)
+    : FileLockedException(message, innerException) {
+    public string BlobName { get; } = blobName;
+    /// <summary>A lease that never ends by itself: nobody is going to let go of it.</summary>
+    public bool Infinite { get; } = infinite;
+}
+
+/// <summary>
 /// IIOProvider for Azure Blob Storage over plain HttpClient (no Azure SDK), using append blobs.
 /// Supports account key and SAS connection strings, and UseDevelopmentStorage=true for Azurite.
 /// <para><b>Leases.</b> With lockBlob every blob with an open stream is leased, so that a second
@@ -107,7 +118,7 @@ public class AzureBlobIOProvider : IIOProvider {
                 + LeaseWaitTimeout.TotalSeconds.ToString("0") + " s for it to let go, or for the lease to end. "),
             onWaitEnded: (attempts, elapsed) => log("\"" + blobName + "\" was let go of after "
                 + elapsed.TotalSeconds.ToString("0.0") + " s, leased on attempt " + attempts + "."),
-            onExhausted: (err, attempts, elapsed) => new FileLockedException(leasedElsewhereMessage(blobName, elapsed), err));
+            onExhausted: (err, attempts, elapsed) => leasedElsewhere(blobName, elapsed, err));
     }
     // LeaseAlreadyPresent, or LeaseIsBreakingAndCannotBeAcquired while a break with a period runs out
     static bool isLeasedElsewhere(Exception err) => err is AzureBlobRequestException { StatusCode: 409 } e
@@ -127,18 +138,21 @@ public class AzureBlobIOProvider : IIOProvider {
         ensureRenewTimer();
         return held;
     }
-    string leasedElsewhereMessage(string blobName, TimeSpan waited) {
+    BlobLeasedException leasedElsewhere(string blobName, TimeSpan waited, Exception err) {
         string? duration = null;
         try { duration = Client.GetProperties(blobName)?.LeaseDuration; } catch { }
+        var infinite = string.Equals(duration, "infinite", StringComparison.OrdinalIgnoreCase);
         var text = "\"" + blobName + "\" is leased by another process and still was after " + waited.TotalSeconds.ToString("0") + " s. ";
-        if (string.Equals(duration, "infinite", StringComparison.OrdinalIgnoreCase)) {
-            return text + "The lease never ends on its own: it was taken by an older version of Relatude.DB, which could leave such "
+        if (infinite) {
+            text += "The lease never ends on its own: it was taken by an older version of Relatude.DB, which could leave such "
                 + "a lease behind when it stopped, or by another tool. Once no other instance is using this storage, break it in the admin "
-                + "UI under Files, on this storage, with Leases.";
+                + "UI, on the dashboard of the database or under Files with Leases.";
+        } else {
+            text += "A lease left by a process that stopped without letting go ends within " + LeaseDurationSeconds + " s, so this one "
+                + "belongs to a process that is still running: another instance of the application on the same storage, or the previous "
+                + "process of a recycle that has not finished stopping. ";
         }
-        return text + "A lease left by a process that stopped without letting go ends within " + LeaseDurationSeconds + " s, so this one "
-            + "belongs to a process that is still running: another instance of the application on the same storage, or the previous "
-            + "process of a recycle that has not finished stopping. ";
+        return new BlobLeasedException(text, err, blobName, infinite);
     }
     /// <summary>Lets go of one stream's share of the lease, and of the lease itself with the last one.
     /// Never throws: a lease that could not be released ends by itself.</summary>
@@ -401,7 +415,7 @@ public class AzureBlobIOProvider : IIOProvider {
             // other belongs to a process that is still using the file
             var duration = Client.GetProperties(fileKey)?.LeaseDuration;
             if (!string.Equals(duration, "infinite", StringComparison.OrdinalIgnoreCase)) {
-                throw new FileLockedException("\"" + fileKey + "\" cannot be deleted: another process holds a lease on it. ", err);
+                throw new BlobLeasedException("\"" + fileKey + "\" cannot be deleted: another process holds a lease on it. ", err, fileKey, false);
             }
             Client.BreakLease(fileKey);
             Client.DeleteBlobIfExists(fileKey);

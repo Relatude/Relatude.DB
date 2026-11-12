@@ -138,7 +138,8 @@ For `AzureBlobStorage`, the entry carries `BlobConnectionString`, `BlobContainer
 | `EnableSemanticIndexByDefault` | `false` | Vector indexing likewise |
 | `EnableInstantTextIndexingByDefault` | `false` | Text index written in the transaction instead of by the background queue |
 | `DefaultCultureCode` | `null` | Culture for the empty culture id |
-| `DefaultReadAccess` / `DefaultWriteAccess` | `Everyone` | ACL default |
+| `DefaultReadAccess` | `Everyone` | Who reads a node when neither it nor its type names a read group |
+| `DefaultWriteAccess` | `Everyone` | Who makes, changes, publishes and deletes a node when neither it nor its type names an edit or publish group |
 | `DefaultFileStore` | unset | Which `FileStoreSettings` entry `FileValue` bytes go to; unset = an implicit `MultiFile` store on `IoDatabase` (one copy per upload, MD5). New installations (`CreateDefault()`, `relatude new`/`init`, a database added in the admin UI) get a `MultiFile` store with `SameHashSameFile` + `SHA256`, named here. Files already uploaded keep reading from the store they recorded (the implicit one is `Guid.Empty`); to move them, or to bring old files up to a store's new hash / one copy per content, use Storage › File storage › Rewrite files… (one target store; its hash and SameHashSameFile are chosen there and saved as its settings) or `DataStoreLocal.RewriteFilesAsync(toStoreId)` - every file whose property uploads into that store, from wherever it is - or `RewriteFilesAsync(fromStoreId, toStoreId)` (old copies stay until the unreferenced-files cleanup) |
 
 **Index engines** — each index kind has a list of engines it may run on and a default id that picks one; the empty guid is the memory index (resident, saved with the state snapshot, otherwise rebuilt from the log at every open):

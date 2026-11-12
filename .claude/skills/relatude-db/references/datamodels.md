@@ -345,7 +345,7 @@ db.CreateTransaction()
 
 | Name | Value | Notes |
 |---|---|---|
-| `ReadAccess`, `EditViewAccess`, `EditAccess`, `PublishAccess` | `Guid`: a user group's id, or `NodeConstants.UserGroupEveryone` / `UserGroupMember` / `UserGroupAdmins` | `Guid.Empty` (`UserGroupUnspecified`) is none: the type's default applies, else for read and edit view the database's `DefaultReadAccess`. |
+| `ReadAccess`, `EditViewAccess`, `EditAccess`, `PublishAccess` | `Guid`: a user group's id, or `NodeConstants.UserGroupEveryone` / `UserGroupMember` / `UserGroupAdmins` | `Guid.Empty` (`UserGroupUnspecified`) is none: the type's default applies, else the database's `DefaultReadAccess` (read, edit view) or `DefaultWriteAccess` (edit, publish). Changing them takes the node's publish group. |
 | `CollectionId` | `Guid` | `Guid.Empty` for none. A query whose context names collections reads only nodes in them. |
 | `ReleaseUtc`, `ExpireUtc` | `DateTime?`, UTC | `null` for none. Queries leave the node out before its release and from its expiry on, unless their context reads unpublished nodes (`Unpublished`). |
 | `Deleted` | `bool` | Soft delete: queries leave the node out unless their context includes deleted nodes; the data stays. |

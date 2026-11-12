@@ -10,6 +10,8 @@ export interface BackupFile {
   size: number;
   timeUtc: string;
   keepForever: boolean;
+  /** The file ends with the stamp written once the whole backup was on disk. */
+  verifiedComplete: boolean;
 }
 
 export interface BackupList {

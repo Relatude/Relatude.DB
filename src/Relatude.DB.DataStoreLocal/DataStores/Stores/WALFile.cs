@@ -36,6 +36,7 @@ internal class WALFile : IDisposable {
     public readonly static Guid _transactionStartMarker = new Guid("a02520c1-60aa-426b-b002-76c76e71a8be"); // just a unique number
     public readonly static Guid _transactionEndMarker = new Guid("8ad9629a-dd38-4641-94f4-c7e10c1e2eea"); // just a unique number
     public readonly static Guid _actionMarker = new Guid("52a6fb71-979e-4184-94c7-93724a5278d8"); // just a unique number
+    public readonly static Guid _completionMarker = new Guid("c4e8f2a1-7b3d-4f96-a05e-2d91b6c3e874");
     readonly static Guid _chainStateMarker = new Guid("b7c9d1f3-4a52-4b1e-9e0d-6c2f8a1d5e73"); // frames the version-chain section of the state file
     const long posOfFirstTransaction = 64; // start of first transaction
     internal Guid FileId { get; private set; } // a unique id for the file, created at start up and links til file to a statefile
@@ -94,14 +95,16 @@ internal class WALFile : IDisposable {
     public void Close() {
         _gate.EnterExclusive(); // reads in flight finish on the open file first
         try {
-            _appendStream.Dispose();
-            _secondaryAppendStream?.Dispose();
+            try { _appendStream.Dispose(); }
+            finally { _secondaryAppendStream?.Dispose(); }
         } finally {
             _gate.ExitExclusive();
         }
     }
     static long getFirstTimestampIfAny(IAppendStream appendStream) {
-        if (appendStream.Length >= posOfFirstTransaction + 8) { // full 8 byte timestamp must be present ( a torn write may leave a shorter file )
+        // full 8 byte timestamp must be present ( a torn write may leave a shorter file ), and a file without
+        // transactions may hold a completion stamp there instead
+        if (appendStream.Length >= posOfFirstTransaction + 8 && appendStream.GetGuid(posOfFirstTransaction - 16) == _transactionStartMarker) {
             return appendStream.GetLong(posOfFirstTransaction);
         } else {
             return 0;
@@ -375,10 +378,14 @@ internal class WALFile : IDisposable {
     // how long a dispose waits for reads still in flight; it holds no store lock, so queries may still be running
     const int _disposeWaitForReadersMs = 10_000;
     public void Dispose() {
-        DequeuAllTransactionWritesAndFlushStreamsThreadSafe(true);
-        _gate.Close(_disposeWaitForReadersMs); // no new reads; the ones in flight finish first, within reason
-        _appendStream.Dispose();
-        if (_secondaryAppendStream != null) _secondaryAppendStream.Dispose();
+        // a failed flush must still close the log: the store reopens it in this process after a failed open
+        try {
+            DequeuAllTransactionWritesAndFlushStreamsThreadSafe(true);
+        } finally {
+            _gate.Close(_disposeWaitForReadersMs); // no new reads; the ones in flight finish first, within reason
+            try { _appendStream.Dispose(); }
+            finally { _secondaryAppendStream?.Dispose(); }
+        }
     }
     internal void ReplaceDataFile(string[] newFileKey, long lastTimestamp) {
         FirstTimestamp = 0; // 0 means it will be read from file
@@ -399,6 +406,10 @@ internal class WALFile : IDisposable {
         // the primary version chains now live in the new file, where every node's head is the segment
         // the store registers for it. The secondary log is untouched by a rewrite, so its chains continue:
         lock (_chainLock) _chainHeads = new();
+    }
+    internal void AppendCompletionStamp() {
+        DequeuAllTransactionWritesAndFlushStreamsThreadSafe(true);
+        LogFileScan.AppendCompletionStamp(_appendStream);
     }
     internal void StoreTimestamp(long timestamp) {
         if (timestamp < _lastTimestampID) throw new Exception("New timestamp is less than last timestamp. ");
@@ -447,6 +458,7 @@ internal class WALFile : IDisposable {
                         writeStream.Append(bytes);
                         pos += bytes.Length;
                     }
+                    LogFileScan.AppendCompletionStamp(writeStream);
                 } catch (Exception ex) {
                     // the streams are disposed by now; a half written copy must not pass for a whole one
                     try { destinationIO.DeleteFileIfItExists(newLogFileKey); } catch { }

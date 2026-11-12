@@ -140,62 +140,63 @@ public sealed partial class DataStoreLocal : IDataStore {
         // must run before the logger below (which reads its files), before the rewrite cleanup and
         // before the WAL opens; the messages are buffered and logged once the logger exists
         var migrationLog = moveLegacyFilesIntoFolders();
-        // what the logger moves into a folder per log is said once it can be logged, and what the custom
-        // logs say later (a reload) is logged straight away
-        _logger = new(_ioLog, datamodel, customLogDefinitions, msg => { if (_logger == null) migrationLog.Add(msg); else LogInfo(msg); });
-        // a fresh logger records nothing: the settings are what a log turned on in the admin UI and
-        // saved there is restored from
-        if (_settings.LogRecording != null) _logger.ApplyRecordingSettings(_settings.LogRecording);
-        _logger.MinDurationMsBeforeLogging = _settings.MinQueryDurationMsBeforeLogging;
-        foreach (var line in migrationLog) LogInfo(line);
-        if (converterIoProvider == null) converterIoProvider = _ioIndex;
-        _fileConversionEngine = new(this, fileConverters, converterIoProvider);
-        RegisterRunner(new TextIndexTaskRunner(this));
-        if (_ai != null) RegisterRunner(new SemanticIndexTaskRunner(this, _ai));
-        RegisterRunner(new RewriteTaskRunner(this));
-        RegisterRunner(new Relatude.DB.Tasks.FileAnalysis.FileAnalysisTaskRunner(this));
-        initJobs();
-        // read at every batch start, off the same settings object the admin UI edits, so a change to
-        // how many batches of a type run at once applies without a reopen
-        Func<ITaskRunner, int?> configuredConcurrency = runner => _settings.FindTaskConcurrency(runner.TaskTypeId);
-        TaskQueue = new(this, new DefaultQueueStore(_taskRunners), _taskRunners, configuredConcurrency, "in memory");
-        if (queueStore == null) {
-            if (_settings.PersistedQueueStoreEngine == PersistedQueueStoreEngine.Native) {
-                queueStore = new DefaultQueueStore(_taskRunners, _ioIndex, FileKeyUtility.Queue_GetFileKey("bin"));
-            } else if (_settings.PersistedQueueStoreEngine == PersistedQueueStoreEngine.Memory) {
-                queueStore = new DefaultQueueStore(_taskRunners);
-            } else {
-                throw new Exception("Queue store engine must be set to either BuiltIn or Memory if no queueStore is provided.");
-            }
-        }
-        TaskQueuePersisted = new(this, queueStore, _taskRunners, configuredConcurrency, "persisted");
-        Datamodel = datamodel;
-        // the database's overrides go into the types before anything reads them (see Datamodel.Overrides)
-        datamodel.ApplyOverrides();
-        datamodel.EnsureInitalization();
-        datamodel.SetIndexDefaults(_settings.EnableTextIndexByDefault, _settings.EnableSemanticIndexByDefault, _settings.EnableInstantTextIndexingByDefault);
-        urlManager.Initialize(this); // after the datamodel is set, so managers can resolve relations and types
-        _nativeModelStore = new(this);
-        if (_settings.DefaultFileStore.HasValue) {
-            if (_fileStores.TryGetValue(_settings.DefaultFileStore.Value, out var fileStore)) {
-                _defaultFileStore = fileStore;
-            } else {
-                throw new Exception("Default file store with ID " + _settings.DefaultFileStore.Value + " not found among provided file stores.");
-            }
-        }
-        // no configured store named as the default: the implicit one, a MultiFile store on the
-        // database's own provider. Files record Guid.Empty as their store id, so this is not a choice
-        // that can change once files exist - which is why it is not a setting. It stays the store of
-        // those files when a configured store is made the default later
-        _implicitFileStore = new MultiFileStore(Guid.Empty, _io, 2);
-        _defaultFileStore ??= _implicitFileStore;
-        LogRewriter.CleanupOldPartiallyCompletedLogRewriteIfAny(_io);
-        // a backup cut short in a provider of its own leaves its flag and half written file there,
-        // and the flag would refuse every backup after it. A backup says nothing about the state files
-        if (_ioAutoBackup != _io) LogRewriter.CleanupOldPartiallyCompletedLogRewriteIfAny(_ioAutoBackup, deleteStateFiles: false);
-        _scheduler = new(this);
-        _uploads = new(this);
+        // from the logger on, a failure disposes what was built: its files would stay held for the next open
         try {
+            // what the logger moves into a folder per log is said once it can be logged, and what the custom
+            // logs say later (a reload) is logged straight away
+            _logger = new(_ioLog, datamodel, customLogDefinitions, msg => { if (_logger == null) migrationLog.Add(msg); else LogInfo(msg); });
+            // a fresh logger records nothing: the settings are what a log turned on in the admin UI and
+            // saved there is restored from
+            if (_settings.LogRecording != null) _logger.ApplyRecordingSettings(_settings.LogRecording);
+            _logger.MinDurationMsBeforeLogging = _settings.MinQueryDurationMsBeforeLogging;
+            foreach (var line in migrationLog) LogInfo(line);
+            if (converterIoProvider == null) converterIoProvider = _ioIndex;
+            _fileConversionEngine = new(this, fileConverters, converterIoProvider);
+            RegisterRunner(new TextIndexTaskRunner(this));
+            if (_ai != null) RegisterRunner(new SemanticIndexTaskRunner(this, _ai));
+            RegisterRunner(new RewriteTaskRunner(this));
+            RegisterRunner(new Relatude.DB.Tasks.FileAnalysis.FileAnalysisTaskRunner(this));
+            initJobs();
+            // read at every batch start, off the same settings object the admin UI edits, so a change to
+            // how many batches of a type run at once applies without a reopen
+            Func<ITaskRunner, int?> configuredConcurrency = runner => _settings.FindTaskConcurrency(runner.TaskTypeId);
+            TaskQueue = new(this, new DefaultQueueStore(_taskRunners), _taskRunners, configuredConcurrency, "in memory");
+            if (queueStore == null) {
+                if (_settings.PersistedQueueStoreEngine == PersistedQueueStoreEngine.Native) {
+                    queueStore = new DefaultQueueStore(_taskRunners, _ioIndex, FileKeyUtility.Queue_GetFileKey("bin"));
+                } else if (_settings.PersistedQueueStoreEngine == PersistedQueueStoreEngine.Memory) {
+                    queueStore = new DefaultQueueStore(_taskRunners);
+                } else {
+                    throw new Exception("Queue store engine must be set to either BuiltIn or Memory if no queueStore is provided.");
+                }
+            }
+            TaskQueuePersisted = new(this, queueStore, _taskRunners, configuredConcurrency, "persisted");
+            Datamodel = datamodel;
+            // the database's overrides go into the types before anything reads them (see Datamodel.Overrides)
+            datamodel.ApplyOverrides();
+            datamodel.EnsureInitalization();
+            datamodel.SetIndexDefaults(_settings.EnableTextIndexByDefault, _settings.EnableSemanticIndexByDefault, _settings.EnableInstantTextIndexingByDefault);
+            urlManager.Initialize(this); // after the datamodel is set, so managers can resolve relations and types
+            _nativeModelStore = new(this);
+            if (_settings.DefaultFileStore.HasValue) {
+                if (_fileStores.TryGetValue(_settings.DefaultFileStore.Value, out var fileStore)) {
+                    _defaultFileStore = fileStore;
+                } else {
+                    throw new Exception("Default file store with ID " + _settings.DefaultFileStore.Value + " not found among provided file stores.");
+                }
+            }
+            // no configured store named as the default: the implicit one, a MultiFile store on the
+            // database's own provider. Files record Guid.Empty as their store id, so this is not a choice
+            // that can change once files exist - which is why it is not a setting. It stays the store of
+            // those files when a configured store is made the default later
+            _implicitFileStore = new MultiFileStore(Guid.Empty, _io, 2);
+            _defaultFileStore ??= _implicitFileStore;
+            LogRewriter.CleanupOldPartiallyCompletedLogRewriteIfAny(_io);
+            // a backup cut short in a provider of its own leaves its flag and half written file there,
+            // and the flag would refuse every backup after it. A backup says nothing about the state files
+            if (_ioAutoBackup != _io) LogRewriter.CleanupOldPartiallyCompletedLogRewriteIfAny(_ioAutoBackup, deleteStateFiles: false);
+            _scheduler = new(this);
+            _uploads = new(this);
             initialize();
         } catch {
             Dispose(); // release resources
@@ -345,6 +346,9 @@ public sealed partial class DataStoreLocal : IDataStore {
 
         Engines = _createIndexEngines?.Invoke() ?? IndexEngines.Empty;
         if (_stateStore.Engine != null) Engines = Engines.WithStateEngine(_stateStore.Engine); // same transaction and durability protocol as the index engines
+        foreach (var engine in Engines.TransactionalEngines) {
+            if (engine.OpenRecoveryNotice is { } notice) logError(notice, null, null, isCritical: true);
+        }
         var fileKey = FileKeyUtility.WAL_GetLatestFileKey(_io);
         var io2 = _settings.SecondaryBackupLog ? _ioLog2 : null;
         var fileKey2 = _settings.SecondaryBackupLog ? FileKeyUtility.WAL_GetSecondaryFileKey() : null;
@@ -573,12 +577,25 @@ public sealed partial class DataStoreLocal : IDataStore {
             _lock.ExitReadLock();
         }
     }
+    void cancelRewriteForDispose() {
+        if (_rewriter == null) return;
+        // under the write lock: during the hot swap the rewriter's file is already the live log
+        if (!_lock.TryEnterWriteLock(5000)) return;
+        try {
+            var rewriter = _rewriter;
+            _rewriter = null;
+            rewriter?.Cancel();
+        } finally {
+            _lock.ExitWriteLock();
+        }
+    }
     public void Dispose() {
         try { _scheduler.Stop(); } catch { }
         // takes no store lock, so the warm-up would otherwise go on reading engines disposed below and
         // saving the facet-set sidecar after this returns:
         try { stopIndexWarmUp(); } catch { }
         try { _fileConversionEngine.Dispose(); } catch { } // stops its heartbeat timer; a live Timer roots this whole store
+        try { cancelRewriteForDispose(); } catch { } // its new log file is open on a storage the closes below may not cover
         try { TaskQueue?.TryGracefulShutdown(5000); } catch { }
         try { TaskQueuePersisted?.TryGracefulShutdown(5000); } catch { }
         try { endRevertWindowAsCommitIfActive(); } catch { } // before the flush, so the engines become durable at the head

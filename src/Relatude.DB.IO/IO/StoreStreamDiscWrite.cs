@@ -168,7 +168,7 @@ public class StoreStreamDiscWrite : IAppendStream {
         } catch { }
         if (_hasDisposed) return;
         _hasDisposed = true;
-        _stream.Dispose();
-        _disposeCallback();
+        try { _stream.Dispose(); }
+        finally { _disposeCallback(); }
     }
 }

@@ -933,7 +933,8 @@ sealed class UIQuery {
         if (!s.Datastore.TryGet(p.Id, out var n, adminContext)) throw new Exception("Node not found. ");
         dm.NodeTypes.TryGetValue(n.NodeType, out var type);
         var meta = n.Meta ?? IInnerNodeMeta.Empty;
-        var storeDefault = _server.Containers.TryGetValue(p.StoreId, out var c) ? c.Settings.LocalSettings?.DefaultReadAccess : null;
+        var settings = _server.Containers.TryGetValue(p.StoreId, out var c) ? c.Settings.LocalSettings : null;
+        var storeDefault = settings?.DefaultReadAccess;
         return new {
             n.Id,
             IntId = n.__Id,
@@ -953,8 +954,8 @@ sealed class UIQuery {
             Collection = idView(s, meta.CollectionId),
             ReadAccess = accessView(s, meta.ReadAccess, type?.DefaultReadAccess, storeDefault),
             EditViewAccess = accessView(s, meta.EditViewAccess, type?.DefaultEditViewAccess, storeDefault),
-            EditAccess = accessView(s, meta.EditAccess, type?.DefaultEditAccess, null),
-            PublishAccess = accessView(s, meta.PublishAccess, type?.DefaultPublishAccess, null),
+            EditAccess = accessView(s, meta.EditAccess, type?.DefaultEditAccess, settings?.DefaultWriteAccess),
+            PublishAccess = accessView(s, meta.PublishAccess, type?.DefaultPublishAccess, settings?.DefaultWriteAccess),
             meta.Deleted,
             CreatedBy = idView(s, meta.CreatedBy),
             ChangedBy = idView(s, meta.ChangedBy),

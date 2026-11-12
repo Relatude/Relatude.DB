@@ -3,6 +3,7 @@ using Relatude.DB.Datamodels;
 using Relatude.DB.Demo.Models;
 using Relatude.DB.FileConversion;
 using Relatude.DB.IO;
+using Relatude.DB.Native.Models;
 using Relatude.DB.Nodes;
 using Relatude.DB.NodeServer;
 using Relatude.DB.Query;
@@ -14,6 +15,7 @@ using Website.Simple.Models;
 var builder = WebApplication.CreateBuilder(args);
 builder.AddRelatudeDB(options => {
     options.OnDatamodelInit = (dm, container) => {
+        dm.Add<IName>(); // Brand, Color and SitePage get their name from it, and base types are not pulled in by Add<T>
         dm.Add<DemoArticle>();
         dm.Add<Color>();
         dm.Add<Product>();

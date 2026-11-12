@@ -7,6 +7,11 @@ public class DummyAIProvider : IAIProvider {
     public Task<string> GetCompletionAsync(string prompt, string? modelKey = null) {
         return Task.FromResult($"Dummy completion for prompt: {prompt}");
     }
+    public bool SupportsImages => true;
+    public Task<string> GetChatCompletionAsync(AIChatRequest request, CancellationToken cancellationToken = default) {
+        var pictures = request.AllImages.Count();
+        return Task.FromResult($"Dummy completion for prompt: {request.ToPrompt()}" + (pictures > 0 ? $" ({pictures} pictures)" : ""));
+    }
     public async Task<float[][]> GetEmbeddingsAsync(string[] paragraphs) {
         var rnd = new Random();
         var result = new float[paragraphs.Length][];

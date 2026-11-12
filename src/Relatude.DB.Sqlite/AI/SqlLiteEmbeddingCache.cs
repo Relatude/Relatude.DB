@@ -107,6 +107,7 @@ public class SqlLiteEmbeddingCache : IEmbeddingCache {
         _memCache.ClearAll_NotSize0();
         _open = false;
         if (_cn == null) return;
+        try { SqliteConnection.ClearPool(_cn); } catch { } // a pooled connection keeps the file open after the dispose
         _cn.Dispose();
         _cn = null!;
     }

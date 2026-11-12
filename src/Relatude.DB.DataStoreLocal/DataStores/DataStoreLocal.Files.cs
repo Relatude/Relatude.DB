@@ -60,6 +60,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         if (!Datamodel.Properties.TryGetValue(propertyPath.PropertyId, out var prop)) throw new Exception("Property not found");
         if (prop.PropertyType != PropertyType.File) throw new Exception("Property is not a file");
         var fileProp = (FilePropertyModel)prop;
+        ensureMayWriteFile(propertyPath, ctx);
         var fileStore = getFileStoreOfProperty(fileProp.FileStorageProviderId);
         var newFileId = Guid.NewGuid();
         using var inputStream = source.OpenRead(sourceFileKey, 0);
@@ -76,6 +77,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         if (!Datamodel.Properties.TryGetValue(propertyPath.PropertyId, out var prop)) throw new Exception("Property not found");
         if (prop.PropertyType != PropertyType.File) throw new Exception("Property is not a file");
         var fileProp = (FilePropertyModel)prop;
+        ensureMayWriteFile(propertyPath, ctx);
         var fileStore = getFileStoreOfProperty(fileProp.FileStorageProviderId);
         var newFileId = Guid.NewGuid();
         var r = await fileStore.InsertAsync(newFileId, source, fileName);
@@ -87,6 +89,7 @@ public sealed partial class DataStoreLocal : IDataStore {
     }
     public async Task<FileValue?[]> FileCopyAsync(IReadOnlyList<(PropertyPath From, PropertyPath To)> files, QueryContext? ctx = null) {
         ctx ??= _defaultQueryCtx;
+        foreach (var (_, to) in files) ensureMayWriteFile(to, ctx);
         var t = new TransactionData();
         var copies = files.Select(f => t.CopyFile(f.From, f.To)).ToArray();
         await resolveFileCopiesAsync(t, ctx); // here, so the bytes are read and written without blocking a thread
@@ -177,7 +180,8 @@ public sealed partial class DataStoreLocal : IDataStore {
             if (fileValue.FileId != fileId) return null; // file have changed
             if (fileValue.Width > 0) return fileValue; // meta is already set
             // Console.WriteLine("File meta is not set... " + fileId);
-            var t = new TransactionData();
+            // what the store measured of a file already written, so not checked for write access
+            var t = new TransactionData { SystemWrite = true };
             t.LockExcemptions = [lockId];
             var metaJson = withTechnicalMeta(fileValue, meta);
             var isDifferent =
@@ -294,6 +298,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         if (!Datamodel.Properties.TryGetValue(propertyPath.PropertyId, out var prop)) throw new Exception("Property not found");
         if (prop.PropertyType != PropertyType.File) throw new Exception("Property is not a file");
         var fileProp = (FilePropertyModel)prop;
+        ensureMayWriteFile(propertyPath, ctx);
         if (getFileStoreOfProperty(fileProp.FileStorageProviderId) is not IFileStoreMultiPartSupport fileStore)
             throw new Exception("File store does not support multipart upload");
         var newFileId = Guid.NewGuid();

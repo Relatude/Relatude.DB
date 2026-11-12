@@ -16,6 +16,8 @@ public class ScheduledRecovery {
     public AutoRecoveryStep Step { get; set; }
     public int Incident { get; set; }
     public int Incidents { get; set; }
+    /// <summary>The regular steps are used up and the database is opened again until another process lets go of its files.</summary>
+    public bool WaitingForRelease { get; set; }
 }
 
 public partial class RelatudeDBServer {
@@ -28,6 +30,9 @@ public partial class RelatudeDBServer {
         public AutoRecoveryStep NextStep { get; set; } = AutoRecoveryStep.RestartDatabase;
         public DateTime NextStepDueUtc { get; set; }
         public int StepsTaken { get; set; }
+        /// <summary>Set once the steps are used up and only a held file is left: the database is opened again until it is released.</summary>
+        public Stopwatch? WaitingForRelease { get; set; }
+        public DateTime LastLoggedUtc { get; set; }
     }
 
     static readonly TimeSpan recoveryWindow = TimeSpan.FromHours(24);
@@ -44,6 +49,8 @@ public partial class RelatudeDBServer {
         }
     }
     int recoveryIncidentsPerDay => Math.Max(0, Options?.AutoRecoveryIncidentsPerDay ?? ServerOptions.DefaultAutoRecoveryIncidentsPerDay);
+    TimeSpan recoveryLockWait => Options?.AutoRecoveryLockWait ?? ServerOptions.DefaultAutoRecoveryLockWait;
+    static readonly TimeSpan lockWaitLogInterval = TimeSpan.FromHours(1);
 
     public bool IsRecovering {
         get { lock (_recoveryLock) return _recoveryIncident != null; }
@@ -58,6 +65,7 @@ public partial class RelatudeDBServer {
                 Step = incident.NextStep,
                 Incident = incident.Number,
                 Incidents = recoveryIncidentsPerDay,
+                WaitingForRelease = incident.WaitingForRelease != null,
             };
         }
     }
@@ -162,7 +170,8 @@ public partial class RelatudeDBServer {
             var recovered = ids.All(isOpenOrRemoved);
             AutoRecoveryStep? next = null;
             string? whyNoNext = null;
-            if (!recovered) next = nextRecoveryStep(step, ids, out whyNoNext);
+            var wasWaiting = incident.WaitingForRelease != null;
+            if (!recovered) next = nextRecoveryStep(incident, step, ids, out whyNoNext);
             if (next != null) {
                 lock (_recoveryLock) {
                     if (_recoveryIncident == incident && !IsShuttingDown) scheduleRecoveryStep(incident, next.Value);
@@ -173,9 +182,22 @@ public partial class RelatudeDBServer {
             var sb = new StringBuilder(recoveryTitle(incident) + ", attempt " + incident.StepsTaken + ": " + stepName(step) + " " + outcome
                 + " after " + seconds(sw.Elapsed) + ".");
             if (recovered) sb.Append(" Recovered in " + seconds(incident.Elapsed.Elapsed) + " in total.");
-            else if (next != null) sb.Append(" " + describeStep(next.Value, incident.NextStepDueUtc));
-            else sb.Append(" Giving up" + (whyNoNext == null ? "" : ": " + whyNoNext) + ". Restart it by hand.");
-            writeRecoveryLog(ids, sb.ToString(), stepDetails(startedUtc, sw.Elapsed, ids, stepError));
+            else if (next != null) {
+                if (incident.WaitingForRelease != null) {
+                    sb.Append(" Only a file another process holds is left, so the database is opened again every "
+                        + recoveryDelay.TotalMinutes.To1000N() + " minute(s) until it is released, for up to "
+                        + recoveryLockWait.TotalHours.To1000N() + " hours. This is logged here once an hour while it lasts.");
+                }
+                sb.Append(" " + describeStep(next.Value, incident.NextStepDueUtc));
+            } else sb.Append(" Giving up" + (whyNoNext == null ? "" : ": " + whyNoNext) + ". Restart it by hand.");
+            // a wait for a lock to clear tries again every few minutes, and would bury the log in lines that say the same
+            var quiet = wasWaiting && !recovered && next != null && DateTime.UtcNow - incident.LastLoggedUtc < lockWaitLogInterval;
+            if (quiet) {
+                logRestart(sb.ToString());
+            } else {
+                writeRecoveryLog(ids, sb.ToString(), stepDetails(startedUtc, sw.Elapsed, ids, stepError));
+                incident.LastLoggedUtc = DateTime.UtcNow;
+            }
             if (next == null) endRecovery(incident);
         } catch (Exception err) {
             writeRecoveryLog(ids, recoveryTitle(incident) + " stopped by an unexpected error: " + err.Message, err.ToString());
@@ -216,7 +238,35 @@ public partial class RelatudeDBServer {
         }
     }
 
-    AutoRecoveryStep? nextRecoveryStep(AutoRecoveryStep step, Guid[] ids, out string? whyNot) {
+    AutoRecoveryStep? nextRecoveryStep(RecoveryIncident incident, AutoRecoveryStep step, Guid[] ids, out string? whyNot) {
+        if (incident.WaitingForRelease != null) {
+            whyNot = null;
+            if (!failsOnlyOnHeldFiles(ids)) {
+                whyNot = "it no longer fails on a file another process holds";
+                return null;
+            }
+            if (incident.WaitingForRelease.Elapsed >= recoveryLockWait) {
+                whyNot = "its files were still held by another process after " + incident.WaitingForRelease.Elapsed.TotalHours.To1000N() + " hours";
+                return null;
+            }
+            return AutoRecoveryStep.RestartDatabase;
+        }
+        var next = nextRegularRecoveryStep(step, ids, out whyNot);
+        if (next == null && recoveryLockWait > TimeSpan.Zero && failsOnlyOnHeldFiles(ids)) {
+            incident.WaitingForRelease = Stopwatch.StartNew();
+            whyNot = null;
+            return AutoRecoveryStep.RestartDatabase;
+        }
+        return next;
+    }
+
+    // a lock clears when its holder lets go, which no restart of this process brings about
+    bool failsOnlyOnHeldFiles(Guid[] ids) {
+        var failing = ids.Select(containerById).Where(c => c != null && !c.IsOpen()).ToArray();
+        return failing.Length > 0 && failing.All(c => FileOpenRetry.IsSharingViolation(c!.StartUpException));
+    }
+
+    AutoRecoveryStep? nextRegularRecoveryStep(AutoRecoveryStep step, Guid[] ids, out string? whyNot) {
         whyNot = null;
         if (step == AutoRecoveryStep.RestartDatabase) return AutoRecoveryStep.RestartServer;
         if (step != AutoRecoveryStep.RestartServer) return null;

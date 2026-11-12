@@ -40,6 +40,7 @@ internal sealed class ValueArrayInternTable<T> where T : notnull {
     readonly ValueByIdMap<int> _arrayIdByNodeId = new();
 
     public int Count => _arrayIdByNodeId.Count;
+    public bool Contains(int nodeId) => _arrayIdByNodeId.TryGetValue(nodeId, out _);
     public void Add(int nodeId, T[] value) => _arrayIdByNodeId.Add(nodeId, intern(value));
     /// <summary>Removes the node's entry and releases its interned array, resolved by the STORED
     /// id so refcounts stay exact even if the caller's array instance differs. False when the

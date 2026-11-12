@@ -26,28 +26,25 @@ public sealed class NativeKvServiceAnswerCache : IServiceAnswerCache {
     const int _compressFrom = 1024;
 
     readonly object _lock = new();
-    readonly BPlusTreeStorageEngine _storage;
-    readonly IUlongIndex<byte[]> _answers;
+    readonly NativeKvCacheFile<IUlongIndex<byte[]>> _file;
     readonly TimeSpan _maxAge;
     bool _disposed;
 
     /// <param name="filePath">The cache file; null keeps it in memory only.</param>
     /// <param name="maxAge">How long an answer is good for; <see cref="ServiceAnswerCacheDefaults.MaxAge"/> when not given.</param>
-    public NativeKvServiceAnswerCache(string? filePath, TimeSpan? maxAge = null) {
+    /// <param name="lockWait">How long the open waits while another process holds the file before the
+    /// cache starts in memory and takes the file once it is free.</param>
+    public NativeKvServiceAnswerCache(string? filePath, TimeSpan? maxAge = null, TimeSpan? lockWait = null) {
         _maxAge = maxAge ?? ServiceAnswerCacheDefaults.MaxAge;
-        _storage = new(filePath, new() {
+        _file = new(filePath, new() {
             PageCacheBytes = 2L * 1024 * 1024,
             PendingWriteBytes = 4L * 1024 * 1024,
             ValueCacheEntries = 0,
-        });
-        try {
-            _answers = _storage.OpenOrCreateUlongHashIndex<byte[]>("answers");
-        } catch (InvalidOperationException) {
-            // an older layout; it is only a cache, so it is discarded and started again
-            _storage.DeleteAll();
-            _answers = _storage.OpenOrCreateUlongHashIndex<byte[]>("answers");
-        }
+        }, "service answer cache", lockWait, storage => storage.OpenOrCreateUlongHashIndex<byte[]>("answers"));
     }
+
+    /// <summary>What the open had to do instead of the plain open (a file set aside, or held elsewhere); null when nothing.</summary>
+    public string? OpenNotice => _file.Notice;
 
     public bool TryGet(string key, [MaybeNullWhen(false)] out string value) {
         ArgumentNullException.ThrowIfNull(key);
@@ -55,7 +52,8 @@ public sealed class NativeKvServiceAnswerCache : IServiceAnswerCache {
         byte[] stored;
         lock (_lock) {
             ObjectDisposedException.ThrowIf(_disposed, this);
-            if (!_answers.TryGetValue(id, out stored)) {
+            _file.AttachFileIfDue();
+            if (!_file.Index.TryGetValue(id, out stored)) {
                 value = null;
                 return false;
             }
@@ -79,8 +77,9 @@ public sealed class NativeKvServiceAnswerCache : IServiceAnswerCache {
         }).ToArray();
         lock (_lock) {
             ObjectDisposedException.ThrowIf(_disposed, this);
+            _file.AttachFileIfDue();
             transaction(() => {
-                foreach (var (id, bytes) in encoded) _answers.Set(id, bytes);
+                foreach (var (id, bytes) in encoded) _file.Index.Set(id, bytes);
             });
         }
     }
@@ -90,40 +89,43 @@ public sealed class NativeKvServiceAnswerCache : IServiceAnswerCache {
         var (id, _) = hash(key);
         lock (_lock) {
             ObjectDisposedException.ThrowIf(_disposed, this);
-            if (_answers.ContainsKey(id)) transaction(() => _answers.Remove(id));
+            _file.AttachFileIfDue();
+            if (_file.Index.ContainsKey(id)) transaction(() => _file.Index.Remove(id));
         }
     }
 
     public void ClearAll() {
         lock (_lock) {
             ObjectDisposedException.ThrowIf(_disposed, this);
-            _storage.DeleteAll();
+            _file.AttachFileIfDue();
+            _file.Storage.DeleteAll();
         }
     }
 
     /// <summary>How many answers the file holds, those past their age included.</summary>
     public int Count {
         get {
-            lock (_lock) return _answers.Count;
+            lock (_lock) return _file.Index.Count;
         }
     }
 
     public void Dispose() {
         lock (_lock) {
             if (_disposed) return;
-            _storage.Dispose();
             _disposed = true;
+            _file.Dispose();
         }
     }
 
     void transaction(Action action) {
-        _storage.BeginTransaction();
+        var storage = _file.Storage;
+        storage.BeginTransaction();
         try {
             action();
-            _storage.CommitTransaction(DateTime.UtcNow.Ticks, false);
-            _storage.MakeDurable(true);
+            storage.CommitTransaction(DateTime.UtcNow.Ticks, false);
+            storage.MakeDurable(true);
         } catch {
-            if (_storage.IsInTransaction) _storage.RollbackTransaction();
+            if (storage.IsInTransaction) storage.RollbackTransaction();
             throw;
         }
     }

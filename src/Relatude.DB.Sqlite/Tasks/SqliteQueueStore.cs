@@ -13,9 +13,14 @@ public class SqliteQueueStore : IQueueStore {
     public SqliteQueueStore(string queueDbPath) {
         _queueDbPath = queueDbPath;
         _connection = new SqliteConnection($"Data Source={_queueDbPath};");
-        _connection.Open();
-        executeNonQuery("PRAGMA journal_mode=WAL;");
-        ensureTables();
+        try {
+            _connection.Open();
+            executeNonQuery("PRAGMA journal_mode=WAL;");
+            ensureTables();
+        } catch {
+            Dispose();
+            throw;
+        }
     }
     void ensureTables() {
         executeNonQuery(@"
@@ -253,6 +258,8 @@ public class SqliteQueueStore : IQueueStore {
         executeNonQuery($"DELETE FROM tasks {where}");
     }
     public void Dispose() {
+        // a pooled connection keeps the file open after the dispose, in the way of a move or a delete
+        try { SqliteConnection.ClearPool(_connection); } catch { }
         _connection.Close();
         _connection.Dispose();
     }

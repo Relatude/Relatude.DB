@@ -58,6 +58,18 @@ public class AIEngine {
         return hash;
     }
     public Task<string> GetCompletionAsync(string prompt, string? modelKey = null) => _provider.GetCompletionAsync(prompt, modelKey);
+    /// <summary>Whether the provider can send pictures with <see cref="GetChatCompletionAsync"/>.</summary>
+    public bool SupportsImages => _provider.SupportsImages;
+    /// <summary>
+    /// A completion of a conversation: instructions kept apart from the user's text, earlier turns, and
+    /// pictures when <see cref="SupportsImages"/>. Not cached, like <see cref="GetCompletionAsync"/>.
+    /// </summary>
+    public Task<string> GetChatCompletionAsync(AIChatRequest request, CancellationToken cancellationToken = default) {
+        ArgumentNullException.ThrowIfNull(request);
+        // a provider of one's own that leaves SupportsImages false could otherwise drop the pictures unseen
+        if (request.HasImages && !_provider.SupportsImages) throw new NotSupportedException($"The AI provider {Settings.TypeName ?? _provider.GetType().Name} cannot send pictures. ");
+        return _provider.GetChatCompletionAsync(request, cancellationToken);
+    }
     class resultSet(string text, string modelKey) {
         public readonly ulong Hash = (modelKey + (char)0 + text).XXH64Hash(); // the model and the text
         public readonly ulong TextOnlyHash = text.XXH64Hash(); // the key before the model was part of it

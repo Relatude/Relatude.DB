@@ -58,6 +58,54 @@ public class NativeAnthropicAIProvider : IAIProvider {
         var json = await OpenAIWire.PostAsync(_http, _messagesUrl, body, setAuth);
         return parseMessagesResponse(json);
     }
+    public bool SupportsImages => true;
+    public async Task<string> GetChatCompletionAsync(AIChatRequest request, CancellationToken cancellationToken = default) {
+        var body = buildMessagesRequest(resolveModel(request.ModelKey), request, request.MaxOutputTokens ?? _settings.MaxOutputTokens ?? _defaultMaxOutputTokens);
+        var json = await OpenAIWire.PostAsync(_http, _messagesUrl, body, setAuth, cancellationToken);
+        return parseMessagesResponse(json);
+    }
+    /// <summary>The instructions as the top-level system, pictures as base64 image blocks before the text, which Anthropic advises.</summary>
+    static string buildMessagesRequest(string model, AIChatRequest request, int maxTokens) {
+        using var ms = new MemoryStream();
+        using (var w = new Utf8JsonWriter(ms)) {
+            w.WriteStartObject();
+            w.WriteString("model", model);
+            w.WriteNumber("max_tokens", maxTokens);
+            if (!string.IsNullOrWhiteSpace(request.Instructions)) w.WriteString("system", request.Instructions);
+            w.WriteStartArray("messages");
+            foreach (var m in request.Messages) {
+                w.WriteStartObject();
+                w.WriteString("role", m.Role == AIChatRole.User ? "user" : "assistant");
+                if (m.Images.Count == 0) {
+                    w.WriteString("content", m.Text);
+                } else {
+                    w.WriteStartArray("content");
+                    foreach (var image in m.Images) {
+                        w.WriteStartObject();
+                        w.WriteString("type", "image");
+                        w.WriteStartObject("source");
+                        w.WriteString("type", "base64");
+                        w.WriteString("media_type", OpenAIWire.ImageContentType(image));
+                        w.WriteBase64String("data", image.Bytes);
+                        w.WriteEndObject();
+                        w.WriteEndObject();
+                    }
+                    // Anthropic refuses an empty text block
+                    if (m.Text.Length > 0) {
+                        w.WriteStartObject();
+                        w.WriteString("type", "text");
+                        w.WriteString("text", m.Text);
+                        w.WriteEndObject();
+                    }
+                    w.WriteEndArray();
+                }
+                w.WriteEndObject();
+            }
+            w.WriteEndArray();
+            w.WriteEndObject();
+        }
+        return Encoding.UTF8.GetString(ms.ToArray());
+    }
     static string parseMessagesResponse(string json) {
         using var doc = JsonDocument.Parse(json);
         var root = doc.RootElement;

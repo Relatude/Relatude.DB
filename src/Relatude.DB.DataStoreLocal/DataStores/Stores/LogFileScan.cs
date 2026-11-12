@@ -63,8 +63,39 @@ public static class LogFileScan {
     /// <summary>Where the file id sits in the header. Rewriting it is what makes a copy a log file
     /// of its own; see <see cref="Copy"/>.</summary>
     public const long FileIdPosition = 32;
+    /// <summary>Bytes of the completion stamp: a marker and the verified length of what came before it.</summary>
+    public const long CompletionStampLength = 32;
     const int markerLength = 16;
     const int copyChunkSize = 1024 * 1024;
+
+    // Readers scan to the next transaction marker and pass over the stamp, so the database read is the same without it.
+    internal static void AppendCompletionStamp(IAppendStream stream) {
+        stream.Flush(true); // what the stamp vouches for is on disk before the stamp is
+        var contentLength = stream.Length;
+        stream.WriteMarker(WALFile._completionMarker);
+        stream.WriteVerifiedLong(contentLength);
+        stream.Flush(true);
+    }
+
+    /// <summary>Whether the file ends with a completion stamp vouching for exactly the bytes before it.</summary>
+    public static bool HasCompletionStamp(IIOProvider io, string[] fileKey, long fileSize) {
+        if (fileSize < HeaderLength + CompletionStampLength) return false;
+        var position = fileSize - CompletionStampLength;
+        using var stream = io.OpenRead(fileKey, position);
+        return readCompletionStamp(stream, position);
+    }
+
+    /// <summary>What to copy when the file is put in place as a database: everything but a completion stamp at its end.</summary>
+    public static long LengthWithoutCompletionStamp(IIOProvider io, string[] fileKey, long fileSize)
+        => HasCompletionStamp(io, fileKey, fileSize) ? fileSize - CompletionStampLength : fileSize;
+
+    static bool readCompletionStamp(IReadStream stream, long position) {
+        try {
+            return stream.ReadGuid() == WALFile._completionMarker && stream.ReadVerifiedLong() == position;
+        } catch {
+            return false;
+        }
+    }
 
     internal static DateTime? AsUtc(long timestamp) => timestamp > 0 ? new DateTime(timestamp, DateTimeKind.Utc) : null;
 
@@ -155,7 +186,13 @@ public static class LogFileScan {
             long timestamp;
             int actions;
             try {
-                if (stream.ReadGuid() != WALFile._transactionStartMarker) break;
+                var marker = stream.ReadGuid();
+                if (marker == WALFile._completionMarker) {
+                    // a stamped copy put in place as a database has its later transactions after the stamp
+                    if (start + CompletionStampLength > endPosition || stream.ReadVerifiedLong() != start) break;
+                    continue;
+                }
+                if (marker != WALFile._transactionStartMarker) break;
                 timestamp = stream.ReadLong();
                 actions = stream.ReadVerifiedInt();
                 if (actions < 0) throw new IOException("Negative action count. ");

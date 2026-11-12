@@ -670,6 +670,20 @@ public sealed class UIServer {
         if (s.IoBackup.HasValue && s.IoBackup != Guid.Empty) return s.IoBackup.Value;
         return s.IoDatabase ?? throw new Exception("No backup or database IO provider configured. ");
     }
+    // a finished backup never changes, so its stamp is read once and not on every listing (a request per file on blob storage)
+    readonly System.Collections.Concurrent.ConcurrentDictionary<(Guid IoId, string Key), (long Size, bool Complete)> _backupCompletion = new();
+    bool backupIsComplete(Guid ioId, IIOProvider io, string[] key, long size) {
+        var id = (ioId, key.AsKeyString());
+        if (_backupCompletion.TryGetValue(id, out var known) && known.Size == size) return known.Complete;
+        bool complete;
+        try {
+            complete = LogFileScan.HasCompletionStamp(io, key, size);
+        } catch {
+            return false; // still being written, or unreadable just now: asked again next time
+        }
+        _backupCompletion[id] = (size, complete);
+        return complete;
+    }
     /// <summary>A UTC time the way the admin UI reads it back: an ISO string that says it is UTC.
     /// A zero tick count is how the store reports "no such moment" (an empty log has no first and no
     /// last transaction), and it reaches the page as nothing rather than as the year 1.</summary>
@@ -1215,12 +1229,16 @@ public sealed class UIServer {
             var io = _server.GetIO(ioId);
             return (object?)new {
                 IoId = ioId,
-                Files = FileKeyUtility.WAL_GetAllBackUpFileKeys(io).Select(key => new {
-                    Key = key.AsKeyString(),
-                    Name = key.FileName(),
-                    Size = io.GetFileSizeOrZeroIfUnknown(key),
-                    TimeUtc = FileKeyUtility.WAL_GetBackUpDateTimeFromFileKey(key),
-                    KeepForever = FileKeyUtility.WAL_KeepForever(key),
+                Files = FileKeyUtility.WAL_GetAllBackUpFileKeys(io).Select(key => {
+                    var size = io.GetFileSizeOrZeroIfUnknown(key);
+                    return new {
+                        Key = key.AsKeyString(),
+                        Name = key.FileName(),
+                        Size = size,
+                        TimeUtc = FileKeyUtility.WAL_GetBackUpDateTimeFromFileKey(key),
+                        KeepForever = FileKeyUtility.WAL_KeepForever(key),
+                        VerifiedComplete = backupIsComplete(ioId, io, key, size),
+                    };
                 }).OrderByDescending(f => f.TimeUtc),
             };
         });
@@ -1245,8 +1263,8 @@ public sealed class UIServer {
             var backupIo = _server.GetIO(getBackupIoId(c));
             var sourceKey = p.Key.SplitKey();
             if (backupIo.DoesNotExistOrIsEmpty(sourceKey)) throw new Exception("Backup not found. ");
-            var size = backupIo.GetFileSizeOrZeroIfUnknown(sourceKey);
             LogFileScan.ReadHeader(backupIo, sourceKey); // refuses anything that is not a readable log file
+            var size = LogFileScan.LengthWithoutCompletionStamp(backupIo, sourceKey, backupIo.GetFileSizeOrZeroIfUnknown(sourceKey));
             var newKey = switchToLogFile(c, (dbIo, destKey) => LogFileScan.Copy(backupIo, sourceKey, dbIo, destKey, size, Guid.NewGuid()));
             return (object?)new { NewKey = newKey.AsKeyString() };
         });
@@ -1419,7 +1437,7 @@ public sealed class UIServer {
             var sourceKey = p.Key.SplitKey();
             if (sourceIo.DoesNotExistOrIsEmpty(sourceKey)) throw new Exception("The file is empty or does not exist. ");
             var header = LogFileScan.ReadHeader(sourceIo, sourceKey); // refuses anything that is not a log file
-            var size = sourceIo.GetFileSizeOrZeroIfUnknown(sourceKey);
+            var size = LogFileScan.LengthWithoutCompletionStamp(sourceIo, sourceKey, sourceIo.GetFileSizeOrZeroIfUnknown(sourceKey));
             var newKey = switchToLogFile(c, (dbIo, destKey) => LogFileScan.Copy(sourceIo, sourceKey, dbIo, destKey, size, Guid.NewGuid()));
             return (object?)new { NewKey = newKey.AsKeyString(), Size = size, FirstChangeUtc = utc(header.FirstUtc) };
         });

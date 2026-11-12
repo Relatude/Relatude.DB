@@ -168,6 +168,8 @@ internal class LogRewriter {
             queueDiskWrites(t); // final transactions, added while last step was running
         }
         _newWAL.DequeuAllTransactionWritesAndFlushStreamsThreadSafe(true); // flush all writes to disk, so that the new file is ready to be used
+        // a copy stays as written, while a swapped in file is appended to from here on
+        if (!swapToNewFile) _newWAL.AppendCompletionStamp();
         _newWAL.Dispose(); // dispose new store, so that it can be used by the db
         if (swapToNewFile) {
             if (_cancelled) throw new OperationCanceledException("Log rewrite cancelled. ");

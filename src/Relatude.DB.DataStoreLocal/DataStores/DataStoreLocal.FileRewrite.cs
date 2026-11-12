@@ -221,7 +221,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                         rewritten++;
                         return v.CopyWithStoredFile(to.Id, r.FileId, r.StoreKey, r.FileHash, r.Length);
                     }
-                    var t = new TransactionData { LockExcemptions = [lockId] };
+                    var t = new TransactionData { LockExcemptions = [lockId], SystemWrite = true };
                     void update(INodeDataExternal copy) {
                         var action = NodeAction.ForceUpdate(copy);
                         action.NoReindex = true; // the files moved, their content did not

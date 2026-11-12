@@ -30,6 +30,56 @@ internal static class OpenAIWire {
         }
         return Encoding.UTF8.GetString(ms.ToArray());
     }
+    // the default encoder writes every '+' of a picture's base64 as +
+    static readonly JsonWriterOptions _relaxed = new() { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
+    /// <summary>A chat request: the instructions as a system message, a message with pictures as text and image_url parts.</summary>
+    public static string BuildChatRequest(string? model, AIChatRequest request, int? maxOutputTokens) {
+        using var ms = new MemoryStream();
+        using (var w = new Utf8JsonWriter(ms, _relaxed)) {
+            w.WriteStartObject();
+            if (model != null) w.WriteString("model", model);
+            if (maxOutputTokens.HasValue) w.WriteNumber("max_completion_tokens", maxOutputTokens.Value);
+            w.WriteStartArray("messages");
+            if (!string.IsNullOrWhiteSpace(request.Instructions)) {
+                w.WriteStartObject();
+                w.WriteString("role", "system");
+                w.WriteString("content", request.Instructions);
+                w.WriteEndObject();
+            }
+            foreach (var m in request.Messages) {
+                w.WriteStartObject();
+                w.WriteString("role", m.Role == AIChatRole.User ? "user" : "assistant");
+                if (m.Images.Count == 0) {
+                    w.WriteString("content", m.Text);
+                } else {
+                    w.WriteStartArray("content");
+                    if (m.Text.Length > 0) {
+                        w.WriteStartObject();
+                        w.WriteString("type", "text");
+                        w.WriteString("text", m.Text);
+                        w.WriteEndObject();
+                    }
+                    foreach (var image in m.Images) {
+                        w.WriteStartObject();
+                        w.WriteString("type", "image_url");
+                        w.WriteStartObject("image_url");
+                        w.WriteString("url", "data:" + ImageContentType(image) + ";base64," + Convert.ToBase64String(image.Bytes));
+                        w.WriteString("detail", ImageDetail(image));
+                        w.WriteEndObject();
+                        w.WriteEndObject();
+                    }
+                    w.WriteEndArray();
+                }
+                w.WriteEndObject();
+            }
+            w.WriteEndArray();
+            w.WriteEndObject();
+        }
+        return Encoding.UTF8.GetString(ms.ToArray());
+    }
+    public static string ImageContentType(AIImage image) => !string.IsNullOrWhiteSpace(image.ContentType) ? image.ContentType.Trim().ToLowerInvariant()
+        : AIImage.ContentTypeOf(image.Bytes) ?? throw new ArgumentException("A picture has no content type, and is not a PNG, JPEG, GIF or WebP file. ");
+    public static string ImageDetail(AIImage image) => string.IsNullOrWhiteSpace(image.Detail) ? "auto" : image.Detail.Trim().ToLowerInvariant();
     public static string ParseChatResponse(string json) {
         using var doc = JsonDocument.Parse(json);
         var choices = doc.RootElement.GetProperty("choices");
@@ -67,15 +117,15 @@ internal static class OpenAIWire {
         if (received != expectedCount) throw new Exception($"Embedding response contained {received} vectors, expected {expectedCount}. ");
         return result;
     }
-    public static async Task<string> PostAsync(HttpClient client, string url, string jsonBody, Action<HttpRequestMessage> setAuthHeaders) {
+    public static async Task<string> PostAsync(HttpClient client, string url, string jsonBody, Action<HttpRequestMessage> setAuthHeaders, CancellationToken cancellationToken = default) {
         using var response = await HttpRetry.SendAsync(client, () => {
             var request = new HttpRequestMessage(HttpMethod.Post, url) {
                 Content = new StringContent(jsonBody, Encoding.UTF8, "application/json")
             };
             setAuthHeaders(request);
             return request;
-        });
-        var body = await response.Content.ReadAsStringAsync();
+        }, cancellationToken: cancellationToken);
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
         if (!response.IsSuccessStatusCode) {
             throw new Exception($"The AI service at {url} returned {(int)response.StatusCode} {response.StatusCode}: {Truncate(body, 500)}");
         }

@@ -1,3 +1,4 @@
+using Relatude.DB.Native.Models;
 using Relatude.DB.Nodes;
 
 namespace Website.Simple.Models;
@@ -12,11 +13,11 @@ namespace Website.Simple.Models;
 // "rdb:" tokens that survive renames, and are rewritten to current public URLs on every read.
 
 [Node]
-public class SitePage {
+[FormerProperty("c5b6222b-deb1-bd8a-9e85-e7902525fd01", nameof(IName.Name))] // the page's own Title, stored before IName
+public class SitePage : IName {
     [PublicIdProperty]
     public Guid Id { get; set; }
-    [StringProperty(DisplayName = true)]
-    public string Title { get; set; } = "";
+    public string Name { get; set; } = "";
     [AddressProperty]
     public string Slug { get; set; } = "";
     [HtmlProperty]

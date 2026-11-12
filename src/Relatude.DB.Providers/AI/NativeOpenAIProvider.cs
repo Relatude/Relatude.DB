@@ -37,6 +37,13 @@ public class NativeOpenAIProvider : IAIProvider {
         var json = await OpenAIWire.PostAsync(_http, _chatUrl, body, r => setAuth(r, _apiKey));
         return OpenAIWire.ParseChatResponse(json);
     }
+    /// <summary>True, though on an OpenAI-compatible endpoint the model has to take pictures too.</summary>
+    public bool SupportsImages => true;
+    public async Task<string> GetChatCompletionAsync(AIChatRequest request, CancellationToken cancellationToken = default) {
+        var body = OpenAIWire.BuildChatRequest(resolveModel(request.ModelKey), request, request.MaxOutputTokens ?? _settings.MaxOutputTokens);
+        var json = await OpenAIWire.PostAsync(_http, _chatUrl, body, r => setAuth(r, _apiKey), cancellationToken);
+        return OpenAIWire.ParseChatResponse(json);
+    }
     public async Task<float[][]> GetEmbeddingsAsync(string[] paragraphs) {
         if (string.IsNullOrEmpty(_settings.EmbeddingModel)) throw new Exception("EmbeddingModel is required in AIProviderSettings");
         var body = OpenAIWire.BuildEmbeddingsRequest(_settings.EmbeddingModel, paragraphs);

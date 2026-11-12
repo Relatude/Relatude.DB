@@ -1105,7 +1105,7 @@ db.CreateTransaction()
 
 | Name | Value | Notes |
 |---|---|---|
-| `ReadAccess`, `EditViewAccess`, `EditAccess`, `PublishAccess` | `Guid`: a user group's id, or `NodeConstants.UserGroupEveryone`, `UserGroupMember`, `UserGroupAdmins` | `Guid.Empty` means unset: the type's default applies, else (for read and edit view) the database's `DefaultReadAccess`. |
+| `ReadAccess`, `EditViewAccess`, `EditAccess`, `PublishAccess` | `Guid`: a user group's id, or `NodeConstants.UserGroupEveryone`, `UserGroupMember`, `UserGroupAdmins` | `Guid.Empty` means unset: the type's default applies, else the database's `DefaultReadAccess` (read and edit view) or `DefaultWriteAccess` (edit and publish). Changing them takes the node's publish group ([Who may write](#who-may-write)). |
 | `CollectionId` | `Guid` | `Guid.Empty` for none. A query whose context names collections reads only nodes in them. |
 | `ReleaseUtc`, `ExpireUtc` | `DateTime?`, in UTC | `null` for none. Queries skip the node outside this window, unless their context reads unpublished nodes ([§29](#29-cultures-visibility-and-scoped-stores)). |
 | `Deleted` | `bool` | Soft delete: queries skip the node unless their context includes deleted nodes. |
@@ -2397,7 +2397,7 @@ embeddings and `ai_completion` for completions.
 | `EmbeddingServiceUrl`, `EmbeddingApiKey` | `ServiceUrl`, `ApiKey` | A separate endpoint for embeddings. Required for Anthropic. |
 | `CompletionModel` | – | The completion model (on Azure, the deployment name). Anthropic and `RelatudeServices` have a default. |
 | `CompletionModelsByKey` | null | Named alternatives for `GetCompletionAsync(prompt, modelKey)`, such as a cheap model and a strong one. |
-| `MaxOutputTokens` | not sent (Anthropic: 4096) | The upper bound on a completion's length. |
+| `MaxOutputTokens` | not sent (Anthropic: 4096) | The upper bound on a completion's length. An `AIChatRequest` can set its own ([§34.1](#341-text-embeddings-and-completions)). |
 | `ModelDimensions` | the first vector's | The embedding length. It must match the vectors in the index: a vector of another length is replaced by a placeholder, with a warning in the log, so search quality drops without an error. |
 | `DefaultSemanticRatio` | 0.5 | The `semanticRatio` of a query that names none. `0` is pure BM25, `1` pure vector search. |
 | `DefaultMinimumSimilarity` | 0.34 | Vector hits below this similarity are dropped. |
@@ -2461,7 +2461,7 @@ the vectors on disk:
 | `ImageDefaultQuality` | 85 | The quality used when a request names none. A change to this or `ImageDefaultFormat` makes new variants, under new URLs, as they are requested. |
 | `UrlOptions` | flat URLs | The URL manager's settings ([§18](#18-urls-and-the-url-manager)). |
 | `Passwords` | null | The keys and hash settings of password properties ([Passwords](#passwords)). Without an `EncryptionKey`, no password can be kept encrypted. |
-| `DefaultWriteAccess` | `Everyone` | Has no effect. |
+| `DefaultWriteAccess` | `Everyone` | Who may make, change, publish or delete a node when neither the node nor its type names an edit or publish group ([Who may write](#who-may-write)). |
 
 **Durability.** How soon writes reach the disk. The defaults can lose the last second of writes in a
 crash, but never corrupt the database.
@@ -3490,6 +3490,10 @@ the whole store, for maintenance.
 A transaction plugin runs your code in every transaction that writes nodes of a type `T`, or of a
 type that inherits from it. Use it for rules that must hold however a node is written: checks,
 derived values, audit trails.
+
+What a plugin adds to a transaction is part of it, and is checked against the user's write access
+with the rest ([Who may write](#who-may-write)). A plugin that must write what the user may not
+writes in a transaction of its own, through `Admin()`.
 
 ```csharp
 public class EventRules : NodeTransactionPlugin<IEvent> {
@@ -5096,8 +5100,8 @@ var visitor = db.Context.Culture(cultureCode).User(userId ?? Guid.Empty).Create(
 |---|---|
 | `Culture(code)` | Read in this culture |
 | `CultureFallbacks()` | When a node has nothing in the culture, read another version (below) |
-| `User(userId)` | Read as this user node; read access follows its groups. `Guid.Empty` is an anonymous visitor |
-| `Admin()` | Read as the master admin, with no access filtering |
+| `User(userId)` | Read and write as this user node; access follows its groups. `Guid.Empty` is an anonymous visitor |
+| `Admin()` | Read and write as the master admin, with no access checks |
 | `Unpublished()` | Also read drafts and other unpublished revisions, and nodes outside their release and expiry dates |
 | `EditView()` | Also require edit-view access, as for an editor |
 | `Hidden()` | Include nodes of hidden types |
@@ -5123,6 +5127,60 @@ relation properties do apply it. To check what a visitor may read, query:
 ```csharp
 bool canRead = visitor.Query().Where(id).Count() > 0;
 ```
+
+### Who may write
+
+A write runs in its store's context, as a read does, and the database checks it against the user's
+groups before it commits. A transaction that changes anything the user may not change throws
+`WriteAccessException` and writes nothing.
+
+| To | The user must be in |
+|---|---|
+| Make a node | The type's `DefaultEditAccess`, else the database's `DefaultWriteAccess` |
+| Change a node in any way: values, drafts, meta, address, or delete it | The node's `EditAccess`, else the type's `DefaultEditAccess`, else `DefaultWriteAccess` |
+| Change what readers see: a published version's values or type, publishing and unpublishing, release and expiry, deleting a node with a published version, the node's access groups | Its `PublishAccess`, else the type's `DefaultPublishAccess`, else `DefaultWriteAccess`, as well |
+| Link or unlink two nodes, or reorder a node's links | Edit access to either node. A node the same transaction makes or deletes counts |
+| Give a property with a `WriteAccess` group a value the node did not hold | That group |
+| Change a user's `UserType`, or make an administrator | An administrator. Anyone who may make users may make one of type `User` |
+
+A node without revisions is its published version, so any change to it takes the publish group too.
+Making a node with a published version takes the type's publish group.
+
+`DefaultWriteAccess` is `Everyone`, so nothing is refused until the database, a type or a node names
+a group. Administrators (`UserType.Admin`), the master admin (`Admin()`) and the database's own upkeep
+(indexing, the file analysis it queues, measuring files) are not checked. The groups are the ones the
+user had when the transaction began: a transaction that puts its user in a group gains nothing by it.
+
+```csharp
+// editors change the article, publishers change what readers see of it
+admin.UpdateMeta(article.Id, [
+    new(nameof(IInnerNodeMeta.EditAccess), editors.Id),
+    new(nameof(IInnerNodeMeta.PublishAccess), publishers.Id),
+]);
+
+var editor = db.Context.User(editorId).Create();
+try {
+    editor.Update(article);
+} catch (WriteAccessException e) {
+    // e.Right: Create, Edit, Publish, Property, UserType or Relation
+    // e.GroupId: the group it takes, e.NodeId: the node
+}
+```
+
+An upload, a file copy and a file analysis are checked before any bytes are stored or credits spent.
+A store made by hand reads and writes as anonymous, so seed it through `db.Context.Admin().Create()`.
+
+An interface asks what a user may write, to offer only that. The store answers it from the same
+rules; every write is checked whatever it said:
+
+```csharp
+var ctx = QueryContext.Anonymous.User(editorId);
+NodeWriteRights? rights = db.Datastore.GetWriteRights(article.Id, ctx);   // Edit, Publish
+TypeWriteRights? make = db.Datastore.GetTypeWriteRights(typeId, ctx);     // Create, CreatePublished, ReadOnlyProperties
+```
+
+Both answer null for a node or type the store does not have, and from a store that does not say (one
+reached over the network).
 
 ### Revisions in several cultures
 
@@ -5239,6 +5297,8 @@ What the indexes hold:
 27. **`Traverse` and `ShortestPath` work only over relations.** If you need traversal, model the
     link as a relation.
 28. **`Get` and `TryGet` ignore read access.** To check what a user may read, use a query.
+29. **A write is checked as a whole.** One change the user may not make refuses the whole transaction
+    with `WriteAccessException`, so split work that may be partly refused into transactions of its own.
 
 ---
 ---
@@ -6650,6 +6710,47 @@ To use the hosted Relatude AI service, set `AISettings` for the database
 - **Embeddings are cached** on the server by text and model (`AISettings.CacheType`), so each text
   is paid for once. Completions are not cached.
 
+#### Instructions, conversations and pictures
+
+`GetChatCompletionAsync` takes an `AIChatRequest`: your instructions apart from what the user wrote,
+the conversation so far, and pictures for the model to look at.
+
+```csharp
+byte[] screenshot = await db.FileDownloadAsync(ticket, t => t.Screenshot);
+
+// one question with a picture
+string answer = await db.Services.AI.GetChatCompletionAsync(
+    new AIChatRequest("Why can't I publish this page?", AIImage.FromBytes(screenshot)) {
+        Instructions = "You help the editors of our website. Answer in one short paragraph.",
+    });
+
+// a conversation, with a model from CompletionModelsByKey and a limit of its own
+string next = await db.Services.AI.GetChatCompletionAsync(new AIChatRequest(
+    AIChatMessage.User("Hi"),
+    AIChatMessage.Assistant("Hello, how can I help?"),
+    AIChatMessage.User("What is on my screen?", AIImage.FromBytes(screenshot, detail: "low"))) {
+    Instructions = "You help the editors of our website.",
+    ModelKey = "strong",
+    MaxOutputTokens = 800,
+});
+```
+
+- **Instructions** are sent as the system prompt: a system message for OpenAI and Azure OpenAI,
+  `system` for Anthropic. Kept apart, the user's text is less easily taken for instructions.
+- **Pictures** are PNG, JPEG, GIF or WebP, and only a user message carries them.
+  `AIImage.FromBytes` reads the type from the bytes; `new AIImage(bytes, "image/png", "high")` names
+  it. `Detail` is `low`, `high` or `auto` (the default); a low look costs less. Anthropic has no such
+  setting and ignores it.
+- **`db.Services.AI.SupportsImages`** says whether the provider can send pictures. Every built-in
+  provider can, though with an OpenAI-compatible endpoint the model has to take pictures too. A
+  provider of your own that does not implement chat gets the request as one prompt, and pictures
+  throw `NotSupportedException`.
+- **`RelatudeServices`** sends the instructions and the conversation as one prompt, for now, with the
+  pictures beside it: at most 8, 5 MB each and 16 MB together. A picture is priced as prompt text,
+  a low look at a tenth of the price.
+- A request of one user message, without instructions or pictures, is the same call as
+  `GetCompletionAsync`.
+
 ### 34.2 Images
 
 Images go in as bytes (PNG, JPEG or WebP) and come back as PNG:
@@ -7003,7 +7104,9 @@ The same rules apply to every service:
   the database closes.
 - **Implement only what you offer.** `ISMSProvider`'s batch methods throw `NotSupportedException` by
   default. An `IImagingProvider` throws it from operations it does not support and leaves them out of
-  `GetOperationsAsync`. Leave `Credits` and `CreditsLeft` at 0.
+  `GetOperationsAsync`. Leave `Credits` and `CreditsLeft` at 0. An `IAIProvider` needs only
+  `GetEmbeddingsAsync` and `GetCompletionAsync`: by default `GetChatCompletionAsync` sends a chat as
+  one prompt and `SupportsImages` is false. Override both to send instructions and pictures.
 - **Answers are cached** for your own imaging, file-to-text and translation providers too
   ([§34.5](#345-prices-answers-kept-and-errors)).
 - **A store built from code** gets the provider in the `NodeStore` constructor:

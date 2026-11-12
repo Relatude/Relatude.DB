@@ -18,6 +18,9 @@ public class TransactionData {
     /// </summary>
     public bool BulkInsert;
     public Action? InnerCallbackBeforeCommitting;
+    // the engine's own upkeep (indexing, measuring and analysing files, moving them between file stores): not checked
+    // for write access, as it changes nothing a user asked for
+    internal bool SystemWrite;
     public List<Guid>? LockExcemptions { get; set; }
     public List<ActionBase> Actions { get; set; }
     public long Timestamp { get; set; }

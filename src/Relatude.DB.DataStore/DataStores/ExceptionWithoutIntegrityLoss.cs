@@ -34,4 +34,26 @@ namespace Relatude.DB.DataStores {
         }
         public Guid NodeTypeId { get; }
     }
+    // what a refused write needed of its user
+    public enum WriteAccessRight {
+        Create, // the type's edit group, to make a node of it
+        Edit, // the node's edit group, for any change to it
+        Publish, // the node's publish group, for a change readers see
+        Property, // a property's own write group
+        UserType, // an administrator, to change a user's type
+        Relation, // the edit group of either node, to link, unlink or reorder
+    }
+    /// <summary>A transaction would change what its user may not change. Nothing of it is written.</summary>
+    public class WriteAccessException : ExceptionWithoutIntegrityLoss {
+        public WriteAccessException(string message, Guid nodeId, WriteAccessRight right, Guid groupId, Guid propertyId = default) : base(message) {
+            NodeId = nodeId;
+            Right = right;
+            GroupId = groupId;
+            PropertyId = propertyId;
+        }
+        public Guid NodeId { get; }
+        public WriteAccessRight Right { get; }
+        public Guid GroupId { get; } // the group the user would have to be in
+        public Guid PropertyId { get; } // for WriteAccessRight.Property
+    }
 }

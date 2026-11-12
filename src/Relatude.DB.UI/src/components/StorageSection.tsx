@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   IconChartHistogram,
+  IconCircleCheck,
   IconCopy,
   IconDatabase,
   IconDatabaseExport,
@@ -706,6 +707,12 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
                 <span className="file-name" title={b.key}>
                   {b.name}
                   {b.keepForever && <span className="badge">keep forever</span>}
+                  {b.verifiedComplete && (
+                    <span className="badge backup-verified" title="The backup was written to the end: it carries the stamp added once all of it was on disk">
+                      <IconCircleCheck size={11} stroke={2} />
+                      verified complete
+                    </span>
+                  )}
                 </span>
                 <span className="num">{formatBytes(b.size)}</span>
                 <span className="muted">{formatTime(b.timeUtc)}</span>

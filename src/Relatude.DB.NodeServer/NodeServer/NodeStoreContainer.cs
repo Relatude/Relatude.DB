@@ -335,18 +335,28 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
             var textEngines = new List<(Guid, ITextIndexEngine)>();
             var vectorEngines = new List<(Guid, ISemanticIndexEngine)>();
             IValueIndexEngine? valueEngine = null;
-            if (value != null) {
-                valueEngine = LateBindings.CreateValueIndexEngine(value, EngineFolderPath(indexPath, value));
-                valueEngines.Add((value.Id, valueEngine));
+            try {
+                if (value != null) {
+                    valueEngine = LateBindings.CreateValueIndexEngine(value, EngineFolderPath(indexPath, value));
+                    valueEngines.Add((value.Id, valueEngine));
+                }
+                if (text != null) {
+                    var textEngine = sharedSqlite
+                        ? (ITextIndexEngine)valueEngine! // dual role: one database, one connection, one transaction
+                        : LateBindings.CreateTextIndexEngine(text, EngineFolderPath(indexPath, text));
+                    textEngines.Add((text.Id, textEngine));
+                }
+                if (vector != null) vectorEngines.Add((vector.Id, LateBindings.CreateVectorIndexEngine(vector, EngineFolderPath(indexPath, vector))));
+                return new IndexEngines(valueEngines, textEngines, vectorEngines);
+            } catch {
+                // the engines built so far hold their files, and nothing else would close them
+                var built = valueEngines.Select(e => (IDisposable)e.Item2).Concat(textEngines.Select(e => (IDisposable)e.Item2))
+                    .Concat(vectorEngines.Select(e => (IDisposable)e.Item2)).Distinct(ReferenceEqualityComparer.Instance).Cast<IDisposable>();
+                foreach (var engine in built) {
+                    try { engine.Dispose(); } catch { }
+                }
+                throw;
             }
-            if (text != null) {
-                var textEngine = sharedSqlite
-                    ? (ITextIndexEngine)valueEngine! // dual role: one database, one connection, one transaction
-                    : LateBindings.CreateTextIndexEngine(text, EngineFolderPath(indexPath, text));
-                textEngines.Add((text.Id, textEngine));
-            }
-            if (vector != null) vectorEngines.Add((vector.Id, LateBindings.CreateVectorIndexEngine(vector, EngineFolderPath(indexPath, vector))));
-            return new IndexEngines(valueEngines, textEngines, vectorEngines);
         };
         static string describe(IndexEngineSettings? engine) => engine == null ? "memory" : engine + " (" + engine.Id.ToString("N") + ")";
     }
@@ -371,6 +381,8 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
         ITranslationProvider? translation = null;
         IIPLookupProvider? ipLookup = null;
         IDataStore? datastore = null;
+        IFileStore[]? fs = null;
+        IQueueStore? queueStore = null;
         try {
             // before anything reads the log files: the store opens its own logger on them
             if (_logger != null) { _logger.Dispose(); _logger = null; }
@@ -389,7 +401,6 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
             var ioSecondary = server.GetOrNullIO(settings.IoDatabaseSecondary);
 
             var localDiskFolder = getLocalDiskFolder(ioIndexes, ioDatabase);
-            IFileStore[]? fs = null;
             if (settings.FileStoreSettings != null) {
                 foreach (var ioFilesSetting in settings.FileStoreSettings) {
                     if (!server.TryGetIO(ioFilesSetting.IoProviderId, out var ioFiles)) throw new Exception($"IO provider with id {ioFilesSetting.IoProviderId} not found for IoFiles setting.");
@@ -420,11 +431,12 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
             if (string.IsNullOrEmpty(aiFolder)) aiFolder = localDiskFolder;
             if (!string.IsNullOrEmpty(aiFolder) && !Path.IsPathRooted(aiFolder)) aiFolder = server.RootDataFolderPath.SuperPathCombine(aiFolder);
             var cacheOwner = cacheFileOwner(ioIndexes, ioDatabase); // one file per database in a shared folder
+            List<string> cacheWarnings = [];
             if (settings.AISettings != null) {
                 if (!Directory.Exists(aiFolder)) Directory.CreateDirectory(aiFolder!);
                 // the Relatude service charges this installation's license, read at every call like
                 // the SMS provider's below
-                ai = AIProviderFactory.Create(settings.AISettings, aiFolder, () => server.Settings.ApiKey, cacheOwner);
+                ai = AIProviderFactory.Create(settings.AISettings, aiFolder, () => server.Settings.ApiKey, cacheOwner, cacheWarnings);
             }
             // Nothing in the database sends a message, so this is built for application code alone
             // (NodeStore.Services.SMS) and has no folder, cache or engine around it. It is resolved here all
@@ -464,7 +476,6 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
             ipLookup = LateBindings.CreateIPLookupProvider(settings.IPLookupSettings, () => server.Settings.ApiKey, () => server.Settings.InfoUrlPath);
             // what the three services answered is kept on this machine, beside the AI embedding cache, so
             // the same question is not sent, nor paid for, twice. Custom providers get the cache as well.
-            List<string> cacheWarnings = [];
             imaging = ServiceCaches.Wrap(imaging, settings.ImagingSettings?.CacheType ?? ServiceCacheType.Native, aiFolder, cacheOwner, cacheWarnings);
             fileToText = ServiceCaches.Wrap(fileToText, settings.FileToTextSettings?.CacheType ?? ServiceCacheType.Native, aiFolder, cacheOwner, cacheWarnings);
             translation = ServiceCaches.Wrap(translation, settings.TranslationSettings?.CacheType ?? ServiceCacheType.Native, aiFolder, cacheOwner, cacheWarnings);
@@ -474,7 +485,6 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
             var createIndexEngines = CreateIndexEngineFactory(local, indexFolderPath, ai != null, Datamodel, toLog);
             var createStateStore = CreateStateStoreFactory(local, indexFolderPath, toLog);
 
-            IQueueStore? queueStore = null;
             if (local.PersistedQueueStoreEngine == PersistedQueueStoreEngine.Sqlite) {
                 var queuePath = local.PersistedQueueStoreFolderPath;
                 if (string.IsNullOrEmpty(queuePath)) queuePath = localDiskFolder;
@@ -552,8 +562,13 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
                 // engine from here on, and disposes it with everything else.
                 try { datastore.Dispose(); } catch { }
                 keepTrace(datastore);
-            } else if (Store == null && ai != null) {
-                try { ai.Dispose(); } catch { }
+            } else if (Store == null) {
+                // no store took them over: the queue's database and the file stores are closed here or not at all
+                try { ai?.Dispose(); } catch { }
+                try { queueStore?.Dispose(); } catch { }
+                foreach (var store in fs ?? []) {
+                    try { store.Dispose(); } catch { }
+                }
             }
             // the store never took ownership, so nothing else will close their http clients
             if (Store == null) {

@@ -165,12 +165,14 @@ internal sealed class Graph : IDisposable {
         var floats = FloatStore.Create(paths.Vectors(generation), generation, dims, mirror);
         RoutingStore? routing = null;
         NodeTable? nodes = null;
+        EdgeLog? edges = null;
         try {
             routing = RoutingStore.Create(paths.Routing(generation), generation, dims, m0);
             nodes = NodeTable.Create(paths.Nodes(generation), paths.Upper(generation), generation, m, maxLevels);
-            var edges = EdgeLog.Create(paths.Edges(generation), generation, m0);
+            edges = EdgeLog.Create(paths.Edges(generation), generation, m0);
             return new(floats, routing, nodes, edges, generation, dims, m, m0, maxLevels, options);
         } catch {
+            edges?.Dispose();
             nodes?.Dispose();
             routing?.Dispose();
             floats.Dispose();
@@ -187,14 +189,16 @@ internal sealed class Graph : IDisposable {
         var floats = FloatStore.Open(paths.Vectors(m.Generation), m.Generation, m.Dimensions, mirror, m.NextOrdinal, threads);
         RoutingStore? routing = null;
         NodeTable? nodes = null;
+        EdgeLog? edges = null;
         try {
             routing = RoutingStore.Open(paths.Routing(m.Generation), m.Generation, m.Dimensions, m0, m.NextOrdinal, threads);
             nodes = NodeTable.Open(paths.Nodes(m.Generation), paths.Upper(m.Generation), m.Generation,
                 m.Connectivity, m.MaxLevels, m.NextOrdinal, m.NextUpperSlot, m.EntryOrdinal, m.MaxLevel);
-            var edges = EdgeLog.Open(paths.Edges(m.Generation), m.Generation, m0, m.EdgeLogEntries);
+            edges = EdgeLog.Open(paths.Edges(m.Generation), m.Generation, m0, m.EdgeLogEntries);
             routing.LoadOverlay(edges.Replay(m.EdgeLogEntries));
             return new(floats, routing, nodes, edges, m.Generation, m.Dimensions, m.Connectivity, m0, m.MaxLevels, options);
         } catch {
+            edges?.Dispose();
             nodes?.Dispose();
             routing?.Dispose();
             floats.Dispose();

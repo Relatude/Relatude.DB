@@ -175,6 +175,9 @@ internal class ActionConverter {
                         // a node written as an object names no revision (the mapper makes it without meta): it goes to
                         // the one the transaction's context reads, as a property write does
                         if (oldNode is NodeDataRevisions held && node is not NodeDataRevision) node = revisionRead(db, held, node);
+                        // one without revisions keeps its meta (its access groups, collection, release and expiry): an
+                        // object written carries none, and the update stored the node without them
+                        else if (oldNode is NodeData stored && stored.Meta != null && node is NodeData plain && plain.Meta == null) node = (NodeData)plain.CopyAndChangeMeta(stored.Meta);
                         var performUpdate = nodeAction.Operation switch {
                             NodeOperation.UpdateIfExists
                             or NodeOperation.UpdateOrFail => isChanged(db, node, oldNode),

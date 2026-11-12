@@ -198,6 +198,8 @@ public class LogStore : IDisposable, ILogStore {
         return get(logKey)?.AnalyseCombinedGroupCounts(property, intervalType, fromUtc, toUtc, statistic) ?? new(fromUtc, toUtc);
     }
     public void Dispose() {
-        foreach (var log in _logs.Values) log.Dispose();
+        foreach (var log in _logs.Values) {
+            try { log.Dispose(); } catch { } // one log failing must not leave the others' files open
+        }
     }
 }

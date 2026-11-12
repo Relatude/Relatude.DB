@@ -27,6 +27,8 @@ sealed class UIDashboard {
         commands.Register("dashboard", async ctx => await full(ctx.Payload<StorePayload>().StoreId));
         commands.Register("dashboard-live", ctx => live(ctx.Payload<StorePayload>().StoreId));
         commands.Register("dashboard-clear-cache", async ctx => await clearCache(ctx.Payload<StorePayload>().StoreId));
+        commands.Register("dashboard-leases", ctx => leases(ctx.Payload<StorePayload>().StoreId));
+        commands.Register("dashboard-break-leases", ctx => breakLeases(ctx.Payload<BreakLeasesPayload>()));
     }
 
     NodeStoreContainer container(Guid storeId) {
@@ -313,7 +315,80 @@ sealed class UIDashboard {
         return new {
             TimeUtc = utc(c.StartUpExceptionDateTimeUTC),
             c.StartUpException.Message,
+            // "lease" lets the dashboard offer to break the leases on the database's blob storage
+            HeldBy = findInChain<BlobLeasedException>(c.StartUpException) != null ? "lease"
+                : FileOpenRetry.IsSharingViolation(c.StartUpException) ? "file" : null,
         };
+    }
+
+    static T? findInChain<T>(Exception? error) where T : Exception {
+        while (error != null) {
+            if (error is T match) return match;
+            if (error is AggregateException aggregate && aggregate.InnerExceptions.Count > 0) {
+                foreach (var inner in aggregate.InnerExceptions) {
+                    if (findInChain<T>(inner) is T found) return found;
+                }
+            }
+            error = error.InnerException;
+        }
+        return null;
+    }
+
+    // ---- leases on the database's blob storage ----
+
+    // every Azure storage the database keeps files in, once each
+    IEnumerable<(Guid IoId, string Name, AzureBlobIOProvider Io)> blobStorages(NodeStoreContainer c) {
+        var s = c.Settings;
+        Guid?[] ids = [s.IoDatabase, s.IoDatabaseSecondary, s.IoIndexes, s.IoLog, s.IoBackup, .. (s.FileStoreSettings ?? []).Select(f => (Guid?)f.IoProviderId)];
+        foreach (var id in ids.OfType<Guid>().Where(id => id != Guid.Empty).Distinct()) {
+            IIOProvider? io = null;
+            try { _server.TryGetIO(id, out io); } catch { } // a storage that cannot be built has no leases to show
+            if (io is not AzureBlobIOProvider azure) continue;
+            var name = s.IOSettings?.FirstOrDefault(i => i.Id == id)?.Name;
+            yield return (id, string.IsNullOrEmpty(name) ? id.ToString() : name, azure);
+        }
+    }
+
+    object leases(Guid storeId) {
+        var c = container(storeId);
+        var blocked = findInChain<BlobLeasedException>(c.StartUpException);
+        var list = new List<object>();
+        foreach (var (ioId, name, azure) in blobStorages(c)) {
+            foreach (var lease in azure.GetLeasedFiles()) {
+                list.Add(new { IoId = ioId, Storage = name, lease.Key, lease.State, lease.Infinite, lease.HeldHere });
+            }
+        }
+        return new { Open = c.IsOpenOrOpening(), BlockedBy = blocked?.BlobName, Leases = list };
+    }
+
+    // breaks the leases asked for, never the ones this server holds itself, and opens the database again
+    object breakLeases(BreakLeasesPayload p) {
+        var c = container(p.StoreId);
+        if (c.IsOpenOrOpening()) throw new Exception("The database is open, or opening: its leases are its own. ");
+        int broken = 0, skipped = 0;
+        var errors = new List<string>();
+        var storages = blobStorages(c).ToDictionary(s => s.IoId);
+        foreach (var group in p.Leases.GroupBy(l => l.IoId)) {
+            if (!storages.TryGetValue(group.Key, out var storage)) {
+                errors.Add("Storage " + group.Key + " is not a blob storage of this database. ");
+                continue;
+            }
+            var result = storage.Io.BreakLeases(group.Select(l => l.Key));
+            broken += result.Broken;
+            skipped += result.Skipped;
+            errors.AddRange(result.Errors);
+        }
+        var name = string.IsNullOrEmpty(c.Settings.Name) ? c.Settings.Id.ToString() : c.Settings.Name;
+        _server.Log("Broke " + broken + " lease(s) on the blob storage of \"" + name + "\" from the admin UI"
+            + (errors.Count > 0 ? ", " + errors.Count + " could not be broken" : "") + ".");
+        var opening = false;
+        if (p.Open && !_server.IsShuttingDown && errors.Count == 0) {
+            opening = true;
+            _ = Task.Run(() => {
+                try { c.Open(); } catch { } // the dashboard shows what stopped it, as for any other open
+            });
+        }
+        return new { Broken = broken, Skipped = skipped, Errors = errors, Opening = opening };
     }
 
     object? recovery(NodeStoreContainer c) {
@@ -324,6 +399,7 @@ sealed class UIDashboard {
             Step = scheduled.Step.ToString(),
             scheduled.Incident,
             scheduled.Incidents,
+            scheduled.WaitingForRelease,
         };
     }
 
@@ -423,4 +499,6 @@ sealed class UIDashboard {
     }
 
     sealed record StorePayload(Guid StoreId);
+    sealed record LeaseKey(Guid IoId, string Key);
+    sealed record BreakLeasesPayload(Guid StoreId, LeaseKey[] Leases, bool Open);
 }

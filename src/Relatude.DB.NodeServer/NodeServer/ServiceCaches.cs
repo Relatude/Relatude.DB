@@ -16,9 +16,9 @@ namespace Relatude.DB.NodeServer;
 /// server's data folder, where every database without disk storage keeps its local files - gets one
 /// file per database, named by an owner: <c>native.imaging.{owner}.cache.bin</c>. Two databases on one
 /// name would otherwise wait for each other at every open, and the second would go without.</para>
-/// <para>A cache is only a copy, so one that cannot be opened - a file another process holds, a disk
-/// that refuses - leaves the provider without one, with a warning, rather than keeping the database
-/// from opening.</para>
+/// <para>A cache is only a copy, so it never keeps the database from opening: a file another process
+/// holds starts the cache in memory until the file is free, an unreadable file is set aside and started
+/// empty, and a disk that refuses leaves the provider without a cache. Each is logged as a warning.</para>
 /// </summary>
 public static class ServiceCaches {
     public static IImagingProvider Wrap(IImagingProvider provider, ServiceCacheType type, string? folder, string? owner, List<string> warnings)
@@ -51,7 +51,9 @@ public static class ServiceCaches {
                 var path = FilePath(folder, service, owner);
                 try {
                     if (path != null) Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-                    return new NativeKvServiceAnswerCache(path);
+                    var cache = new NativeKvServiceAnswerCache(path);
+                    if (cache.OpenNotice != null) warnings.Add($"The {service} answer cache at {path}: {cache.OpenNotice}");
+                    return cache;
                 } catch (Exception error) {
                     warnings.Add($"The {service} answer cache at {path} could not be opened, so the service is asked every time: {error.Message}");
                     return null;

@@ -484,6 +484,16 @@ public class NativeModelStore(DataStoreLocal store) {
         array = newArray;
     }
 
+    /// <summary>
+    /// Who writes, for the write access check: the user's type and groups as <see cref="GetQueryContextKey"/> resolves
+    /// them, except that a user the store does not know writes as anonymous rather than failing.
+    /// </summary>
+    internal (SystemUserType Type, Guid[]? Groups) WriterOf(Guid userId) {
+        if (userId == Guid.Empty) return (SystemUserType.Anonymous, null);
+        if (store._guids.TryGetId(userId, out var id) && _users.TryGetValue(id, out var user)) return (user.UserType, GetEffectiveMembershipsOfUser(id));
+        if (userId == NodeConstants.MasterAdminUserId) return (SystemUserType.Admin, null);
+        return (SystemUserType.Anonymous, null);
+    }
     public QueryContextKey GetQueryContextKey(QueryContext ctx, out DateTime now) {
         now = ctx.NowUtc ?? DateTime.UtcNow;
         Guid cultureId;

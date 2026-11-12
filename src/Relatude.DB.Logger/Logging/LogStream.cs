@@ -101,10 +101,13 @@ internal class LogStream : IDisposable {
         _dataInBuffer = 0;
     }
     void flushBufferAndReleaseOpenFiles() {
-        flushBuffer(false);
-        if (_lastAppendStream != null) {
-            _lastAppendStream.Dispose();
-            _lastAppendStream = null;
+        try {
+            flushBuffer(false);
+        } finally {
+            if (_lastAppendStream != null) {
+                _lastAppendStream.Dispose();
+                _lastAppendStream = null;
+            }
         }
     }
     /// <summary>

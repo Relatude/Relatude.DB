@@ -88,15 +88,37 @@ public static class FileOpenRetry {
         if (budget <= TimeSpan.Zero) return open(); // one attempt, failing as it fails: the caller waits between attempts itself
         var name = Path.GetFileName(path);
         return Retry.Run(open, IsSharingViolation, budget,
-            onWaitStarted: (_, err) => log?.Invoke("\"" + name + "\" is held by another process, waiting up to "
-                + budget.TotalSeconds.ToString("0") + " s for it to be released. " + err.Message),
+            onWaitStarted: (_, err) => {
+                ReleaseUnreachableHandles();
+                log?.Invoke("\"" + name + "\" is held by another process, waiting up to "
+                    + budget.TotalSeconds.ToString("0") + " s for it to be released. " + FileLockHolders.Describe(path) + err.Message);
+            },
             onWaitEnded: (attempts, elapsed) => log?.Invoke("\"" + name + "\" was released by the other process after "
                 + elapsed.TotalSeconds.ToString("0.0") + " s, opened on attempt " + attempts + "."),
-            onExhausted: (err, attempts, elapsed) => new FileLockedException(
-                "\"" + path + "\" is held by another process and was still held after "
-                + elapsed.TotalSeconds.ToString("0.0") + " s over " + attempts + " attempt(s). "
-                + "On a host that recycles with the processes overlapping, such as Azure App Service, the previous "
-                + "process may not have finished stopping. " + err.Message, err));
+            onExhausted: (err, attempts, elapsed) => {
+                var holders = FileLockHolders.Describe(path, out var explained);
+                return new FileLockedException(
+                    "\"" + path + "\" is held by another process and was still held after "
+                    + elapsed.TotalSeconds.ToString("0.0") + " s over " + attempts + " attempt(s). " + holders
+                    + (explained ? "" : "On a host that recycles with the processes overlapping, such as Azure App Service, the previous "
+                    + "process may not have finished stopping. ") + err.Message, err);
+            });
+    }
+
+    static long _lastReleaseTicks = -10_000;
+    /// <summary>
+    /// Runs a full collection and the finalizers it queues, so a file handle this process lost track
+    /// of - an open that failed half way - is closed before the next attempt instead of whenever the GC
+    /// next happens to run. At most once every ten seconds, process wide.
+    /// </summary>
+    public static void ReleaseUnreachableHandles() {
+        var now = Environment.TickCount64;
+        var last = Interlocked.Read(ref _lastReleaseTicks);
+        if (now - last < 10_000) return;
+        if (Interlocked.CompareExchange(ref _lastReleaseTicks, now, last) != last) return;
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
     }
 
     /// <summary>Same as <see cref="Open{T}"/>, for an open that returns nothing.</summary>

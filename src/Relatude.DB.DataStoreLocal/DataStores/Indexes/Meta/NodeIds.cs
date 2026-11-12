@@ -349,15 +349,15 @@ internal class NodeTypesByIds {
             editViewAccessGroup = meta.EditViewAccess;
         } else {
             typeDef = _definition.NodeTypes[typeId].Model; // only look up typeDef if needed, as it is a bit expensive to look up
-            readAccessGroup = findUserGroup(meta.ReadAccess, typeDef.DefaultReadAccess, _settings.DefaultReadAccess);
-            editViewAccessGroup = findUserGroup(meta.EditViewAccess, typeDef.DefaultEditViewAccess, _settings.DefaultReadAccess);
+            readAccessGroup = FindUserGroup(meta.ReadAccess, typeDef.DefaultReadAccess, _settings.DefaultReadAccess);
+            editViewAccessGroup = FindUserGroup(meta.EditViewAccess, typeDef.DefaultEditViewAccess, _settings.DefaultReadAccess);
         }
 
         // Read Access:
-        if (!isUserAMember(readAccessGroup, ctx.UserType, ctx.MembershipIds)) return false;
+        if (!IsUserAMember(readAccessGroup, ctx.UserType, ctx.MembershipIds)) return false;
 
         // View Access Edit:
-        if (ctx.EditView && !isUserAMember(editViewAccessGroup, ctx.UserType, ctx.MembershipIds)) return false;
+        if (ctx.EditView && !IsUserAMember(editViewAccessGroup, ctx.UserType, ctx.MembershipIds)) return false;
 
         // Include hidden:
         if (typeDef == null) typeDef = _definition.NodeTypes[typeId].Model;
@@ -377,7 +377,8 @@ internal class NodeTypesByIds {
 
         return true;
     }
-    static Guid findUserGroup(Guid fromMeta, Guid fromType, SystemGroupType fromSettings) {
+    // the node's own group, else the type's default, else the database's (shared with the write access check)
+    internal static Guid FindUserGroup(Guid fromMeta, Guid fromType, SystemGroupType fromSettings) {
         if (fromMeta != NodeConstants.UserGroupUnspecified) return fromMeta;
         if (fromType != NodeConstants.UserGroupUnspecified) return fromType;
         return fromSettings switch {
@@ -387,7 +388,7 @@ internal class NodeTypesByIds {
             _ => throw new InvalidOperationException(),
         };
     }
-    static bool isUserAMember(Guid requiredMembership, SystemUserType userType, Guid[]? userMemberships) {
+    internal static bool IsUserAMember(Guid requiredMembership, SystemUserType userType, Guid[]? userMemberships) {
 
         if (requiredMembership == NodeConstants.UserGroupEveryone)
             return true; // everyone is member of the "everyone" group

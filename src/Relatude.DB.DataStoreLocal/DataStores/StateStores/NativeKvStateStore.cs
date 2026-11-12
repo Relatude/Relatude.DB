@@ -3,6 +3,7 @@ using System.Text;
 using Relatude.DB.Datamodels;
 using Relatude.DB.Datastores.Indexes.BTreeIndex;
 using Relatude.DB.DataStores.Indexes;
+using Relatude.DB.DataStores.Indexes.KvStore;
 using Relatude.DB.DataStores.Relations;
 using Relatude.DB.Transactions;
 
@@ -32,9 +33,16 @@ public sealed class NativeKvStateStore : IndexEngineBase, IStateStore {
             ? new BPlusTreeEngineOptions { PageCacheBytes = 64L * 1024 * 1024, PendingWriteBytes = 32L * 1024 * 1024 }
             : new BPlusTreeEngineOptions { PageCacheBytes = Math.Max(minBytes, maxMemoryBytes / 3 * 2), PendingWriteBytes = Math.Max(minBytes, maxMemoryBytes / 3) };
         _budgetBytes = maxMemoryBytes;
-        _storage = new BPlusTreeStorageEngine(filePath, options);
-        _settings = _storage.OpenOrCreateSortedIntIndex<string>("settings");
+        _storage = NativeKvFileRecovery.Open(filePath, options, Name, out _openRecoveryNotice);
+        try {
+            _settings = _storage.OpenOrCreateSortedIntIndex<string>("settings");
+        } catch {
+            _storage.Dispose(); // nothing else would close the file before the next open in this process
+            throw;
+        }
     }
+    readonly string? _openRecoveryNotice;
+    public override string? OpenRecoveryNotice => _openRecoveryNotice;
     public override string Name => "Native state store";
     public IIndexEngine Engine => this;
     public ISegmentMap CreateSegmentMap() => new KvSegmentMap(_storage.OpenOrCreateIntHashIndex<byte[]>("segments"));
@@ -48,14 +56,14 @@ public sealed class NativeKvStateStore : IndexEngineBase, IStateStore {
     }
     protected override void BeginTransactionCore() => _storage.BeginTransaction();
     protected override void CommitTransactionCore(long timestamp) => _storage.PublishTransaction(timestamp);
-    protected override void MakeDurableCore() => _storage.MakeDurable(deepDiskFlush: false);
+    protected override void MakeDurableCore() => _storage.MakeDurable(deepDiskFlush: true); // see NativeKvIndexStore.MakeDurableCore
     protected override void RollbackTransactionCore() => _storage.RollbackTransaction();
     protected override Guid ReadWalFileId() => Guid.TryParse(GetSetting(SettingKey.WalId), out var id) ? id : Guid.Empty;
     protected override void WriteWalFileId(Guid walFileId, long? timestamp) {
         _storage.BeginTransaction();
         try {
             _settings.Set((int)SettingKey.WalId, walFileId.ToString());
-            _storage.CommitTransaction(timestamp ?? _storage.GetTimestamp(), deepDiskFlush: false);
+            _storage.CommitTransaction(timestamp ?? _storage.GetTimestamp(), deepDiskFlush: true);
         } catch {
             try { _storage.RollbackTransaction(); } catch { }
             throw;

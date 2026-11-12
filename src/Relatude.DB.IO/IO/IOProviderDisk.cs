@@ -242,9 +242,11 @@ public class IOProviderDisk : IIOProvider {
 
     public void CloseAllOpenStreams() {
         lock (_lock) {
+            List<Exception>? errors = null;
             foreach (var stream in _openStreams.ToArray()) {
-                stream.Dispose();
+                try { stream.Dispose(); } catch (Exception err) { (errors ??= []).Add(err); } // the rest must close all the same
             }
+            if (errors != null) throw new AggregateException("Not all streams could be closed. ", errors);
             if (_openStreams.Count != 0) throw new Exception("Not all streams could be closed. ");
         }
     }

@@ -1,4 +1,5 @@
 using Relatude.DB.Common;
+using Relatude.DB.Native.Models;
 using Relatude.DB.Nodes;
 
 namespace Website.Simple.Models;
@@ -36,19 +37,20 @@ public class Product {
     public FileValue Image { get; set; } = FileValue.Empty;
 }
 
+// the node name (IName) labels the facet values; FormerProperty keeps the names stored under the old own Name
 [Node]
-public class Brand {
+[FormerProperty("42c0ded9-2148-eff3-b91f-d686f8b2b3da", nameof(IName.Name))]
+public class Brand : IName {
     [PublicIdProperty]
     public Guid Id { get; set; }
-    [StringProperty(Indexed = true, DisplayName = true)] // shown as the facet value display name
     public string Name { get; set; } = "";
 }
 
 [Node]
-public class Color {
+[FormerProperty("8d25f2c1-cea7-95c3-dee2-56db3c044f45", nameof(IName.Name))]
+public class Color : IName {
     [PublicIdProperty]
     public Guid Id { get; set; }
-    [StringProperty(Indexed = true, DisplayName = true)] // shown as the facet value display name
     public string Name { get; set; } = "";
 }
 

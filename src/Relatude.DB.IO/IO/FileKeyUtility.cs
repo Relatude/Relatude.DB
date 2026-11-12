@@ -163,6 +163,8 @@ public static class FileKeyUtility {
     const string indexEngineNativeKvFolder = "nativekv";
     const string indexEngineNativeKvFile = "nativekv.db";
     const string indexEngineFacetSetsFile = "facetsets.bin";
+    const string indexEngineRebuildFlagSuffix = ".rebuild";
+    const string indexEngineCorruptCopySuffix = ".corrupt";
     const string indexEngineSqliteFolder = "sqlite";
     const string indexEngineSqliteFile = "index.db";
     const string indexEngineLuceneFolder = "lucene";
@@ -429,6 +431,10 @@ public static class FileKeyUtility {
     public static string IndexEngine_NativeKvFileKey => indexEngineNativeKvFile;
     /// <summary>The native KV engine's facet-set sidecar, inside <see cref="IndexEngine_NativeKvFolderKey"/>.</summary>
     public static string IndexEngine_FacetSetsFileKey => indexEngineFacetSetsFile;
+    /// <summary>Marker next to an engine file asking the next open to discard it and rebuild from the log.</summary>
+    public static string IndexEngine_RebuildFlagFileKey(string engineFileKey) => engineFileKey + indexEngineRebuildFlagSuffix;
+    /// <summary>Where an engine file found corrupt at open is kept for inspection (the latest one only).</summary>
+    public static string IndexEngine_CorruptCopyFileKey(string engineFileKey) => engineFileKey + indexEngineCorruptCopySuffix;
     /// <summary>Folder of the SQLite index engine (value indexes, and the FTS5 word indexes when it serves text too).</summary>
     public static string IndexEngine_SqliteFolderKey => indexEngineSqliteFolder;
     /// <summary>The SQLite engine's database file, inside <see cref="IndexEngine_SqliteFolderKey"/>.</summary>
@@ -503,6 +509,8 @@ public static class FileKeyUtility {
         var name = key.FileName();
         if (name == indexEngineNativeKvFile) return "Native index engine";
         if (name == indexEngineFacetSetsFile) return "Facet cache";
+        if (name.EndsWith(indexEngineRebuildFlagSuffix)) return "Index engine rebuild requested";
+        if (name.EndsWith(indexEngineCorruptCopySuffix)) return "Corrupt index engine file, set aside";
         if (name == indexEngineSqliteFile) return "Sqlite index engine";
         if (name == indexEngineLuceneWalIdFile) return "Lucene index engine log file id";
         if (name == "ai.cache.bin" || name == "native.ai.cache.bin") return "AI Cache";

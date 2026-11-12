@@ -216,7 +216,12 @@ public class StoreLogger : IDisposable, IStoreLogger {
         _io = io;
         _datamodel = datamodel;
         _logStore = new LogStore(_io, getSettings());
-        _customLogs = new CustomLogs(_io, _systemLogKeys, customLogDefinitions, log);
+        try {
+            _customLogs = new CustomLogs(_io, _systemLogKeys, customLogDefinitions, log);
+        } catch {
+            _logStore.Dispose();
+            throw;
+        }
     }
     void reloadLogsWithNewSettings() {
         // swap in the new store before disposing the old one, so concurrent Record* calls
@@ -415,8 +420,8 @@ public class StoreLogger : IDisposable, IStoreLogger {
         _customLogs.SaveStatsAndDeleteExpiredData();
     }
     public void Dispose() {
-        _logStore?.Dispose();
-        _customLogs.Dispose();
+        try { _logStore?.Dispose(); }
+        finally { _customLogs.Dispose(); }
     }
 
     public KeyValuePair<string, string>[] GetLogKeysAndNames() {

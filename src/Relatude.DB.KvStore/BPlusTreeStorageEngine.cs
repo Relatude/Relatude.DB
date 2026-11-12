@@ -22,6 +22,12 @@ public sealed class BPlusTreeEngineOptions
     /// callers can raise it to trade memory for less write amplification.
     /// </summary>
     public long PendingWriteBytes { get; init; } = 32L * 1024 * 1024;
+
+    /// <summary>
+    /// How long the open waits while another process holds the file; null for
+    /// <see cref="Relatude.DB.Common.FileOpenRetry.DefaultTimeout"/>, zero for one attempt.
+    /// </summary>
+    public TimeSpan? FileLockTimeout { get; init; }
 }
 
 /// <summary>Commit-time hook for indexes that keep a value cache (see <see cref="ValueCache{TId,T}"/>).</summary>
@@ -193,9 +199,58 @@ public sealed class BPlusTreeStorageEngine : IStorageEngine, IDisposable
     {
         options ??= new BPlusTreeEngineOptions();
         ValueCacheEntries = options.ValueCacheEntries;
-        _pager = new Pager(path, options.PageCacheBytes, options.PendingWriteBytes);
-        Meta meta = _pager.CurrentMeta;
-        _committed = new EngineSnapshot(meta.TxId, meta.Timestamp, LoadCatalog(meta.CatalogRoot));
+        _pager = new Pager(path, options.PageCacheBytes, options.PendingWriteBytes, options.FileLockTimeout);
+        try
+        {
+            Meta meta = _pager.CurrentMeta;
+            _committed = new EngineSnapshot(meta.TxId, meta.Timestamp, LoadCatalog(meta.CatalogRoot));
+        }
+        catch
+        {
+            _pager.Dispose(); // a caller setting the corrupt file aside cannot move it while it is open
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Cheap open-time check that every index's root pages are the kind the catalog says: catches a
+    /// durable meta whose last commit never reached the disk. Deeper damage is found only when read.
+    /// </summary>
+    public void VerifyRoots()
+    {
+        uint pageCount = _pager.CurrentMeta.PageCount;
+        foreach (var (name, st) in _committed.Indexes)
+        {
+            if (st.Layout == LayoutHash)
+            {
+                HashDirectoryStore.Verify(_pager, st.IdRoot, pageCount, name);
+            }
+            else
+            {
+                VerifyTreePath(name, "value", st.ValueRoot, pageCount);
+                VerifyTreePath(name, "id", st.IdRoot, pageCount);
+            }
+        }
+    }
+
+    private void VerifyTreePath(string name, string tree, uint root, uint pageCount)
+    {
+        uint page = root;
+        for (int depth = 0; page != 0; depth++)
+        {
+            if (page >= pageCount || depth > 32)
+                throw new InvalidDataException($"Index '{name}': the {tree} tree reaches page {page}, past the {pageCount} pages of the file.");
+            byte[] p = _pager.GetPage(page);
+            if (p[0] != NodePage.TypeLeaf && p[0] != NodePage.TypeBranch)
+                throw new InvalidDataException($"Index '{name}': page {page} of the {tree} tree is not a tree page (type {p[0]}).");
+            if (NodePage.Count(p) > (Pager.PageSize - NodePage.HeaderSize) / 2)
+                throw new InvalidDataException($"Index '{name}': page {page} of the {tree} tree claims {NodePage.Count(p)} cells.");
+            if (NodePage.IsLeaf(p))
+                return;
+            page = NodePage.ChildAt(p, 0);
+            if (page == 0)
+                throw new InvalidDataException($"Index '{name}': branch page of the {tree} tree has no child.");
+        }
     }
 
     // ---- IStorageEngine ----

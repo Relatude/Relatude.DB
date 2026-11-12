@@ -51,6 +51,9 @@ public abstract class IndexEngineBase : IIndexEngine {
 
     public virtual string Name => GetType().Name.Decamelize();
 
+    public virtual void MarkCorrupt(string reason) { }
+    public virtual string? OpenRecoveryNotice => null;
+
     /// <summary>Register an opened index for the base's lifecycle rules. Pass
     /// <paramref name="justCreated"/> true only when the underlying storage did not exist and was
     /// created now — this drives the first-commit protocol.</summary>
@@ -147,7 +150,10 @@ public abstract class IndexEngineBase : IIndexEngine {
         foreach (var i in _managedIndexes.Values) i.ClearCache();
     }
 
+    bool _disposed;
     public void Dispose() {
+        if (_disposed) return; // the recovery and revert paths can dispose an engine twice
+        _disposed = true;
         DisposeCore();
         GC.SuppressFinalize(this);
     }

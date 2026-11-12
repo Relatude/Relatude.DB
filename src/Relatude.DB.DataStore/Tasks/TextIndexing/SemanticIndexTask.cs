@@ -28,7 +28,7 @@ public class SemanticIndexTaskRunner(IDataStore db, AIEngine ai) : TaskRunner<Se
         if(extracts.Length != vectors.Count) {
             throw new Exception($"Expected the same number of vectors as extracts. Extracts: {extracts.Length}, Vectors: {vectors.Count}");
         }
-        var t = new TransactionData();
+        var t = new TransactionData { SystemWrite = true };
         for (int i = 0; i < extracts.Length; i++) {
             t.ForceUpdateProperty(extracts[i].NodeId, NodeConstants.SystemVectorIndexPropertyId, extracts[i].RevisionId, vectors[i]);
         }

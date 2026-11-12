@@ -100,7 +100,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             _lock.ExitReadLock();
         }
         foreach (var batch in targets.Chunk(1000)) {
-            var t = new TransactionData();
+            var t = new TransactionData { SystemWrite = true };
             foreach (var (nodeId, revisionId) in batch) t.ForceUpdateProperty(nodeId, NodeConstants.SystemTextIndexPropertyId, revisionId, string.Empty);
             Execute(t);
         }

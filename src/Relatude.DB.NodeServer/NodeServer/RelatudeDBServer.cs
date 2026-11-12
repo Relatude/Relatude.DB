@@ -96,6 +96,10 @@ public partial class RelatudeDBServer {
             _ios.Clear();
         }
         retireIOCounters(forgotten);
+        // nothing uses them any more; a stream a store left open would keep its file, or its blob lease, held against the reopen
+        foreach (var io in forgotten) {
+            try { io.CloseAllOpenStreams(); } catch { }
+        }
         GC.Collect();
         GC.WaitForPendingFinalizers();
         GC.Collect();
@@ -249,12 +253,12 @@ public partial class RelatudeDBServer {
         _authentication = new(this);
         _licenseLogin = new(this);
         _licenseLogin.StartHeartbeat(); // reports in only once the license and API keys are set; harmless without them
-        // Stopping the databases is a two step affair, because the host stops in two steps:
-        // ApplicationStopping fires *before* the web server drains the requests that are still
-        // running, and ApplicationStopped fires after the last one has completed. So the first
-        // callback only quiesces (no new database is opened, and the open ones are flushed so the
-        // final close has less left to write) and the second one disposes. Disposing any earlier
-        // pulls the databases out from under requests that are still using them.
+        // The host stops in two steps: ApplicationStopping fires *before* the web server drains the
+        // requests that are still running, and ApplicationStopped after the last one has completed.
+        // The first flushes and then closes the databases in the background as soon as the running
+        // requests are done or ServerOptions.ShutdownDrainTimeout runs out; the second only waits for
+        // that close. Waiting for ApplicationStopped itself kept the files held for as long as a long
+        // request lasted, and not at all when the host ended the process before it got there.
         // Crash-safety does not depend on any of this — the WAL replay rebuilds anything lost —
         // but a clean stop avoids the replay cost on the next start.
         app.Lifetime.ApplicationStopping.Register(BeginShutdown);
@@ -375,33 +379,70 @@ public partial class RelatudeDBServer {
     public bool IsShuttingDown => Volatile.Read(ref _shutdownPhase) > 0;
     /// <summary>True once every database has been disposed by <see cref="Shutdown"/>.</summary>
     public bool IsShutDown => Volatile.Read(ref _shutdownPhase) > 1;
+    // completed by the close BeginShutdown starts; there from the start, so a Shutdown racing BeginShutdown waits for it too
+    readonly TaskCompletionSource _shutdownClosed = new(TaskCreationOptions.RunContinuationsAsynchronously);
     /// <summary>
     /// First phase of a graceful stop, registered on <c>IHostApplicationLifetime.ApplicationStopping</c>:
-    /// no new database is opened from here on, and every open one is flushed so that the disposal in
-    /// <see cref="Shutdown"/> has as little as possible left to write. The databases stay open and
-    /// fully usable, because the requests still draining in the web server are using them.
+    /// no new database is opened from here on, every open one is flushed, and then they are closed in
+    /// the background as soon as the application requests still running have finished, or
+    /// <see cref="ServerOptions.ShutdownDrainTimeout"/> has run out - so the files are released early
+    /// even when the host ends the process before <see cref="Shutdown"/> is called.
     /// Safe to call more than once; only the first call does anything.
     /// </summary>
     public void BeginShutdown() {
         if (Interlocked.CompareExchange(ref _shutdownPhase, 1, 0) != 0) return; // already stopping or stopped
-        _licenseLogin?.Dispose(); // no heartbeat on databases that are closing
-        endAllRecovery(); // a recovery waiting for its next step would reopen a database behind the shutdown
-        logShutdown("Server stopping, flushing databases.");
-        foreach (var container in GetContainers()) {
-            if (!container.IsOpen()) continue;
-            var sw = Stopwatch.StartNew();
-            try {
-                container.Store!.Datastore.Maintenance(MaintenanceAction.FlushDisk);
-                logShutdown("Flushed \"" + container.Settings.Name + "\" in " + sw.Elapsed.TotalMilliseconds.To1000N() + " ms.");
-            } catch (Exception err) {
-                logShutdown("Error flushing \"" + container.Settings.Name + "\": " + err.Message);
+        try {
+            try { _licenseLogin?.Dispose(); } catch { } // no heartbeat on databases that are closing
+            endAllRecovery(); // a recovery waiting for its next step would reopen a database behind the shutdown
+            logShutdown("Server stopping, flushing databases.");
+            foreach (var container in GetContainers()) {
+                if (!container.IsOpen()) continue;
+                var sw = Stopwatch.StartNew();
+                try {
+                    container.Store!.Datastore.Maintenance(MaintenanceAction.FlushDisk);
+                    logShutdown("Flushed \"" + container.Settings.Name + "\" in " + sw.Elapsed.TotalMilliseconds.To1000N() + " ms.");
+                } catch (Exception err) {
+                    logShutdown("Error flushing \"" + container.Settings.Name + "\": " + err.Message);
+                }
             }
+        } finally {
+            _ = Task.Run(() => {
+                try { closeForShutdown(); } finally { _shutdownClosed.TrySetResult(); }
+            });
         }
     }
+    void closeForShutdown() {
+        var sw = Stopwatch.StartNew();
+        var timeout = Options?.ShutdownTimeout ?? ServerOptions.DefaultShutdownTimeout;
+        var drain = Options?.ShutdownDrainTimeout ?? ServerOptions.DefaultShutdownDrainTimeout;
+        try {
+            if (!waitForRequestsInFlight(drain < TimeSpan.Zero ? TimeSpan.Zero : drain)) {
+                logShutdown(RequestsInFlight + " application request(s) still running after " + sw.Elapsed.TotalSeconds.To1000N()
+                    + " s, closing the databases anyway.");
+            }
+            waitForAutoOpenToComplete(timeout - sw.Elapsed);
+            var stillClosing = closeAllContainers(timeout - sw.Elapsed);
+            if (stillClosing == 0) {
+                logShutdown("All databases closed in " + sw.Elapsed.TotalSeconds.To1000N() + " s.");
+            } else {
+                logShutdown("Timed out after " + sw.Elapsed.TotalSeconds.To1000N() + " s waiting for "
+                    + stillClosing + " database(s) to close, leaving them to the log replay on the next start. "
+                    + "Raise ServerOptions.ShutdownTimeout (and HostOptions.ShutdownTimeout with it) if this repeats.");
+            }
+        } catch (Exception err) {
+            logShutdown("Error closing the databases: " + err.Message);
+        }
+    }
+    bool waitForRequestsInFlight(TimeSpan timeout) {
+        var sw = Stopwatch.StartNew();
+        while (RequestsInFlight > 0 && sw.Elapsed < timeout) Thread.Sleep(10);
+        return RequestsInFlight == 0;
+    }
     /// <summary>
-    /// Disposes every database container, flushing pending writes and committing the index engines.
-    /// Registered on <c>IHostApplicationLifetime.ApplicationStopped</c>, which fires once the last
-    /// request has drained; a host that is never started (the CLI) calls this directly instead.
+    /// Waits for the close <see cref="BeginShutdown"/> started: every database container disposed,
+    /// pending writes flushed and the index engines committed. Registered on
+    /// <c>IHostApplicationLifetime.ApplicationStopped</c>, which fires once the last request has
+    /// drained; a host that is never started (the CLI) calls this directly instead.
     /// The containers are closed in parallel so one slow database cannot eat the whole shutdown
     /// budget (<see cref="ServerOptions.ShutdownTimeout"/>) of the others. Safe to call more than
     /// once; only the first call does anything.
@@ -409,17 +450,10 @@ public partial class RelatudeDBServer {
     public void Shutdown() {
         BeginShutdown(); // a no-op when ApplicationStopping already ran
         if (Interlocked.CompareExchange(ref _shutdownPhase, 2, 1) != 1) return; // another thread is disposing, or it is already done
-        var sw = Stopwatch.StartNew();
         var timeout = Options?.ShutdownTimeout ?? ServerOptions.DefaultShutdownTimeout;
-        logShutdown("Server shutting down, disposing databases.");
-        waitForAutoOpenToComplete(timeout);
-        var stillClosing = closeAllContainers(timeout - sw.Elapsed);
-        if (stillClosing == 0) {
-            logShutdown("All databases closed in " + sw.Elapsed.TotalSeconds.To1000N() + " s.");
-        } else {
-            logShutdown("Timed out after " + sw.Elapsed.TotalSeconds.To1000N() + " s waiting for "
-                + stillClosing + " database(s) to close, leaving them to the log replay on the next start. "
-                + "Raise ServerOptions.ShutdownTimeout (and HostOptions.ShutdownTimeout with it) if this repeats.");
+        // never a second close next to the one under way: the same stores would be disposed from two threads
+        if (!_shutdownClosed.Task.Wait(timeout + TimeSpan.FromSeconds(1))) {
+            logShutdown("The databases are still closing after " + timeout.TotalSeconds.To1000N() + " s, leaving the rest to the log replay on the next start.");
         }
     }
     /// <summary>
@@ -813,4 +847,22 @@ public class ServerOptions {
     public static TimeSpan DefaultAutoRecoveryDelay => TimeSpan.FromMinutes(1);
     public int AutoRecoveryIncidentsPerDay { get; set; } = DefaultAutoRecoveryIncidentsPerDay;
     public static int DefaultAutoRecoveryIncidentsPerDay => 3;
+    /// <summary>
+    /// How long auto-recovery keeps opening a database again, every <see cref="AutoRecoveryDelay"/>, once
+    /// its other steps are used up and the only thing still wrong is a file another process holds. A lock
+    /// clears when its holder stops, and a restart of this process cannot make another one stop, so
+    /// trying again is the one thing that helps. Logged once an hour while it lasts. Zero gives up after
+    /// the last step, as before this existed. Defaults to 24 hours.
+    /// </summary>
+    public TimeSpan AutoRecoveryLockWait { get; set; } = DefaultAutoRecoveryLockWait;
+    public static TimeSpan DefaultAutoRecoveryLockWait => TimeSpan.FromHours(24);
+    /// <summary>
+    /// How long a host shutdown lets the application requests that are still running finish before it
+    /// closes the databases. The databases are closed as soon as they are done, or this runs out,
+    /// without waiting for the host's own drain to end (<c>ApplicationStopped</c>): a long request can
+    /// hold that up, and a host that ends the process early never gets there, so the files would stay
+    /// held for as long as the old process lives. Defaults to 3 seconds.
+    /// </summary>
+    public TimeSpan ShutdownDrainTimeout { get; set; } = DefaultShutdownDrainTimeout;
+    public static TimeSpan DefaultShutdownDrainTimeout => TimeSpan.FromSeconds(3);
 }

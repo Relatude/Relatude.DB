@@ -41,7 +41,7 @@ public sealed partial class DataStoreLocal {
                 }
             }
             foreach (var batch in stored.Chunk(1000)) {
-                var t = new TransactionData();
+                var t = new TransactionData { SystemWrite = true };
                 foreach (var (nodeId, revisionId) in batch) t.ForceUpdateProperty(nodeId, NodeConstants.SystemVectorIndexPropertyId, revisionId, Array.Empty<float>());
                 Execute(t, flushToDisk: false);
             }

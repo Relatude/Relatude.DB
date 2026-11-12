@@ -786,10 +786,12 @@ internal class Log : IDisposable {
     public void Dispose() {
         using (hold()) {
             if (_disposed) return;
-            SaveStatisticsState();
-            _logStream.Dispose();
-            _logTextStream.Dispose();
             _disposed = true;
+            try { SaveStatisticsState(); }
+            finally {
+                try { _logStream.Dispose(); }
+                finally { _logTextStream.Dispose(); }
+            }
         }
     }
     internal void EnforceSizeLimit(int maxTotalSizeOfLogFilesInMb) {
