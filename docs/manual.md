@@ -2397,7 +2397,7 @@ embeddings and `ai_completion` for completions.
 | `EmbeddingServiceUrl`, `EmbeddingApiKey` | `ServiceUrl`, `ApiKey` | A separate endpoint for embeddings. Required for Anthropic. |
 | `CompletionModel` | – | The completion model (on Azure, the deployment name). Anthropic and `RelatudeServices` have a default. |
 | `CompletionModelsByKey` | null | Named alternatives for `GetCompletionAsync(prompt, modelKey)`, such as a cheap model and a strong one. |
-| `MaxOutputTokens` | not sent (Anthropic: 4096) | The upper bound on a completion's length. An `AIChatRequest` can set its own ([§34.1](#341-text-embeddings-and-completions)). |
+| `MaxOutputTokens` | not sent (Anthropic: 4096) | The upper bound on a completion's length, a reasoning model's thinking included. An `AIChatRequest` can set its own ([§34.1](#341-text-embeddings-and-completions)). |
 | `ModelDimensions` | the first vector's | The embedding length. It must match the vectors in the index: a vector of another length is replaced by a placeholder, with a warning in the log, so search quality drops without an error. |
 | `DefaultSemanticRatio` | 0.5 | The `semanticRatio` of a query that names none. `0` is pure BM25, `1` pure vector search. |
 | `DefaultMinimumSimilarity` | 0.34 | Vector hits below this similarity are dropped. |
@@ -6745,11 +6745,47 @@ string next = await db.Services.AI.GetChatCompletionAsync(new AIChatRequest(
   provider can, though with an OpenAI-compatible endpoint the model has to take pictures too. A
   provider of your own that does not implement chat gets the request as one prompt, and pictures
   throw `NotSupportedException`.
-- **`RelatudeServices`** sends the instructions and the conversation as one prompt, for now, with the
-  pictures beside it: at most 8, 5 MB each and 16 MB together. A picture is priced as prompt text,
-  a low look at a tenth of the price.
+- **`RelatudeServices`** sends the instructions and the turns as they are, each message with its own
+  pictures (at most 8, 5 MB each and 16 MB together), and the service passes them on as a system
+  message and turns. Beside them goes the conversation as one prompt, which a service from before
+  conversations answers from, without the pictures.
 - A request of one user message, without instructions or pictures, is the same call as
   `GetCompletionAsync`.
+
+#### Effort, and why the model stopped
+
+A reasoning model thinks before it answers. `Effort` says how hard: `AIEffort.Low`, `Medium` or
+`High` (`Minimal` where the model has it), null for the model's own default. Less effort answers
+sooner and costs less; more reasons further. `GetChatResultAsync` gives the whole answer: why the
+model stopped, the tokens it used and, from the Relatude AI service, what it cost.
+
+```csharp
+AIChatResult result = await db.Services.AI.GetChatResultAsync(new AIChatRequest(question) {
+    Instructions = "You answer questions about our products.",
+    ModelKey = "strong",
+    Effort = AIEffort.Medium,
+    MaxOutputTokens = 8000,
+});
+if (result.WasCut) { /* it reached MaxOutputTokens: the text is cut short, or empty */ }
+// result.Usage: InputTokens (CachedInputTokens among them), OutputTokens (ReasoningTokens among them)
+// result.FinishReason, result.Effort, result.Credits, result.CreditsLeft
+```
+
+- **`MaxOutputTokens` bounds the thinking too.** A reasoning model that thinks long can spend it all
+  and answer nothing, `FinishReason` `length` (`WasCut`) and an empty text. Give it room: thousands
+  of tokens, not hundreds. You pay for the tokens used, not the ceiling.
+- **Where it goes.** OpenAI and Azure OpenAI get `reasoning_effort` (Azure from `api-version`
+  2024-12-01-preview, so set `ApiVersion`; a model that does not reason refuses it). The Relatude AI
+  service sends it to the models that reason and leaves it out for the others, and says in
+  `Effort` what the model ran with. Anthropic leaves it out.
+- **What is known.** Each part of the result is null where the provider does not say: a provider of
+  your own that does not implement `GetChatResultAsync` gives the text alone. `FinishReason` is
+  `stop`, `length` or `content_filter` (`AIFinishReason`) whichever the provider.
+- **What it costs on the Relatude AI service.** The tokens the call used, as the vendor counts them,
+  each weighted by the model: input, input read from the vendor's prompt cache (cheaper), and output,
+  the thinking among it, which costs the most. `fast`, `balanced` and `thorough` cost more in that
+  order. A share of the input is charged before the call and the rest once the model has answered.
+  `GET /api/ai/models` with the license key lists every model's weights and efforts.
 
 ### 34.2 Images
 
@@ -6889,8 +6925,8 @@ left). `GetOperationsAsync`, `GetFormatsAsync` and `GetLanguagesAsync` give the 
 
 | Service | Charged | Kept on your server |
 |---|---|---|
-| Embeddings | By the characters sent | Every embedding, by text and model |
-| Completions | By the characters sent and received | Nothing |
+| Embeddings | By the tokens sent, each model at its own price | Every embedding, by text and model |
+| Completions | By the tokens sent and received, a reasoning model's thinking among them, each model at its own price ([§34.1](#341-text-embeddings-and-completions)) | Nothing |
 | Images | The same price for every operation | Descriptions, answers to questions and "already upright". Not the images the service makes |
 | Files to text | Per file; a long recording per part | The text, by file content and languages |
 | Translation | By the characters sent | Each translation and each detected language, text by text |
@@ -7106,7 +7142,8 @@ The same rules apply to every service:
   default. An `IImagingProvider` throws it from operations it does not support and leaves them out of
   `GetOperationsAsync`. Leave `Credits` and `CreditsLeft` at 0. An `IAIProvider` needs only
   `GetEmbeddingsAsync` and `GetCompletionAsync`: by default `GetChatCompletionAsync` sends a chat as
-  one prompt and `SupportsImages` is false. Override both to send instructions and pictures.
+  one prompt and `SupportsImages` is false. Override both to send instructions and pictures, and
+  `GetChatResultAsync` to say why the model stopped and what it used.
 - **Answers are cached** for your own imaging, file-to-text and translation providers too
   ([§34.5](#345-prices-answers-kept-and-errors)).
 - **A store built from code** gets the provider in the `NodeStore` constructor:

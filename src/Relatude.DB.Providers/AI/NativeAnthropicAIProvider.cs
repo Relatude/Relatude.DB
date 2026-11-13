@@ -59,10 +59,34 @@ public class NativeAnthropicAIProvider : IAIProvider {
         return parseMessagesResponse(json);
     }
     public bool SupportsImages => true;
-    public async Task<string> GetChatCompletionAsync(AIChatRequest request, CancellationToken cancellationToken = default) {
+    public async Task<string> GetChatCompletionAsync(AIChatRequest request, CancellationToken cancellationToken = default)
+        => (await GetChatResultAsync(request, cancellationToken)).Text;
+    /// <summary>
+    /// The answer with stop_reason in <see cref="AIFinishReason"/>'s words and usage (input_tokens counting those read
+    /// from and written to the cache too). <see cref="AIChatRequest.Effort"/> is left out.
+    /// </summary>
+    public async Task<AIChatResult> GetChatResultAsync(AIChatRequest request, CancellationToken cancellationToken = default) {
         var body = buildMessagesRequest(resolveModel(request.ModelKey), request, request.MaxOutputTokens ?? _settings.MaxOutputTokens ?? _defaultMaxOutputTokens);
         var json = await OpenAIWire.PostAsync(_http, _messagesUrl, body, setAuth, cancellationToken);
-        return parseMessagesResponse(json);
+        var text = parseMessagesResponse(json);
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+        var stop = root.TryGetProperty("stop_reason", out var s) && s.ValueKind == JsonValueKind.String ? s.GetString() : null;
+        AIUsage? usage = null;
+        if (root.TryGetProperty("usage", out var u) && u.ValueKind == JsonValueKind.Object) {
+            int n(string name) => u.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var i) ? i : 0;
+            var cached = n("cache_read_input_tokens");
+            usage = new AIUsage(n("input_tokens") + cached + n("cache_creation_input_tokens"), n("output_tokens"), cached);
+        }
+        return new AIChatResult(text) {
+            FinishReason = stop switch {
+                "end_turn" or "stop_sequence" => AIFinishReason.Stop,
+                "max_tokens" => AIFinishReason.Length,
+                _ => stop,
+            },
+            Usage = usage,
+            Model = root.TryGetProperty("model", out var m) && m.ValueKind == JsonValueKind.String ? m.GetString() : null,
+        };
     }
     /// <summary>The instructions as the top-level system, pictures as base64 image blocks before the text, which Anthropic advises.</summary>
     static string buildMessagesRequest(string model, AIChatRequest request, int maxTokens) {

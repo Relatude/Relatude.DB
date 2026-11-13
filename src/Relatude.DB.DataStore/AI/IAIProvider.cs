@@ -16,6 +16,12 @@ public interface IAIProvider : IDisposable {
         if (request.HasImages) throw new NotSupportedException($"The AI provider {GetType().Name} cannot send pictures. ");
         return GetCompletionAsync(request.ToPrompt(), request.ModelKey);
     }
+    /// <summary>
+    /// <see cref="GetChatCompletionAsync"/> with the whole answer: why the model stopped, what it used and, from a
+    /// service that charges, what it cost. A provider that does not implement it answers the text alone.
+    /// </summary>
+    async Task<AIChatResult> GetChatResultAsync(AIChatRequest request, CancellationToken cancellationToken = default)
+        => new(await GetChatCompletionAsync(request, cancellationToken));
 }
 public class AIProviderSettings {
     public string? TypeName { get; set; }

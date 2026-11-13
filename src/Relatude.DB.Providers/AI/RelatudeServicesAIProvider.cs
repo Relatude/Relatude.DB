@@ -16,12 +16,18 @@ public sealed record RelatudeServicesModels(string[] EmbeddingModels, string[] C
 
 /// <summary>
 /// The service's whole answer to an embeddings call: the vectors in input order, the model key they
-/// came from, their length, what the call cost and what is left on the license's "ai_embeddings" account.
+/// came from, their length, what the call cost and what is left on the license's "ai_embeddings" account,
+/// and the tokens embedded, which a service from before token pricing does not say.
 /// </summary>
-public sealed record RelatudeServicesEmbeddings(string Model, int Dimensions, float[][] Embeddings, int Credits, int CreditsLeft);
+public sealed record RelatudeServicesEmbeddings(string Model, int Dimensions, float[][] Embeddings, int Credits, int CreditsLeft, int? InputTokens = null);
 
-/// <summary>The service's whole answer to a completion: the text, the model key, what it cost (prompt and answer together) and what is left.</summary>
-public sealed record RelatudeServicesCompletion(string Model, string Text, int Credits, int CreditsLeft);
+/// <summary>
+/// The service's whole answer to a completion: the text, the model key, what it cost (prompt, answer and thinking
+/// together) and what is left; and why the model stopped, the tokens it used and the effort it ran with, which a
+/// service from before token pricing does not say.
+/// </summary>
+public sealed record RelatudeServicesCompletion(string Model, string Text, int Credits, int CreditsLeft,
+    string? FinishReason = null, AIUsage? Usage = null, string? Effort = null);
 
 /// <summary>
 /// AI provider for the hosted Relatude Services AI endpoint (Relatude.DB.Services.AI), over plain HttpClient.
@@ -155,47 +161,94 @@ public class RelatudeServicesAIProvider : IAIProvider {
     /// local model keys are <see cref="GetCompletionAsync"/>'s business.
     /// </summary>
     public Task<RelatudeServicesCompletion> CompleteAsync(string prompt, string? model = null, int? maxOutputTokens = null)
-        => completeAsync(prompt, model, maxOutputTokens, [], default);
-
-    /// <summary>The service looks at up to 8 pictures of at most 5 MB each, 16 MB together, priced as prompt text.</summary>
-    public bool SupportsImages => true;
+        => completeAsync(new AIChatRequest(prompt), model, maxOutputTokens, default);
 
     /// <summary>
-    /// The service takes one prompt, so the instructions and the messages are sent as
-    /// <see cref="AIChatRequest.ToPrompt"/>, and the pictures of every message in order as <c>images</c>.
+    /// A chat completion with the service's whole answer: what it cost, why the model stopped, the tokens it used and
+    /// the effort it ran with. The request's <see cref="AIChatRequest.ModelKey"/> is a local key, as for
+    /// <see cref="GetChatCompletionAsync"/>.
     /// </summary>
-    public async Task<string> GetChatCompletionAsync(AIChatRequest request, CancellationToken cancellationToken = default)
-        => (await completeAsync(request.ToPrompt(), resolveModel(request.ModelKey), request.MaxOutputTokens ?? _settings.MaxOutputTokens, [.. request.AllImages], cancellationToken)).Text;
+    public Task<RelatudeServicesCompletion> CompleteAsync(AIChatRequest request, CancellationToken cancellationToken = default)
+        => completeAsync(request, resolveModel(request.ModelKey), request.MaxOutputTokens ?? _settings.MaxOutputTokens, cancellationToken);
 
-    async Task<RelatudeServicesCompletion> completeAsync(string prompt, string? model, int? maxOutputTokens, AIImage[] images, CancellationToken cancellationToken) {
-        string body;
-        using (var ms = new MemoryStream()) {
-            using (var w = new Utf8JsonWriter(ms)) {
-                w.WriteStartObject();
-                w.WriteString("prompt", prompt);
-                if (!string.IsNullOrEmpty(model)) w.WriteString("model", model);
-                if (maxOutputTokens.HasValue) w.WriteNumber("maxOutputTokens", maxOutputTokens.Value);
-                if (images.Length > 0) {
-                    w.WriteStartArray("images");
-                    foreach (var image in images) {
-                        w.WriteStartObject();
-                        w.WriteBase64String("data", image.Bytes);
-                        w.WriteString("detail", OpenAIWire.ImageDetail(image));
-                        w.WriteEndObject();
-                    }
-                    w.WriteEndArray();
+    /// <summary>The service looks at up to 8 pictures of at most 5 MB each, 16 MB together.</summary>
+    public bool SupportsImages => true;
+
+    public async Task<string> GetChatCompletionAsync(AIChatRequest request, CancellationToken cancellationToken = default)
+        => (await CompleteAsync(request, cancellationToken)).Text;
+
+    public async Task<AIChatResult> GetChatResultAsync(AIChatRequest request, CancellationToken cancellationToken = default) {
+        var c = await CompleteAsync(request, cancellationToken);
+        return new AIChatResult(c.Text) {
+            FinishReason = c.FinishReason, Usage = c.Usage, Model = c.Model, Effort = c.Effort, Credits = c.Credits, CreditsLeft = c.CreditsLeft,
+        };
+    }
+
+    /// <summary>Whether a request is one message from the user and nothing else, which goes as a prompt alone.</summary>
+    static bool isPrompt(AIChatRequest request) =>
+        request.Messages.Count == 1 && request.Messages[0].Role == AIChatRole.User && string.IsNullOrWhiteSpace(request.Instructions);
+
+    /// <summary>
+    /// The request on the service's wire. One message from the user goes as <c>prompt</c> and <c>images</c>, as it always
+    /// has. Anything else goes as <c>instructions</c> and <c>messages</c>, each message with its own pictures, which the
+    /// service sends on as a system message and turns; <c>prompt</c> carries the request as one text beside them
+    /// (<see cref="AIChatRequest.ToPrompt"/>), which a service from before messages answers from, without the pictures.
+    /// <c>effort</c> goes when the request names one; a service from before efforts leaves it out.
+    /// </summary>
+    static string bodyOf(AIChatRequest request, string? model, int? maxOutputTokens) {
+        using var ms = new MemoryStream();
+        using (var w = new Utf8JsonWriter(ms)) {
+            w.WriteStartObject();
+            var prompt = isPrompt(request);
+            w.WriteString("prompt", prompt ? request.Messages[0].Text : request.ToPrompt());
+            if (!string.IsNullOrEmpty(model)) w.WriteString("model", model);
+            if (maxOutputTokens.HasValue) w.WriteNumber("maxOutputTokens", maxOutputTokens.Value);
+            if (!string.IsNullOrWhiteSpace(request.Effort)) w.WriteString("effort", request.Effort.Trim().ToLowerInvariant());
+            if (prompt) {
+                writeImages(w, request.Messages[0].Images);
+            } else {
+                if (!string.IsNullOrWhiteSpace(request.Instructions)) w.WriteString("instructions", request.Instructions);
+                w.WriteStartArray("messages");
+                foreach (var m in request.Messages) {
+                    w.WriteStartObject();
+                    w.WriteString("role", m.Role == AIChatRole.User ? "user" : "assistant");
+                    w.WriteString("text", m.Text);
+                    writeImages(w, m.Images);
+                    w.WriteEndObject();
                 }
-                w.WriteEndObject();
+                w.WriteEndArray();
             }
-            body = Encoding.UTF8.GetString(ms.ToArray());
+            w.WriteEndObject();
         }
-        var json = await postAsync(_completionsUrl, body, cancellationToken);
+        return Encoding.UTF8.GetString(ms.ToArray());
+    }
+
+    static void writeImages(Utf8JsonWriter w, IReadOnlyList<AIImage> images) {
+        if (images.Count == 0) return;
+        w.WriteStartArray("images");
+        foreach (var image in images) {
+            w.WriteStartObject();
+            w.WriteBase64String("data", image.Bytes);
+            w.WriteString("detail", OpenAIWire.ImageDetail(image));
+            w.WriteEndObject();
+        }
+        w.WriteEndArray();
+    }
+
+    async Task<RelatudeServicesCompletion> completeAsync(AIChatRequest request, string? model, int? maxOutputTokens, CancellationToken cancellationToken) {
+        var json = await postAsync(_completionsUrl, bodyOf(request, model, maxOutputTokens), cancellationToken);
         using var doc = JsonDocument.Parse(json);
         var root = doc.RootElement;
         if (!root.TryGetProperty("text", out var text) || text.ValueKind != JsonValueKind.String) {
             throw new Exception("The Relatude AI service answered a completion without a text property. ");
         }
-        return new RelatudeServicesCompletion(readString(root, "model") ?? model ?? "", text.GetString() ?? "", readInt(root, "credits"), readInt(root, "creditsLeft"));
+        AIUsage? usage = null;
+        if (root.TryGetProperty("usage", out var u) && u.ValueKind == JsonValueKind.Object) {
+            usage = new AIUsage(readInt(u, "inputTokens"), readInt(u, "outputTokens"), readInt(u, "cachedInputTokens"), readInt(u, "reasoningTokens"),
+                u.TryGetProperty("estimated", out var e) && e.ValueKind == JsonValueKind.True);
+        }
+        return new RelatudeServicesCompletion(readString(root, "model") ?? model ?? "", text.GetString() ?? "", readInt(root, "credits"), readInt(root, "creditsLeft"),
+            readString(root, "finishReason"), usage, readString(root, "effort"));
     }
 
     public async Task<float[][]> GetEmbeddingsAsync(string[] paragraphs)
@@ -223,7 +276,8 @@ public class RelatudeServicesAIProvider : IAIProvider {
         var root = doc.RootElement;
         var vectors = parseEmbeddings(root, paragraphs.Length);
         var dimensions = root.TryGetProperty("dimensions", out var d) && d.ValueKind == JsonValueKind.Number ? d.GetInt32() : vectors.Length > 0 ? vectors[0].Length : 0;
-        return new RelatudeServicesEmbeddings(readString(root, "model") ?? model ?? "", dimensions, vectors, readInt(root, "credits"), readInt(root, "creditsLeft"));
+        return new RelatudeServicesEmbeddings(readString(root, "model") ?? model ?? "", dimensions, vectors, readInt(root, "credits"), readInt(root, "creditsLeft"),
+            root.TryGetProperty("inputTokens", out var tokens) && tokens.ValueKind == JsonValueKind.Number ? tokens.GetInt32() : null);
     }
     /// <summary>The vectors in the order the input was sent, which is what the service guarantees. </summary>
     static float[][] parseEmbeddings(JsonElement root, int expectedCount) {

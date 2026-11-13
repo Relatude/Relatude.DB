@@ -39,6 +39,7 @@ internal static class OpenAIWire {
             w.WriteStartObject();
             if (model != null) w.WriteString("model", model);
             if (maxOutputTokens.HasValue) w.WriteNumber("max_completion_tokens", maxOutputTokens.Value);
+            if (!string.IsNullOrWhiteSpace(request.Effort)) w.WriteString("reasoning_effort", request.Effort.Trim().ToLowerInvariant());
             w.WriteStartArray("messages");
             if (!string.IsNullOrWhiteSpace(request.Instructions)) {
                 w.WriteStartObject();
@@ -80,13 +81,35 @@ internal static class OpenAIWire {
     public static string ImageContentType(AIImage image) => !string.IsNullOrWhiteSpace(image.ContentType) ? image.ContentType.Trim().ToLowerInvariant()
         : AIImage.ContentTypeOf(image.Bytes) ?? throw new ArgumentException("A picture has no content type, and is not a PNG, JPEG, GIF or WebP file. ");
     public static string ImageDetail(AIImage image) => string.IsNullOrWhiteSpace(image.Detail) ? "auto" : image.Detail.Trim().ToLowerInvariant();
-    public static string ParseChatResponse(string json) {
+    public static string ParseChatResponse(string json) => ParseChatResult(json).Text;
+    /// <summary>
+    /// The text, why the model stopped (finish_reason, which is already one of <see cref="AIFinishReason"/>'s words), the
+    /// model, and the tokens used: usage's prompt_tokens with the cached among them, and completion_tokens with the
+    /// reasoning among them.
+    /// </summary>
+    public static AIChatResult ParseChatResult(string json) {
         using var doc = JsonDocument.Parse(json);
-        var choices = doc.RootElement.GetProperty("choices");
-        if (choices.GetArrayLength() == 0) return "";
-        var content = choices[0].GetProperty("message").GetProperty("content");
-        return content.ValueKind == JsonValueKind.String ? content.GetString() ?? "" : "";
+        var root = doc.RootElement;
+        var choices = root.GetProperty("choices");
+        string text = "";
+        string? finish = null;
+        if (choices.GetArrayLength() > 0) {
+            var choice = choices[0];
+            if (choice.TryGetProperty("message", out var message) && message.TryGetProperty("content", out var content) && content.ValueKind == JsonValueKind.String) text = content.GetString() ?? "";
+            if (choice.TryGetProperty("finish_reason", out var reason) && reason.ValueKind == JsonValueKind.String) finish = reason.GetString();
+        }
+        AIUsage? usage = null;
+        if (root.TryGetProperty("usage", out var u) && u.ValueKind == JsonValueKind.Object) {
+            usage = new AIUsage(
+                InputTokens: intOf(u, "prompt_tokens"),
+                OutputTokens: intOf(u, "completion_tokens"),
+                CachedInputTokens: u.TryGetProperty("prompt_tokens_details", out var pd) && pd.ValueKind == JsonValueKind.Object ? intOf(pd, "cached_tokens") : 0,
+                ReasoningTokens: u.TryGetProperty("completion_tokens_details", out var cd) && cd.ValueKind == JsonValueKind.Object ? intOf(cd, "reasoning_tokens") : 0);
+        }
+        var model = root.TryGetProperty("model", out var m) && m.ValueKind == JsonValueKind.String ? m.GetString() : null;
+        return new AIChatResult(text) { FinishReason = finish, Usage = usage, Model = model };
     }
+    static int intOf(JsonElement e, string name) => e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var n) ? n : 0;
     public static string BuildEmbeddingsRequest(string? model, string[] input) {
         using var ms = new MemoryStream();
         using (var w = new Utf8JsonWriter(ms)) {

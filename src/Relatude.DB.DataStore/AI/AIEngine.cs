@@ -70,6 +70,16 @@ public class AIEngine {
         if (request.HasImages && !_provider.SupportsImages) throw new NotSupportedException($"The AI provider {Settings.TypeName ?? _provider.GetType().Name} cannot send pictures. ");
         return _provider.GetChatCompletionAsync(request, cancellationToken);
     }
+    /// <summary>
+    /// <see cref="GetChatCompletionAsync"/> with the whole answer: why the model stopped (<see cref="AIChatResult.WasCut"/>
+    /// when it reached the request's <see cref="AIChatRequest.MaxOutputTokens"/>), the tokens it used and, from the
+    /// Relatude AI service, what it cost. Each is null where the provider does not say.
+    /// </summary>
+    public Task<AIChatResult> GetChatResultAsync(AIChatRequest request, CancellationToken cancellationToken = default) {
+        ArgumentNullException.ThrowIfNull(request);
+        if (request.HasImages && !_provider.SupportsImages) throw new NotSupportedException($"The AI provider {Settings.TypeName ?? _provider.GetType().Name} cannot send pictures. ");
+        return _provider.GetChatResultAsync(request, cancellationToken);
+    }
     class resultSet(string text, string modelKey) {
         public readonly ulong Hash = (modelKey + (char)0 + text).XXH64Hash(); // the model and the text
         public readonly ulong TextOnlyHash = text.XXH64Hash(); // the key before the model was part of it
