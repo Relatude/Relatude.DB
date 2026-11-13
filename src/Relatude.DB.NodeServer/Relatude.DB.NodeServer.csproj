@@ -7,7 +7,7 @@
 		<OutputType>Library</OutputType>
 		<IsPackable>true</IsPackable>
 		<RootNamespace>Relatude.DB</RootNamespace>
-		<Version>1.1.4.24</Version>
+		<Version>1.1.5.25</Version>
 	</PropertyGroup>
 	<ItemGroup>
 	  <Compile Remove="NodeServer\EventHub\**" />
