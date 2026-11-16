@@ -75,6 +75,15 @@ public partial class RelatudeDBServer {
         }
     }
 
+    void removeRedundantOverrides(SettingsOverridesFile file) {
+        try {
+            var removed = file.RemoveRedundant(path => _settingsOverlay != null && _settingsOverlay.IsOverridden(path, out _));
+            if (removed.Length > 0) Log("Taken out of " + file.Display + ", as " + Defaults.SettingsFileName + " now says the same: " + string.Join(", ", removed.Select(SettingsPatch.Display)) + ".");
+        } catch (Exception err) {
+            startupWarning("Could not take what " + Defaults.SettingsFileName + " now says out of " + file.Display + ": " + err.Message);
+        }
+    }
+
     /// <summary>
     /// The default database and the overrides file share one storage provider instance where they can:
     /// a second instance would cost a second connection - a blob provider lists its whole container
@@ -246,16 +255,8 @@ public partial class RelatudeDBServer {
     public string[] MoveOverridesIntoSettingsFile(IReadOnlyCollection<string>? paths = null) {
         lock (_settingsWriteLock) {
             var file = _overridesFile ?? throw new InvalidOperationException("The settings overrides file is turned off (ServerOptions.UseSettingsOverridesFile), so there is nothing to move. ");
-            var wanted = paths == null ? null : new HashSet<string>(paths, StringComparer.OrdinalIgnoreCase);
-            var moved = new List<string>();
-            var fileJson = file.BaseWith(entry => {
-                if (wanted != null && !wanted.Contains(entry.Path)) return false;
-                if (_settingsOverlay != null && _settingsOverlay.IsOverridden(entry.Path, out _)) return false;
-                moved.Add(entry.Path);
-                return true;
-            });
-            if (moved.Count == 0) return [];
-            var fileSettings = SettingsOverridesFile.FromJson(fileJson);
+            var (fileSettings, moved) = settingsFileWith(file, paths);
+            if (moved.Length == 0) return [];
             _settingsLoader!.WriteAsync(fileSettings).Wait();
             file.Rebase(fileSettings);
             // the overrides file is the difference from relatude.db.json, which has just changed under it
@@ -263,7 +264,49 @@ public partial class RelatudeDBServer {
             file.Save(fileLayerJson());
             Log("Moved into " + Defaults.SettingsFileName + " from " + file.Display + ": " + string.Join(", ", moved.Select(SettingsPatch.Display)) + ".");
             followDefaultDatabase(file, fileSettings);
-            return [.. moved];
+            return moved;
         }
+    }
+
+    /// <summary>
+    /// relatude.db.json as <see cref="MoveOverridesIntoSettingsFile"/> would write it, without writing
+    /// anything: for an installation whose relatude.db.json the next deployment replaces, to be put into
+    /// the project by hand. <paramref name="moved"/> says which entries it holds.
+    /// </summary>
+    public string SettingsFileTextWith(IReadOnlyCollection<string>? paths, out string[] moved) {
+        var file = _overridesFile ?? throw new InvalidOperationException("The settings overrides file is turned off (ServerOptions.UseSettingsOverridesFile), so there is nothing to move. ");
+        lock (_settingsWriteLock) {
+            var (fileSettings, entries) = settingsFileWith(file, paths);
+            moved = entries;
+            return LocalSettingsLoaderFile.TextOf(fileSettings);
+        }
+    }
+
+    /// <summary>relatude.db.json relative to the application's folder, where a deployment puts it.</summary>
+    internal string SettingsFileRelativePath {
+        get {
+            var fallback = Defaults.SettingsFolderPath + "/" + Defaults.SettingsFileName;
+            if (_settingsLoader is not LocalSettingsLoaderFile loader) return fallback;
+            return RelativeToApplication(loader.FilePath) ?? fallback;
+        }
+    }
+
+    /// <summary>A path relative to the application's folder, with forward slashes, or null when it is outside it.</summary>
+    internal string? RelativeToApplication(string path) {
+        var relative = Path.GetRelativePath(_rootDataFolderPath, Path.GetFullPath(path, _rootDataFolderPath));
+        return relative.StartsWith("..", StringComparison.Ordinal) || Path.IsPathRooted(relative) ? null : relative.Replace('\\', '/');
+    }
+
+    // configuration never reaches relatude.db.json: entries it decides stay in the overrides file
+    (RelatudeDBServerSettings FileSettings, string[] Moved) settingsFileWith(SettingsOverridesFile file, IReadOnlyCollection<string>? paths) {
+        var wanted = paths == null ? null : new HashSet<string>(paths, StringComparer.OrdinalIgnoreCase);
+        var moved = new List<string>();
+        var fileJson = file.BaseWith(entry => {
+            if (wanted != null && !wanted.Contains(entry.Path)) return false;
+            if (_settingsOverlay != null && _settingsOverlay.IsOverridden(entry.Path, out _)) return false;
+            moved.Add(entry.Path);
+            return true;
+        });
+        return (SettingsOverridesFile.FromJson(fileJson), [.. moved]);
     }
 }

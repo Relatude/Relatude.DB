@@ -114,8 +114,8 @@ public sealed class CustomLogs : ICustomLogs, IDisposable {
 
     // ---- reading the definitions ----
 
-    // a definition is known by its key; a file without one by its name
-    static string idOf(string[] fileKey, System.Text.Json.Nodes.JsonObject json) {
+    /// <summary>A definition is known by its key; a file without one by its name.</summary>
+    public static string IdOf(string[] fileKey, System.Text.Json.Nodes.JsonObject json) {
         foreach (var (name, value) in json) {
             if (string.Equals(name, nameof(LogSettings.Key), StringComparison.OrdinalIgnoreCase) && value is System.Text.Json.Nodes.JsonValue v
                 && v.TryGetValue<string>(out var key) && !string.IsNullOrWhiteSpace(key)) return key;
@@ -124,7 +124,7 @@ public sealed class CustomLogs : ICustomLogs, IDisposable {
     }
 
     List<LogSettings> load() {
-        var (found, errors) = LayeredDefinitions.Read(_folders, idOf, StringComparer.OrdinalIgnoreCase);
+        var (found, errors) = LayeredDefinitions.Read(_folders, IdOf, StringComparer.OrdinalIgnoreCase);
         var definitions = new Dictionary<string, LogSettings>(StringComparer.OrdinalIgnoreCase);
         var layers = new Dictionary<string, LayeredDefinition>(StringComparer.OrdinalIgnoreCase);
         var loadErrors = new List<CustomLogLoadError>();
@@ -159,7 +159,7 @@ public sealed class CustomLogs : ICustomLogs, IDisposable {
     // what the folders have after a write: the definitions in force are kept by the caller, which knows
     // what it changed
     void rereadLayers() {
-        var (found, _) = LayeredDefinitions.Read(_folders, idOf, StringComparer.OrdinalIgnoreCase);
+        var (found, _) = LayeredDefinitions.Read(_folders, IdOf, StringComparer.OrdinalIgnoreCase);
         _layers = found.Where(l => !_reserved.Contains(l.Id)).ToDictionary(l => l.Id, StringComparer.OrdinalIgnoreCase);
     }
     void updateAnyEnabled() => _anyEnabled = _definitions.Values.Any(s => s.IsEnabled());

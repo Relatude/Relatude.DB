@@ -48,12 +48,12 @@ export function ShareButton({
 }
 
 /** The title row of every move-to-shared dialog: the same icon and words as the button, what is moved, and which way. */
-export function ShareDialogTitle({ what, children }: { what: string; children?: ReactNode }) {
+export function ShareDialogTitle({ what, lead = "Move to shared", icon, children }: { what: string; lead?: string; icon?: ReactNode; children?: ReactNode }) {
   return (
     <>
-      <IconFileImport size={17} stroke={1.8} className="share-button-icon" />
+      {icon ?? <IconFileImport size={17} stroke={1.8} className="share-button-icon" />}
       <span className="share-dialog-title">
-        Move to shared <span className="muted">· {what}</span>
+        {lead} <span className="muted">· {what}</span>
       </span>
       <span className="share-dialog-way">
         <SourceTag kind="data" small title="From THIS SERVER: this installation's data folder, where the admin UI saves" />

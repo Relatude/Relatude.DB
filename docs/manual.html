@@ -3298,7 +3298,7 @@ embeddings and <code>ai_completion</code> for completions.</p>
 <tr>
 <td><code>MaxOutputTokens</code></td>
 <td>not sent (Anthropic: 4096)</td>
-<td>The upper bound on a completion's length. An <code>AIChatRequest</code> can set its own (<a href="#341-text-embeddings-and-completions">§34.1</a>).</td>
+<td>The upper bound on a completion's length, a reasoning model's thinking included. An <code>AIChatRequest</code> can set its own (<a href="#341-text-embeddings-and-completions">§34.1</a>).</td>
 </tr>
 <tr>
 <td><code>ModelDimensions</code></td>
@@ -3924,9 +3924,9 @@ read it.</p>
 <ul>
 <li><strong>Move into relatude.db.json</strong> writes them into <code>relatude.db.json</code> and removes them from the
   overrides file. Values from configuration are never moved. The file is rewritten, so its comments
-  are lost, and a moved secret is stored in plain text. Do this in development: on a server,
-  <code>relatude.db.json</code> is the deployed copy, which the next deployment replaces
-  (<a href="#on-a-server">On a server</a>).</li>
+  are lost, and a moved secret is stored in plain text. Do this in development. On a server,
+  <code>relatude.db.json</code> is the deployed copy, which the next deployment replaces: use <strong>Download
+  changes</strong> there instead (<a href="#on-a-server">On a server</a>).</li>
 <li><strong>Discard</strong> puts back what <code>relatude.db.json</code> says, and saves.</li>
 </ul>
 <p>The same tags and <strong>Move to shared</strong> button are on every page that saves on this server:
@@ -4174,37 +4174,31 @@ deployment, and each deployment's SHARED files still apply beneath them.</p>
 <code>Filepath</code> is in the application's folder. On a server those files are the deployed copy, which the
 next deployment (or the next container) replaces. The moved entries have left the overrides file too,
 so they are lost. The dialogs warn about this outside the Development environment. Bring a change into
-the application through source control instead:</p>
-<table>
-<thead>
-<tr>
-<th>Changed on a server</th>
-<th>To make it part of the application</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>A setting</td>
-<td>Copy the value from the <strong>Move to shared</strong> list into <code>relatude.db.json</code> in source control, and deploy. Once the deployed file agrees, the next save drops the entry.</td>
-</tr>
-<tr>
-<td>A datamodel override</td>
-<td>In the model editor's <strong>Move to shared</strong> dialog, <strong>Download shared file</strong> gives a <code>datamodel.json</code> with the chosen overrides, without changing the server. Commit it and deploy.</td>
-</tr>
-<tr>
-<td>A log definition</td>
-<td>The log's Definition view shows its file. Copy it into <code>relatude.settings/…/logs/</code> and deploy. Entries stay in the data folder, so a definition with the same key picks them up.</td>
-</tr>
-<tr>
-<td>A GraphQL endpoint</td>
-<td>Copy the endpoint's file into <code>relatude.settings/…/graphql/</code> and deploy, or map the endpoint in code.</td>
-</tr>
-<tr>
-<td>A model in a <code>RuntimeTypes</code> source</td>
-<td>Copy the files from the source's <code>Filepath</code> into source control before the next deployment, or make the change in development instead.</td>
-</tr>
-</tbody>
-</table>
+the application through source control instead, with <strong>Download changes</strong>.</p>
+<p><strong>Download changes</strong> is in the menu under Server, and beside <strong>Reload</strong> on the settings pages. It lists
+everything this installation changed in the admin UI, grouped by kind and database: settings, custom
+settings, datamodel overrides, log definitions, GraphQL endpoints and the files of <code>RuntimeTypes</code>
+sources. Each entry shows what the application's file has and what it would have. Choose entries and
+download a zip. It holds:</p>
+<ul>
+<li>each of the application's own files with the chosen changes in it, at its path in the project, such
+  as <code>relatude.settings/relatude.db.json</code> or <code>relatude.settings/logs/requests.json</code>. A file is the
+  installation's copy with the changes merged in, as <strong>Move to shared</strong> would write it.</li>
+<li><code>relatude-changes.md</code>, which says what each file holds, which files to delete by hand (a log or
+  endpoint removed on the installation), and which files hold secrets.</li>
+</ul>
+<p>Nothing on the server changes. Unzip the files over the project, review the diff, commit and deploy.</p>
+<p>Entries set by the configuration section are listed but never exported. Secrets are not selected at
+first: a secret chosen anyway is written into the file in plain text, so move it into configuration
+before you commit. <code>relatude.db.json</code> is written without its comments. A <code>RuntimeTypes</code> source
+without a <code>Filepath</code> keeps its files in <code>relatude.data/</code>, so give the source a <code>Filepath</code> in the
+project first.</p>
+<p><strong>Overrides that the shared files now match are removed at start.</strong> When an installation starts on
+the new files, it removes every override that the shared files now say the same as. Settings and
+custom settings are cleaned when they are read. Datamodel overrides, log definitions and endpoints
+are cleaned when their database opens. A marker that removes a definition the shared folder no longer
+has is removed too. Each removal is written to the log. An entry set by configuration is never
+removed, and runtime types are never touched.</p>
 <p><strong>A restored data folder brings its changes along.</strong> Production's <code>relatude.data/</code> restored on a test
 server brings production's settings, datamodel overrides, log definitions and GraphQL endpoints with
 it, on THIS SERVER. Look through the <strong>Move to shared</strong> dialogs after such a restore.</p>
@@ -8815,11 +8809,45 @@ the conversation so far, and pictures for the model to look at.</p>
   provider can, though with an OpenAI-compatible endpoint the model has to take pictures too. A
   provider of your own that does not implement chat gets the request as one prompt, and pictures
   throw <code>NotSupportedException</code>.</li>
-<li><strong><code>RelatudeServices</code></strong> sends the instructions and the conversation as one prompt, for now, with the
-  pictures beside it: at most 8, 5 MB each and 16 MB together. A picture is priced as prompt text,
-  a low look at a tenth of the price.</li>
+<li><strong><code>RelatudeServices</code></strong> sends the instructions and the turns as they are, each message with its own
+  pictures (at most 8, 5 MB each and 16 MB together), and the service passes them on as a system
+  message and turns. Beside them goes the conversation as one prompt, which a service from before
+  conversations answers from, without the pictures.</li>
 <li>A request of one user message, without instructions or pictures, is the same call as
   <code>GetCompletionAsync</code>.</li>
+</ul>
+<h4 id="effort-and-why-the-model-stopped">Effort, and why the model stopped<a class="anchor" href="#effort-and-why-the-model-stopped" aria-label="Link to this section">#</a></h4>
+<p>A reasoning model thinks before it answers. <code>Effort</code> says how hard: <code>AIEffort.Low</code>, <code>Medium</code> or
+<code>High</code> (<code>Minimal</code> where the model has it), null for the model's own default. Less effort answers
+sooner and costs less; more reasons further. <code>GetChatResultAsync</code> gives the whole answer: why the
+model stopped, the tokens it used and, from the Relatude AI service, what it cost.</p>
+<div class="codehilite"><pre><span></span><code><span class="n">AIChatResult</span><span class="w"> </span><span class="n">result</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">Services</span><span class="p">.</span><span class="n">AI</span><span class="p">.</span><span class="n">GetChatResultAsync</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">AIChatRequest</span><span class="p">(</span><span class="n">question</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="n">Instructions</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;You answer questions about our products.&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="n">ModelKey</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">&quot;strong&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="n">Effort</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">AIEffort</span><span class="p">.</span><span class="n">Medium</span><span class="p">,</span>
+<span class="w">    </span><span class="n">MaxOutputTokens</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">8000</span><span class="p">,</span>
+<span class="p">});</span>
+<span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">result</span><span class="p">.</span><span class="n">WasCut</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="cm">/* it reached MaxOutputTokens: the text is cut short, or empty */</span><span class="w"> </span><span class="p">}</span>
+<span class="c1">// result.Usage: InputTokens (CachedInputTokens among them), OutputTokens (ReasoningTokens among them)</span>
+<span class="c1">// result.FinishReason, result.Effort, result.Credits, result.CreditsLeft</span>
+</code></pre></div>
+
+<ul>
+<li><strong><code>MaxOutputTokens</code> bounds the thinking too.</strong> A reasoning model that thinks long can spend it all
+  and answer nothing, <code>FinishReason</code> <code>length</code> (<code>WasCut</code>) and an empty text. Give it room: thousands
+  of tokens, not hundreds. You pay for the tokens used, not the ceiling.</li>
+<li><strong>Where it goes.</strong> OpenAI and Azure OpenAI get <code>reasoning_effort</code> (Azure from <code>api-version</code>
+  2024-12-01-preview, so set <code>ApiVersion</code>; a model that does not reason refuses it). The Relatude AI
+  service sends it to the models that reason and leaves it out for the others, and says in
+  <code>Effort</code> what the model ran with. Anthropic leaves it out.</li>
+<li><strong>What is known.</strong> Each part of the result is null where the provider does not say: a provider of
+  your own that does not implement <code>GetChatResultAsync</code> gives the text alone. <code>FinishReason</code> is
+  <code>stop</code>, <code>length</code> or <code>content_filter</code> (<code>AIFinishReason</code>) whichever the provider.</li>
+<li><strong>What it costs on the Relatude AI service.</strong> The tokens the call used, as the vendor counts them,
+  each weighted by the model: input, input read from the vendor's prompt cache (cheaper), and output,
+  the thinking among it, which costs the most. <code>fast</code>, <code>balanced</code> and <code>thorough</code> cost more in that
+  order. A share of the input is charged before the call and the rest once the model has answered.
+  <code>GET /api/ai/models</code> with the license key lists every model's weights and efforts.</li>
 </ul>
 <h3 id="342-images">34.2 Images<a class="anchor" href="#342-images" aria-label="Link to this section">#</a></h3>
 <p>Images go in as bytes (PNG, JPEG or WebP) and come back as PNG:</p>
@@ -8994,12 +9022,12 @@ left). <code>GetOperationsAsync</code>, <code>GetFormatsAsync</code> and <code>G
 <tbody>
 <tr>
 <td>Embeddings</td>
-<td>By the characters sent</td>
+<td>By the tokens sent, each model at its own price</td>
 <td>Every embedding, by text and model</td>
 </tr>
 <tr>
 <td>Completions</td>
-<td>By the characters sent and received</td>
+<td>By the tokens sent and received, a reasoning model's thinking among them, each model at its own price (<a href="#341-text-embeddings-and-completions">§34.1</a>)</td>
 <td>Nothing</td>
 </tr>
 <tr>
@@ -9306,7 +9334,8 @@ gateway of your own, as an example:</p>
   default. An <code>IImagingProvider</code> throws it from operations it does not support and leaves them out of
   <code>GetOperationsAsync</code>. Leave <code>Credits</code> and <code>CreditsLeft</code> at 0. An <code>IAIProvider</code> needs only
   <code>GetEmbeddingsAsync</code> and <code>GetCompletionAsync</code>: by default <code>GetChatCompletionAsync</code> sends a chat as
-  one prompt and <code>SupportsImages</code> is false. Override both to send instructions and pictures.</li>
+  one prompt and <code>SupportsImages</code> is false. Override both to send instructions and pictures, and
+  <code>GetChatResultAsync</code> to say why the model stopped and what it used.</li>
 <li><strong>Answers are cached</strong> for your own imaging, file-to-text and translation providers too
   (<a href="#345-prices-answers-kept-and-errors">§34.5</a>).</li>
 <li><strong>A store built from code</strong> gets the provider in the <code>NodeStore</code> constructor:

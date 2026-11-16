@@ -61,6 +61,16 @@ public static class SettingsPatch {
     /// <summary>The part of a patch made of the entries <paramref name="keep"/> accepts.</summary>
     public static JsonObject Select(JsonObject patch, JsonObject baseRoot, Func<Entry, bool> keep) => walkObject(patch, baseRoot, "", keep);
 
+    /// <summary>
+    /// The entries of a patch as read that change nothing: <paramref name="applied"/> - the difference the
+    /// patch makes once merged - has nothing at, above or below them. A value the base now has, an added
+    /// element the base now has as it is, a removed element the base no longer has.
+    /// </summary>
+    public static List<Entry> Redundant(JsonObject read, JsonObject applied, JsonObject baseRoot) {
+        var paths = Entries(applied, baseRoot).Select(e => e.Path).ToArray();
+        return [.. Entries(read, baseRoot).Where(e => !paths.Any(p => IsAtOrBelow(p, e.Path) || IsAtOrBelow(e.Path, p)))];
+    }
+
     /// <summary>The value at a path, or null when anything on the way is missing.</summary>
     public static JsonNode? Read(JsonObject root, string path) {
         JsonNode? current = root;

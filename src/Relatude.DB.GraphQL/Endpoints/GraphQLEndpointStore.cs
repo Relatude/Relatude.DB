@@ -44,7 +44,7 @@ public sealed class GraphQLEndpointStore(LayeredDefinitionFolders folders) {
         List<LayeredDefinition> found;
         List<DefinitionReadError> errors;
         try {
-            (found, errors) = LayeredDefinitions.Read(folders, idOf, StringComparer.OrdinalIgnoreCase);
+            (found, errors) = LayeredDefinitions.Read(folders, IdOf, StringComparer.OrdinalIgnoreCase);
         } catch {
             layers = [];
             return result;
@@ -66,7 +66,7 @@ public sealed class GraphQLEndpointStore(LayeredDefinitionFolders folders) {
     }
 
     // an endpoint is known by its id; a file without one by an id derived from its name
-    static string idOf(string[] key, JsonObject json) {
+    public static string IdOf(string[] key, JsonObject json) {
         foreach (var (name, value) in json) {
             if (string.Equals(name, IdProperty, StringComparison.OrdinalIgnoreCase) && value is JsonValue v && v.TryGetValue<string>(out var text)
                 && Guid.TryParse(text, out var id) && id != Guid.Empty) return id.ToString();

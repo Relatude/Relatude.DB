@@ -292,6 +292,8 @@ public partial class RelatudeDBServer {
         Log("Settings loaded in " + sw.Elapsed.TotalMilliseconds.To1000N() + " ms. Found " + (_serverSettings.ContainerSettings?.Length ?? 0) + " container(s)."
             + (_overridesFile == null ? "" : " Changes made in the admin UI are kept in " + _overridesFile.Display + "."));
         if (_settingsOverlay != null) _serverSettings = _settingsOverlay.Apply(_serverSettings);
+        // after the overlay is applied, which is when it knows what it decides
+        if (_overridesFile != null) removeRedundantOverrides(_overridesFile);
         shareOverridesFileProvider();
         if (_serverSettings.DBAdminUIUrlPath != null) {
             if (firstStart) {

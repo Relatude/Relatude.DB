@@ -392,6 +392,7 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
             if (local == null) throw new Exception("LocalSettings is required for NodeStoreContainerSettings, RemoteSettings will be added later");
             // the steps named here are what the admin UI says an open is doing until the store
             // exists and reports its own activities (see OpeningStep)
+            server.RemoveRedundantOverrides(this);
             _openingStep = "Loading the datamodel";
             Datamodel = loadDatamodel();
             server.RaiseEventDatamodelInit(Datamodel, settings);

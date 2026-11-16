@@ -51,6 +51,9 @@ export function DataDialog({
   discard,
   download,
   move,
+  initiallySelected,
+  titleLead,
+  titleIcon,
   onClose,
 }: {
   /** what is moved, after "Move to shared": "Log definitions" */
@@ -66,12 +69,23 @@ export function DataDialog({
   busy: boolean;
   discard?: DataDialogAction;
   download?: DataDialogAction;
-  move: DataDialogAction;
+  move?: DataDialogAction;
+  /** what is chosen once the entries are read; nothing when left out */
+  initiallySelected?: (key: string) => boolean;
+  /** the title's first words and icon, "Move to shared" unless given */
+  titleLead?: string;
+  titleIcon?: ReactNode;
   onClose: () => void;
 }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const list = useMemo(() => entries ?? [], [entries]);
   const selectable = useMemo(() => list.filter((e) => e.selectable !== false), [list]);
+  const loaded = entries !== null;
+  useEffect(() => {
+    if (loaded && initiallySelected) setSelected(new Set(selectable.filter((e) => initiallySelected(e.key)).map((e) => e.key)));
+    // once, when the entries are first read
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded]);
   // what is no longer listed can no longer be selected
   useEffect(() => {
     const still = new Set(list.map((e) => e.key));
@@ -102,7 +116,7 @@ export function DataDialog({
     return (
       <button
         key={kind}
-        className={"action-button" + (kind === "discard" ? " danger" : kind === "move" ? " dialog-confirm primary" : "")}
+        className={"action-button" + (kind === "discard" ? " danger" : kind === "move" || !move ? " dialog-confirm primary" : "")}
         disabled={busy || entries === null || (keys.length === 0 && !action.allowNone)}
         title={action.title}
         onClick={() => void action.onRun(keys)}
@@ -126,7 +140,7 @@ export function DataDialog({
         }}
       >
         <h3>
-          <ShareDialogTitle what={title}>
+          <ShareDialogTitle what={title} lead={titleLead} icon={titleIcon}>
             <DialogTools onClose={onClose} />
           </ShareDialogTitle>
         </h3>
@@ -196,7 +210,7 @@ export function DataDialog({
           <div className="header-spacer" />
           {discard && button(discard, "discard")}
           {download && button(download, "download")}
-          {button(move, "move")}
+          {move && button(move, "move")}
           <button className="action-button" onClick={onClose} disabled={busy}>
             Close
           </button>

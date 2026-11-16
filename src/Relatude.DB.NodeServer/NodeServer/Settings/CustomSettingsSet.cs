@@ -244,18 +244,8 @@ public sealed class CustomSettingsSet {
         lock (_lock) {
             requireWritable();
             if (_dataFile == null) throw new InvalidOperationException("The overrides files are turned off (ServerOptions.UseSettingsOverridesFile), so " + Definition.Title + " are saved into " + SettingsFileDisplay + " already. ");
-            var wanted = paths == null ? null : new HashSet<string>(paths, StringComparer.OrdinalIgnoreCase);
-            var moved = new List<string>();
-            var selected = SettingsPatch.Select(_patch, _base, entry => {
-                if (wanted != null && !wanted.Contains(entry.Path)) return false;
-                if (IsConfigured(entry.Path, out _)) return false;
-                moved.Add(entry.Path);
-                return true;
-            });
-            if (moved.Count == 0) return [];
-            var merged = (JsonObject)_base.DeepClone();
-            SettingsPatch.Merge(merged, selected);
-            var newBase = toJson(fromJson(merged));
+            var (newBase, moved) = baseWith(paths);
+            if (moved.Length == 0) return [];
             writeSettings(newBase);
             _base = newBase;
             // THIS SERVER is the difference from SHARED, which has just changed under it
@@ -264,8 +254,38 @@ public sealed class CustomSettingsSet {
             _patch = next;
             _entries = null;
             _sources.Info("Moved into " + SettingsFileDisplay + " from " + _dataFile.Display + ": " + string.Join(", ", moved.Select(SettingsPatch.Display)) + ".");
-            return [.. moved];
+            return moved;
         }
+    }
+
+    /// <summary>SHARED as <see cref="MoveIntoSettingsFile"/> would write it, without writing anything;
+    /// <paramref name="moved"/> says which entries it holds.</summary>
+    public string SettingsTextWith(IReadOnlyCollection<string>? paths, out string[] moved) {
+        lock (_lock) {
+            if (_error != null) throw new InvalidOperationException(_error);
+            var (newBase, entries) = baseWith(paths);
+            moved = entries;
+            return settingsText(newBase);
+        }
+    }
+
+    /// <summary>SHARED on disk.</summary>
+    public string? SettingsFilePath => settingsFile().DiskPath;
+
+    // SHARED with the entries named merged in; configuration never reaches it, so what it decides stays out
+    (JsonObject Base, string[] Moved) baseWith(IReadOnlyCollection<string>? paths) {
+        var wanted = paths == null ? null : new HashSet<string>(paths, StringComparer.OrdinalIgnoreCase);
+        var moved = new List<string>();
+        var selected = SettingsPatch.Select(_patch, _base, entry => {
+            if (wanted != null && !wanted.Contains(entry.Path)) return false;
+            if (IsConfigured(entry.Path, out _)) return false;
+            moved.Add(entry.Path);
+            return true;
+        });
+        if (moved.Count == 0) return (_base, []);
+        var merged = (JsonObject)_base.DeepClone();
+        SettingsPatch.Merge(merged, selected);
+        return (toJson(fromJson(merged)), [.. moved]);
     }
 
     /// <summary>SHARED as it is on disk now, its keys matched to the settings class, or null when there is
@@ -309,11 +329,13 @@ public sealed class CustomSettingsSet {
             _base = toJson(fileSettings);
             // THIS SERVER: the difference from SHARED, read the way relatude.db.overrides.json is
             _patch = [];
-            if (_sources.DataFile != null) readData(type);
+            var read = _sources.DataFile != null ? readData(type) : null;
             var effective = (JsonObject)_base.DeepClone();
             SettingsPatch.Merge(effective, _patch);
             // APPSETTINGS
             foreach (var overlay in _sources.Overlays) overlay.Apply(effective);
+            // after the overlays are applied, which is when they know what they decide
+            if (read != null) removeRedundant(read);
             var current = fromJson(effective);
             // CODE: what it changes is remembered, to be taken out again before every save
             var before = toJson(current);
@@ -337,7 +359,8 @@ public sealed class CustomSettingsSet {
         }
     }
 
-    void readData(Type type) {
+    // the file as read, its keys matched to the settings, or null when there is none
+    JsonObject? readData(Type type) {
         string? text;
         try {
             _dataFile = _sources.DataFile!();
@@ -347,9 +370,9 @@ public sealed class CustomSettingsSet {
             _dataUnavailable = "the overrides file of the custom settings \"" + Definition.Title + "\" could not be read (" + error.Message
                 + "). Their values come from " + SettingsFileDisplay + ", configuration and code alone; restart once the storage can be reached.";
             _sources.Warn("Custom settings changed in the admin UI are not applied: " + _dataUnavailable);
-            return;
+            return null;
         }
-        if (string.IsNullOrWhiteSpace(text)) return;
+        if (string.IsNullOrWhiteSpace(text)) return null;
         var patch = SettingsOverridesFile.Normalize(parse(text, _dataFile.Display), type, _dataFile.Display, _sources.Warn);
         var merged = (JsonObject)_base.DeepClone();
         SettingsPatch.Merge(merged, patch, message => _sources.Warn(_dataFile.Display + ": " + message));
@@ -359,6 +382,20 @@ public sealed class CustomSettingsSet {
         var entries = SettingsPatch.Entries(_patch, _base);
         if (entries.Count > 0) {
             _sources.Info("Custom settings \"" + Definition.Title + "\" from " + _dataFile.Display + " applied: " + string.Join(", ", entries.Select(e => SettingsPatch.Display(e.Path))));
+        }
+        return patch;
+    }
+
+    // entries SHARED now says the same as - moved there by hand, say - go from THIS SERVER at the read,
+    // configuration's aside
+    void removeRedundant(JsonObject read) {
+        var redundant = SettingsPatch.Redundant(read, _patch, _base).Where(e => !IsConfigured(e.Path, out _)).Select(e => e.Path).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (redundant.Count == 0 || _dataFile == null) return;
+        try {
+            writeData(_dataFile, SettingsPatch.Select(read, _base, e => !redundant.Contains(e.Path)));
+            _sources.Info("Taken out of " + _dataFile.Display + ", as " + SettingsFileDisplay + " now says the same: " + string.Join(", ", redundant.Select(SettingsPatch.Display)) + ".");
+        } catch (Exception error) {
+            _sources.Warn("Could not take what " + SettingsFileDisplay + " now says out of " + _dataFile.Display + ": " + error.Message);
         }
     }
 
@@ -392,9 +429,11 @@ public sealed class CustomSettingsSet {
             : string.Format(_dataHeader, Definition.Title, SettingsFileDisplay) + patch.ToJsonString(_json) + Environment.NewLine);
     }
 
-    void writeSettings(JsonObject settings) {
+    void writeSettings(JsonObject settings) => settingsFile().WriteText(settingsText(settings));
+
+    string settingsText(JsonObject settings) {
         var where = _dataFile?.Display ?? Definition.FileKey + ".overrides.json";
-        settingsFile().WriteText(string.Format(_settingsHeader, Definition.Title, where) + settings.ToJsonString(_json) + Environment.NewLine);
+        return string.Format(_settingsHeader, Definition.Title, where) + settings.ToJsonString(_json) + Environment.NewLine;
     }
 
     CustomSettingsFile settingsFile() => _sources.SettingsFile();

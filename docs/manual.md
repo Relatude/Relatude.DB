@@ -2646,9 +2646,9 @@ read it.
 
 - **Move into relatude.db.json** writes them into `relatude.db.json` and removes them from the
   overrides file. Values from configuration are never moved. The file is rewritten, so its comments
-  are lost, and a moved secret is stored in plain text. Do this in development: on a server,
-  `relatude.db.json` is the deployed copy, which the next deployment replaces
-  ([On a server](#on-a-server)).
+  are lost, and a moved secret is stored in plain text. Do this in development. On a server,
+  `relatude.db.json` is the deployed copy, which the next deployment replaces: use **Download
+  changes** there instead ([On a server](#on-a-server)).
 - **Discard** puts back what `relatude.db.json` says, and saves.
 
 The same tags and **Move to shared** button are on every page that saves on this server:
@@ -2897,15 +2897,34 @@ deployment, and each deployment's SHARED files still apply beneath them.
 `Filepath` is in the application's folder. On a server those files are the deployed copy, which the
 next deployment (or the next container) replaces. The moved entries have left the overrides file too,
 so they are lost. The dialogs warn about this outside the Development environment. Bring a change into
-the application through source control instead:
+the application through source control instead, with **Download changes**.
 
-| Changed on a server | To make it part of the application |
-|---|---|
-| A setting | Copy the value from the **Move to shared** list into `relatude.db.json` in source control, and deploy. Once the deployed file agrees, the next save drops the entry. |
-| A datamodel override | In the model editor's **Move to shared** dialog, **Download shared file** gives a `datamodel.json` with the chosen overrides, without changing the server. Commit it and deploy. |
-| A log definition | The log's Definition view shows its file. Copy it into `relatude.settings/…/logs/` and deploy. Entries stay in the data folder, so a definition with the same key picks them up. |
-| A GraphQL endpoint | Copy the endpoint's file into `relatude.settings/…/graphql/` and deploy, or map the endpoint in code. |
-| A model in a `RuntimeTypes` source | Copy the files from the source's `Filepath` into source control before the next deployment, or make the change in development instead. |
+**Download changes** is in the menu under Server, and beside **Reload** on the settings pages. It lists
+everything this installation changed in the admin UI, grouped by kind and database: settings, custom
+settings, datamodel overrides, log definitions, GraphQL endpoints and the files of `RuntimeTypes`
+sources. Each entry shows what the application's file has and what it would have. Choose entries and
+download a zip. It holds:
+
+- each of the application's own files with the chosen changes in it, at its path in the project, such
+  as `relatude.settings/relatude.db.json` or `relatude.settings/logs/requests.json`. A file is the
+  installation's copy with the changes merged in, as **Move to shared** would write it.
+- `relatude-changes.md`, which says what each file holds, which files to delete by hand (a log or
+  endpoint removed on the installation), and which files hold secrets.
+
+Nothing on the server changes. Unzip the files over the project, review the diff, commit and deploy.
+
+Entries set by the configuration section are listed but never exported. Secrets are not selected at
+first: a secret chosen anyway is written into the file in plain text, so move it into configuration
+before you commit. `relatude.db.json` is written without its comments. A `RuntimeTypes` source
+without a `Filepath` keeps its files in `relatude.data/`, so give the source a `Filepath` in the
+project first.
+
+**Overrides that the shared files now match are removed at start.** When an installation starts on
+the new files, it removes every override that the shared files now say the same as. Settings and
+custom settings are cleaned when they are read. Datamodel overrides, log definitions and endpoints
+are cleaned when their database opens. A marker that removes a definition the shared folder no longer
+has is removed too. Each removal is written to the log. An entry set by configuration is never
+removed, and runtime types are never touched.
 
 **A restored data folder brings its changes along.** Production's `relatude.data/` restored on a test
 server brings production's settings, datamodel overrides, log definitions and GraphQL endpoints with

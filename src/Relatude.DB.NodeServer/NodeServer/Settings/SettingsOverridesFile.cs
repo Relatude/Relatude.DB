@@ -42,6 +42,7 @@ public sealed class SettingsOverridesFile {
     readonly string? _unavailable;
     JsonObject _base;
     JsonObject _patch;
+    JsonObject? _asRead;
     List<SettingsPatch.Entry>? _entries;
 
     SettingsOverridesFile(SettingsOverridesLocation location, JsonObject baseJson, JsonObject patch, string? unavailable = null) {
@@ -98,7 +99,7 @@ public sealed class SettingsOverridesFile {
         // what the file says once read: values written the way the settings write them, and nothing
         // that changes nothing, so the page and the next save see the same difference
         var normalized = SettingsPatch.Diff(baseJson, ToJson(applied));
-        var file = new SettingsOverridesFile(location, baseJson, normalized);
+        var file = new SettingsOverridesFile(location, baseJson, normalized) { _asRead = patch };
         if (file.Entries.Count == 0) return file;
         effective = applied;
         info("Settings from " + location.Display + " applied: " + string.Join(", ", file.Entries.Select(e => SettingsPatch.Display(e.Path)
@@ -125,6 +126,22 @@ public sealed class SettingsOverridesFile {
         _patch = next;
         _entries = null;
         return true;
+    }
+
+    /// <summary>
+    /// Takes out of the file, as read at start, the entries that change nothing: a value relatude.db.json
+    /// now has too, an added element it now has as it is, a removed element it no longer has - as after
+    /// the file's entries were put into relatude.db.json by hand. Entries <paramref name="decidedElsewhere"/>
+    /// names are left. Nothing in force changes. Returns the paths taken out.
+    /// </summary>
+    public string[] RemoveRedundant(Func<string, bool> decidedElsewhere) {
+        if (_unavailable != null || _asRead == null) return [];
+        var read = _asRead;
+        _asRead = null;
+        var redundant = SettingsPatch.Redundant(read, _patch, _base).Select(e => e.Path).Where(p => !decidedElsewhere(p)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (redundant.Count == 0) return [];
+        write(_location, SettingsPatch.Select(read, _base, e => !redundant.Contains(e.Path)));
+        return [.. redundant];
     }
 
     /// <summary>relatude.db.json as it would be with the entries <paramref name="keep"/> accepts merged

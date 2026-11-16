@@ -197,16 +197,32 @@ public static class LayeredDefinitions {
     /// changes. Returns false when the data folder has nothing for it.
     /// </summary>
     public static bool MoveToSettings(LayeredDefinitionFolders folders, LayeredDefinition current) {
-        if (current.DataKey == null) return false;
-        var settings = folders.Settings ?? throw new InvalidOperationException("There is no settings folder to move the definition into.");
-        if (current.DataRemoves) {
-            if (current.SettingsKey != null) settings.IO.DeleteFileIfItExists(current.SettingsKey);
-        } else {
-            settings.IO.WriteAllTextUTF8(current.SettingsKey ?? settings.FileKey(current.DataKey.FileName()), current.DataText!);
-        }
-        folders.Data.IO.DeleteFileIfItExists(current.DataKey);
+        if (SettingsAfterMove(folders, current) is not { } after) return false;
+        var settings = folders.Settings!;
+        if (after.Text != null) settings.IO.WriteAllTextUTF8(after.Key, after.Text);
+        else if (current.SettingsKey != null) settings.IO.DeleteFileIfItExists(after.Key);
+        folders.Data.IO.DeleteFileIfItExists(current.DataKey!);
         return true;
     }
+
+    /// <summary>
+    /// The settings folder's file as <see cref="MoveToSettings"/> would leave it, without writing anything:
+    /// its key and its text, null for a file deleted (or none there to delete). Null when the data folder
+    /// has nothing for the definition.
+    /// </summary>
+    public static (string[] Key, string? Text)? SettingsAfterMove(LayeredDefinitionFolders folders, LayeredDefinition current) {
+        if (current.DataKey == null) return null;
+        var settings = folders.Settings ?? throw new InvalidOperationException("There is no settings folder to move the definition into.");
+        if (current.DataRemoves) return (current.SettingsKey ?? settings.FileKey(current.DataKey.FileName()), null);
+        return (current.SettingsKey ?? settings.FileKey(current.DataKey.FileName()), current.DataText!);
+    }
+
+    /// <summary>
+    /// The data folder's files that change nothing: a definition that says what the settings folder's says,
+    /// and a marker taking away one the settings folder no longer has.
+    /// </summary>
+    public static IEnumerable<LayeredDefinition> Redundant(IEnumerable<LayeredDefinition> definitions)
+        => definitions.Where(d => d.Change == DataChange.SameAsSettings || (d.DataRemoves && d.SettingsKey == null));
 
     /// <summary>Deletes what the data folder has for a definition, which puts back the settings folder's (or nothing).</summary>
     public static bool DiscardData(LayeredDefinitionFolders folders, LayeredDefinition current) {

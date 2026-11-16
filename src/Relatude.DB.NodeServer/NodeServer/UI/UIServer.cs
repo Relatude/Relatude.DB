@@ -234,6 +234,15 @@ public sealed class UIServer {
         app.MapPost(path + "zip", async (HttpContext ctx, ZipRequestPayload p) => {
             return await zipToResponse(ctx, p.IoId, p.Keys, p.BasePath);
         });
+        // the overrides download: the application's own files as moving the chosen entries into them would
+        // write them, as a zip (binary, so not a command): see UISettingsExport
+        app.MapPost(path + "overrides-export", async (HttpContext ctx, UISettings.ExportPayload payload) => {
+            try {
+                return await _settings.WriteExport(ctx, payload);
+            } catch (Exception error) when (!ctx.Response.HasStarted) {
+                return Results.Json(new { error = error.Message }, RelatudeDBJsonOptions.Default, statusCode: 500);
+            }
+        });
         // the icon library, for the datamodel editor's icon picker (see IconLibrary): the sets, and a set's
         // icons as embedded - gzipped JSON, which the browser unpacks and keeps for good, the url carrying
         // the set's version (?v=) so a new library is fetched afresh

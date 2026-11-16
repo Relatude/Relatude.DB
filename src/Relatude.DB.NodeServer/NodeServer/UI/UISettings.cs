@@ -48,6 +48,7 @@ sealed partial class UISettings {
         registerOverrides(commands);
         registerSecrets(commands);
         registerCustom(commands);
+        registerExport(commands);
     }
 
     // ---- the models an AI service publishes ----

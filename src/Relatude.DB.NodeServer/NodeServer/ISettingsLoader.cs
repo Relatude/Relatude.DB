@@ -64,8 +64,10 @@ public class LocalSettingsLoaderFile(string filePath) : ISettingsLoader {
         if (migrated) await WriteAsync(result); // the file now says what the running settings say; comments in it do not survive
         return result;
     }
+    /// <summary>relatude.db.json as <see cref="WriteAsync"/> writes it.</summary>
+    public static string TextOf(RelatudeDBServerSettings settings) => JsonSerializer.Serialize(settings, getOptions());
     public Task WriteAsync(RelatudeDBServerSettings settings) {
-        var json = JsonSerializer.Serialize(settings, getOptions());
+        var json = TextOf(settings);
         var path = Path.Combine(filePath);
         var folder = Path.GetDirectoryName(Path.GetFullPath(path));
         if (!string.IsNullOrEmpty(folder)) Directory.CreateDirectory(folder); // relatude.settings does not exist before the first write
