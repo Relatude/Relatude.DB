@@ -43,6 +43,11 @@ public sealed class DatamodelActivator {
     }
 
     public DatamodelActivationResult Activate(string draftJson, bool acceptWarnings, string? note) {
+        // one activation at a time: each compares against the active model and then replaces it
+        lock (_container.ActivationLock) return activate(draftJson, acceptWarnings, note);
+    }
+
+    DatamodelActivationResult activate(string draftJson, bool acceptWarnings, string? note) {
         var validation = new DatamodelValidator(_server, _container).Validate(draftJson, dryRun: true);
         var result = new DatamodelActivationResult { Validation = validation };
         if (validation.HasErrors) {

@@ -691,6 +691,12 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
     /// SETTINGS - so neither writes over what the other just wrote.</summary>
     internal readonly object OverridesWriteLock = new();
     /// <summary>
+    /// Held while a datamodel is activated (<see cref="ModelEditor.DatamodelActivator"/>), so two activations never
+    /// interleave. Code that reads the active model, changes it and activates the result holds it around all three,
+    /// or it would activate over a model made active meanwhile.
+    /// </summary>
+    public object ActivationLock { get; } = new();
+    /// <summary>
     /// A fresh model from the configured sources, with the types application code registers
     /// (OnDatamodelInit) - exactly what a (re)open would start from, without opening anything. Used
     /// by the datamodel editor to compare against and to verify what it wrote.
