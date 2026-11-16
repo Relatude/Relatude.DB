@@ -22,6 +22,7 @@ Read this before finishing any non-trivial Relatude.DB answer. These are the thi
 - **You cannot read an embedded map by key until the parent is persisted.** Before insert, only `Add` is safe.
 - **Pin `[Node(Id = …)]` and `[Relation(Id = …)]` early.** Without them the id is a hash of the full type name, so a rename or namespace move creates a new, empty type.
 - **A node's name is `IName.Name` and nothing else.** A `Name` or `Title` a type declares itself is an ordinary property, which the admin UI, GraphQL's `name` and facet labels ignore (the datamodel editor warns `own-name`). Inherit `IName`, keep the values already stored with `[FormerProperty("<old property id>", nameof(IName.Name))]` on the type, and keep `IName` in the datamodel (`dm.Add<IName>()` or `dm.AddNamespace<ISystemUser>()`), or every type inheriting it fails the build.
+- **On engines up to 1.1.7.25-alpha, `[FormerProperty]` does not reach the index.** Nodes read their old values as `Name`, but the `IName.Name` index, which existed and was current before the move, never gets them: `Where(n => n.Name == …)` finds nothing for the moved types and `OrderBy(n => n.Name)` throws `KeyNotFoundException: Id … is not present in index 'decb9830-…'`. Later engines key an index by the old ids read as its property and refill it at the next open. On an older engine, give the value index engine a new id in the settings (`ValueIndexes[].Id` and `DefaultValueIndex`): a new engine is empty, so every value index is read from the log at the next open, and text and vector indexes are left alone.
 
 ## Geo
 
