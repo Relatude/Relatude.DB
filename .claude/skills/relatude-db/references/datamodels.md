@@ -302,7 +302,7 @@ public class Brand : IName {
 - The property named is one of the type's own or one it inherits. A node that also holds a value under it keeps that one.
 - A node read holds the value under the new property and is stored so when next written; types inheriting the type read their nodes the same way (`NodeTypeModel.FormerPropertyIds`). `AllowMultiple`: one attribute per old id.
 - The datamodel editor's validator warns (`own-name`) about a type with a property of its own called `Name` and suggests this.
-- The node records on disk keep their format; the change rebuilds the indexes once at the next open, like any change to the datamodel's state.
+- The node records on disk keep their format. The indexes of the property named are made again once, at the next open: an index's key names the old ids read as its property (`IndexFactory.getUniqueKey`), so adding or removing a `[FormerProperty]` gives that property new, empty indexes, which the open fills from the whole log, and an index engine drops the old ones (a memory index's old files stay on disk). Every other index is kept. A change to the datamodel does not by itself refill an index, so without this the shared `IName.Name` index, there and current before the type moved, would never get the type's names. As the engine's own group and culture types read old ids as `IName.Name` too, a database first opened on an engine with this rebuilds its name index once.
 
 ## What lives in NodeMeta
 

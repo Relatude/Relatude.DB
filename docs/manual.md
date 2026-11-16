@@ -1041,7 +1041,9 @@ public class Brand : IName {
   and member name. The datamodel JSON in the database's `datamodels` folder shows it.
 - A node that also holds a value under the new property keeps that one.
 - A node read holds the value under the new property, and stores it there when it is next written.
-  The indexes are rebuilt once at the next open, as for any change to the model.
+  The indexes of the property named are filled again from the log once, at the next open: an
+  index's key names the old ids read as its property, so adding or removing a `[FormerProperty]`
+  gives it new, empty indexes. Every other index is kept.
 - Types inheriting the type read their nodes the same way. A type may carry several
   `[FormerProperty]` attributes, one per old id (`NodeTypeModel.FormerPropertyIds`).
 

@@ -17,8 +17,27 @@ internal static class IndexFactory {
     // so making a property culture-sensitive keeps it and only adds the cultures' indexes.
     internal static string getUniqueKey(Property property, Guid? cultureId, string? subKey) {
         return property.Id
+            + formerIdsKey(property)
             + (cultureId is { } culture && culture != Guid.Empty ? "_" + culture.ToString("N") : "")
             + (string.IsNullOrEmpty(subKey) ? "" : "_" + subKey);
+    }
+    // A type with a former property ([FormerProperty], NodeTypeModel.FormerPropertyIds) reads what its nodes stored under
+    // it as the property it became, and gives that to the property's indexes. An index made before holds none of it,
+    // and the open reads the log only into indexes that are behind, so the values would never get there: the shared
+    // IName.Name index, there and up to date before a type moved to IName, found none of the type's names, and sorting
+    // by them threw. The key names the former ids read as the property, so another set of them is another index: new
+    // and empty, so the open reads the whole log into it, as for a property newly indexed, and the engine drops the
+    // old one (DeleteUnopenedIndexes). By the former ids alone, not the types reading them, so a new subtype of a type
+    // with a former property, whose nodes hold nothing under it, makes nothing again. A property no former id is read
+    // as keeps the key it always had; letters, digits and '_' only, as an SQLite table is named by the key.
+    static string formerIdsKey(Property property) {
+        var formerIds = new SortedSet<Guid>();
+        foreach (var type in property.Definition.Datamodel.NodeTypes.Values) {
+            if (type.FormerPropertyIds == null) continue;
+            foreach (var (former, now) in type.FormerPropertyIds) if (now == property.Id) formerIds.Add(former);
+        }
+        if (formerIds.Count == 0) return "";
+        return "_f" + string.Join(",", formerIds).GenerateHashGuid().ToString("N")[..8];
     }
     // what the index's name says of its culture, the code when the store knows it already (not while it opens)
     static string cultureOf(DataStoreLocal store, Guid? cultureId) {
