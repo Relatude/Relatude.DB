@@ -3,10 +3,16 @@ using Relatude.DB.DataStores;
 
 namespace Relatude.DB.Tasks.FileAnalysis;
 
-public sealed class FileAnalysisTask(PropertyPath propertyPath, Guid fileId, FileAnalysisKinds kinds) : TaskData {
+/// <summary>
+/// A file to analyse in the background: the property holding it, the file, and the revision it went into, by its id (a
+/// revision keeps its id while its key changes with its type), so a draft's file is analysed in the draft. Null for a
+/// node without revisions, and for tasks queued before revisions were recorded.
+/// </summary>
+public sealed class FileAnalysisTask(PropertyPath propertyPath, Guid fileId, FileAnalysisKinds kinds, Guid? revisionId = null) : TaskData {
     public PropertyPath PropertyPath { get; } = propertyPath;
     public Guid FileId { get; } = fileId;
     public FileAnalysisKinds Kinds { get; } = kinds;
+    public Guid? RevisionId { get; } = revisionId;
 }
 
 public sealed record FileAnalysisOutcome(bool Success, string Details);
@@ -15,7 +21,7 @@ internal sealed class FileAnalysisTaskRunner(DataStoreLocal db) : TaskRunner<Fil
     public override BatchTaskPriority Priority => BatchTaskPriority.Low;
     public override int MaxTaskCountPerBatch => 5;
     public override bool PersistToDisk => true;
-    public override int MaxConcurrency => 2;
+    public override int MaxConcurrency => 3;
     public override string? GetConcurrencyKey(FileAnalysisTask task) => task.PropertyPath.ToString();
     public override string? GetTaskLogId(FileAnalysisTask task) => "file " + task.FileId;
     public override string? DescribeTask(FileAnalysisTask task) => "Analysing a file: " + describe(task.Kinds);
@@ -46,19 +52,24 @@ internal sealed class FileAnalysisTaskRunner(DataStoreLocal db) : TaskRunner<Fil
     }
     public override Task ExecuteAsync(Batch<FileAnalysisTask> batch, TaskLogger? taskLogger) => ExecuteAsyncDetailed(batch, taskLogger, CancellationToken.None);
 
+    // a bit of the kinds' int says a revision id follows the file id: tasks saved before it are read as they were
+    const int withRevision = 1 << 30;
     public override byte[] TaskToBytes(FileAnalysisTask task) {
         var path = task.PropertyPath.ToBytes();
-        var bytes = new byte[4 + 16 + path.Length];
-        BitConverter.TryWriteBytes(bytes.AsSpan(0, 4), (int)task.Kinds);
+        var revision = task.RevisionId is Guid ? 16 : 0;
+        var bytes = new byte[4 + 16 + revision + path.Length];
+        BitConverter.TryWriteBytes(bytes.AsSpan(0, 4), (int)task.Kinds | (revision > 0 ? withRevision : 0));
         task.FileId.TryWriteBytes(bytes.AsSpan(4, 16));
-        path.CopyTo(bytes, 20);
+        if (task.RevisionId is Guid revisionId) revisionId.TryWriteBytes(bytes.AsSpan(20, 16));
+        path.CopyTo(bytes, 20 + revision);
         return bytes;
     }
     public override FileAnalysisTask TaskFromBytes(byte[] bytes) {
-        var kinds = (FileAnalysisKinds)BitConverter.ToInt32(bytes, 0);
+        var flags = BitConverter.ToInt32(bytes, 0);
         var fileId = new Guid(bytes.AsSpan(4, 16));
-        var path = PropertyPath.FromBytes(bytes[20..]);
-        return new FileAnalysisTask(path, fileId, kinds);
+        Guid? revisionId = (flags & withRevision) != 0 ? new Guid(bytes.AsSpan(20, 16)) : null;
+        var path = PropertyPath.FromBytes(bytes[(revisionId is null ? 20 : 36)..]);
+        return new FileAnalysisTask(path, fileId, (FileAnalysisKinds)(flags & ~withRevision), revisionId);
     }
     static string describe(FileAnalysisKinds kinds) {
         var parts = new List<string>();

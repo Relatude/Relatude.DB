@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.FileConversion;
@@ -63,8 +64,15 @@ public sealed partial class DataStoreLocal : IDataStore {
         if (value.IsEmpty || !Datamodel.Properties.TryGetValue(propertyPath.PropertyId, out var property) || property is not FilePropertyModel fileProperty) return new(default, default, default);
         var possible = possibleFileAnalyses(value);
         if (possible == FileAnalysisKinds.None) return new(default, default, default); // read for every file a list shows: no meta parsed for nothing
-        return new(GetWantedFileAnalyses(fileProperty, value) & possible, GetCompletedFileAnalyses(value), possible);
+        var done = GetCompletedFileAnalyses(value);
+        return new(GetWantedFileAnalyses(fileProperty, value) & possible, done, possible) { Queued = queuedAnalyses(value) & ~done };
     }
+
+    // the analyses waiting in the queue or under way there, by file and property, which a file's state tells as queued so
+    // an editor can follow them; not kept across a restart, though the queue's tasks are
+    readonly ConcurrentDictionary<(Guid FileId, Guid PropertyId), FileAnalysisKinds> _analysesQueued = new();
+    FileAnalysisKinds queuedAnalyses(FileValue value) =>
+        value.PropertyPath != null && _analysesQueued.TryGetValue((value.FileId, value.PropertyPath.PropertyId), out var kinds) ? kinds : FileAnalysisKinds.None;
 
     bool anyFileAnalysisPossible() {
         if (_analysisImaging == null && _analysisFileToText == null) return false;
@@ -72,13 +80,46 @@ public sealed partial class DataStoreLocal : IDataStore {
         return Datamodel.Properties.Values.OfType<FilePropertyModel>().Any(p => p.ImageMetaAnalysis == true || p.ImageCropModeAnalysis == true || p.FileTextIndexing == true || p.VideoAndAudioFileTextIndexing == true);
     }
 
-    bool queueFileAnalysisIfMissing(FileValue value) {
+    /// <summary>The analyses a file wants and lacks, queued to run in the background, in the revision it is in (null: a
+    /// node without revisions).</summary>
+    bool queueFileAnalysisIfMissing(FileValue value, Guid? revisionId) {
         if (value.IsEmpty || value.PropertyPath == null) return false;
         if (!Datamodel.Properties.TryGetValue(value.PropertyPath.PropertyId, out var property) || property is not FilePropertyModel fileProperty) return false;
         var missing = missingFileAnalyses(fileProperty, value);
         if (missing == FileAnalysisKinds.None) return false;
-        EnqueueTask(new FileAnalysisTask(value.PropertyPath, value.FileId, missing));
+        _analysesQueued.AddOrUpdate((value.FileId, value.PropertyPath.PropertyId), missing, (_, kinds) => kinds | missing);
+        EnqueueTask(new FileAnalysisTask(value.PropertyPath, value.FileId, missing, revisionId));
         return true;
+    }
+
+    /// <summary>The id of the revision a context reads of the node a property is in: the one a write in it went to. Null for a
+    /// node without revisions, or one the context reads nothing of.</summary>
+    Guid? revisionIdOf(PropertyPath path, QueryContext ctx) {
+        try {
+            var key = path.NodePath.NodeKey;
+            if (!TryGet(key.HasGuid ? key.Guid : GetGuid(key.Int), out var node, ctx)) return null;
+            if (node is NodeDataRevision revision) return revision.RevisionId == Guid.Empty ? null : revision.RevisionId;
+            return GetRevisions(node.Id).FirstOrDefault(r => r.RevisionKey == node.RevisionKey && r.RevisionId != Guid.Empty)?.RevisionId;
+        } catch {
+            return null;
+        }
+    }
+
+    /// <summary>The context a queued analysis reads and writes the file with: the store's own, selecting the revision the
+    /// file went into when the task names one that is still there, whatever its key now (a draft published meanwhile).</summary>
+    QueryContext analysisContextOf(FileAnalysisTask task) {
+        if (task.RevisionId is not Guid revisionId) return _defaultQueryCtx;
+        try {
+            var key = task.PropertyPath.NodePath.NodeKey;
+            var nodeId = key.HasGuid ? key.Guid : GetGuid(key.Int);
+            var revision = GetRevisions(nodeId).FirstOrDefault(r => r.RevisionId == revisionId);
+            if (revision == null) return _defaultQueryCtx; // gone: the file is looked for where readers find it
+            var ctx = _defaultQueryCtx.WithCancellation(_defaultQueryCtx.CancellationToken); // a copy of its own
+            ctx.SelectedRevisions = [new NodeIdAndRevisionId(nodeId, revision.RevisionKey)];
+            return ctx;
+        } catch {
+            return _defaultQueryCtx;
+        }
     }
 
     public int QueueMissingFileAnalyses(IEnumerable<Guid>? nodeTypeIds = null) {
@@ -94,7 +135,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             _lock.ExitReadLock();
         }
         var queued = 0;
-        var fileValues = new List<FileValue>();
+        var fileValues = new List<(FileValue Value, Guid? Revision)>();
         const int batchSize = 1000;
         for (var offset = 0; offset < ids.Length; offset += batchSize) {
             fileValues.Clear();
@@ -102,13 +143,14 @@ public sealed partial class DataStoreLocal : IDataStore {
             _lock.EnterReadLock();
             try {
                 for (var i = offset; i < end; i++) {
-                    if (_nodes.TryGet(ids[i], out var node, out _)) collectFileValues(node, fileValues);
+                    if (_nodes.TryGet(ids[i], out var node, out _)) collectFileValuesByRevision(node, fileValues);
                 }
             } finally {
                 _lock.ExitReadLock();
             }
-            foreach (var fileValue in fileValues.DistinctBy(v => (v.PropertyPath, v.FileId))) {
-                if (queueFileAnalysisIfMissing(fileValue)) queued++;
+            // revisions made of another share its files: each analysed once, in a published revision where one holds it
+            foreach (var (fileValue, revision) in fileValues.DistinctBy(v => (v.Value.PropertyPath, v.Value.FileId))) {
+                if (queueFileAnalysisIfMissing(fileValue, revision)) queued++;
             }
         }
         if (queued > 0) LogInfo("Queued " + queued.To1000N() + " file" + (queued == 1 ? "" : "s") + " for analysis. ");
@@ -117,13 +159,17 @@ public sealed partial class DataStoreLocal : IDataStore {
 
     internal async Task<FileAnalysisOutcome> RunFileAnalysisTaskAsync(FileAnalysisTask task, CancellationToken cancellationToken) {
         validateDatabaseState();
-        var ctx = _defaultQueryCtx;
-        if (!TryGetValue<FileValue>(task.PropertyPath, out var value, ctx) || value.IsEmpty || value.FileId != task.FileId) return new(true, "The file was replaced or removed before it was analysed. ");
-        if (!Datamodel.Properties.TryGetValue(task.PropertyPath.PropertyId, out var property) || property is not FilePropertyModel fileProperty) return new(true, "The property is no longer a file property. ");
-        var kinds = task.Kinds & missingFileAnalyses(fileProperty, value);
-        if (kinds == FileAnalysisKinds.None) return new(true, "Nothing left to analyse. ");
-        var steps = await analyseAsync(task.PropertyPath, value, kinds, false, ctx, cancellationToken, system: true);
-        return new(!steps.Any(s => s.State == FileAnalysisStepState.Failed), string.Join("; ", steps.Select(s => s.Summary.TrimEnd(' ', '.'))) + ". ");
+        try {
+            var ctx = analysisContextOf(task);
+            if (!TryGetValue<FileValue>(task.PropertyPath, out var value, ctx) || value.IsEmpty || value.FileId != task.FileId) return new(true, "The file was replaced or removed before it was analysed. ");
+            if (!Datamodel.Properties.TryGetValue(task.PropertyPath.PropertyId, out var property) || property is not FilePropertyModel fileProperty) return new(true, "The property is no longer a file property. ");
+            var kinds = task.Kinds & missingFileAnalyses(fileProperty, value);
+            if (kinds == FileAnalysisKinds.None) return new(true, "Nothing left to analyse. ");
+            var steps = await analyseAsync(task.PropertyPath, value, kinds, false, ctx, cancellationToken, system: true);
+            return new(!steps.Any(s => s.State == FileAnalysisStepState.Failed), string.Join("; ", steps.Select(s => s.Summary.TrimEnd(' ', '.'))) + ". ");
+        } finally {
+            _analysesQueued.TryRemove((task.FileId, task.PropertyPath.PropertyId), out _);
+        }
     }
 
     public async Task<FileAnalysisReport> AnalyseFileAsync(PropertyPath propertyPath, FileAnalysisKinds kinds, bool force = false, QueryContext? ctx = null, CancellationToken cancellationToken = default) {

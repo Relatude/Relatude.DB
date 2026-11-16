@@ -1264,8 +1264,10 @@ at `Fit`, `Auto` or no crop mode also gets a `BackgroundColor`: the commonest co
 else their average, so the room around it looks like more of it. Edges that are mostly see-through
 leave the background as it was. An SVG has no crop mode analysis.
 
-**What happens.** An upload or a file copy queues a background task (Settings › Tasks shows it). The
-task sends the file to the service, then writes the result into the file value: the text goes into
+**What happens.** An upload or a file copy queues a background task (Settings › Tasks shows it), in
+the version of the node the file went into: a file uploaded into a draft is analysed in the draft,
+and still found once the draft is published. The task sends the file to the service, then writes the
+result into the file value: the text goes into
 `TextExtract`, and everything else goes into `MetaJSON` as typed meta. That write queues the node for
 text indexing again, so the words, the title, the description and the keywords make the node findable
 with `WhereSearch` ([§21](#21-text-and-semantic-search)). For recordings, the search text has the
@@ -1288,7 +1290,9 @@ file and a report per kind (done, done before, skipped, not possible here, faile
 analyses done before are not done again. With `force` they are, and the results replace what was
 set by hand. The same analysis of a file is never run twice at once: a second request, such as the
 background task's, waits for the first. `GetFileAnalyses(propertyPath, value)` tells which analyses
-the property wants, which are done, and which the database can do here.
+the property wants, which are done, which the database can do here, and which are waiting in the
+task queue or under way there (`Queued`), so an editor can show that the file is being analysed and
+read it again once they are done.
 
 ```csharp
 var path = new PropertyPath(productId, pictureProperty.Id);

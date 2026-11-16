@@ -1485,7 +1485,9 @@ property named: one of the type's own or one it inherits.</p>
   and member name. The datamodel JSON in the database's <code>datamodels</code> folder shows it.</li>
 <li>A node that also holds a value under the new property keeps that one.</li>
 <li>A node read holds the value under the new property, and stores it there when it is next written.
-  The indexes are rebuilt once at the next open, as for any change to the model.</li>
+  The indexes of the property named are filled again from the log once, at the next open: an
+  index's key names the old ids read as its property, so adding or removing a <code>[FormerProperty]</code>
+  gives it new, empty indexes. Every other index is kept.</li>
 <li>Types inheriting the type read their nodes the same way. A type may carry several
   <code>[FormerProperty]</code> attributes, one per old id (<code>NodeTypeModel.FormerPropertyIds</code>).</li>
 </ul>
@@ -1755,8 +1757,10 @@ for a graphic, shown whole, or <code>Fill</code> for a photograph, cropped about
 at <code>Fit</code>, <code>Auto</code> or no crop mode also gets a <code>BackgroundColor</code>: the commonest colour along its sides,
 else their average, so the room around it looks like more of it. Edges that are mostly see-through
 leave the background as it was. An SVG has no crop mode analysis.</p>
-<p><strong>What happens.</strong> An upload or a file copy queues a background task (Settings › Tasks shows it). The
-task sends the file to the service, then writes the result into the file value: the text goes into
+<p><strong>What happens.</strong> An upload or a file copy queues a background task (Settings › Tasks shows it), in
+the version of the node the file went into: a file uploaded into a draft is analysed in the draft,
+and still found once the draft is published. The task sends the file to the service, then writes the
+result into the file value: the text goes into
 <code>TextExtract</code>, and everything else goes into <code>MetaJSON</code> as typed meta. That write queues the node for
 text indexing again, so the words, the title, the description and the keywords make the node findable
 with <code>WhereSearch</code> (<a href="#21-text-and-semantic-search">§21</a>). For recordings, the search text has the
@@ -1777,7 +1781,9 @@ file and a report per kind (done, done before, skipped, not possible here, faile
 analyses done before are not done again. With <code>force</code> they are, and the results replace what was
 set by hand. The same analysis of a file is never run twice at once: a second request, such as the
 background task's, waits for the first. <code>GetFileAnalyses(propertyPath, value)</code> tells which analyses
-the property wants, which are done, and which the database can do here.</p>
+the property wants, which are done, which the database can do here, and which are waiting in the
+task queue or under way there (<code>Queued</code>), so an editor can show that the file is being analysed and
+read it again once they are done.</p>
 <div class="codehilite"><pre><span></span><code><span class="kt">var</span><span class="w"> </span><span class="n">path</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">PropertyPath</span><span class="p">(</span><span class="n">productId</span><span class="p">,</span><span class="w"> </span><span class="n">pictureProperty</span><span class="p">.</span><span class="n">Id</span><span class="p">);</span>
 <span class="kt">var</span><span class="w"> </span><span class="n">report</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">await</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">Datastore</span><span class="p">.</span><span class="n">AnalyseFileAsync</span><span class="p">(</span><span class="n">path</span><span class="p">,</span><span class="w"> </span><span class="n">FileAnalysisKinds</span><span class="p">.</span><span class="n">ImageMeta</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="n">FileAnalysisKinds</span><span class="p">.</span><span class="n">ImageCropMode</span><span class="p">,</span><span class="w"> </span><span class="n">force</span><span class="p">:</span><span class="w"> </span><span class="k">true</span><span class="p">);</span>
 <span class="k">foreach</span><span class="w"> </span><span class="p">(</span><span class="kt">var</span><span class="w"> </span><span class="n">step</span><span class="w"> </span><span class="k">in</span><span class="w"> </span><span class="n">report</span><span class="p">.</span><span class="n">Steps</span><span class="p">)</span><span class="w"> </span><span class="n">Console</span><span class="p">.</span><span class="n">WriteLine</span><span class="p">(</span><span class="n">step</span><span class="p">.</span><span class="n">Kind</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s">&quot;: &quot;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">step</span><span class="p">.</span><span class="n">State</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="s">&quot;, &quot;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">step</span><span class="p">.</span><span class="n">Summary</span><span class="p">);</span>

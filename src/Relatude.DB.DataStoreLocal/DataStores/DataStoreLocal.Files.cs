@@ -39,7 +39,8 @@ public sealed partial class DataStoreLocal : IDataStore {
     }
     async Task<FileValue> updateMetaIfRelevant(FileValue fileValue, int? maxWaitForMetaUpdate, QueryContext ctx) {
         if (fileValue.PropertyPath == null) return fileValue;
-        queueFileAnalysisIfMissing(fileValue);
+        // analysed in the background, in the revision the upload went into (a draft's file in the draft)
+        queueFileAnalysisIfMissing(fileValue, revisionIdOf(fileValue.PropertyPath, ctx));
         if (maxWaitForMetaUpdate == null) {
             if (fileValue.FileType == FileType.Image) {
                 maxWaitForMetaUpdate = 500;
@@ -148,12 +149,16 @@ public sealed partial class DataStoreLocal : IDataStore {
     void fileCopiesDone(List<NodeFileCopyAction> copies, QueryContext ctx) {
         foreach (var copy in copies) {
             if (copy.Resolved is not { } value) continue;
-            if (TryGetValue<FileValue>(copy.To, out var now, QueryContext.MasterAdmin) && now.FileId == value.FileId && now.StorageId == value.StorageId) {
+            // read where the copy went (a draft the context selects), else as the master admin does
+            var readWith = TryGetValue<FileValue>(copy.To, out var now, ctx) && now.FileId == value.FileId && now.StorageId == value.StorageId ? ctx
+                : TryGetValue(copy.To, out now, QueryContext.MasterAdmin) && now.FileId == value.FileId && now.StorageId == value.StorageId ? QueryContext.MasterAdmin
+                : null;
+            if (readWith != null) {
                 copy.Result = value;
                 if (value.FileType == FileType.Image && value.Width == 0 && _fileConversionEngine.CanConvert(value.Format, FileFormat.FileMetaJson)) {
                     enqueueUpdateFileMeta(copy.To, value.FileId, ctx);
                 }
-                queueFileAnalysisIfMissing(now);
+                queueFileAnalysisIfMissing(now!, revisionIdOf(copy.To, readWith));
             } else if (copy.Stored) {
                 getFileStore(value.StorageId).DeleteAsync(value).GetAwaiter().GetResult(); // the target was not there
             }
@@ -421,6 +426,22 @@ public sealed partial class DataStoreLocal : IDataStore {
             return new DeleteUnReferenceResult(bytes, files, folders);
         } finally {
             DeRegisterActivity(activityId);
+        }
+    }
+    /// <summary>The file values of a node, each with the id of the revision holding it (null for a node without revisions),
+    /// a published revision's first.</summary>
+    static void collectFileValuesByRevision(INodeData node, List<(FileValue Value, Guid? Revision)> into) {
+        var values = new List<FileValue>();
+        if (node is not NodeDataRevisions revisions) {
+            collectFileValues(node, values);
+            into.AddRange(values.Select(v => (v, (Guid?)null)));
+            return;
+        }
+        foreach (var revision in revisions.Revisions.OrderBy(r => r.RevisionType == RevisionType.Published ? 0 : 1)) {
+            values.Clear();
+            collectFileValues(revision, values);
+            Guid? id = revision.RevisionId == Guid.Empty ? null : revision.RevisionId;
+            into.AddRange(values.Select(v => (v, id)));
         }
     }
     static void collectFileValues(INodeData node, List<FileValue> into) {
