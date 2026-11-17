@@ -177,7 +177,7 @@ internal static class InterfaceGen {
                 var innerTypeMapName = typeof(InnerNodeDataMap<object>).Namespace + "." + nameof(InnerNodeDataMap<object>) + "<" + keyType + ">";
                 sb.AppendLine("if(_" + p.CodeName + " == null) {");
                 sb.AppendLine("var v = " + shellName + "." + nameof(NodeDataShell.GetValue) + "<" + innerTypeMapName + ">(" + pIdName + ");");
-                sb.AppendLine("if (v == null) _" + p.CodeName + " = [];");
+                sb.AppendLine("if (v == null) _" + p.CodeName + " = new();");
                 sb.AppendLine("else _" + p.CodeName + " = new (v, __NodeDataShell.Store.Mapper);");
                 sb.AppendLine("}");
                 sb.AppendLine("return _" + p.CodeName + ";");

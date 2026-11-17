@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using Relatude.DB.Common;
 using Relatude.DB.Http;
 
 namespace Relatude.DB.AI;
@@ -35,7 +36,7 @@ public sealed record RelatudeServicesCompletion(string Model, string Text, int C
 /// credentials and meters every call against the caller's license: the installation's own, whose API key is
 /// read at every call, or <see cref="AIProviderSettings.ApiKey"/> when the installation has none. The license
 /// must carry the credit account the call is charged to, with a balance: "ai_embeddings" for embeddings, "ai_completion" for
-/// completions. The account is what licenses the call; no feature is needed. A refusal comes back as an exception naming the reason
+/// completions and for chat with tools. The account is what licenses the call; no feature is needed. A refusal comes back as an exception naming the reason
 /// (no such account, no credits, rate limited).</para>
 /// <para>A call is paid for before the service sends it upstream, and the credits are never given back,
 /// so embeddings and completions are repeated only on the two answers the service gives before any
@@ -60,6 +61,7 @@ public class RelatudeServicesAIProvider : IAIProvider {
     readonly HttpClient _http;
     readonly string _embeddingsUrl;
     readonly string _completionsUrl;
+    readonly string _chatUrl;
     readonly AIProviderSettings _settings;
     readonly Func<string?>? _licenseApiKey;
 
@@ -77,6 +79,7 @@ public class RelatudeServicesAIProvider : IAIProvider {
         var baseUrl = rootUrl(settings.ServiceUrl);
         _embeddingsUrl = baseUrl + "/api/ai/embeddings";
         _completionsUrl = baseUrl + "/api/ai/completions";
+        _chatUrl = baseUrl + "/api/ai/chat";
         _http = new HttpClient() { Timeout = TimeSpan.FromMinutes(5) };
     }
 
@@ -168,21 +171,158 @@ public class RelatudeServicesAIProvider : IAIProvider {
     /// the effort it ran with. The request's <see cref="AIChatRequest.ModelKey"/> is a local key, as for
     /// <see cref="GetChatCompletionAsync"/>.
     /// </summary>
-    public Task<RelatudeServicesCompletion> CompleteAsync(AIChatRequest request, CancellationToken cancellationToken = default)
-        => completeAsync(request, resolveModel(request.ModelKey), request.MaxOutputTokens ?? _settings.MaxOutputTokens, cancellationToken);
+    public Task<RelatudeServicesCompletion> CompleteAsync(AIChatRequest request, CancellationToken cancellationToken = default) {
+        request.RequireNoTools(ShortName);
+        return completeAsync(request, resolveModel(request.ModelKey), request.MaxOutputTokens ?? _settings.MaxOutputTokens, cancellationToken);
+    }
 
     /// <summary>The service looks at up to 8 pictures of at most 5 MB each, 16 MB together.</summary>
     public bool SupportsImages => true;
 
     public async Task<string> GetChatCompletionAsync(AIChatRequest request, CancellationToken cancellationToken = default)
-        => (await CompleteAsync(request, cancellationToken)).Text;
+        => (await GetChatResultAsync(request, cancellationToken)).Text;
 
+    /// <summary>The service's chat route takes tools, the calls a model asked for and their results, and a schema for the answer.</summary>
+    public bool SupportsTools => true;
+
+    /// <summary>
+    /// A request with tools or a schema for its answer goes to the service's chat route; any other goes as a
+    /// completion, as it always has, which a service from before chat answers too.
+    /// </summary>
     public async Task<AIChatResult> GetChatResultAsync(AIChatRequest request, CancellationToken cancellationToken = default) {
+        if (request.HasTools || request.ResponseSchema != null) return await ChatAsync(request, cancellationToken);
         var c = await CompleteAsync(request, cancellationToken);
         return new AIChatResult(c.Text) {
             FinishReason = c.FinishReason, Usage = c.Usage, Model = c.Model, Effort = c.Effort, Credits = c.Credits, CreditsLeft = c.CreditsLeft,
         };
     }
+
+    /// <summary>
+    /// A chat on the service's chat route (<c>POST /api/ai/chat</c>): the conversation with the tools the model may
+    /// call, answered with its text, the tools it asks for, or both, and what the call cost. A service from before
+    /// chat has no such route, which is said as it is.
+    /// </summary>
+    public async Task<AIChatResult> ChatAsync(AIChatRequest request, CancellationToken cancellationToken = default) {
+        var model = resolveModel(request.ModelKey);
+        string json;
+        try {
+            json = await postAsync(_chatUrl, chatBodyOf(request, model, request.MaxOutputTokens ?? _settings.MaxOutputTokens), cancellationToken);
+        } catch (RelatudeServiceException ex) when (ex.StatusCode is 404 or 405) {
+            throw new RelatudeServiceException(ex.StatusCode, $"The Relatude AI service at {_chatUrl} has no chat with tools: it is from before them. ", ex.Reason);
+        }
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+        var calls = new List<AIToolCall>();
+        if (root.TryGetProperty("toolCalls", out var asked) && asked.ValueKind == JsonValueKind.Array) {
+            foreach (var call in asked.EnumerateArray()) {
+                if (readString(call, "name") is not { Length: > 0 } name) continue;
+                calls.Add(new AIToolCall(readString(call, "id") ?? "call_" + (calls.Count + 1), name, readString(call, "arguments") is { Length: > 0 } arguments ? arguments : "{}"));
+            }
+        }
+        var opaque = new List<AIOpaque>();
+        if (root.TryGetProperty("opaque", out var kept) && kept.ValueKind == JsonValueKind.Array) {
+            foreach (var o in kept.EnumerateArray()) {
+                if (readString(o, "provider") is { Length: > 0 } provider && readString(o, "json") is { Length: > 0 } json2) opaque.Add(new AIOpaque(provider, json2));
+            }
+        }
+        return new AIChatResult(readString(root, "text") ?? "") {
+            Opaque = opaque,
+            ToolCalls = calls, FinishReason = readString(root, "finishReason"), Usage = usageOf(root), Model = readString(root, "model") ?? model ?? "",
+            Effort = readString(root, "effort"), Credits = readInt(root, "credits"), CreditsLeft = readInt(root, "creditsLeft"),
+        };
+    }
+
+    /// <summary>
+    /// The request on the chat route's wire: every message with its role (user, assistant, tool), a user's pictures,
+    /// the calls an assistant's message asked for with their arguments as they came, and a tool message's results;
+    /// then the tools, which of them to call, the answer's schema and the cache key, each only when the request has it.
+    /// </summary>
+    static string chatBodyOf(AIChatRequest request, string? model, int? maxOutputTokens) {
+        using var ms = new MemoryStream();
+        using (var w = new Utf8JsonWriter(ms)) {
+            w.WriteStartObject();
+            if (!string.IsNullOrEmpty(model)) w.WriteString("model", model);
+            if (maxOutputTokens.HasValue) w.WriteNumber("maxOutputTokens", maxOutputTokens.Value);
+            if (!string.IsNullOrWhiteSpace(request.Effort)) w.WriteString("effort", request.Effort.Trim().ToLowerInvariant());
+            if (!string.IsNullOrWhiteSpace(request.Instructions)) w.WriteString("instructions", request.Instructions);
+            if (request.Tools.Count > 0) {
+                w.WriteStartArray("tools");
+                foreach (var tool in request.Tools) {
+                    w.WriteStartObject();
+                    w.WriteString("name", tool.Name);
+                    w.WriteString("description", tool.Description);
+                    if (tool.InputSchema.ValueKind == JsonValueKind.Object) {
+                        w.WritePropertyName("parameters");
+                        tool.InputSchema.WriteTo(w);
+                    }
+                    w.WriteEndObject();
+                }
+                w.WriteEndArray();
+                if (!string.IsNullOrWhiteSpace(request.ToolChoice)) w.WriteString("toolChoice", request.ToolChoice.Trim());
+                if (request.ParallelToolCalls is { } parallel) w.WriteBoolean("parallelToolCalls", parallel);
+            }
+            if (request.ResponseSchema is { } schema) {
+                w.WriteStartObject("responseSchema");
+                w.WriteString("name", schema.Name);
+                w.WriteBoolean("strict", schema.Strict);
+                w.WritePropertyName("schema");
+                schema.Schema.WriteTo(w);
+                w.WriteEndObject();
+            }
+            if (!string.IsNullOrWhiteSpace(request.CacheKey)) w.WriteString("cacheKey", request.CacheKey);
+            w.WriteStartArray("messages");
+            foreach (var m in request.Messages) {
+                w.WriteStartObject();
+                w.WriteString("role", m.Role == AIChatRole.User ? "user" : m.Role == AIChatRole.Tool ? "tool" : "assistant");
+                if (m.Role == AIChatRole.Tool) {
+                    w.WriteStartArray("toolResults");
+                    foreach (var result in m.ToolResults) {
+                        w.WriteStartObject();
+                        w.WriteString("callId", result.CallId);
+                        w.WriteString("content", result.Content);
+                        if (result.IsError) w.WriteBoolean("isError", true);
+                        w.WriteEndObject();
+                    }
+                    w.WriteEndArray();
+                } else {
+                    w.WriteString("text", m.Text);
+                    writeImages(w, m.Images);
+                    if (m.ToolCalls.Count > 0) {
+                        w.WriteStartArray("toolCalls");
+                        foreach (var call in m.ToolCalls) {
+                            w.WriteStartObject();
+                            w.WriteString("id", call.Id);
+                            w.WriteString("name", call.Name);
+                            w.WriteString("arguments", call.ArgumentsJson);
+                            w.WriteEndObject();
+                        }
+                        w.WriteEndArray();
+                    }
+                    // what the answer this message was came with, back as it came: the model's thinking, sealed
+                    if (m.Opaque.Count > 0) {
+                        w.WriteStartArray("opaque");
+                        foreach (var o in m.Opaque) {
+                            w.WriteStartObject();
+                            w.WriteString("provider", o.Provider);
+                            w.WriteString("json", o.Json);
+                            w.WriteEndObject();
+                        }
+                        w.WriteEndArray();
+                    }
+                }
+                w.WriteEndObject();
+            }
+            w.WriteEndArray();
+            w.WriteEndObject();
+        }
+        return Encoding.UTF8.GetString(ms.ToArray());
+    }
+
+    static AIUsage? usageOf(JsonElement root) =>
+        root.TryGetProperty("usage", out var u) && u.ValueKind == JsonValueKind.Object
+            ? new AIUsage(readInt(u, "inputTokens"), readInt(u, "outputTokens"), readInt(u, "cachedInputTokens"), readInt(u, "reasoningTokens"),
+                u.TryGetProperty("estimated", out var e) && e.ValueKind == JsonValueKind.True)
+            : null;
 
     /// <summary>Whether a request is one message from the user and nothing else, which goes as a prompt alone.</summary>
     static bool isPrompt(AIChatRequest request) =>
@@ -242,13 +382,8 @@ public class RelatudeServicesAIProvider : IAIProvider {
         if (!root.TryGetProperty("text", out var text) || text.ValueKind != JsonValueKind.String) {
             throw new Exception("The Relatude AI service answered a completion without a text property. ");
         }
-        AIUsage? usage = null;
-        if (root.TryGetProperty("usage", out var u) && u.ValueKind == JsonValueKind.Object) {
-            usage = new AIUsage(readInt(u, "inputTokens"), readInt(u, "outputTokens"), readInt(u, "cachedInputTokens"), readInt(u, "reasoningTokens"),
-                u.TryGetProperty("estimated", out var e) && e.ValueKind == JsonValueKind.True);
-        }
         return new RelatudeServicesCompletion(readString(root, "model") ?? model ?? "", text.GetString() ?? "", readInt(root, "credits"), readInt(root, "creditsLeft"),
-            readString(root, "finishReason"), usage, readString(root, "effort"));
+            readString(root, "finishReason"), usageOf(root), readString(root, "effort"));
     }
 
     public async Task<float[][]> GetEmbeddingsAsync(string[] paragraphs)
@@ -304,7 +439,7 @@ public class RelatudeServicesAIProvider : IAIProvider {
         root.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var n) ? n : 0;
     /// <summary>
     /// Posts and returns the body, turning a refusal into an exception that repeats the service's own reason.
-    /// <para>Both routes that post, embeddings and completions, are charged: the service takes the credits
+    /// <para>The routes that post, embeddings, completions and chat, are charged: the service takes the credits
     /// before it calls the upstream model, and cannot give them back. So a call is repeated only on the
     /// answers the service gives before any money moves (<see cref="answeredBeforeCharging"/>). Any other
     /// status either comes once the credits may have been taken - 502 when the upstream model failed,
@@ -330,7 +465,8 @@ public class RelatudeServicesAIProvider : IAIProvider {
         }, retryOnTimeout: false, isTransient: answeredBeforeCharging, retryOnConnectionError: false, cancellationToken: cancellationToken);
         var body = await response.Content.ReadAsStringAsync(cancellationToken);
         if (!response.IsSuccessStatusCode) {
-            throw new Exception($"The Relatude AI service at {url} returned {(int)response.StatusCode} {response.StatusCode}: {readError(body)}");
+            var reason = readError(body);
+            throw new RelatudeServiceException((int)response.StatusCode, $"The Relatude AI service at {url} returned {(int)response.StatusCode} {response.StatusCode}: {reason}", reason);
         }
         return body;
     }

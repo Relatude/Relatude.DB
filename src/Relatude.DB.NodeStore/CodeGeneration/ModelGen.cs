@@ -159,7 +159,7 @@ public static class ModelGen {
                 .Where(p => !classParents.Any(cp => cp.AllProperties.ContainsKey(p.Id))); // class parents already implement these
             foreach (var p in needsImplementation) {
                 var typeName = typeAndNamespace(nodeDef.Namespace, CodeUtils.GetTypeName(p, datamodel));
-                var getterOnly = p is EmbeddedPropertyModel ep && ep.EmbeddedValueType == EmbeddedValueType.InnerNodeList;
+                var getterOnly = p is EmbeddedPropertyModel ep && ep.EmbeddedValueType is EmbeddedValueType.InnerNodeList or EmbeddedValueType.InnerNode;
                 sb.Append("        ");
                 sb.AppendLine(CodeUtils.FieldOrProperty(typeName, p.CodeName, nodeDef.ModelType, CodeUtils.getDefaultDeclaration(nodeDef.Namespace, p, datamodel), getterOnly));
             }
@@ -222,8 +222,8 @@ public static class ModelGen {
             }
         }
         var typeName = typeAndNamespace(nodeDef.Namespace, CodeUtils.GetTypeName(p, datamodel));
-        // embedded (list) properties must be getter-only, the model builder rejects a setter
-        var getterOnly = p is EmbeddedPropertyModel ep && ep.EmbeddedValueType == EmbeddedValueType.InnerNodeList;
+        // embedded list and single properties must be getter-only, the model builder rejects a setter
+        var getterOnly = p is EmbeddedPropertyModel ep && ep.EmbeddedValueType is EmbeddedValueType.InnerNodeList or EmbeddedValueType.InnerNode;
         sb.Append(indent);
         sb.AppendLine(CodeUtils.FieldOrProperty(typeName, p.CodeName, nodeDef.ModelType, CodeUtils.getDefaultDeclaration(nodeDef.Namespace, p, datamodel), getterOnly));
     }
@@ -507,6 +507,7 @@ public static class ModelGen {
                     if (r.Facet) sb.Append(", " + nameof(RelationPropertyAttribute.Facet) + " = true");
                     appendDisplay(r.Display, sb);
                     appendAllowInline(r.AllowInlineEditing, sb);
+                    appendMaxCount(r.MaxCount, sb);
                     sb.AppendLine(")]");
                 }
                 break;
@@ -557,6 +558,7 @@ public static class ModelGen {
                         }
                     }
                     appendDisplay(e.Display, sb);
+                    appendMaxCount(e.MaxCount, sb);
                     sb.AppendLine(")]");
                 }
                 break;
@@ -587,6 +589,7 @@ public static class ModelGen {
                     if (r.IncludeTypes != IncludeTypeOptions.ThisTypeAndDescending) sb.Append(", " + nameof(ReferencesPropertyAttribute.IncludeTypes) + " = " + typeof(IncludeTypeOptions).Namespace + "." + nameof(IncludeTypeOptions) + "." + r.IncludeTypes);
                     appendDisplay(r.Display, sb);
                     appendAllowInline(r.AllowInlineEditing, sb);
+                    appendMaxCount(r.MaxCount, sb);
                     sb.AppendLine(")]");
                 } break;
             default:
@@ -600,6 +603,9 @@ public static class ModelGen {
     }
     static void appendGuidType(GuidValueType kind, StringBuilder sb) {
         if (kind != GuidValueType.AnyGuid) sb.Append(", " + nameof(GuidPropertyAttribute.GuidType) + " = " + typeof(GuidValueType).Namespace + "." + nameof(GuidValueType) + "." + kind);
+    }
+    static void appendMaxCount(int maxCount, StringBuilder sb) {
+        if (maxCount > 0) sb.Append(", " + nameof(RelationPropertyAttribute.MaxCount) + " = " + maxCount.ToString(CultureInfo.InvariantCulture));
     }
     static void appendAllowInline(bool allow, StringBuilder sb) {
         if (allow) sb.Append(", " + nameof(RelationPropertyAttribute.AllowInlineEditing) + " = true");

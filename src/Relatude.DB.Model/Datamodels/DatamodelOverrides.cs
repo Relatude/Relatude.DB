@@ -358,6 +358,8 @@ public sealed class PropertyOverride {
     [OverrideScope(OverrideScope.WholeProperty), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public bool? PrependOnAdd { get; set; }
     [OverrideScope(OverrideScope.WholeProperty), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? MaxCount { get; set; }
+    [OverrideScope(OverrideScope.WholeProperty), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public int? TextIndexRecursiveLevelLimit { get; set; }
     /// <summary>Whether an editing interface may show the nodes a relation, reference or references property holds as forms in place (<see cref="RelationPropertyModel.AllowInlineEditing"/>).</summary>
     [OverrideScope(OverrideScope.WholeProperty), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

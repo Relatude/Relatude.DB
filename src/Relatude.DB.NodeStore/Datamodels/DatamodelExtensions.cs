@@ -80,6 +80,7 @@ public static class DatamodelExtensions {
         , typeof(PasswordValue)
         , typeof(IEmbedded)
         , typeof(IEmbeddedMap)
+        , typeof(IEmbeddedOne)
     ];
     static HashSet<Type> getRefTypes(Type t) {
         var types = new HashSet<Type>();

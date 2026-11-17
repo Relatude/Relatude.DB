@@ -45,6 +45,7 @@ internal static class Utils {
                     }
                 }
                 prop.ValidateValue(value, node);
+                if (prop is ICountLimitedProperty { MaxCount: > 0 } limited) validateCount(limited, prop, value, oldNode);
                 if (changed) node.AddOrUpdate(kv.PropertyId, value);
             } else {
                 // just ignore properties that does not belong to class
@@ -70,6 +71,12 @@ internal static class Utils {
         }
     }
 
+    static void validateCount(ICountLimitedProperty limited, Property prop, object value, INodeData? oldNode) {
+        var count = limited.CountOf(value);
+        if (count <= limited.MaxCount) return;
+        var grows = oldNode == null || !oldNode.TryGetValue(prop.Id, out var oldValue) || count > limited.CountOf(oldValue);
+        if (grows) throw ConstraintMessages.TooMany(prop, count, limited.MaxCount);
+    }
     static void evalIndexing(DataStoreLocal db, Guid[]? omit, Guid nodeTypeId, out bool textIndex, out bool vectorIndex, out bool instantTextIndexing) {
         var isUpdateOfAnyIndexProp = omit != null && (omit.Contains(NodeConstants.SystemTextIndexPropertyId) ||
             omit.Contains(NodeConstants.SystemVectorIndexPropertyId));

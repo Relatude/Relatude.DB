@@ -76,6 +76,12 @@ internal static class CodeUtils {
                 typeName += CommonBaseWithClrType(dm, inp.InnerNodeTypes, "embedded property " + p.CodeName).FullName;
                 typeName += ">";
                 break;
+            case EmbeddedValueType.InnerNode:
+                typeName += nameWithoutGeneric<EmbeddedOne<object>>();
+                typeName += "<";
+                typeName += CommonBaseWithClrType(dm, inp.InnerNodeTypes, "embedded property " + p.CodeName).FullName;
+                typeName += ">";
+                break;
             case EmbeddedValueType.InnerNodeMap:
                 typeName += nameWithoutGeneric<EmbeddedMap<object, object>>();
                 typeName += "<";
@@ -113,6 +119,7 @@ internal static class CodeUtils {
     public static string GetInnerPropertyKeyPropertyTypeName(EmbeddedPropertyModel p, Datamodel dm) {
         switch (p.EmbeddedValueType) {
             case EmbeddedValueType.InnerNodeList:
+            case EmbeddedValueType.InnerNode:
                 return typeof(Guid).FullName!;
             case EmbeddedValueType.InnerNodeMap:
                 if (p.KeyProperty == InnerNodeDataMap<object>.PropertyIdNodeGuidId) {

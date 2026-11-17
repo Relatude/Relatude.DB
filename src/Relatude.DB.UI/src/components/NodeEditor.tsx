@@ -1446,6 +1446,9 @@ function EmbeddedEditor({
   }, [initial]);
 
   const types = property.targetTypes ?? [];
+  const maxCount = property.maxCount ?? 0;
+  const single = maxCount === 1;
+  const full = maxCount > 0 && rows.length >= maxCount;
 
   function edit(i: number, field: PropertyView, value: unknown) {
     setDirty(true);
@@ -1467,10 +1470,10 @@ function EmbeddedEditor({
     });
   }
   async function add() {
-    if (types.length === 0) return;
+    if (types.length === 0 || full) return;
     let type = types[0];
     if (types.length > 1) {
-      const pick = await showChoice("Add an inner node", "Which type?", types.map((t) => ({ label: t.name })));
+      const pick = await showChoice(single ? "Set the inner node" : "Add an inner node", "Which type?", types.map((t) => ({ label: t.name })));
       if (pick === null) return;
       type = types[pick];
     }
@@ -1506,7 +1509,10 @@ function EmbeddedEditor({
   return (
     <div className="node-inner">
       <div className="node-inner-tools">
-        <span className="muted">{rows.length === 0 ? "empty" : rows.length + (rows.length === 1 ? " inner node" : " inner nodes")}</span>
+        <span className="muted">
+          {rows.length === 0 ? "empty" : single ? "one inner node" : rows.length + (rows.length === 1 ? " inner node" : " inner nodes")}
+          {maxCount > 1 && " / " + maxCount}
+        </span>
         <div className="query-spacer" />
         {dirty && (
           <button className="action-button primary" onClick={apply} disabled={saving}>
@@ -1525,9 +1531,16 @@ function EmbeddedEditor({
             undo
           </button>
         )}
-        <button className="link-button" onClick={add} disabled={saving || types.length === 0} title={types.length === 0 ? "The property names no type to embed" : undefined}>
-          <IconPlus size={13} stroke={1.8} /> add
-        </button>
+        {!(single && full) && (
+          <button
+            className="link-button"
+            onClick={add}
+            disabled={saving || types.length === 0 || full}
+            title={types.length === 0 ? "The property names no type to embed" : full ? "The property holds as many inner nodes as it may" : undefined}
+          >
+            <IconPlus size={13} stroke={1.8} /> {single ? "set" : "add"}
+          </button>
+        )}
       </div>
       {rows.map((row, i) => (
         <div className="node-inner-node editable" key={(row.id ?? "new") + ":" + i}>
@@ -1535,12 +1548,16 @@ function EmbeddedEditor({
             <span className="node-inner-type">{row.typeName}</span>
             {row.id === null && <span className="setting-badge unsaved">new</span>}
             <div className="query-spacer" />
-            <button className="icon-button" title="Move up" onClick={() => move(i, -1)} disabled={i === 0}>
-              <IconChevronUp size={14} stroke={2} />
-            </button>
-            <button className="icon-button" title="Move down" onClick={() => move(i, 1)} disabled={i === rows.length - 1}>
-              <IconChevronDown size={14} stroke={2} />
-            </button>
+            {!single && (
+              <>
+                <button className="icon-button" title="Move up" onClick={() => move(i, -1)} disabled={i === 0}>
+                  <IconChevronUp size={14} stroke={2} />
+                </button>
+                <button className="icon-button" title="Move down" onClick={() => move(i, 1)} disabled={i === rows.length - 1}>
+                  <IconChevronDown size={14} stroke={2} />
+                </button>
+              </>
+            )}
             <button className="icon-button danger" title="Remove" onClick={() => remove(i)}>
               <IconX size={13} stroke={2} />
             </button>

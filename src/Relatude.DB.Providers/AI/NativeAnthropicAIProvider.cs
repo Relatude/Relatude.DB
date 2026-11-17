@@ -66,6 +66,7 @@ public class NativeAnthropicAIProvider : IAIProvider {
     /// from and written to the cache too). <see cref="AIChatRequest.Effort"/> is left out.
     /// </summary>
     public async Task<AIChatResult> GetChatResultAsync(AIChatRequest request, CancellationToken cancellationToken = default) {
+        request.RequireNoTools(nameof(NativeAnthropicAIProvider));
         var body = buildMessagesRequest(resolveModel(request.ModelKey), request, request.MaxOutputTokens ?? _settings.MaxOutputTokens ?? _defaultMaxOutputTokens);
         var json = await OpenAIWire.PostAsync(_http, _messagesUrl, body, setAuth, cancellationToken);
         var text = parseMessagesResponse(json);

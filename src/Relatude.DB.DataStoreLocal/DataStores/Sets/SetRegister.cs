@@ -493,10 +493,16 @@ public class SetRegister(long maxSize) {
         return createOrLookup(key, () => {
             // the index comparer (ordinal for strings): the default comparer is culture sensitive
             // and would order the same data differently than every other index operation
-            IEnumerable<int> sorted;
-            if (descending) sorted = unsorted.Enumerate().OrderByDescending(id => index.GetValue(id), ValueIndex<T>.comparer);
-            else sorted = unsorted.Enumerate().OrderBy(id => index.GetValue(id), ValueIndex<T>.comparer);
-            return new FixedOrderedSet(sorted, unsorted.Count);
+            // a node the index has no value for goes last: one only a selected revision makes readable (a preview
+            // of a draft never published) is in the set, while the index holds what readers read
+            var valued = new List<(int Id, T Value)>(unsorted.Count);
+            List<int>? missing = null;
+            foreach (var id in unsorted.Enumerate()) {
+                if (index.TryGetValue(id, out var value)) valued.Add((id, value));
+                else (missing ??= []).Add(id);
+            }
+            var sorted = (descending ? valued.OrderByDescending(v => v.Value, ValueIndex<T>.comparer) : valued.OrderBy(v => v.Value, ValueIndex<T>.comparer)).Select(v => v.Id);
+            return new FixedOrderedSet(missing == null ? sorted : sorted.Concat(missing), unsorted.Count);
         });
     }
     public int CountEqual<T>(IValueIndex<T> index, IdSet nodeIds, T v) where T : notnull {

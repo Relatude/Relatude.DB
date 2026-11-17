@@ -409,6 +409,7 @@ public class EmbeddedPropertyAttribute : PropertyAttribute {
     public IncludeTypeOptions IncludeTypes { get; set; } = IncludeTypeOptions.ThisTypeAndDescending;
     public string[]? InnerTypeIds { get; set; }
     public DisplayMode Display { get; set; } // how an editing interface shows the inner nodes
+    public int MaxCount { get; set; }
 }
 public enum KeyPropertyType {
     NodeGuidId,
@@ -438,6 +439,7 @@ public class ReferencesPropertyAttribute : PropertyAttribute, IAttrWithUniqueCon
     public bool UniqueValues { get; set; }
     public DisplayMode Display { get; set; } // how an editing interface shows the nodes referred to
     public bool AllowInlineEditing { get; set; } // whether an editing interface may show them as forms in place (Display Inline)
+    public int MaxCount { get; set; }
 }
 [AttributeUsage(AttributeTargets.Property)]
 public class RelationPropertyAttribute : PropertyAttribute {
@@ -460,7 +462,7 @@ public class RelationPropertyAttribute : PropertyAttribute {
     /// saved with this node. Off, each is edited in an editor of its own. It says nothing to the store.
     /// </summary>
     public bool AllowInlineEditing { get; set; }
-
+    public int MaxCount { get; set; }
 }
 [AttributeUsage(AttributeTargets.Property)]
 public class RelationPropertyAttribute<T> : RelationPropertyAttribute where T : IRelation {

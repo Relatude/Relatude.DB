@@ -33,6 +33,11 @@ internal static class ConstraintMessages {
     public static ValueConstraintException AboveMaximum(Property p, object value, object maximum)
         => refuse(p, p.CodeName + " is " + format(value) + ", which is above the maximum of " + format(maximum) + ". ");
 
+    public static ValueConstraintException TooMany(Property p, int count, int maxCount)
+        => refuse(p, p.CodeName + " can hold at most " + nodes(maxCount) + ", and the write would leave " + count.ToString(CultureInfo.InvariantCulture) + ". ");
+
+    static string nodes(int count) => count.ToString(CultureInfo.InvariantCulture) + (count == 1 ? " node" : " nodes");
+
     public static ValueConstraintException BelowMinimum(Property p, object value, object minimum)
         => refuse(p, p.CodeName + " is " + format(value) + ", which is below the minimum of " + format(minimum) + ". ");
 

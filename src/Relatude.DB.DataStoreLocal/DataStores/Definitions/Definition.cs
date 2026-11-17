@@ -44,8 +44,13 @@ internal sealed class Definition {
         foreach (var cm in datamodel.NodeTypes.Values) {
             var limited = cm.ThisAndAllInheritedTypes.Values.Where(hasInstanceLimits).Select(t => t.Id).ToArray();
             if (limited.Length > 0) _instanceLimitedTypes.Add(cm.Id, limited);
+            var countLimited = NodeTypes[cm.Id].AllProperties.Values.OfType<RelationProperty>().Where(p => p.RelModel.IsMany && p.RelModel.MaxCount > 0).ToArray();
+            if (countLimited.Length > 0) _countLimitedRelationProperties.Add(cm.Id, countLimited);
         }
     }
+    readonly Dictionary<Guid, RelationProperty[]> _countLimitedRelationProperties = [];
+    public bool AnyRelationCountLimits => _countLimitedRelationProperties.Count > 0;
+    public RelationProperty[] CountLimitedRelationPropertiesOf(Guid nodeTypeId) => _countLimitedRelationProperties.TryGetValue(nodeTypeId, out var properties) ? properties : [];
     static bool hasInstanceLimits(NodeTypeModel t) => t.MinNoInstances > 0 || t.MaxNoInstances != int.MaxValue;
     readonly Dictionary<Guid, Guid[]> _instanceLimitedTypes = [];
     /// <summary>Whether any node type has a MinNoInstances or MaxNoInstances, so a transaction has counts to check.</summary>

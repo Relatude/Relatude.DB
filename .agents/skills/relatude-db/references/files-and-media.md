@@ -15,6 +15,7 @@ Everything between "a node has a `FileValue` property" and "a browser renders a 
 - [Partial (multipart) uploads](#partial-multipart-uploads)
 - [Generating URLs](#generating-urls)
 - [FileAdjustment: asking for a variant](#fileadjustment-asking-for-a-variant)
+- [Pictures cropped in the browser](#pictures-cropped-in-the-browser)
 - [Conversion is asynchronous](#conversion-is-asynchronous)
 - [The download middleware](#the-download-middleware)
 - [What FileHandler does for you](#what-filehandler-does-for-you)
@@ -94,6 +95,23 @@ bool there = await db.FileUploadedAndAvailableAsync<IArticle>(article, a => a.Ph
 ```
 
 `FileUploadedAndAvailableAsync` matters for remote stores, where the write can complete in the background after the call returns.
+
+`FileDeleteAsync` takes the file out of the property, in the revision the context reads; the bytes stay until the unreferenced-file cleanup (the `delete-unreferenced-files` job) finds nothing pointing at them, as when an upload replaces a file or a node is deleted. A revision is made of its source's values, so a draft and the published version hold the same stored file.
+
+Copying a file to another node's file property - `FileCopyAsync` - keeps its name and meta, so nothing is read from it again. In a store with `SameHashSameFile` the copy shares the stored file (no bytes read or written; deleting either value's file leaves it for the other, and only the unreferenced-file cleanup removes it); elsewhere the bytes are streamed into the target's store. A list of pairs is written in one transaction, and the answer has null where the source held no file.
+
+```csharp
+FileValue? copy = await db.FileCopyAsync(original.Id, photoId, duplicate.Id, photoId);
+FileValue?[] copies = await db.FileCopyAsync(pairs.Select(p => (new PropertyPath(p.From, photoId), new PropertyPath(p.To, photoId))));
+
+// in a transaction of your own, with the insert of the node it goes to
+var td = new TransactionData();
+td.InsertOrFail(newNode, null, null);
+var action = td.CopyFile(new PropertyPath(original.Id, photoId), new PropertyPath(newNode.Id, photoId));
+db.Execute(td);   // action.Result: the new node's FileValue
+```
+
+The store reads and stores the bytes before the transaction takes its lock, and deletes them again if the transaction fails. A file value written from outside cannot name a stored file (an insert's is emptied, an update's keeps the file it had); the one the store makes for `CopyFile` goes through. What an update may do is take the file out (`FileValue.Empty`) or change the name, meta, extracted text, width and height of the file the property holds, so `b.Photo = a.Photo; db.Update(b)` copies nothing, and an object read before an upload and written back after it keeps the upload. Transaction plugins see it as a property action with the operation `CopyFile` and no values.
 
 ## Partial (multipart) uploads
 
@@ -256,7 +274,7 @@ var thumb = new FileAdjustmentImage {
 | `Width`, `Height` | 1–10 000 | Canvas size. |
 | `CropMode` | `Fill`, `Fit`, `Stretch`, `Auto` | `Fill` crops to fill, `Fit` letterboxes, `Stretch` distorts, `Auto` picks between Fill and Fit from image content. None, with a `Width` and a `Height`: the picture's own (`ImageFileMeta.CropMode`), else `Fit`. |
 | `Zoom` | 0.1–10 000 | Percent. 100 = 1:1, 200 = 2× in. |
-| `FocusX`, `FocusY` | ±10 000 | Focal point, in original-image coordinates. |
+| `FocusX`, `FocusY` | ±10 000 | Focal point, in the pixels of the picture after any `Rotation`. None, where it places a crop (a Fill or Auto that cuts, a zoom's window; not with a source rectangle): the picture's own (`ImageFileMeta.FocusPoint`, turned with the picture), else the middle. |
 | `OffsetX`, `OffsetY` | ±10 000 | Pan, in original-image coordinates. |
 | `Rotation` | ±360 | Degrees. |
 | `Brightness`, `Contrast`, `Saturation` | ±100 | 0 = unchanged. |
@@ -303,6 +321,26 @@ Every adjustment hashes all of its fields into a key; the conversion cache is ke
 So: **define a small set of named presets and reuse them.** Generating adjustments from arbitrary request parameters means an unbounded number of conversions and cache entries, and since anyone can craft a URL, that is a denial-of-service surface. `HashPropertyUrls = true` closes it by rejecting URLs your own code did not sign.
 
 `Temporary = true` keeps a small conversion result in memory rather than persisting it to the disk cache — right for one-off or rapidly-changing variants, wrong for anything served repeatedly.
+
+## Pictures cropped in the browser
+
+`GetUrl(file, adjustment)` with a `Width` and a `Height` crops to one shape. For a picture whose box changes shape with the layout, write it with `GetDynamicImageHtml` (namespace `Relatude.DB.Common`, in Relatude.DB.NodeServer; returns `HtmlString`):
+
+```cshtml
+<div class="card-picture">@article.Photo.GetDynamicImageHtml(db, 1200, 1200)</div>
+```
+
+```css
+.card-picture { aspect-ratio: 4 / 3; }
+@media (max-width: 600px) { .card-picture { aspect-ratio: 1 / 1; } }
+```
+
+- The HTML is `<span class="relatude-image">` (a CSS size container: `width:100%; height:100%; aspect-ratio:` the picture's) holding an `<img>` placed by the store's own crop arithmetic in container query units, so the browser crops it to any box exactly as the store would crop it to that size: `Fill` about the focus point (centred, clamped to the edges), `Fit` in the middle over the background, `Auto` deciding by the box's shape (within 5%: Fit), `Stretch`. No script.
+- The parent must give the box its size (an aspect ratio, a height, a grid cell). With none, the box takes the picture's own proportions and nothing is cut. `Style` (put last) can size the box itself, e.g. `"max-height:360px"`.
+- `maxWidthPx` × `maxHeightPx` limit the **file**: the whole picture fitted inside them, never enlarged, one side asked for so nothing is cut on the server. The crop uses the picture's proportions and the focus as a fraction, so the file's size does not move it.
+- Crop mode, focus point and background come from `ImageFileMeta` (`CropMode`, `FocusPoint`, `BackgroundColor`); `DynamicImageOptions.Adjustment`'s `CropMode`, `FocusX`/`FocusY`/`OffsetX`/`OffsetY` and `BackgroundColor` override them, as in a URL. The rest of the adjustment (format, quality, tone, rotation, source rectangle, zoom) goes to the server; a turn or a rectangle is made there and the browser crops what it makes. `DefaultCropMode` covers pictures naming none (else `Fit`, as the store).
+- A picture that may be see-through and has no opaque background is asked for as WebP (the store's adaptive default may be JPEG). The background is the box's `background-color`, laid once under the whole box.
+- A picture whose size the store does not know (`Width`/`Height` 0, as for many SVGs) falls back to the `<img>` filling the box with `object-fit`.
 
 ## Conversion is asynchronous
 

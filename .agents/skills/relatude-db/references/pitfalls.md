@@ -21,6 +21,8 @@ Read this before finishing any non-trivial Relatude.DB answer. These are the thi
 - **`[EmbeddedMapProperty(KeyProperty = …)]` requires the named property to exist on the value type** and to match the map's key type.
 - **You cannot read an embedded map by key until the parent is persisted.** Before insert, only `Add` is safe.
 - **Pin `[Node(Id = …)]` and `[Relation(Id = …)]` early.** Without them the id is a hash of the full type name, so a rename or namespace move creates a new, empty type.
+- **A node's name is `IName.Name` and nothing else.** A `Name` or `Title` a type declares itself is an ordinary property, which the admin UI, GraphQL's `name` and facet labels ignore (the datamodel editor warns `own-name`). Inherit `IName`, keep the values already stored with `[FormerProperty("<old property id>", nameof(IName.Name))]` on the type, and keep `IName` in the datamodel (`dm.Add<IName>()` or `dm.AddNamespace<ISystemUser>()`), or every type inheriting it fails the build.
+- **On engines up to 1.1.7.25-alpha, `[FormerProperty]` does not reach the index.** Nodes read their old values as `Name`, but the `IName.Name` index, which existed and was current before the move, never gets them: `Where(n => n.Name == …)` finds nothing for the moved types and `OrderBy(n => n.Name)` throws `KeyNotFoundException: Id … is not present in index 'decb9830-…'`. Later engines key an index by the old ids read as its property and refill it at the next open. On an older engine, give the value index engine a new id in the settings (`ValueIndexes[].Id` and `DefaultValueIndex`): a new engine is empty, so every value index is read from the log at the next open, and text and vector indexes are left alone.
 
 ## Geo
 
@@ -65,6 +67,8 @@ Full treatment in `files-and-media.md`.
 
 ## Operational
 
+- **Writing many addresses one at a time costs a URL check each.** Each write of a node with an address checks its URL is unique, finding the nodes that could share it from the top of the tree down (a few steps for each level of the URL, however many nodes hold the address). For a whole copied branch, insert the nodes without addresses and give them their addresses with one `td.SetAddresses(nodes)`, top first: a node under a parent the same call addressed is compared with its siblings alone, and what the checks read is kept for the call.
+
 - **Take a backup from the admin UI before upgrading.** The project is pre-1.0.
 - **`UseRelatudeDB()` goes after your own `UseCors` / `UseHttpsRedirection` / `UseAuthentication`.**
 - **Call `UseRouting()` yourself, after `UseStaticFiles()`, when the app maps a catch-all route** such as `MapFallbackToFile` for a single page client. `UseRelatudeDB()` registers endpoints, so `WebApplication` inserts routing at the very start of the pipeline unless the app calls it: the catch-all then matches before the static files are reached, and `UseStaticFiles` skips itself whenever an endpoint is already selected. The symptom is the client's own js and css arriving as `index.html` with `Content-Type: text/html`, and a blank page.
@@ -88,6 +92,7 @@ The public documentation is thin and the API is pre-1.0. **When something disagr
 | Topic | Source path |
 |---|---|
 | Attributes | `src/Relatude.DB.NodeStore/Nodes/Attributes.cs` |
+| Node names (`IName`, `NodeName`, `[FormerProperty]`) | `src/Relatude.DB.NodeStore/Native/Models/Models.cs`, `src/Relatude.DB.Model/Datamodels/NodeName.cs`, `readFormerProperties` in `src/Relatude.DB.NodeStore/Datamodels/BuildUtils.cs` |
 | How types, inheritance and properties are built | `src/Relatude.DB.NodeStore/Datamodels/BuildUtils.cs`, `BuildUtilsProperties.cs` |
 | Proxy / interface generation | `src/Relatude.DB.NodeStore/CodeGeneration/InterfaceGen.cs`, `ModelGen.cs` |
 | Server wiring and the admin UI | `src/Relatude.DB.NodeServer/`, `src/Relatude.DB.UI/` |

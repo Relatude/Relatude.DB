@@ -208,6 +208,7 @@ public static class SchemaView {
                         var key = em.KeyPropertyName ?? "key";
                         return "EmbeddedMap<" + key + ", " + inner + ">";
                     }
+                    if (em.EmbeddedValueType == EmbeddedValueType.InnerNode) return "EmbeddedOne<" + inner + ">";
                     return "Embedded<" + inner + ">";
                 }
         }

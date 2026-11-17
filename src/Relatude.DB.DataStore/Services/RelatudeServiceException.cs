@@ -1,7 +1,7 @@
 namespace Relatude.DB.Common;
 
 /// <summary>
-/// A Relatude service - Imaging or FileToText - said no, or could not be reached for an answer. The
+/// A Relatude service - AI, Imaging or FileToText - said no, or could not be reached for an answer. The
 /// message repeats the service's own reason, which is written to be shown to whoever configured the
 /// installation, so it can be logged or shown as it is.
 /// <para><see cref="StatusCode"/> is the service's answer, or 0 when there was none: a timeout or a

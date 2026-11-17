@@ -80,6 +80,13 @@ Two ways, and they compose — JSON sources load first, then `OnDatamodelInit` a
     "Type": "CompiledTypes",           // or RuntimeTypes (model files on disk, always JSON)
     "Namespace": "VenueApp.Models",    // matched exactly, not by prefix
     "Reference": "VenueApp"            // assembly name; null means the entry assembly
+  },
+  {
+    "Id": "...",
+    "Name": "Native",                  // the engine's own model, IName among it
+    "Type": "CompiledTypes",
+    "Namespace": "Relatude.DB.Native.Models",
+    "Reference": "Relatude.DB.NodeStore"
   }
 ]
 ```
@@ -91,11 +98,14 @@ Two ways, and they compose — JSON sources load first, then `OnDatamodelInit` a
 ```csharp
 builder.AddRelatudeDB(options => {
     options.OnDatamodelInit = (dm, container) => {
-        dm.AddNamespace<IVenue>();     // every node & relation type in that namespace
-        dm.Add<IEvent>();              // one type, plus everything it references
+        dm.AddNamespace<ISystemUser>(); // the engine's own model: users, groups, cultures, IName
+        dm.AddNamespace<IVenue>();      // every node & relation type in that namespace
+        dm.Add<IEvent>();               // one type, plus everything it references
     };
 });
 ```
+
+Every type a node type inherits must be in the datamodel, the engine's `IName` (the node's name, `datamodels.md`) included; `relatude new` and `relatude init` write the `Native` source above.
 
 Either way the server builds the datamodel, generates the proxy assembly and reloads. From then on the model is **rebuilt automatically whenever the assembly loads** — you do not re-register after each code change.
 
@@ -124,6 +134,7 @@ Two habits worth forming, and worth recommending to users:
 
 ```csharp
 var datamodel = new Datamodel();
+datamodel.AddNamespace<ISystemUser>(); // the engine's own model, IName among it
 datamodel.AddNamespace<IVenue>();     // every node & relation type in that namespace
 // or, one at a time:
 datamodel.Add<IEvent>();

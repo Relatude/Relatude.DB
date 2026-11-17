@@ -1198,6 +1198,7 @@ sealed class UIQuery {
                     view.Info = map == null || map.Count == 0 ? "empty"
                         : map.Count + (map.Count == 1 ? " inner node" : " inner nodes");
                     view.TargetTypes = [.. innerTypes(dm, emb).Select(t => (object)new { t.Id, Name = t.CodeName })];
+                    view.MaxCount = emb.EmbeddedValueType == EmbeddedValueType.InnerNode ? 1 : emb.MaxCount > 0 ? emb.MaxCount : null;
                     var embedded = new PropertyPath(n.Id, property.Id);
                     view.Value = map == null ? [] : map.Take(maxInnerNodesShown).Select(inner => (object)new {
                         inner.Id,
@@ -1376,6 +1377,7 @@ sealed class UIQuery {
         public string[]? Choices { get; set; }
         public object[]? Targets { get; set; }
         public object[]? TargetTypes { get; set; }
+        public int? MaxCount { get; set; }
         public bool? IsMany { get; set; }
         public bool? Multiline { get; set; }
         public string? Language { get; set; }

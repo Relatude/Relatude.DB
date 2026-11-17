@@ -7,6 +7,7 @@ public enum EmbeddedValueType {
     //List,
     InnerNodeList,
     InnerNodeMap,
+    InnerNode,
 }
 public enum IncludeTypeOptions {
     ThisTypeAndDescending,
@@ -23,6 +24,8 @@ public class EmbeddedPropertyModel : PropertyModel {
     /// <summary>How an editing interface shows the inner nodes; see <see cref="RelationPropertyModel.Display"/>.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public DisplayMode Display { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public int MaxCount { get; set; }
 
     public Guid KeyProperty { get; set; } = Guid.Empty;
     public string? KeyPropertyName { get; set; }
@@ -33,7 +36,7 @@ public class EmbeddedPropertyModel : PropertyModel {
     public bool PrependOnAdd { get; set; } = false;
     public override PropertyType PropertyType { get => PropertyType.Embedded; }
 
-    public override string? GetDefaultDeclaration() => "[]";
+    public override string? GetDefaultDeclaration() => EmbeddedValueType == EmbeddedValueType.InnerNode ? "new()" : "[]";
     public override object? GetDefaultValue() => null;
     public static IInnerNodeDataMap ForceValueType(object value, out bool changed) {
         if (value is IInnerNodeDataMap ndm) {

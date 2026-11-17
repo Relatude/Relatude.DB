@@ -455,6 +455,18 @@ public Embedded<PriceTier> PriceTiers { get; set; } = [];
 
 `IncludeTypeOptions` controls which subtypes are allowed in the slot.
 
+### `EmbeddedOne<T>` — one embedded object, or none
+
+```csharp
+public EmbeddedOne<Address> Address { get; } = new();   // getter-only; on an interface just { get; }
+
+company.Address.Set(new Address { Street = "Storgata 1" });   // replaces what was there
+company.Address.Clear();
+if (company.Address.TryGet(out var a)) { /* ... */ }        // also HasValue, Get(), Value (null when empty)
+```
+
+Stored like `Embedded<T>` (shape `InnerNode`); the store refuses a write leaving more than one inner node. The object read is a copy: modify it, then `Set()` it again before `Update`.
+
 ### `EmbeddedMap<TKey, TValue>` — keyed by a property of the value
 
 ```csharp

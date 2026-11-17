@@ -39,9 +39,11 @@ public class NativeOpenAIProvider : IAIProvider {
     }
     /// <summary>True, though on an OpenAI-compatible endpoint the model has to take pictures too.</summary>
     public bool SupportsImages => true;
+    /// <summary>True, though on an OpenAI-compatible endpoint the model has to take tools too.</summary>
+    public bool SupportsTools => true;
     public async Task<string> GetChatCompletionAsync(AIChatRequest request, CancellationToken cancellationToken = default)
         => (await GetChatResultAsync(request, cancellationToken)).Text;
-    /// <summary>The answer with finish_reason and usage.</summary>
+    /// <summary>The answer with its tool calls, finish_reason and usage.</summary>
     public async Task<AIChatResult> GetChatResultAsync(AIChatRequest request, CancellationToken cancellationToken = default) {
         var body = OpenAIWire.BuildChatRequest(resolveModel(request.ModelKey), request, request.MaxOutputTokens ?? _settings.MaxOutputTokens);
         var json = await OpenAIWire.PostAsync(_http, _chatUrl, body, r => setAuth(r, _apiKey), cancellationToken);

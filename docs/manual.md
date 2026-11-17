@@ -85,7 +85,7 @@ Everything in Relatude.DB is a **node**. A node has:
 | `Guid Id` | The public identity. The engine also keeps an internal `int` id (`__Id`) for its indexes. |
 | `NodeMeta Meta` | Metadata the system manages: timestamps, culture, revision, access, address. |
 | **Scalar properties** | `string`, `int`, `decimal`, `DateTime`, `bool`, `Guid`, `GeoCoordinate`, `FileValue`, `PasswordValue`, arrays… |
-| **Embedded data** | Sub-objects stored inside the node: `Embedded<T>`, `EmbeddedMap<TKey,TValue>`. |
+| **Embedded data** | Sub-objects stored inside the node: `Embedded<T>`, `EmbeddedOne<T>`, `EmbeddedMap<TKey,TValue>`. |
 | **References** | A stored `Guid` (or `Guid[]`) pointing at other nodes. One-directional, with no reverse index. |
 | **Relations** | Graph edges, declared as classes of their own. Bidirectional, indexed and traversable. |
 
@@ -679,6 +679,23 @@ message is written for the person who typed the value, for example
   the limit. A transaction that adds nodes is refused above the maximum, and one that removes nodes
   below the minimum, with a `NodeTypeConstraintException`. So with `MinNoInstances = 1` you can
   always insert the first node, but never delete the last.
+- **`MaxCount`** on `[EmbeddedProperty]`, `[ReferencesProperty]` and `[RelationProperty]` is the most
+  nodes the property may hold: inner nodes, references (duplicates count, `Guid.Empty` does not), or
+  the nodes a many end of a relation relates the node to. 0, the default, is no limit; on a relation
+  end that holds one node it does nothing. A relation is counted on what the whole transaction leaves,
+  whichever end the relation is added from, so a child naming its parent counts towards the parent's
+  `Children`. Unlike the other rules, a node already holding more than a limit set later can still be
+  saved, and lose nodes: only a write that leaves it holding more than before is refused. The
+  property's other end, and every other node, is not limited. An editing interface such as the CMS
+  stops offering to add nodes at the limit. Changing `MaxCount` rebuilds nothing.
+
+  ```csharp
+  [EmbeddedProperty(MaxCount = 3)]
+  public Embedded<Slide> Slides { get; } = [];
+
+  [RelationProperty(MaxCount = 5)]
+  public FeaturedOn.Products Products { get; set; } = new();
+  ```
 
 ### 3.1 Overriding attributes
 
@@ -790,7 +807,7 @@ database you can override these:
 | Node type, that type only | `Hidden`, `Title`, `Description`, `DefaultReadAccess`, `DefaultEditViewAccess`, `DefaultEditAccess`, `DefaultPublishAccess`, `MinNoInstances`, `MaxNoInstances`, `TextIndexBoost` |
 | Property, per type | `DefaultValue`, `ExcludeFromTextIndex`, `IndexBoost` (`TextIndexBoost` on the attributes) |
 | Property, asked for by any type | `Indexed`, `NotFacet` |
-| Property, on the declaring type only | `IndexType`, `IndexedByWords`, `TextIndexType`, `CultureSensitive`, `MinLength`, `MaxLength`, `RegularExpression`, `RegularExpressionMessage`, `LegalCharacters`, `Trim`, `CaseTransform`, `MinValue`, `MaxValue`, `FacetRangePowerBase`, `FacetRangeCount`, `Facet`, `TextIndexRelatedContent`, `TextIndexRelatedName`, `TextIndexRecursiveLevelLimit`, `Display` and `AllowInlineEditing` ([§10](#how-an-editor-shows-them-display)), `TitleLayout`, `Unit`, `Height`, `Width`, `Title`, `TextLines`, `GuidType`, `StringType`, `UniqueValues`, `CaseSensitive`, `IgnoreDuplicateEmptyValues`, `PrefixSearch`, `InfixSearch`, `IndexedBySemantic`, `PropertyIdForEmbeddings`, `MinWordLength`, `MaxWordLength`, `LegalValues`, `LegalValueNames`, `ReadAccess`, `WriteAccess`, `IncludeTypes`, `PrependOnAdd`, `FileStorageProviderId`, `ImageMetaAnalysis`, `ImageCropModeAnalysis`, `FileTextIndexing`, `VideoAndAudioFileTextIndexing`, and a password's `AllowHashed`, `AllowEncrypted`, `AllowPlainText`, `RequireUppercase`, `RequireLowercase`, `RequireDigit`, `RequireSymbol` |
+| Property, on the declaring type only | `IndexType`, `IndexedByWords`, `TextIndexType`, `CultureSensitive`, `MinLength`, `MaxLength`, `RegularExpression`, `RegularExpressionMessage`, `LegalCharacters`, `Trim`, `CaseTransform`, `MinValue`, `MaxValue`, `FacetRangePowerBase`, `FacetRangeCount`, `Facet`, `TextIndexRelatedContent`, `TextIndexRelatedName`, `TextIndexRecursiveLevelLimit`, `Display` and `AllowInlineEditing` ([§10](#how-an-editor-shows-them-display)), `TitleLayout`, `Unit`, `Height`, `Width`, `Title`, `TextLines`, `GuidType`, `StringType`, `UniqueValues`, `CaseSensitive`, `IgnoreDuplicateEmptyValues`, `PrefixSearch`, `InfixSearch`, `IndexedBySemantic`, `PropertyIdForEmbeddings`, `MinWordLength`, `MaxWordLength`, `LegalValues`, `LegalValueNames`, `ReadAccess`, `WriteAccess`, `IncludeTypes`, `PrependOnAdd`, `MaxCount`, `FileStorageProviderId`, `ImageMetaAnalysis`, `ImageCropModeAnalysis`, `FileTextIndexing`, `VideoAndAudioFileTextIndexing`, and a password's `AllowHashed`, `AllowEncrypted`, `AllowPlainText`, `RequireUppercase`, `RequireLowercase`, `RequireDigit`, `RequireSymbol` |
 
 What the compiled code depends on cannot be overridden: ids and names, the property type, what a type
 inherits, the shape of a member (`ReferenceValueType`, `RelationValueType`, `EmbeddedValueType`), the
@@ -1344,8 +1361,9 @@ hours on a venue, line items on an order, price tiers on an event.
 An embedded class is part of the model, so register it with your node types
 ([§12](#12-registering-the-model--the-admin-ui)): `AddNamespace` picks it up, `Add<T>` on the parent
 does not. On an interface, declare embedded properties getter-only; the store creates the collection.
-On a class, initialise them: declare an `Embedded<T>` getter-only, `{ get; } = [];`, which the store
-fills, and an `EmbeddedMap` with a setter, `{ get; set; } = [];`. There are two kinds.
+On a class, initialise them: declare an `Embedded<T>` getter-only, `{ get; } = [];`, and an
+`EmbeddedOne<T>` getter-only, `{ get; } = new();`, which the store fills, and an `EmbeddedMap` with a
+setter, `{ get; set; } = [];`. There are three kinds.
 
 ### `Embedded<T>` — a collection keyed by the embedded object's own `Guid Id`
 
@@ -1365,6 +1383,40 @@ public interface IEvent {
 
 `IncludeTypes` says which types the collection takes. The default, `ThisTypeAndDescending`, takes
 `PriceTier` and its subclasses; `ThisTypeOnly` and `DescendingTypesOnly` narrow that.
+
+### `EmbeddedOne<T>` — one embedded object, or none
+
+```csharp
+public class Address {
+    public Guid Id { get; set; }
+    public string Street { get; set; } = string.Empty;
+    public string City { get; set; } = string.Empty;
+}
+
+public class Company {
+    // ...
+    public EmbeddedOne<Address> Address { get; } = new();
+}
+```
+
+```csharp
+company.Address.Set(new Address { Street = "Storgata 1", City = "Oslo" });
+db.Update(company);
+
+var loaded = db.Get<Company>(company.Id);
+if (loaded.Address.TryGet(out var address)) Console.WriteLine(address.City);
+var street = loaded.Address.Value?.Street;   // Value is null when nothing is set
+loaded.Address.Clear();                     // removes it on the next update
+```
+
+`HasValue`, `Get()`, `TryGet()` and `Value` read it; `Set()`, `Clear()` and the `Value` setter
+change it. The object read is a copy, as an item of `Embedded<T>` is: change it, then `Set()` it again
+before the update. `EmbeddedOne<T>` is also `IEnumerable<T>` of zero or one item.
+
+It is stored exactly as `Embedded<T>` is (the model calls the shape `InnerNode`, next to
+`InnerNodeList` and `InnerNodeMap`), and the store refuses a write that would leave more than one
+inner node in it. A property can move between the two shapes without a rebuild; a node holding
+more than one keeps them until it is saved with fewer, and `EmbeddedOne<T>` reads the first.
 
 ### `EmbeddedMap<TKey, TValue>` — a collection keyed by a property of the value
 
@@ -1683,7 +1735,8 @@ EventsAtVenue.Events Events { get; }
 ```
 
 `Display` and `AllowInlineEditing` on `[RelationProperty]` say how an editing interface shows the
-related nodes ([§10](#how-an-editor-shows-them-display)).
+related nodes ([§10](#how-an-editor-shows-them-display)). `MaxCount` limits how many nodes a many end
+holds ([§3](#validation-happens-on-write)).
 
 ---
 
@@ -3303,6 +3356,8 @@ At **write time** (the transaction fails):
   `LegalCharacters`, and enums are not checked against theirs.
 - `MinNoInstances` and `MaxNoInstances` per type, descendants included, on the counts the
   transaction leaves.
+- `MaxCount` on embedded, references and many relation ends, refused only where a write leaves a node
+  holding more than before.
 - `UniqueValues = true`: unique across the type. For strings, case is ignored unless
   `CaseSensitive = true`.
 - `DisallowCircularReferences = true`: no cycles in a self-referencing relation.
@@ -6805,12 +6860,65 @@ if (result.WasCut) { /* it reached MaxOutputTokens: the text is cut short, or em
   `Effort` what the model ran with. Anthropic leaves it out.
 - **What is known.** Each part of the result is null where the provider does not say: a provider of
   your own that does not implement `GetChatResultAsync` gives the text alone. `FinishReason` is
-  `stop`, `length` or `content_filter` (`AIFinishReason`) whichever the provider.
+  `stop`, `length`, `content_filter` or `tool_calls` (`AIFinishReason`) whichever the provider.
 - **What it costs on the Relatude AI service.** The tokens the call used, as the vendor counts them,
   each weighted by the model: input, input read from the vendor's prompt cache (cheaper), and output,
   the thinking among it, which costs the most. `fast`, `balanced` and `thorough` cost more in that
   order. A share of the input is charged before the call and the rest once the model has answered.
   `GET /api/ai/models` with the license key lists every model's weights and efforts.
+
+#### Tools
+
+A model can ask for your code to be called. Give the request the tools there are, each with a name,
+a description written for the model and the JSON Schema of its arguments. The answer then has either
+text or the calls the model wants. Make the calls, add the answer and their results to the
+conversation, and ask again, until it answers in words.
+
+```csharp
+using var schema = JsonDocument.Parse("""
+    {"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}
+    """);
+var tools = new[] { new AITool("weather", "The weather in a city today.", schema.RootElement.Clone()) };
+
+var messages = new List<AIChatMessage> { AIChatMessage.User("Do I need a coat in Bergen?") };
+while (true) {
+    AIChatResult result = await db.Services.AI.GetChatResultAsync(new AIChatRequest(messages) {
+        Instructions = "You help travellers.",
+        Tools = tools,
+    });
+    if (result.ToolCalls.Count == 0) return result.Text;
+    messages.Add(result.ToMessage());                       // the model's turn, calls and all
+    messages.Add(AIChatMessage.Tool(result.ToolCalls.Select(call =>
+        new AIToolResult(call.Id, WeatherIn(call.Arguments().GetProperty("city").GetString()!)))));
+}
+```
+
+- **`db.Services.AI.SupportsTools`** says whether the provider has them. `RelatudeServices`, `OpenAI`
+  and `Azure` do, though on an OpenAI-compatible endpoint the model has to take tools too. A provider
+  without them throws `NotSupportedException` for a request with tools, or with a conversation in
+  which tools were called.
+- **On the Relatude AI service** a request with tools or a `ResponseSchema` goes to its chat route and
+  is charged as a completion is, with `Credits` and `CreditsLeft` in the answer. A long conversation
+  costs less than its length suggests: what the model has read before it reads from its cache at a
+  lower price, and `Usage.CachedInputTokens` says how much that was.
+- **A model may ask for several tools in one answer.** Answer each call in one `AIChatMessage.Tool`,
+  by its `Id`. `ParallelToolCalls = false` asks for one at a time. A tool that failed answers
+  `new AIToolResult(id, why, IsError: true)`, and the model reads why.
+- **`ToolChoice`** is `AIToolChoice.Auto` (the default), `None`, `Required`, or the name of the one
+  tool to call.
+- **Send calls back as they came.** `AIToolCall.ArgumentsJson` is the arguments as the model wrote
+  them, and `ToMessage()` keeps them so. Written out again, even with other white space, the
+  vendor's prompt cache misses from there on. Keep the tools in the same order from call to call
+  for the same reason, and set `CacheKey` to something the calls of one conversation share.
+- **`ResponseSchema`** asks for an answer that fits a JSON Schema:
+  `ResponseSchema = new("plan", schema)`. A provider without structured answers leaves it out, so
+  check the answer all the same.
+- **`StreamChatAsync`** gives the answer as it is made: `AITextDelta` for more text,
+  `AIToolCallDelta` for a call taking shape, and last an `AIChatDone` with the whole `AIChatResult`.
+  A provider that does not stream gives the text in one piece.
+- **`ScriptedAIProvider`** answers from a script, for tests of code that calls tools:
+  `new ScriptedAIProvider(ScriptedAIProvider.Calls(new AIToolCall("1", "weather", "{}")), ScriptedAIProvider.Says("Yes."))`.
+  `Requests` holds what it was asked.
 
 ### 34.2 Images
 

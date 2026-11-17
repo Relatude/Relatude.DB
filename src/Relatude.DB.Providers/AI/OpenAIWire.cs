@@ -32,7 +32,11 @@ internal static class OpenAIWire {
     }
     // the default encoder writes every '+' of a picture's base64 as +
     static readonly JsonWriterOptions _relaxed = new() { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
-    /// <summary>A chat request: the instructions as a system message, a message with pictures as text and image_url parts.</summary>
+    /// <summary>
+    /// A chat request: the instructions as a system message, a message with pictures as text and image_url parts, the
+    /// tools as functions, an assistant's tool calls with their arguments as they were given, and each tool result as
+    /// a message of its own.
+    /// </summary>
     public static string BuildChatRequest(string? model, AIChatRequest request, int? maxOutputTokens) {
         using var ms = new MemoryStream();
         using (var w = new Utf8JsonWriter(ms, _relaxed)) {
@@ -40,6 +44,7 @@ internal static class OpenAIWire {
             if (model != null) w.WriteString("model", model);
             if (maxOutputTokens.HasValue) w.WriteNumber("max_completion_tokens", maxOutputTokens.Value);
             if (!string.IsNullOrWhiteSpace(request.Effort)) w.WriteString("reasoning_effort", request.Effort.Trim().ToLowerInvariant());
+            writeTools(w, request);
             w.WriteStartArray("messages");
             if (!string.IsNullOrWhiteSpace(request.Instructions)) {
                 w.WriteStartObject();
@@ -48,9 +53,33 @@ internal static class OpenAIWire {
                 w.WriteEndObject();
             }
             foreach (var m in request.Messages) {
+                if (m.Role == AIChatRole.Tool) {
+                    foreach (var result in m.ToolResults) {
+                        w.WriteStartObject();
+                        w.WriteString("role", "tool");
+                        w.WriteString("tool_call_id", result.CallId);
+                        w.WriteString("content", result.Content);
+                        w.WriteEndObject();
+                    }
+                    continue;
+                }
                 w.WriteStartObject();
                 w.WriteString("role", m.Role == AIChatRole.User ? "user" : "assistant");
-                if (m.Images.Count == 0) {
+                if (m.ToolCalls.Count > 0) {
+                    if (m.Text.Length > 0) w.WriteString("content", m.Text); else w.WriteNull("content");
+                    w.WriteStartArray("tool_calls");
+                    foreach (var call in m.ToolCalls) {
+                        w.WriteStartObject();
+                        w.WriteString("id", call.Id);
+                        w.WriteString("type", "function");
+                        w.WriteStartObject("function");
+                        w.WriteString("name", call.Name);
+                        w.WriteString("arguments", string.IsNullOrEmpty(call.ArgumentsJson) ? "{}" : call.ArgumentsJson);
+                        w.WriteEndObject();
+                        w.WriteEndObject();
+                    }
+                    w.WriteEndArray();
+                } else if (m.Images.Count == 0) {
                     w.WriteString("content", m.Text);
                 } else {
                     w.WriteStartArray("content");
@@ -78,14 +107,58 @@ internal static class OpenAIWire {
         }
         return Encoding.UTF8.GetString(ms.ToArray());
     }
+    // Left out whole for a request without them, so a plain request is byte for byte what it was.
+    static void writeTools(Utf8JsonWriter w, AIChatRequest request) {
+        if (request.Tools.Count > 0) {
+            w.WriteStartArray("tools");
+            foreach (var tool in request.Tools) {
+                w.WriteStartObject();
+                w.WriteString("type", "function");
+                w.WriteStartObject("function");
+                w.WriteString("name", tool.Name);
+                w.WriteString("description", tool.Description);
+                w.WritePropertyName("parameters");
+                tool.InputSchema.WriteTo(w);
+                w.WriteEndObject();
+                w.WriteEndObject();
+            }
+            w.WriteEndArray();
+            var choice = request.ToolChoice?.Trim();
+            if (!string.IsNullOrEmpty(choice)) {
+                if (choice is AIToolChoice.Auto or AIToolChoice.None or AIToolChoice.Required) {
+                    w.WriteString("tool_choice", choice);
+                } else {
+                    w.WriteStartObject("tool_choice");
+                    w.WriteString("type", "function");
+                    w.WriteStartObject("function");
+                    w.WriteString("name", choice);
+                    w.WriteEndObject();
+                    w.WriteEndObject();
+                }
+            }
+            if (request.ParallelToolCalls.HasValue) w.WriteBoolean("parallel_tool_calls", request.ParallelToolCalls.Value);
+        }
+        if (request.ResponseSchema is { } schema) {
+            w.WriteStartObject("response_format");
+            w.WriteString("type", "json_schema");
+            w.WriteStartObject("json_schema");
+            w.WriteString("name", schema.Name);
+            w.WriteBoolean("strict", schema.Strict);
+            w.WritePropertyName("schema");
+            schema.Schema.WriteTo(w);
+            w.WriteEndObject();
+            w.WriteEndObject();
+        }
+        if (!string.IsNullOrWhiteSpace(request.CacheKey)) w.WriteString("prompt_cache_key", request.CacheKey);
+    }
     public static string ImageContentType(AIImage image) => !string.IsNullOrWhiteSpace(image.ContentType) ? image.ContentType.Trim().ToLowerInvariant()
         : AIImage.ContentTypeOf(image.Bytes) ?? throw new ArgumentException("A picture has no content type, and is not a PNG, JPEG, GIF or WebP file. ");
     public static string ImageDetail(AIImage image) => string.IsNullOrWhiteSpace(image.Detail) ? "auto" : image.Detail.Trim().ToLowerInvariant();
     public static string ParseChatResponse(string json) => ParseChatResult(json).Text;
     /// <summary>
-    /// The text, why the model stopped (finish_reason, which is already one of <see cref="AIFinishReason"/>'s words), the
-    /// model, and the tokens used: usage's prompt_tokens with the cached among them, and completion_tokens with the
-    /// reasoning among them.
+    /// The text, the tool calls with their arguments as given, why the model stopped (finish_reason, which is already
+    /// one of <see cref="AIFinishReason"/>'s words), the model, and the tokens used: usage's prompt_tokens with the
+    /// cached among them, and completion_tokens with the reasoning among them.
     /// </summary>
     public static AIChatResult ParseChatResult(string json) {
         using var doc = JsonDocument.Parse(json);
@@ -93,9 +166,23 @@ internal static class OpenAIWire {
         var choices = root.GetProperty("choices");
         string text = "";
         string? finish = null;
+        var calls = new List<AIToolCall>();
         if (choices.GetArrayLength() > 0) {
             var choice = choices[0];
-            if (choice.TryGetProperty("message", out var message) && message.TryGetProperty("content", out var content) && content.ValueKind == JsonValueKind.String) text = content.GetString() ?? "";
+            if (choice.TryGetProperty("message", out var message)) {
+                if (message.TryGetProperty("content", out var content) && content.ValueKind == JsonValueKind.String) text = content.GetString() ?? "";
+                if (message.TryGetProperty("tool_calls", out var toolCalls) && toolCalls.ValueKind == JsonValueKind.Array) {
+                    foreach (var call in toolCalls.EnumerateArray()) {
+                        if (!call.TryGetProperty("function", out var function) || function.ValueKind != JsonValueKind.Object) continue;
+                        var name = function.TryGetProperty("name", out var n) && n.ValueKind == JsonValueKind.String ? n.GetString() : null;
+                        if (string.IsNullOrEmpty(name)) continue;
+                        // an endpoint that gives a call no id still has its calls told apart
+                        var id = call.TryGetProperty("id", out var i) && i.ValueKind == JsonValueKind.String && i.GetString() is { Length: > 0 } given ? given : "call_" + calls.Count;
+                        var arguments = function.TryGetProperty("arguments", out var a) && a.ValueKind == JsonValueKind.String ? a.GetString() ?? "" : "";
+                        calls.Add(new AIToolCall(id, name, arguments));
+                    }
+                }
+            }
             if (choice.TryGetProperty("finish_reason", out var reason) && reason.ValueKind == JsonValueKind.String) finish = reason.GetString();
         }
         AIUsage? usage = null;
@@ -107,7 +194,7 @@ internal static class OpenAIWire {
                 ReasoningTokens: u.TryGetProperty("completion_tokens_details", out var cd) && cd.ValueKind == JsonValueKind.Object ? intOf(cd, "reasoning_tokens") : 0);
         }
         var model = root.TryGetProperty("model", out var m) && m.ValueKind == JsonValueKind.String ? m.GetString() : null;
-        return new AIChatResult(text) { FinishReason = finish, Usage = usage, Model = model };
+        return new AIChatResult(text) { FinishReason = finish, Usage = usage, Model = model, ToolCalls = calls };
     }
     static int intOf(JsonElement e, string name) => e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var n) ? n : 0;
     public static string BuildEmbeddingsRequest(string? model, string[] input) {

@@ -6,9 +6,13 @@ using Relatude.DB.IO;
 
 namespace Relatude.DB.DataStores.Definitions.PropertyTypes;
 
-internal class EmbeddedProperty : Property {
+internal class EmbeddedProperty : Property, ICountLimitedProperty {
     public EmbeddedProperty(PropertyModel pm, Definition def) : base(pm, def) {
+        var em = (EmbeddedPropertyModel)pm;
+        MaxCount = em.EmbeddedValueType == EmbeddedValueType.InnerNode && (em.MaxCount <= 0 || em.MaxCount > 1) ? 1 : em.MaxCount;
     }
+    public int MaxCount { get; }
+    public int CountOf(object? value) => value is IInnerNodeDataMap map ? map.Count : 0;
     public override PropertyType PropertyType => PropertyType.Embedded;
     public override object ForceValueType(object value, out bool changed) {
         if (value is IInnerNodeDataMap ndm) {

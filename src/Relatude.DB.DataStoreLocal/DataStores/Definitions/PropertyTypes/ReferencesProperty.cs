@@ -9,14 +9,17 @@ namespace Relatude.DB.DataStores.Definitions.PropertyTypes;
 /// <see cref="ReferenceProperty"/>: per-element target-type validation and facet buckets decorated
 /// with the referenced node's display name.
 /// </summary>
-internal class ReferencesProperty : GuidArrayProperty {
+internal class ReferencesProperty : GuidArrayProperty, ICountLimitedProperty {
     List<Guid> _nodeTypes;
     Dictionary<Guid, bool> _isTypeValidCache = new(); // pure memo; mutated only under the store's write lock
     IncludeTypeOptions _includeTypeOptions;
     public ReferencesProperty(ReferencesPropertyModel pm, Definition def) : base(pm, def) {
         _nodeTypes = pm.NodeTypes;
         _includeTypeOptions = pm.IncludeTypes;
+        MaxCount = pm.MaxCount;
     }
+    public int MaxCount { get; }
+    public int CountOf(object? value) => value is Guid[] guids ? guids.Count(g => g != Guid.Empty) : 0;
     public override PropertyType PropertyType => PropertyType.References;
     public override void ValidateValue(object value, INodeData node) {
         if (value is not Guid[] guids) throw new ArgumentException("Value must be a Guid array.");

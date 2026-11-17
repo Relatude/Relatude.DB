@@ -65,20 +65,34 @@ public class AIEngine {
     /// pictures when <see cref="SupportsImages"/>. Not cached, like <see cref="GetCompletionAsync"/>.
     /// </summary>
     public Task<string> GetChatCompletionAsync(AIChatRequest request, CancellationToken cancellationToken = default) {
-        ArgumentNullException.ThrowIfNull(request);
-        // a provider of one's own that leaves SupportsImages false could otherwise drop the pictures unseen
-        if (request.HasImages && !_provider.SupportsImages) throw new NotSupportedException($"The AI provider {Settings.TypeName ?? _provider.GetType().Name} cannot send pictures. ");
+        check(request);
         return _provider.GetChatCompletionAsync(request, cancellationToken);
     }
     /// <summary>
-    /// <see cref="GetChatCompletionAsync"/> with the whole answer: why the model stopped (<see cref="AIChatResult.WasCut"/>
-    /// when it reached the request's <see cref="AIChatRequest.MaxOutputTokens"/>), the tokens it used and, from the
-    /// Relatude AI service, what it cost. Each is null where the provider does not say.
+    /// <see cref="GetChatCompletionAsync"/> with the whole answer: the tools the model asks for
+    /// (<see cref="AIChatResult.ToolCalls"/>, when <see cref="SupportsTools"/>), why it stopped
+    /// (<see cref="AIChatResult.WasCut"/> when it reached the request's <see cref="AIChatRequest.MaxOutputTokens"/>),
+    /// the tokens it used and, from the Relatude AI service, what it cost. Each is null where the provider does not say.
     /// </summary>
     public Task<AIChatResult> GetChatResultAsync(AIChatRequest request, CancellationToken cancellationToken = default) {
+        check(request);
+        return _provider.GetChatResultAsync(request, cancellationToken);
+    }
+    /// <summary>Whether the provider's model can ask for tools (<see cref="AIChatRequest.Tools"/>).</summary>
+    public bool SupportsTools => _provider.SupportsTools;
+    /// <summary>
+    /// <see cref="GetChatResultAsync"/> as the answer is made: its text in pieces, then an <see cref="AIChatDone"/>
+    /// with the whole answer. A provider that does not stream gives the text in one piece.
+    /// </summary>
+    public IAsyncEnumerable<AIChatDelta> StreamChatAsync(AIChatRequest request, CancellationToken cancellationToken = default) {
+        check(request);
+        return _provider.StreamChatAsync(request, cancellationToken);
+    }
+    // a provider of one's own that leaves SupportsImages or SupportsTools false could otherwise drop them unseen
+    void check(AIChatRequest request) {
         ArgumentNullException.ThrowIfNull(request);
         if (request.HasImages && !_provider.SupportsImages) throw new NotSupportedException($"The AI provider {Settings.TypeName ?? _provider.GetType().Name} cannot send pictures. ");
-        return _provider.GetChatResultAsync(request, cancellationToken);
+        if (!_provider.SupportsTools) request.RequireNoTools(Settings.TypeName ?? _provider.GetType().Name);
     }
     class resultSet(string text, string modelKey) {
         public readonly ulong Hash = (modelKey + (char)0 + text).XXH64Hash(); // the model and the text

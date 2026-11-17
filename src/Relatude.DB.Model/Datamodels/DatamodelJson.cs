@@ -41,6 +41,7 @@ public static class DatamodelJson {
     /// <see cref="StringValueType.Code"/>, which the store keeps and indexes as it does AnyString: moving between the four
     /// says how the text is edited, not what is stored. The
     /// file analysis switches of a file property are left out too: they decide background work, not what is indexed.
+    /// So is the most nodes a property may hold (MaxCount), a rule for writes only.
     /// So is what nodes may be made of a type (<see cref="NodeTypeModel.IsAbstract"/>, and <see cref="NodeTypeModel.IsInnerNode"/>,
     /// written as false, as every state file before it held it), and their overrides.
     /// The editor's checksum (<see cref="Checksum"/>) keeps them: to the editor they are changes of the model.
@@ -99,6 +100,7 @@ public static class DatamodelJson {
             || typeInfo.Type == typeof(ReferencesPropertyModel) || typeInfo.Type == typeof(EmbeddedPropertyModel)) {
             removeProperty(typeInfo, nameof(RelationPropertyModel.Display));
             removeProperty(typeInfo, nameof(RelationPropertyModel.AllowInlineEditing));
+            removeProperty(typeInfo, nameof(RelationPropertyModel.MaxCount));
         } else if (typeInfo.Type == typeof(FilePropertyModel)) {
             removeProperty(typeInfo, nameof(FilePropertyModel.ImageMetaAnalysis));
             removeProperty(typeInfo, nameof(FilePropertyModel.ImageCropModeAnalysis));
@@ -116,7 +118,7 @@ public static class DatamodelJson {
     // the overrides as if no icon, title, description, display mode or other presentation were
     // overridden: the types and properties with nothing else overridden are left out. A string kind of plain text is
     // left out too: the property itself says what is stored, with one line or several read as any text
-    static bool hasPresentation(PropertyOverride p) => p.Display != null || p.AllowInlineEditing != null || p.TitleLayout != null || p.Unit != null
+    static bool hasPresentation(PropertyOverride p) => p.Display != null || p.AllowInlineEditing != null || p.MaxCount != null || p.TitleLayout != null || p.Unit != null
         || p.Height != null || p.Width != null || p.Title != null || p.TextLines != null || p.GuidType != null || p.StringType is StringValueType.SingleLineText or StringValueType.MultiLineText or StringValueType.Code;
     static DatamodelOverrides? withoutPresentation(DatamodelOverrides? overrides) {
         if (overrides == null || !overrides.NodeTypes.Values.Any(t => t.Icon != null || t.Title != null || t.Description != null
@@ -130,7 +132,7 @@ public static class DatamodelJson {
             c.IsAbstract = null; // what may be made, which the state does not hold
             c.IsInnerNode = null;
             if (c.Properties != null) foreach (var p in c.Properties.Values) {
-                    p.Display = null; p.AllowInlineEditing = null; p.TitleLayout = null; p.Unit = null; p.Height = null; p.Width = null; p.Title = null; p.TextLines = null; p.GuidType = null;
+                    p.Display = null; p.AllowInlineEditing = null; p.MaxCount = null; p.TitleLayout = null; p.Unit = null; p.Height = null; p.Width = null; p.Title = null; p.TextLines = null; p.GuidType = null;
                     if (p.StringType is StringValueType.SingleLineText or StringValueType.MultiLineText or StringValueType.Code) p.StringType = null;
                 }
             copy.NodeTypes[id] = c;

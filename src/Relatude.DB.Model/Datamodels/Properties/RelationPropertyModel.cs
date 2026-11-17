@@ -57,6 +57,8 @@ public class RelationPropertyModel : PropertyModel {
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool AllowInlineEditing { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public int MaxCount { get; set; }
 
     public override object GetDefaultValue() => throw new NotSupportedException();
     public override string GetDefaultValueAsCode() => throw new NotSupportedException();

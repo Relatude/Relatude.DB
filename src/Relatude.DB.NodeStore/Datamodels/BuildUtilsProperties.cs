@@ -65,8 +65,10 @@ internal static class BuildUtilsProperties {
             p = getFilePropertyModel(cast<FilePropertyAttribute>(a, m));
         } else if (valueType == typeof(PasswordValue)) {
             p = getPasswordPropertyModel(cast<PasswordPropertyAttribute>(a, m));
+        } else if (valueType.InheritsFromOrImplements<IEmbeddedOne>()) {
+            p = getEmbeddedPropertyModel(m, cast<EmbeddedPropertyAttribute>(a, m), valueType, EmbeddedValueType.InnerNode);
         } else if (valueType.InheritsFromOrImplements<IEmbedded>()) {
-            p = getEmbeddedPropertyModel(m, cast<EmbeddedPropertyAttribute>(a, m), valueType);
+            p = getEmbeddedPropertyModel(m, cast<EmbeddedPropertyAttribute>(a, m), valueType, EmbeddedValueType.InnerNodeList);
         } else if (valueType.InheritsFromOrImplements<IEmbeddedMap>()) {
             p = getEmbeddedMapPropertyModel(cast<EmbeddedMapPropertyAttribute>(a, m), valueType);
         } else if (valueType.InheritsFromOrImplements<IReference>()) {
@@ -155,7 +157,7 @@ internal static class BuildUtilsProperties {
                 attr = new ReferencePropertyAttribute();
             } else if (valueType.InheritsFromOrImplements<IReferences>()) {
                 attr = new ReferencesPropertyAttribute();
-            } else if (valueType.InheritsFromOrImplements<IEmbedded>()) {
+            } else if (valueType.InheritsFromOrImplements<IEmbedded>() || valueType.InheritsFromOrImplements<IEmbeddedOne>()) {
                 attr = new EmbeddedPropertyAttribute();
             } else if (valueType.InheritsFromOrImplements<IEmbeddedMap>()) {
                 var a = new EmbeddedMapPropertyAttribute();
@@ -196,7 +198,7 @@ internal static class BuildUtilsProperties {
             || attr is GuidPropertyAttribute && valueType != typeof(Guid)
             || attr is ByteArrayPropertyAttribute && valueType != typeof(byte[])
             || attr is FilePropertyAttribute && valueType != typeof(FileValue)
-            || attr is EmbeddedPropertyAttribute && !(valueType.InheritsFromOrImplements<IEmbedded>() || valueType.InheritsFromOrImplements<IEmbeddedMap>())
+            || attr is EmbeddedPropertyAttribute && !(valueType.InheritsFromOrImplements<IEmbedded>() || valueType.InheritsFromOrImplements<IEmbeddedMap>() || valueType.InheritsFromOrImplements<IEmbeddedOne>())
             || attr is ReferencePropertyAttribute && !(valueType.InheritsFromOrImplements<IReference>() || isPlainReferenceType(valueType))
             || attr is ReferencesPropertyAttribute && !(valueType.InheritsFromOrImplements<IReferences>() || isPlainReferencesType(valueType))
             || attr is EmbeddedMapPropertyAttribute && !valueType.InheritsFromOrImplements<IEmbeddedMap>()
@@ -406,16 +408,18 @@ internal static class BuildUtilsProperties {
         }
         p.IncludeTypes = a.IncludeTypes;
         p.Display = a.Display;
+        p.MaxCount = a.MaxCount;
     }
-    static EmbeddedPropertyModel getEmbeddedPropertyModel(MemberInfo m, EmbeddedPropertyAttribute a, Type valueType) {
+    static EmbeddedPropertyModel getEmbeddedPropertyModel(MemberInfo m, EmbeddedPropertyAttribute a, Type valueType, EmbeddedValueType shape) {
         var p = new EmbeddedPropertyModel();
         // validating m is a property and does not have a set property:
         if (m is not PropertyInfo pi) throw new Exception("The embedded member \"" + m.DeclaringType?.FullName + "." + m.Name
             + "\" must be a property, not a field. ");
         if (pi.SetMethod != null) throw new Exception("The embedded property \"" + m.DeclaringType?.FullName + "." + m.Name
-            + "\" must not have a setter. Declare it getter-only: { get; } on an interface, { get; } = []; on a class. The store fills it. ");
+            + "\" must not have a setter. Declare it getter-only: { get; } on an interface, "
+            + (shape == EmbeddedValueType.InnerNode ? "{ get; } = new(); on a class" : "{ get; } = []; on a class") + ". The store fills it. ");
         addCommonEmbeddedProperties(a, p, valueType, false);
-        p.EmbeddedValueType = EmbeddedValueType.InnerNodeList;
+        p.EmbeddedValueType = shape;
         return p;
     }
     static EmbeddedPropertyModel getEmbeddedMapPropertyModel(EmbeddedMapPropertyAttribute a, Type valueType) {
@@ -515,6 +519,7 @@ internal static class BuildUtilsProperties {
         p.Indexed = a.Indexed;
         p.Display = a.Display;
         p.AllowInlineEditing = a.AllowInlineEditing;
+        p.MaxCount = a.MaxCount;
         return p;
     }
     static BooleanPropertyModel getBooleanPropertyModel(BooleanPropertyAttribute a) {
@@ -597,6 +602,7 @@ internal static class BuildUtilsProperties {
         r.Facet = attr.Facet;
         r.Display = attr.Display;
         r.AllowInlineEditing = attr.AllowInlineEditing;
+        r.MaxCount = attr.MaxCount;
         Type? typeOfRelated = null;
         Type? relationType = null;
         if (m is PropertyInfo pi && pi.PropertyType.InheritsFromOrImplements<IRelationProperty>()) {

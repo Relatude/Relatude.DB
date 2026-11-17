@@ -138,6 +138,7 @@ public partial class Datamodel {
             }
             switch (inp.EmbeddedValueType) {
                 case EmbeddedValueType.InnerNodeList:
+                case EmbeddedValueType.InnerNode:
                     inp.KeyProperty = InnerNodeDataMap<object>.PropertyIdNodeGuidId;
                     inp.GetKeyTypeOfPropertyIfPossible(this); // caches the key type, required when deserializing inner nodes
                     break;

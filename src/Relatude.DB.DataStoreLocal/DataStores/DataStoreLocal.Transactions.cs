@@ -3,6 +3,8 @@ using System.Diagnostics;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
+using Relatude.DB.DataStores.Definitions;
+using Relatude.DB.DataStores.Definitions.PropertyTypes;
 using Relatude.DB.DataStores.Transactions;
 using Relatude.DB.Tasks;
 using Relatude.DB.Transactions;
@@ -242,6 +244,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             }
             if (writer is { } w) validateWriteAccess(executed, w);
             validateInstanceCounts(executed);
+            validateRelationCounts(executed);
             validateCultureRemovals(executed);
             if (transaction.InnerCallbackBeforeCommitting != null) {
                 try {
@@ -302,6 +305,30 @@ public sealed partial class DataStoreLocal : IDataStore {
                 throw new NodeTypeConstraintException("There must be at least " + type.MinNoInstances + " node" + (type.MinNoInstances == 1 ? "" : "s") + " of the type "
                     + type.FullName + " (MinNoInstances), and the transaction would leave " + count + ". ", typeId);
             }
+        }
+    }
+    void validateRelationCounts(List<PrimitiveActionBase> executed) {
+        if (!_definition.AnyRelationCountLimits) return;
+        Dictionary<(int node, RelationProperty property), int>? change = null;
+        void count(int node, PrimitiveRelationAction ra, bool fromTargetToSource, bool symmetric) {
+            if (!_definition.TryGetTypeOfNode(node, out var typeId)) return;
+            foreach (var p in _definition.CountLimitedRelationPropertiesOf(typeId)) {
+                if (p.RelationId != ra.RelationId || (!symmetric && p.RelModel.FromTargetToSource != fromTargetToSource)) continue;
+                change ??= [];
+                change[(node, p)] = change.GetValueOrDefault((node, p)) + (ra.Operation == PrimitiveOperation.Add ? 1 : -1);
+            }
+        }
+        foreach (var a in executed) {
+            if (a is not PrimitiveRelationAction ra) continue;
+            var symmetric = _definition.Relations[ra.RelationId].IsSymmetric;
+            count(ra.Source, ra, false, symmetric);
+            count(ra.Target, ra, true, symmetric);
+        }
+        if (change == null) return;
+        foreach (var ((node, p), d) in change) {
+            if (d <= 0) continue;
+            var related = _definition.Relations[p.RelationId].GetRelated(node, p.RelModel.FromTargetToSource).Count;
+            if (related > p.RelModel.MaxCount) throw ConstraintMessages.TooMany(p, related, p.RelModel.MaxCount);
         }
     }
     void validateLocks(PrimitiveActionBase a, HashSet<Guid>? transactionLocks) {

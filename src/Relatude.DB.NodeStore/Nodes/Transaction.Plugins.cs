@@ -89,13 +89,10 @@ public partial class Transaction {
         }
         return known;
     }
+    // OnBefore already ran in PrepareRelevantPlugins, once per action, plugin by plugin, so that each plugin sees the
+    // actions the plugins before it added
     internal void OnBeforeExecute() {
         if (_relevantPlugins == null) return; // no plugins, nothing to do
-        foreach (var pluginWithActions in _relevantPlugins) {
-            foreach (var actionAndId in pluginWithActions.ActionsWithIds) {
-                foreach (var id in actionAndId.Ids) pluginWithActions.Plugin.OnBefore(id, actionAndId.Action, this);
-            }
-        }
         int i = 0;
         foreach (var action in _transactionData.Actions) action._i = i++; // set action index for later reference
     }

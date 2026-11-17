@@ -39,9 +39,10 @@ public class NativeAzureAIProvider : IAIProvider {
         return OpenAIWire.ParseChatResponse(json);
     }
     public bool SupportsImages => true;
+    public bool SupportsTools => true;
     public async Task<string> GetChatCompletionAsync(AIChatRequest request, CancellationToken cancellationToken = default)
         => (await GetChatResultAsync(request, cancellationToken)).Text;
-    /// <summary>The answer with finish_reason and usage. <see cref="AIChatRequest.Effort"/> needs an api-version of 2024-12-01-preview or later.</summary>
+    /// <summary>The answer with its tool calls, finish_reason and usage. <see cref="AIChatRequest.Effort"/> needs an api-version of 2024-12-01-preview or later.</summary>
     public async Task<AIChatResult> GetChatResultAsync(AIChatRequest request, CancellationToken cancellationToken = default) {
         var body = OpenAIWire.BuildChatRequest(null, request, request.MaxOutputTokens ?? _settings.MaxOutputTokens);
         var json = await OpenAIWire.PostAsync(_http, url(resolveDeployment(request.ModelKey), "chat/completions"), body, setAuth, cancellationToken);

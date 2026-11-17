@@ -333,6 +333,8 @@ export interface PropertyView {
   choices?: string[] | null;
   targets: NodeRef[] | null;
   targetTypes: TypeRef[] | null;
+  /** the most inner nodes an embedded property may hold; 1 for a single embedded node */
+  maxCount?: number | null;
   isMany: boolean | null;
   multiline: boolean | null;
   language: string | null;
