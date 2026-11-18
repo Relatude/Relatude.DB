@@ -183,6 +183,24 @@ public interface IDataStore : IDisposable {
     // File handling
     Task<FileValue> FileUploadAsync(PropertyPath target, IIOProvider source, string[] sourceFileKey, string? fileName = null, int? maxWaitForMetaUpdate = null, QueryContext? ctx = null);
     Task<FileValue> FileUploadAsync(PropertyPath target, Stream source, string fileName, int? maxWaitForMetaUpdate = null, QueryContext? ctx = null);
+    /// <summary>
+    /// Uploads many files at once, each into its own file property: every file's bytes stored, then all of them put in
+    /// in one transaction, where FileUploadAsync takes a transaction a file. A file the context's user may not write, or
+    /// whose property is no file, is answered with its error and its bytes are not stored. Should the transaction be
+    /// refused, the files are put in one transaction each, so one node refused leaves the others. Answers a result per
+    /// file in the order given. This default uploads them one by one, as a store that does not say otherwise does.
+    /// </summary>
+    async Task<FileUploadResult[]> FileUploadManyAsync(IReadOnlyList<FileUpload> files, int? maxWaitForMetaUpdate = null, QueryContext? ctx = null) {
+        var results = new FileUploadResult[files.Count];
+        for (var i = 0; i < files.Count; i++) {
+            try {
+                results[i] = new(await FileUploadAsync(files[i].Target, files[i].Source, files[i].FileName, maxWaitForMetaUpdate, ctx), null);
+            } catch (Exception error) when (error is not OperationCanceledException) {
+                results[i] = new(null, error);
+            }
+        }
+        return results;
+    }
     Task FileDeleteAsync(PropertyPath target, QueryContext? ctx = null);
     Task<FileValue> FileDownloadAsync(PropertyPath target, Stream outStream, QueryContext? ctx = null);
     /// <summary>

@@ -88,6 +88,51 @@ public sealed partial class DataStoreLocal : IDataStore {
         Execute(t, false, false, ctx);
         return await updateMetaIfRelevant(fileValue, maxWaitForMetaUpdate, ctx);
     }
+    public async Task<FileUploadResult[]> FileUploadManyAsync(IReadOnlyList<FileUpload> files, int? maxWaitForMetaUpdate = null, QueryContext? ctx = null) {
+        ctx ??= _defaultQueryCtx;
+        var results = new FileUploadResult?[files.Count];
+        // each file checked and its bytes stored first; one refused is answered and leaves the others
+        var stored = new List<(int Index, FileValue Value)>();
+        for (var i = 0; i < files.Count; i++) {
+            var file = files[i];
+            try {
+                if (!Datamodel.Properties.TryGetValue(file.Target.PropertyId, out var prop)) throw new Exception("Property not found");
+                if (prop.PropertyType != PropertyType.File) throw new Exception("Property is not a file");
+                ensureMayWriteFile(file.Target, ctx);
+                var fileStore = getFileStoreOfProperty(((FilePropertyModel)prop).FileStorageProviderId);
+                var r = await fileStore.InsertAsync(Guid.NewGuid(), file.Source, file.FileName);
+                stored.Add((i, FileValue.CreateNew(file.FileName, r.Length, r.FileHash, fileStore.Id, r.FileId, r.StoreKey, file.Target)));
+            } catch (Exception error) when (error is not OperationCanceledException) {
+                results[i] = new(null, error);
+            }
+        }
+        // then put in, all in one transaction; refused, one a transaction, so a node refused leaves the others in
+        if (stored.Count > 0) {
+            var t = new TransactionData();
+            foreach (var (_, value) in stored) t.ForceUpdateProperty(value.PropertyPath!, value);
+            try {
+                Execute(t, false, false, ctx);
+            } catch (Exception error) when (error is not OperationCanceledException) {
+                if (stored.Count == 1) {
+                    results[stored[0].Index] = new(null, error);
+                } else {
+                    foreach (var (index, value) in stored) {
+                        try {
+                            var one = new TransactionData();
+                            one.ForceUpdateProperty(value.PropertyPath!, value);
+                            Execute(one, false, false, ctx);
+                        } catch (Exception refused) when (refused is not OperationCanceledException) {
+                            results[index] = new(null, refused);
+                        }
+                    }
+                }
+            }
+            foreach (var (index, value) in stored) {
+                if (results[index] == null) results[index] = new(await updateMetaIfRelevant(value, maxWaitForMetaUpdate, ctx), null);
+            }
+        }
+        return results.Select(r => r!).ToArray();
+    }
     public async Task<FileValue?[]> FileCopyAsync(IReadOnlyList<(PropertyPath From, PropertyPath To)> files, QueryContext? ctx = null) {
         ctx ??= _defaultQueryCtx;
         foreach (var (_, to) in files) ensureMayWriteFile(to, ctx);

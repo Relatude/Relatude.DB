@@ -24,9 +24,10 @@ namespace Relatude.DB.AI.HNSW;
 ///
 /// <para><b>Inserts.</b> Linking a node searches each layer and then rewrites the neighbour lists of
 /// everything it attached to. Each edge is stored with its similarity, so attaching to a non-full
-/// node writes two words and reads no vectors, and a full node rejects a poorer challenger against
-/// its stored worst edge before loading anything — the selection heuristic, with its pairwise dot
-/// products, only runs for challengers that can actually win. Inserts arrive one at a time through
+/// node writes two words and reads no vectors, and a full node rejects a challenger poorer than its
+/// stored worst edge with a single dot product when its nearest neighbour covers it — the selection
+/// heuristic, with its pairwise dot products, runs for the rest, as a far challenger can be the
+/// long-range edge the node lacks. Inserts arrive one at a time through
 /// <see cref="Upsert"/> or as a batch through <see cref="UpsertChunk"/>, which links its items on
 /// every core (bounded by <see cref="VectorIndexOptions.MaxThreads"/>): node lists are guarded
 /// by striped locks, and the searches inside tolerate the same torn neighbour lists a crash can
@@ -265,17 +266,32 @@ internal sealed class Graph : IDisposable {
         if (items.Length == 0) return;
         var ordinals = new int[items.Length];
         var levels = new int[items.Length];
+        // The replaced nodes go first, so an entry point they take with them is chosen again among
+        // the graph's own linked nodes, never among the batch's unlinked ones.
+        foreach (var (nodeId, _) in items) {
+            if (_nodes.TryGetOrdinal(nodeId, out var existing)) _nodes.Kill(existing);
+        }
+        var entry = _nodes.EntryOrdinal; // where the batch enters the graph; -1 when it holds nothing else
+        var topLevel = _nodes.MaxLevel;
         for (var i = 0; i < items.Length; i++) {
-            if (_nodes.TryGetOrdinal(items[i].nodeId, out var existing)) _nodes.Kill(existing);
             levels[i] = randomLevel();
             ordinals[i] = _nodes.Allocate(items[i].nodeId, levels[i]);
             _floats.Allocate(ordinals[i], items[i].vector);
             _routing.Allocate(ordinals[i], items[i].vector);
         }
-        // Snapshot after allocation: if the graph was empty (or the batch replaced the entry node),
-        // the entry is now one of the batch's own nodes, which the loop below skips linking.
-        var entry = _nodes.EntryOrdinal;
-        var topLevel = _nodes.MaxLevel;
+        if (entry < 0) {
+            // An empty graph: the batch's highest node is its root, as the first of sequential adds
+            // would be once the others had climbed to it. Rooted at the first node instead, with the
+            // first node's layer (nearly always 0), the batch built no layer above 0 at all, and every
+            // link was a flat walk from one corner of the graph.
+            var root = 0;
+            for (var i = 1; i < items.Length; i++) {
+                if (levels[i] > levels[root]) root = i;
+            }
+            entry = ordinals[root];
+            topLevel = levels[root];
+            _nodes.PromoteEntry(entry);
+        }
         if (items.Length < 4 || _threads <= 1) {
             var ws = rentInsert();
             try {
@@ -346,10 +362,10 @@ internal sealed class Graph : IDisposable {
     /// <summary>Adds the reverse edge from a chosen neighbour back to the new node,
     /// <paramref name="simToNew"/> being their (symmetric) similarity, already computed by the
     /// selection that chose the neighbour. The stored edge similarities carry the cost here: a
-    /// non-full node appends without reading a single vector, and a full one rejects a challenger no
-    /// better than its worst edge the same way. Only a challenger that can win pays for the
-    /// re-selection heuristic — which is what keeps a well-connected node from collecting a crowd of
-    /// mutually similar edges and losing its long-range ones.</summary>
+    /// non-full node appends without reading a single vector, and a full one rejects a challenger
+    /// poorer than its worst edge with one dot product when its nearest neighbour already covers it.
+    /// Anything else pays for the re-selection heuristic — which is what keeps a well-connected node
+    /// from collecting a crowd of mutually similar edges and losing its long-range ones.</summary>
     void link(int neighbour, float simToNew, int level, int newOrdinal, int max, HnswInsertScratch ws) {
         Span<int> upperBuffer = stackalloc int[_nodes.UpperWords];
         lock (stripeOf(neighbour)) {
@@ -372,11 +388,25 @@ internal sealed class Graph : IDisposable {
                 setNeighbours(neighbour, level, ws.LinkIds.AsSpan(0, ids.Length + 1), ws.LinkSims.AsSpan(0, ids.Length + 1));
                 return;
             }
+            // A challenger poorer than every edge the node holds still has a case: the heuristic keeps
+            // a candidate for being unlike the edges already kept, not for being near, and a far
+            // challenger is exactly the long-range edge a node in another region lacks. Rejecting it
+            // on its rank alone left the first nodes of a new region with no in-edge at all —
+            // unreachable for good, as no later insert can find them to link to. What is cheap to
+            // decide is the case the heuristic itself would reject first: sorted last, the challenger
+            // meets the node's nearest live neighbour, which is always kept, and loses when that
+            // neighbour is at least as similar to it as the node is.
             var worst = float.MaxValue;
-            foreach (var sim in sims) {
-                if (sim < worst) worst = sim;
+            var nearest = -1;
+            var nearestSim = float.MinValue;
+            for (var i = 0; i < ids.Length; i++) {
+                if (sims[i] < worst) worst = sims[i];
+                if (sims[i] > nearestSim && _nodes.IsLive(ids[i])) {
+                    nearestSim = sims[i];
+                    nearest = ids[i];
+                }
             }
-            if (simToNew <= worst) return; // cannot beat the worst edge: nothing to re-select
+            if (simToNew < worst && nearest >= 0 && pairwiseSim(newOrdinal, nearest) >= simToNew) return;
             var candidates = ws.LinkCandidates;
             candidates.Clear();
             for (var i = 0; i < ids.Length; i++) {
@@ -386,6 +416,12 @@ internal sealed class Graph : IDisposable {
             var count = selectNeighbours(candidates, max, neighbour, ws.LinkIds, ws.LinkSims, ws);
             setNeighbours(neighbour, level, ws.LinkIds.AsSpan(0, count), ws.LinkSims.AsSpan(0, count));
         }
+    }
+    /// <summary>The routing-space similarity of two stored nodes, as the selection heuristic computes it.</summary>
+    float pairwiseSim(int a, int b) {
+        var ra = _routing.Get(a);
+        var rb = _routing.Get(b);
+        return VectorMath.DotQ(_routing.Q(ra), _routing.Q(rb)) * _routing.Rescale(ra) * _routing.Rescale(rb);
     }
     /// <summary>
     /// HNSW's neighbour selection heuristic: take candidates best first, but keep one only when it is

@@ -28,7 +28,7 @@ public class NativeVideoConverter : IFileConverter {
             if (!_videoIns.Contains(inDetailed)) return false; // unsupported input video format
             if (outBase == FileType.Video) return _videoOuts.Contains(outDetailed); // supported video to video
             if (outBase == FileType.Meta) return _metaOuts.Contains(outDetailed); // supported video to meta 
-            if (outBase == FileType.Image) return _imageOuts.Contains(outDetailed); // supported video to image (thumbnail)
+            if (outBase == FileType.Image) return _imageOuts.Contains(outDetailed) || outDetailed == FileFormat.Gif; // a frame, or a series of them as an animation (FileAdjustmentImage.Frames)
             if (outBase == FileType.Audio) return _audioOuts.Contains(outDetailed); // supported video to audio (its sound)
         }
         if (inBase == FileType.Audio) {
@@ -93,9 +93,10 @@ public class NativeVideoConverter : IFileConverter {
             var typeFrom = FileFormatUtil.GetFileType(info.Formats.From);
             var typeTo = FileFormatUtil.GetFileType(info.Formats.To);
             if (typeFrom == FileType.Video) {
-                if (typeTo == FileType.Image) { // video to image -> thumbnail
+                if (typeTo == FileType.Image) { // video to image -> thumbnail, or a series of frames as an animation
                     var imgAdj = (FileAdjustmentImage)info.IdWithAdjustment.Adjustment;
-                    await extractThumbnailAndProcessAsync(inputFilePath, outputFilePath, info, imgAdj, key, _conversionProgress, cts.Token);
+                    if (imgAdj.Frames is > 1) await makeFrameSeriesAsync(inputFilePath, outputFilePath, info, imgAdj, key, _conversionProgress, cts.Token);
+                    else await extractThumbnailAndProcessAsync(inputFilePath, outputFilePath, info, imgAdj, key, _conversionProgress, cts.Token);
                 } else if (typeTo == FileType.Video) { // video to video conversion
                     await convertVideoAsync(inputFilePath, outputFilePath, info, key, _conversionProgress, cts.Token);
                 } else if (typeTo == FileType.Meta) { // video to video conversion
@@ -319,6 +320,14 @@ public class NativeVideoConverter : IFileConverter {
         } finally {
             if (needPostProcessing) tryDelete(outputForFfmpeg);
         }
+    }
+    /// <summary>So many frames across the video as an animated WebP or GIF (<see cref="VideoFrameSeries"/>).</summary>
+    async Task makeFrameSeriesAsync(string inputTmp, string outputTmp, FileConversionInfo info, FileAdjustmentImage adj,
+        Guid key, ConcurrentDictionary<Guid, FileConversionProgressInfo> progress, CancellationToken ct) {
+        progress[key] = new(FileConversionStatus.InProgress, 2, message: "Reading the video...");
+        var probe = await probeAndUpdateMeta(inputTmp, info, ct);
+        await VideoFrameSeries.MakeAsync(inputTmp, outputTmp, info.Formats.To, adj, probe, engine.LocalTempFolderPath,
+            (percent, message) => progress[key] = new(FileConversionStatus.InProgress, Math.Clamp(percent, 0, 99), message: message + "..."), ct);
     }
     async Task extractThumbnailAsyncInner(string inputTmp, string outputTmp, FileConversionInfo info, FileAdjustmentImage adj,
     Guid key, ConcurrentDictionary<Guid, FileConversionProgressInfo> progress, CancellationToken ct) {

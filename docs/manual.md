@@ -3712,6 +3712,16 @@ transaction can remove the file (`FileValue.Empty`) or change its name and meta 
 point at another stored file. So `b.Photo = a.Photo` copies nothing: use `FileCopyAsync`. And a node
 object read before an upload, then written back, keeps the uploaded file.
 
+Many small files go in with one transaction, rather than one a file, through `FileUploadManyAsync`:
+each file is checked and its bytes stored, then all of them go in together. A file the user may not
+write is refused before its bytes are stored, and should the transaction be refused, the files go in
+one a transaction, so the others still go in. The answer has each file's value or error, in order.
+
+```csharp
+FileUploadResult[] results = await db.Datastore.FileUploadManyAsync(files.Select(f =>
+    new FileUpload(new PropertyPath(f.NodeId, photoId), f.Stream, f.Name)).ToList());
+```
+
 `FileDeleteAsync` takes the file out of the property. The bytes stay in the store until the job
 `delete-unreferenced-files` finds nothing pointing at them, as revisions of a node can share a file.
 
@@ -3802,7 +3812,27 @@ the same thing share one conversion.
 | Tone | `Brightness`, `Contrast`, `Saturation` (−100…100), `HueShift` (−180…180), `Sharpness` (0…100) |
 | Light/dark | `InvertLuminance`, `AutoLightDarkMode` (below) |
 | Output | `RequestedFormat`, `Quality` (0…100, lossy formats only) |
-| From a video | `TimeOffsetMs` or `TimeOffsetPercentage`: the frame to take |
+| From a video | `TimeOffsetMs` or `TimeOffsetPercentage`: the frame to take; or `Frames` (2…200): a series across the video, and `KeyframesOnly` (below) |
+
+#### A video's frames as a series
+
+`Frames` asks a video for that many frames across it rather than one, written as an animation (`Webp`, the format an
+adaptive request takes, or `Gif`) in which each frame is shown until the next one's time: a frame's time in the video is
+the sum of the durations before it, the first at 0, and in a WebP every frame is the whole picture, so a reader can take
+any one alone. For timelines and scrubbing, or as a preview that plays the video's frames. `Width` and `Height` bound
+each frame, which keeps the video's shape and is never enlarged (384 on its longer side when neither is given), and
+`Quality` is the frames' (75 when not given).
+
+A keyframe decodes alone; any other frame only after every frame back to the keyframe before it, often seconds of
+video. So with `KeyframesOnly` each frame is the keyframe at or before its time, and a series is made in about a second
+whatever the video, fewer frames than asked where keyframes are far apart. Without it a short video is decoded once, its
+frames at even times, and a long one, where that would cost too much, gets keyframes too. Like any conversion of a
+video it is made in the background; ask `TryGetConversionInfo` until it is `Ready`.
+
+```csharp
+var frames = new FileAdjustmentImage { RequestedFormat = FileFormat.Webp, Frames = 120, Width = 384, Height = 384 };
+var url = db.GetUrl(path, frames); // the URL's short form names it as frm120
+```
 
 #### A picture's own defaults
 

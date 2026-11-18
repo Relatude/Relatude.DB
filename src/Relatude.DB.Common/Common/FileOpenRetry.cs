@@ -136,9 +136,31 @@ public static class FileOpenRetry {
     /// indexer, a backup or sync agent. The lock clears within milliseconds, but a single failed attempt
     /// on the flush path is reported as a critical error and takes the whole database down with it, so
     /// giving up on the first attempt is the one wrong answer.</para>
+    /// <para>A rename an attempt reported as refused may have been done all the same: on an SMB share,
+    /// such as the Azure Files mount behind <c>/home</c> on App Service, the server can make the rename
+    /// and the client still get the error. The next attempt then finds no temp file. When an earlier
+    /// attempt was refused, the temp file is gone and the destination is there, the replace is taken as
+    /// done; a log rewrite once took the database down over that missing temp file. A temp file missing
+    /// at the first attempt is still an error: something else took it, and that must be seen.</para>
     /// </summary>
     /// <exception cref="FileLockedException">One of the files was still held when the budget ran out.</exception>
-    public static void Replace(string tempPath, string path, TimeSpan? timeout = null, Action<string>? log = null) {
-        Open(path, () => File.Move(tempPath, path, overwrite: true), timeout, log);
+    public static void Replace(string tempPath, string path, TimeSpan? timeout = null, Action<string>? log = null)
+        => Replace(tempPath, path, timeout, log, static (from, to) => File.Move(from, to, overwrite: true));
+
+    /// <summary><see cref="Replace(string, string, TimeSpan?, Action{string}?)"/> with the rename given,
+    /// so the tests can make one that is done and reported as refused.</summary>
+    internal static void Replace(string tempPath, string path, TimeSpan? timeout, Action<string>? log, Action<string, string> move) {
+        var refused = false; // whether an attempt so far was reported as refused, its rename perhaps done
+        Open(path, () => {
+            try {
+                move(tempPath, path);
+            } catch (FileNotFoundException) when (refused && !File.Exists(tempPath) && File.Exists(path)) {
+                (log ?? DefaultLog)?.Invoke("\"" + Path.GetFileName(path) + "\" was already in place: an earlier attempt "
+                    + "reported the rename as refused, but it had been done.");
+            } catch (Exception err) when (IsSharingViolation(err)) {
+                refused = true;
+                throw;
+            }
+        }, timeout, log);
     }
 }

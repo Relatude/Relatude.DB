@@ -138,6 +138,26 @@ public class FileAdjustmentImage : FileAdjustmentBase {
     public double? TimeOffsetPercentage { get; set; } // only relevant for video files. Specifies the timestamp in percentage from which to extract the thumbnail image.
 
     /// <summary>
+    /// Only for video files: so many frames across the video rather than one, written as an animation
+    /// (<see cref="FileFormat.Webp"/> or <see cref="FileFormat.Gif"/>) in which each frame is shown until the next one's
+    /// time, so a frame's time in the video is the sum of the durations before it, the first at 0; in a WebP every frame
+    /// is the whole picture, so a reader can take any one alone. For timelines and scrubbing, and as a preview that plays
+    /// the video's frames. <see cref="Width"/> and <see cref="Height"/> bound each
+    /// frame, which keeps the video's shape and is never enlarged (384 on its longer side when neither is given), and
+    /// <see cref="Quality"/> is the frames' (75 when not given). 2 to 200; null (or 1) is one frame, as ever. Fewer
+    /// frames than asked when the video has fewer, or keyframes are far apart (<see cref="KeyframesOnly"/>).
+    /// </summary>
+    public int? Frames { get; set; }
+    /// <summary>
+    /// With <see cref="Frames"/>: each frame is the keyframe at or before its time, which decodes alone, so the series
+    /// is made in about a second whatever the video, its times the keyframes' own. Without it the converter decodes a
+    /// short video once and takes its frames at even times, and takes keyframes of a long one, where decoding it all
+    /// would cost too much.
+    /// </summary>
+    public bool? KeyframesOnly { get; set; }
+    public const int MaxFrames = 200;
+
+    /// <summary>
     /// True when nothing is requested beyond the adaptive format: no dimensions, no quality, no
     /// edits. The store then serves the original file untouched instead of converting.
     /// </summary>
@@ -154,7 +174,9 @@ public class FileAdjustmentImage : FileAdjustmentBase {
     public FileAdjustmentImage ResolveAdaptiveFormat(FileFormat originalFormat, int originalWidth, int originalHeight, FileFormat defaultFormat, int defaultQuality) {
         if (RequestedFormat != FileFormat.Image) return this;
         var resolved = FromBytes(ToBytes());
-        if (originalFormat == FileFormat.Gif && (defaultFormat != FileFormat.Webp || KeepsOriginalGif(originalFormat, originalWidth, originalHeight))) {
+        if (Frames != null) {
+            resolved.RequestedFormat = FileFormat.Webp; // a series is an animation, which only webp and gif hold
+        } else if (originalFormat == FileFormat.Gif && (defaultFormat != FileFormat.Webp || KeepsOriginalGif(originalFormat, originalWidth, originalHeight))) {
             resolved.RequestedFormat = FileFormat.Gif;
         } else {
             resolved.RequestedFormat = defaultFormat;
@@ -170,7 +192,7 @@ public class FileAdjustmentImage : FileAdjustmentBase {
         || Rotation != null || Brightness != null || Contrast != null || Saturation != null
         || HueShift != null || Sharpness != null || InvertLuminance != null || AutoLightDarkMode != null
         || BackgroundColor != null || AutoBackgroundColor != null || CropMode != null || Quality != null
-        || TimeOffsetMs != null || TimeOffsetPercentage != null
+        || TimeOffsetMs != null || TimeOffsetPercentage != null || Frames != null || KeyframesOnly != null
         || SourceX != null || SourceY != null || SourceWidth != null || SourceHeight != null;
     bool dimensionsSameOrAbsent(int originalWidth, int originalHeight) =>
         (Width == null || (originalWidth > 0 && Width == originalWidth))
@@ -203,6 +225,7 @@ public class FileAdjustmentImage : FileAdjustmentBase {
         if (SourceWidth.HasValue || SourceHeight.HasValue) key += "S" + SourceX + "," + SourceY + "," + SourceWidth + "," + SourceHeight;
         if (AutoBackgroundColor.HasValue) key += AutoBackgroundColor.Value.ToString();
         if (InvertLuminance.HasValue) key += "Inv" + InvertLuminance.Value.ToString();
+        if (Frames.HasValue) key += "Frames" + Frames.Value + (KeyframesOnly == true ? "Key" : string.Empty);
         if (Temporary) key += "Tmp"; // before the free text color; a persistent key stays what it always was
         if (BackgroundColor != null) key += BackgroundColor;
         return key;
@@ -230,6 +253,9 @@ public class FileAdjustmentImage : FileAdjustmentBase {
         if (Sharpness.HasValue) Sharpness = Math.Clamp(Sharpness.Value, -100, 100);
         if (TimeOffsetMs.HasValue) TimeOffsetMs = TimeOffsetMs < 0 ? null : TimeOffsetMs.Value;
         if (TimeOffsetPercentage.HasValue) TimeOffsetPercentage = Math.Clamp(TimeOffsetPercentage.Value, 0, 100);
+        // one frame is no series; KeyframesOnly false is the default and says nothing, so it has one key either way
+        if (Frames.HasValue) Frames = Frames <= 1 ? null : Math.Min(Frames.Value, MaxFrames);
+        if (Frames == null || KeyframesOnly == false) KeyframesOnly = null;
         if (CropMode.HasValue && !Enum.IsDefined(CropMode.Value)) CropMode = null;
         if (AutoLightDarkMode.HasValue && !Enum.IsDefined(AutoLightDarkMode.Value)) AutoLightDarkMode = null;
         BackgroundColor = canonicalColor(BackgroundColor);
@@ -242,15 +268,20 @@ public class FileAdjustmentImage : FileAdjustmentBase {
         if (hex.Length == 0) return null;
         return hex.All(char.IsAsciiHexDigit) ? "#" + hex.ToLowerInvariant() : color.Trim();
     }
-    const int CURRENT_VERSION = 4;
-    const int FIXED_SIZE = 136; // as below, plus the four source rectangle ints
+    const int CURRENT_VERSION = 5;
+    // as below: version 4 ends with the four source rectangle ints, version 5 adds Frames and KeyframesOnly. Version 4 is
+    // still written for an adjustment that asks for no series, so the bytes, and the URL tokens made of them, of every
+    // other picture stay what they were.
+    const int FIXED_SIZE_4 = 136;
+    const int FIXED_SIZE_5 = 141;
     public override byte[] ToBytes() {
         var bgBytes = BackgroundColor != null ? System.Text.Encoding.UTF8.GetBytes(BackgroundColor) : [];
-        var buf = new byte[FIXED_SIZE + 2 + bgBytes.Length];
+        var version = Frames != null || KeyframesOnly != null ? CURRENT_VERSION : 4;
+        var buf = new byte[(version >= 5 ? FIXED_SIZE_5 : FIXED_SIZE_4) + 2 + bgBytes.Length];
         var s = buf.AsSpan();
         int p = 0;
         s[p++] = (byte)FileAdjustmentType.Image;
-        BinaryPrimitives.WriteInt32LittleEndian(s[p..], CURRENT_VERSION); p += 4;
+        BinaryPrimitives.WriteInt32LittleEndian(s[p..], version); p += 4;
         BinaryPrimitives.WriteInt32LittleEndian(s[p..], (int)RequestedFormat); p += 4;
         BinaryPrimitives.WriteInt32LittleEndian(s[p..], Width ?? int.MinValue); p += 4;
         BinaryPrimitives.WriteInt32LittleEndian(s[p..], Height ?? int.MinValue); p += 4;
@@ -277,6 +308,10 @@ public class FileAdjustmentImage : FileAdjustmentBase {
         BinaryPrimitives.WriteInt32LittleEndian(s[p..], SourceY ?? int.MinValue); p += 4;
         BinaryPrimitives.WriteInt32LittleEndian(s[p..], SourceWidth ?? int.MinValue); p += 4;
         BinaryPrimitives.WriteInt32LittleEndian(s[p..], SourceHeight ?? int.MinValue); p += 4;
+        if (version >= 5) {
+            BinaryPrimitives.WriteInt32LittleEndian(s[p..], Frames ?? int.MinValue); p += 4;
+            s[p++] = KeyframesOnly.HasValue ? (byte)(KeyframesOnly.Value ? 2 : 1) : (byte)0;
+        }
         BinaryPrimitives.WriteUInt16LittleEndian(s[p..], (ushort)bgBytes.Length); p += 2;
         bgBytes.CopyTo(s[p..]);
         return buf;
@@ -318,6 +353,10 @@ public class FileAdjustmentImage : FileAdjustmentBase {
             obj.SourceY = (ri = BinaryPrimitives.ReadInt32LittleEndian(s[p..])) == int.MinValue ? null : ri; p += 4;
             obj.SourceWidth = (ri = BinaryPrimitives.ReadInt32LittleEndian(s[p..])) == int.MinValue ? null : ri; p += 4;
             obj.SourceHeight = (ri = BinaryPrimitives.ReadInt32LittleEndian(s[p..])) == int.MinValue ? null : ri; p += 4;
+        }
+        if (version >= 5) {
+            obj.Frames = (ri = BinaryPrimitives.ReadInt32LittleEndian(s[p..])) == int.MinValue ? null : ri; p += 4;
+            var kfo = s[p++]; obj.KeyframesOnly = kfo == 0 ? null : kfo == 2;
         }
         var bgLen = BinaryPrimitives.ReadUInt16LittleEndian(s[p..]); p += 2;
         obj.BackgroundColor = bgLen == 0 ? null : System.Text.Encoding.UTF8.GetString(s.Slice(p, bgLen));

@@ -116,6 +116,8 @@ public class DataStoreSession : IDataStore {
     public Task FileDeleteAsync(PropertyPath target, QueryContext? ctx = null) => _datastore.FileDeleteAsync(target, ctx ?? QueryContext);
     public Task<FileValue> FileDownloadAsync(PropertyPath target, Stream outStream, QueryContext? ctx = null) => _datastore.FileDownloadAsync(target, outStream, ctx ?? QueryContext);
     public Task<FileValue?[]> FileCopyAsync(IReadOnlyList<(PropertyPath From, PropertyPath To)> files, QueryContext? ctx = null) => _datastore.FileCopyAsync(files, ctx ?? QueryContext);
+    public Task<FileUploadResult[]> FileUploadManyAsync(IReadOnlyList<FileUpload> files, int? maxWaitForMetaUpdate = null, QueryContext? ctx = null)
+        => _datastore.FileUploadManyAsync(files, maxWaitForMetaUpdate, ctx ?? QueryContext);
     public Task<Stream> GetFileStream(FileValue value) => _datastore.GetFileStream(value);
     public bool TryGetLocalFilePath(FileValue value, [MaybeNullWhen(false)] out string path) => _datastore.TryGetLocalFilePath(value, out path);
     public NodeWriteRights? GetWriteRights(Guid nodeId, QueryContext? ctx = null) => _datastore.GetWriteRights(nodeId, ctx ?? QueryContext);

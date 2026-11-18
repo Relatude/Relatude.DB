@@ -372,24 +372,34 @@ internal sealed class WebpCodec : IImageCodec {
 
     /// <summary>
     /// An animation: after the first, each frame is only the rectangle that changed (from even coordinates),
-    /// replacing what was there; frames identical to the one before are merged into it.
+    /// replacing what was there, unless <paramref name="wholeFrames"/>, when each is the whole picture, so a reader can
+    /// take any frame alone (a series of a video's frames, which a browser shows one by one); frames identical to the one
+    /// before are merged into it. The frames are compressed in parallel, each from its own pixels and those of the frame
+    /// before, and written in order.
     /// </summary>
-    public static void WriteAnimation(Animation animation, Stream stream, ImageSaveOptions options) {
+    public static void WriteAnimation(Animation animation, Stream stream, ImageSaveOptions options, bool wholeFrames = false) {
         var frames = animation.Frames;
         int w = frames[0].Width, h = frames[0].Height;
         if (w > 16383 || h > 16383) throw new ArgumentOutOfRangeException(nameof(animation), "WEBP images are limited to 16383 x 16383 pixels.");
         var shown = animation.Distinct();
-        var body = new MemoryStream();
-        bool translucent = false;
+        var parts = new (InternalImage Image, RectangleI Rect)[shown.Count];
         for (int s = 0; s < shown.Count; s++) {
             var image = frames[shown[s].Frame];
             var rect = new RectangleI(0, 0, w, h);
-            if (s > 0) {
+            if (s > 0 && !wholeFrames) {
                 Animation.Changed(MemoryMarshal.Cast<byte, uint>(image.Pixels), MemoryMarshal.Cast<byte, uint>(frames[shown[s - 1].Frame].Pixels), w, h, out rect);
                 rect = new RectangleI(rect.X & ~1, rect.Y & ~1, rect.Right - (rect.X & ~1), rect.Bottom - (rect.Y & ~1));
                 if (rect.Width != w || rect.Height != h) image = image.Crop(rect);
             }
-            var (frame, alpha) = Compress(image, options.Quality);
+            parts[s] = (image, rect);
+        }
+        var compressed = new (byte[] Frame, byte[]? Alpha)[parts.Length];
+        Parallel.For(0, parts.Length, s => compressed[s] = Compress(parts[s].Image, options.Quality));
+        var body = new MemoryStream();
+        bool translucent = false;
+        for (int s = 0; s < shown.Count; s++) {
+            var rect = parts[s].Rect;
+            var (frame, alpha) = compressed[s];
             translucent |= alpha != null;
             int duration = Math.Min(shown[s].Duration, 0xFFFFFF);
             var header = new byte[16];

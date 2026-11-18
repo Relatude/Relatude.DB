@@ -96,6 +96,13 @@ bool there = await db.FileUploadedAndAvailableAsync<IArticle>(article, a => a.Ph
 
 `FileUploadedAndAvailableAsync` matters for remote stores, where the write can complete in the background after the call returns.
 
+Many small files - `IDataStore.FileUploadManyAsync` - are uploaded with one transaction, where `FileUploadAsync` takes one a file: each `FileUpload` (target, stream, name) is checked and its bytes stored, then all of them go in together. The answer has a `FileUploadResult` per file, in order, its `Value` or its `Error`: a file the user may not write, or whose property holds no files, is refused before its bytes are stored, and should the transaction be refused (a node not there), the files go in one a transaction, so the others still go in. A store that does not implement it uploads them one by one.
+
+```csharp
+FileUploadResult[] results = await db.Datastore.FileUploadManyAsync(files.Select(f =>
+    new FileUpload(new PropertyPath(f.NodeId, photoId), f.Stream, f.Name)).ToList());
+```
+
 `FileDeleteAsync` takes the file out of the property, in the revision the context reads; the bytes stay until the unreferenced-file cleanup (the `delete-unreferenced-files` job) finds nothing pointing at them, as when an upload replaces a file or a node is deleted. A revision is made of its source's values, so a draft and the published version hold the same stored file.
 
 Copying a file to another node's file property - `FileCopyAsync` - keeps its name and meta, so nothing is read from it again. In a store with `SameHashSameFile` the copy shares the stored file (no bytes read or written; deleting either value's file leaves it for the other, and only the unreferenced-file cleanup removes it); elsewhere the bytes are streamed into the target's store. A list of pairs is written in one transaction, and the answer has null where the source held no file.
@@ -288,6 +295,8 @@ var thumb = new FileAdjustmentImage {
 | `RequestedFormat` | `Jpeg`, `Png`, `Webp`, `Avif`, `Gif`, `Bmp` | Falls back to `Png` when left `Unknown`. |
 | `TimeOffsetMs` | ms | **Video sources**: which frame to grab as a still. |
 | `TimeOffsetPercentage` | 0–100 | Same, as a percentage of duration. |
+| `Frames` | 2–200 | **Video sources**: that many frames across the video, as an animation (`Webp`, or `Gif`), each frame shown until the next one's time, so its time is the sum of the durations before it (the first at 0); every frame of a WebP whole. `Width`/`Height` bound each frame (384 on the longer side when neither is set), never enlarged. |
+| `KeyframesOnly` | bool | With `Frames`: the keyframe before each time, decoded alone, so a series takes about a second whatever the video. Without it a short video is decoded once at even times, a long one gets keyframes. |
 | `Temporary` | bool | See below. |
 
 Out-of-range values are clamped rather than rejected, and a `Width`/`Height`/`Zoom` of zero or less becomes "unset".
