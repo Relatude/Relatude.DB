@@ -72,7 +72,7 @@ import {
 } from "../server/settings";
 import { Loading } from "./Loading";
 import { SettingsShareButton } from "./OverridesDialog";
-import { OverridesExportDialog } from "./OverridesExportDialog";
+import { openChanges } from "../changes";
 import { SecretsWarning } from "./SecretsWarning";
 import { SourceTag } from "./SourceTag";
 import { customSettingsIcons } from "./customSettingsIcons";
@@ -154,7 +154,6 @@ export function SettingsSection({
   const [saving, setSaving] = useState(false);
   const [restarting, setRestarting] = useState(false);
   const [activeGroup, setActiveGroup] = useState<string | null>(null);
-  const [exportOpen, setExportOpen] = useState(false);
   const pane = useRef<HTMLDivElement>(null);
   const groupElements = useRef(new Map<string, HTMLElement>());
 
@@ -542,11 +541,10 @@ export function SettingsSection({
           <IconRefresh size={16} stroke={1.8} />
         </button>
         {page.overrides && (
-          <button className="icon-button" title="Download changes: everything changed on this server, as the application's own files" onClick={() => setExportOpen(true)}>
+          <button className="icon-button" title="Download changes: everything changed on this server, as the application's own files - or move it into SHARED, or discard it" onClick={() => openChanges({ intent: "download" })}>
             <IconFileZip size={16} stroke={1.8} />
           </button>
         )}
-        {exportOpen && <OverridesExportDialog onClose={() => setExportOpen(false)} />}
         {/* the top right of every module that saves on this server: what is held there, and the way into SHARED */}
         {page.overrides && (
           <SettingsShareButton

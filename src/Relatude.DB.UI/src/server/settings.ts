@@ -313,6 +313,7 @@ export function customOverridesApi(key: string, storeId: string | null): Overrid
     fetch: () => send<OverridesView>("settings-custom-overrides-get", { key, storeId }),
     move: (paths) => send<MoveOverridesResult>("settings-custom-overrides-move", { key, storeId, paths }),
     discard: (paths) => send<DiscardOverridesResult>("settings-custom-overrides-discard", { key, storeId, paths }),
+    entryId: (path) => "custom|" + key + "|" + (storeId ?? "-") + "|" + path,
   };
 }
 
@@ -389,7 +390,9 @@ export interface OverridesApi {
   fetch: () => Promise<OverridesView>;
   move: (paths: string[]) => Promise<MoveOverridesResult>;
   discard: (paths: string[]) => Promise<DiscardOverridesResult>;
+  /** the id the changes dialog (overrides-export-list) lists an entry of the file by, from its path */
+  entryId: (path: string) => string;
 }
 
 /** relatude.db.overrides.json and relatude.db.json: the server's and every database's own settings. */
-export const serverOverridesApi: OverridesApi = { fetch: fetchOverrides, move: moveOverrides, discard: discardOverrides };
+export const serverOverridesApi: OverridesApi = { fetch: fetchOverrides, move: moveOverrides, discard: discardOverrides, entryId: (path) => "settings|" + path };

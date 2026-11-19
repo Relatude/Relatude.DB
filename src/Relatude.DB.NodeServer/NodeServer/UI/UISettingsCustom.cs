@@ -290,10 +290,19 @@ sealed partial class UISettings {
         };
     }
 
+    /// <summary>Why an entry of a set cannot be moved into SHARED, and why it cannot be discarded; null when it can.
+    /// The set's own list and the changes dialog (overrides-export-list) both ask it.</summary>
+    static (string? Move, string? Discard) customBlocks(CustomSettingsSet set, string path) {
+        var configured = set.IsConfigured(path, out _);
+        var decidedBy = set.DecidedOutsideTheFiles(path);
+        return (
+            configured ? "Set by " + decidedBy + ", which is never copied into " + set.SettingsFileDisplay + "." : null,
+            decidedBy == null ? null : "Set by " + decidedBy + ", which decides it whichever file holds it.");
+    }
+
     object describeCustomEntry(CustomSettingsSet set, SettingsPatch.Entry entry, object? root) {
         var (label, where, secret) = describeCustomPath(set, entry.Path, root);
-        var configured = set.IsConfigured(entry.Path, out _);
-        var decidedBy = set.DecidedOutsideTheFiles(entry.Path);
+        var (moveBlocked, discardBlocked) = customBlocks(set, entry.Path);
         var fileValue = set.FileValue(entry.Path);
         object? value = null, before = null;
         string? summary = null;
@@ -320,10 +329,10 @@ sealed partial class UISettings {
             FileValue = before,
             FileHasValue = hasValue(fileValue),
             Summary = summary,
-            CanMove = !configured,
-            MoveBlocked = configured ? "Set by " + decidedBy + ", which is never copied into " + set.SettingsFileDisplay + "." : null,
-            CanDiscard = decidedBy == null,
-            DiscardBlocked = decidedBy == null ? null : "Set by " + decidedBy + ", which decides it whichever file holds it.",
+            CanMove = moveBlocked == null,
+            MoveBlocked = moveBlocked,
+            CanDiscard = discardBlocked == null,
+            DiscardBlocked = discardBlocked,
         };
     }
 

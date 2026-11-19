@@ -41,12 +41,14 @@ import {
   diffModels,
   discardDraft,
   exportModel,
+  fetchDataOverrides,
   fetchDatamodel,
   fetchTypeCounts,
   fetchSchema,
   loadHistory,
   namespaceBase,
   newGuid,
+  overridesKey,
   saveDraft,
   searchModel,
   sourceColors,
@@ -68,7 +70,8 @@ import { PropertyIcon, RelationIcon, SourceDot, SourceIcon, kindMeta, relationCo
 import { PropertyEditor, readOnlyNote, RelationEditor, SourceEditor, SourcePickerDialog, TypeEditor, type EditorContext, type Selection } from "./DatamodelEditors";
 import { peekSearchTarget, takeDatamodelTarget, takeSearchTarget, useNavigationRequest, type DatamodelTarget } from "../navigate";
 import { HistoryView, MatrixView, ModelsView, RelationsView, SourcesView } from "./DatamodelViews";
-import { DatamodelOverridesDialog } from "./DatamodelOverridesDialog";
+import { linkDatamodelEditor, openChanges, useOnChangesMade } from "../changes";
+import { setOverride } from "../server/overrides";
 import { IconAssignDialog } from "./IconAssignDialog";
 import { ShareButton } from "./ShareButton";
 import { DatamodelDiagram } from "./diagram/DatamodelDiagram";
@@ -303,8 +306,6 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
   const [validation, setValidation] = useState<Validation | null>(null);
   const [issuesOpen, setIssuesOpen] = useState(false);
   const [planOpen, setPlanOpen] = useState(false);
-  // this installation's overrides, and moving them into the shared file
-  const [overridesOpen, setOverridesOpen] = useState(false);
   const [iconsOpen, setIconsOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -600,6 +601,39 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
         : null,
     [db.id, model, schema, baseTypeId, codeSourceId, sourceInfos, colors, page, writableSource, readOnlyReason, overrides, update],
   );
+
+  // The changes dialog discards this database's overrides in the draft, which only this editor holds: while
+  // it is open, it says how. The draft is the latest one whenever the dialog asks, through the ref.
+  const ctxRef = useRef(ctx);
+  ctxRef.current = ctx;
+  const draftDiffers = !!model && overridesKey(model.Overrides) !== overridesKey(page?.active?.model.Overrides);
+  const hasCtx = ctx !== null;
+  useEffect(() => {
+    if (!hasCtx) return;
+    return linkDatamodelEditor(db.id, {
+      database: db.name,
+      warning: draftDiffers
+        ? `The draft of ${db.name} changes overrides that are not activated yet. They are not on THIS SERVER, so they are not listed here: activate the draft first to move them.`
+        : null,
+      discard: async (paths) => {
+        const editor = ctxRef.current;
+        if (!editor) throw new Error("The data model editor is closed.");
+        const view = await fetchDataOverrides(db.id);
+        const wanted = new Set(paths.map((p) => p.typeId + "/" + (p.propertyId ?? "") + "/" + p.attribute));
+        const picked = view.entries.filter((e) => wanted.has(e.typeId + "/" + (e.propertyId ?? "") + "/" + e.attribute));
+        editor.update((m) => {
+          for (const e of picked) setOverride(m, e.typeId, e.propertyId, e.attribute, e.inSettings ? e.settingsValue : undefined);
+        });
+        return picked.length;
+      },
+    });
+  }, [db.id, db.name, hasCtx, draftDiffers]);
+  // a move in the changes dialog changes the files, not what is in force: the draft being edited stays as it is
+  useOnChangesMade(() => {
+    fetchDataOverrides(db.id)
+      .then((v) => setPage((p) => (p ? { ...p, overrides: v.files } : p)))
+      .catch(() => {});
+  });
 
   // a selection whose target has gone (deleted, or another draft loaded) is dropped
   useEffect(() => {
@@ -1078,13 +1112,19 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
             <ShareButton
               count={page.overrides.writable ? page.overrides.dataCount : 0}
               error={page.overrides.dataError}
-              disabled={!page.overrides.writable || !ctx}
+              disabled={!page.overrides.writable}
               title={
                 page.overrides.writable
                   ? `Overrides set in the editor are saved on THIS SERVER, ${page.overrides.dataLocation}, when the model is activated - merged over SHARED, ${page.overrides.settingsLocation}.`
                   : "The database has no storage provider to keep THIS SERVER's overrides in."
               }
-              onClick={() => setOverridesOpen(true)}
+              onClick={() =>
+                openChanges({
+                  intent: "move",
+                  focus: (_, group) => group.kind === "datamodel" && group.storeId === db.id,
+                  focusTitle: "Datamodel overrides of " + db.name,
+                })
+              }
             />
           </div>
         </div>
@@ -1286,16 +1326,6 @@ export function DatamodelSection({ db }: { db: DatabaseInfo }) {
         )}
       </div>
 
-      {overridesOpen && ctx && (
-        <DatamodelOverridesDialog
-          storeId={db.id}
-          ctx={ctx}
-          activeOverrides={page.active?.model.Overrides}
-          onClose={() => setOverridesOpen(false)}
-          // a move changes the files, not what is in force: the draft being edited stays as it is
-          onFilesChanged={(files) => setPage((p) => (p ? { ...p, overrides: files } : p))}
-        />
-      )}
 
       {iconsOpen && ctx && <IconAssignDialog ctx={ctx} hiddenSources={hiddenSources} onClose={() => setIconsOpen(false)} />}
 

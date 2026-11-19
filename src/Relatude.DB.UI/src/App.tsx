@@ -4,6 +4,7 @@ import { DashboardSection } from "./components/DashboardSection";
 import { DatabasesSection } from "./components/DatabasesSection";
 import { DatamodelSection } from "./components/DatamodelSection";
 import { DialogHost } from "./components/DialogHost";
+import { ChangesHost } from "./components/ChangesDialog";
 import { FilesStorageSection, type FilesStorageView } from "./components/FilesStorageSection";
 import { Header } from "./components/Header";
 import { LicenseSection } from "./components/LicenseSection";
@@ -345,6 +346,8 @@ export function App() {
           </div>
         </main>
       </div>
+      {/* before DialogHost: the questions the changes dialog asks are drawn over it */}
+      <ChangesHost />
       <DialogHost />
     </div>
   );

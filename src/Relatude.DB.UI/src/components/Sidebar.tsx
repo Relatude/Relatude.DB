@@ -4,7 +4,7 @@ import { sections, type Section } from "../navigation";
 import { licenseAttention, type LicenseStatus } from "../server/license";
 import { fetchWhoAmI, type AdminLink, type DatabaseInfo, type WhoAmI } from "../server/serverInfo";
 import { siteUrl } from "../siteLinks";
-import { OverridesExportDialog } from "./OverridesExportDialog";
+import { openChanges } from "../changes";
 
 interface SidebarProps {
   collapsed: boolean;
@@ -43,7 +43,6 @@ export function Sidebar({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [drawer, drawerOpen, onCloseDrawer]);
-  const [exportOpen, setExportOpen] = useState(false);
   const errors = databases.filter((db) => db.state === "Error").length;
   const conversions = activeDb?.conversionCount ?? 0;
   const tasks = activeDb?.taskCount ?? 0;
@@ -81,7 +80,7 @@ export function Sidebar({
             activeSectionId={activeSectionId}
             onSelectSection={onSelectSection}
           >
-            <button className="nav-item nav-tone-gray" onClick={() => setExportOpen(true)} title="Download changes: what was changed here, as the application's own files">
+            <button className="nav-item nav-tone-gray" onClick={() => openChanges({ intent: "download" })} title="Download changes: what was changed here, as the application's own files - or move it into SHARED, or discard it">
               <IconFileZip size={16} stroke={1.8} />
               <span className="label">Download changes</span>
             </button>
@@ -118,7 +117,6 @@ export function Sidebar({
           <SignedIn collapsed={collapsed} onLogout={onLogout} />
         </aside>
       </div>
-      {exportOpen && <OverridesExportDialog onClose={() => setExportOpen(false)} />}
     </>
   );
 }
