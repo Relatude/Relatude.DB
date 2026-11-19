@@ -5037,7 +5037,7 @@ svg.share-button-icon {
   margin-left: 0;
 }
 
-/* the title row of every move-to-shared dialog (DataDialog): icon, "Move to shared · what", and which way */
+/* the title row of the changes dialog (ChangesDialog, ShareDialogTitle): icon, "Changes on this server · what", and which way */
 .share-dialog-title {
   min-width: 0;
   overflow: hidden;
@@ -5223,6 +5223,308 @@ svg.tone-override {
   position: relative;
   top: 1px;
   flex: none;
+}
+
+/* ---- the changes dialog (ChangesDialog): what THIS SERVER holds, as one tree ----
+   The one dialog behind every Move to shared button and Download changes. A flex column of a size of its
+   own: the title, the intro and the toolbar keep theirs, the tree takes the rest and scrolls, the buttons
+   stay at the foot. Any edge or corner resizes it (.changes-grip); it stays in the middle, so both sides
+   move. */
+
+.dialog.changes-dialog {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(1000px, calc(100vw - 40px));
+  height: min(780px, calc(100vh - 40px));
+  max-width: calc(100vw - 24px);
+  max-height: calc(100vh - 24px);
+}
+
+.dialog.changes-dialog h3 {
+  flex: none;
+  gap: 8px;
+}
+
+/* the intro and the warnings: never more than a third of the dialog, scrolled within if they need more */
+.changes-top {
+  flex: none;
+  max-height: 34%;
+  overflow-y: auto;
+}
+
+.changes-top .dm-notice {
+  margin-top: 8px;
+}
+
+.changes-toolbar {
+  flex: none;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.changes-tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text-muted);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.changes-tool:hover {
+  color: var(--text);
+  background: var(--hover);
+}
+
+.changes-tree {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  /* keyboard steps never land under the database row that stays at the top */
+  scroll-padding-top: 40px;
+}
+
+.changes-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 6px 12px 6px calc(8px + var(--depth, 0) * 22px);
+  border-top: 1px solid var(--border);
+  cursor: pointer;
+  outline: none;
+}
+
+.changes-row:first-child {
+  border-top: none;
+}
+
+.changes-row:hover {
+  background: var(--hover);
+}
+
+.changes-row:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+.changes-row input {
+  flex: none;
+  margin: 2px 0 0;
+  accent-color: var(--override);
+}
+
+.changes-row.leaf.chosen {
+  background: var(--override-soft);
+}
+
+.changes-row.leaf.blocked {
+  cursor: default;
+}
+
+.changes-row.leaf.blocked .overrides-entry-label {
+  color: var(--text-muted);
+}
+
+/* the server and each database: stays at the top of the list while what is under it scrolls by */
+.changes-row.branch.level-1 {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--panel);
+}
+
+.changes-row.branch.level-1:hover {
+  background: color-mix(in srgb, var(--panel), var(--text) 4%);
+}
+
+.changes-row.branch.level-1 + .changes-row {
+  border-top-color: var(--border);
+}
+
+.changes-chevron {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 18px;
+  color: var(--text-faint);
+  transition: rotate var(--dur) var(--ease, ease);
+}
+
+.changes-row.branch.open > .changes-chevron {
+  rotate: 90deg;
+}
+
+.changes-chevron.empty {
+  visibility: hidden;
+}
+
+.changes-branch-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1;
+}
+
+.changes-branch-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.changes-row.level-1 .changes-branch-label {
+  font-weight: 600;
+}
+
+.changes-row.level-2 .changes-branch-label {
+  font-weight: 500;
+}
+
+svg.changes-icon {
+  flex: none;
+  color: var(--text-muted);
+}
+
+.changes-row.level-1 svg.changes-icon {
+  color: var(--override);
+}
+
+.changes-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.changes-count {
+  flex: none;
+  padding: 0 7px;
+  font-size: 11.5px;
+  font-weight: 400;
+  line-height: 17px;
+  color: var(--text-muted);
+  background: var(--badge-bg);
+  border-radius: 9px;
+}
+
+.changes-note {
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+.changes-message {
+  flex: none;
+  margin-top: 8px;
+}
+
+.dialog.changes-dialog > .dialog-row:last-child {
+  flex: none;
+  flex-wrap: wrap;
+}
+
+.dialog.changes-dialog > .dialog-row .action-button {
+  min-width: 0;
+}
+
+/* the edges and corners that resize it: thin bands just over the edge, the corners a little larger */
+.changes-grip {
+  position: absolute;
+  z-index: 3;
+  touch-action: none;
+}
+
+.changes-grip.n,
+.changes-grip.s {
+  left: 14px;
+  right: 14px;
+  height: 8px;
+  cursor: ns-resize;
+}
+
+.changes-grip.n {
+  top: -4px;
+}
+
+.changes-grip.s {
+  bottom: -4px;
+}
+
+.changes-grip.e,
+.changes-grip.w {
+  top: 14px;
+  bottom: 14px;
+  width: 8px;
+  cursor: ew-resize;
+}
+
+.changes-grip.e {
+  right: -4px;
+}
+
+.changes-grip.w {
+  left: -4px;
+}
+
+.changes-grip.ne,
+.changes-grip.nw,
+.changes-grip.se,
+.changes-grip.sw {
+  width: 16px;
+  height: 16px;
+}
+
+.changes-grip.ne {
+  top: -4px;
+  right: -4px;
+  cursor: nesw-resize;
+}
+
+.changes-grip.sw {
+  bottom: -4px;
+  left: -4px;
+  cursor: nesw-resize;
+}
+
+.changes-grip.nw {
+  top: -4px;
+  left: -4px;
+  cursor: nwse-resize;
+}
+
+/* the one that shows: two short lines in the corner, as a window's own */
+.changes-grip.se {
+  right: -4px;
+  bottom: -4px;
+  cursor: nwse-resize;
+  background:
+    linear-gradient(135deg, transparent 0 9px, var(--text-faint) 9px 10px, transparent 10px 12px, var(--text-faint) 12px 13px, transparent 13px) no-repeat;
+  background-position: -3px -3px;
+  opacity: 0.7;
+}
+
+@media (max-width: 760px), (max-height: 500px) and (pointer: coarse) {
+  .dialog-backdrop > .dialog.changes-dialog {
+    width: 100% !important;
+    height: calc(100dvh - 20px) !important;
+  }
+
+  .changes-grip {
+    display: none;
+  }
 }
 
 .setting-control {

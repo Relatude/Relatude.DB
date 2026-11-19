@@ -63,8 +63,9 @@ sealed partial class UISettings {
         };
     }
 
-    object describeEntry(SettingsPatch.Entry entry, PathInfo info, LookupContext context) {
-        var file = context.File!;
+    /// <summary>Why an entry cannot be moved into relatude.db.json, and why it cannot be discarded; null when it can.
+    /// The settings pages' list and the changes dialog (overrides-export-list) both ask it.</summary>
+    (string? Move, string? Discard) settingsBlocks(SettingsPatch.Entry entry, PathInfo info) {
         var overlay = _server.ConfigurationOverlay;
         var configured = overlay != null && overlay.IsOverridden(entry.Path, out _);
         var decidedBy = _server.DecidedOutsideTheSettingsFiles(entry.Path);
@@ -75,6 +76,13 @@ sealed partial class UISettings {
             : wholeDatabase
                 ? "A whole database cannot be taken back here. Move it into " + Defaults.SettingsFileName + ", or edit the two files by hand."
                 : null;
+        var moveBlocked = configured ? "Set by the " + overlay!.SectionName + " configuration section, which is never copied into " + Defaults.SettingsFileName + "." : null;
+        return (moveBlocked, discardBlocked);
+    }
+
+    object describeEntry(SettingsPatch.Entry entry, PathInfo info, LookupContext context) {
+        var file = context.File!;
+        var (moveBlocked, discardBlocked) = settingsBlocks(entry, info);
         var fileValue = file.FileValue(entry.Path);
         object? value = null, before = null;
         string? summary = null;
@@ -101,8 +109,8 @@ sealed partial class UISettings {
             FileValue = before,
             FileHasValue = hasValue(fileValue),
             Summary = summary,
-            CanMove = !configured,
-            MoveBlocked = configured ? "Set by the " + overlay!.SectionName + " configuration section, which is never copied into " + Defaults.SettingsFileName + "." : null,
+            CanMove = moveBlocked == null,
+            MoveBlocked = moveBlocked,
             CanDiscard = discardBlocked == null,
             DiscardBlocked = discardBlocked,
         };

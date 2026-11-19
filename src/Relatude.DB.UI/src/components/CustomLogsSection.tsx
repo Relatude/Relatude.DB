@@ -50,7 +50,7 @@ import { logIcon, type LogIconType } from "../logIcons";
 import { Loading } from "./Loading";
 import { SourceTag } from "./SourceTag";
 import { ShareButton } from "./ShareButton";
-import { CustomLogsDataDialog } from "./CustomLogsDataDialog";
+import { openChanges, useOnChangesMade } from "../changes";
 
 /**
  * The Logs page: logs someone defines for a database, rather than the logs the database keeps about
@@ -123,7 +123,6 @@ export function CustomLogsSection({ db }: { db: DatabaseInfo }) {
   const [live, setLive] = useState(false);
   // the database's own logs beside these: off until asked for, and remembered for every database
   const [showBuiltIn, setShowBuiltInState] = useState(() => readStored(builtInKey) === "true");
-  const [dataOpen, setDataOpen] = useState(false);
 
   const apply = useCallback((i: CustomLogsInfo) => {
     setInfo(i);
@@ -133,6 +132,8 @@ export function CustomLogsSection({ db }: { db: DatabaseInfo }) {
   // faster than every few seconds: it reads the sizes and the first and last entry of every log
   useLive<CustomLogsInfo>("custom-logs-info", { storeId: db.id, includeBuiltIn: showBuiltIn }, apply, { minMs: 5000, restartOn: tick, onError: setError });
   const refresh = useCallback(() => setTick((t) => t + 1), []);
+  // read again after the changes dialog moved or discarded anything, wherever it was opened from
+  useOnChangesMade(refresh);
 
   function setShowBuiltIn(next: boolean) {
     setShowBuiltInState(next);
@@ -260,11 +261,16 @@ export function CustomLogsSection({ db }: { db: DatabaseInfo }) {
           <ShareButton
             count={info.dataEntries.length}
             title={`Logs defined or changed here are saved on THIS SERVER, ${info.dataFolder} - this installation's - over SHARED, ${info.settingsFolder ?? "relatude.settings"}.`}
-            onClick={() => setDataOpen(true)}
+            onClick={() =>
+              openChanges({
+                intent: "move",
+                focus: (_, group) => group.kind === "logs" && group.storeId === db.id,
+                focusTitle: "Log definitions of " + db.name,
+              })
+            }
           />
         </span>
       </div>
-      {dataOpen && <CustomLogsDataDialog storeId={db.id} info={info} onClose={() => setDataOpen(false)} onChanged={refresh} />}
 
       {activeTab === overviewTab ? (
         <Overview db={db} info={info} builtIn={builtIn} onOpen={setTab} onNew={startNew} onChanged={refresh} />

@@ -55,7 +55,7 @@ import type { DatabaseInfo } from "../server/serverInfo";
 import { CodeEditor } from "./CodeEditor";
 import { SourceTag } from "./SourceTag";
 import { ShareButton } from "./ShareButton";
-import { EndpointsDataDialog } from "./EndpointsDataDialog";
+import { openChanges, useOnChangesMade } from "../changes";
 import { GraphQLExplorer, type ExplorerSource } from "./GraphQLExplorer";
 import { CopyText } from "./CopyText";
 import { Loading } from "./Loading";
@@ -79,7 +79,6 @@ export function ApiSection({ db }: { db: DatabaseInfo }) {
   const [drafts, setDrafts] = useState<Record<string, EndpointDefinition>>({});
   // the view each endpoint's tab was left on
   const [views, setViews] = useState<Record<string, EditorView>>({});
-  const [dataOpen, setDataOpen] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -92,6 +91,8 @@ export function ApiSection({ db }: { db: DatabaseInfo }) {
   useEffect(() => {
     load();
   }, [load]);
+  // read again after the changes dialog moved or discarded anything, wherever it was opened from
+  useOnChangesMade(load);
 
   async function reload() {
     try {
@@ -161,11 +162,16 @@ export function ApiSection({ db }: { db: DatabaseInfo }) {
             className="at-end"
             count={info.dataEntries.length}
             title={`Endpoints defined or changed here are saved on THIS SERVER, ${info.dataFolder} - this installation's - over SHARED, ${info.settingsFolder}.`}
-            onClick={() => setDataOpen(true)}
+            onClick={() =>
+              openChanges({
+                intent: "move",
+                focus: (_, group) => group.kind === "graphql" && group.storeId === db.id,
+                focusTitle: "GraphQL endpoints of " + db.name,
+              })
+            }
           />
         )}
       </div>
-      {dataOpen && <EndpointsDataDialog storeId={db.id} info={info} onClose={() => setDataOpen(false)} onChanged={load} />}
       <div className="api-body">
         {!editing ? (
           <Overview

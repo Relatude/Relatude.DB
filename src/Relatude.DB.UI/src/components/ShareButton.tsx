@@ -6,8 +6,9 @@ import { SourceTag } from "./SourceTag";
  * The one way, on every page whose changes are saved on THIS SERVER, to see what is held there and move
  * it into SHARED: the settings pages, the databases list, what Activity records, the datamodel overrides,
  * log definitions and GraphQL endpoints. It looks and reads the same everywhere and sits in the same
- * place - the top right of the module it belongs to - and it always opens that module's dialog, where
- * entries are picked and moved or discarded.
+ * place - the top right of the module it belongs to - and it always opens the one changes dialog
+ * (ChangesDialog, openChanges in changes.ts) on that module's branch, where entries are picked and moved,
+ * downloaded or discarded.
  *
  * The status beside the label is the count of what THIS SERVER holds for this module and SHARED does
  * not: "all shared" when there is nothing to move.
@@ -47,7 +48,7 @@ export function ShareButton({
   );
 }
 
-/** The title row of every move-to-shared dialog: the same icon and words as the button, what is moved, and which way. */
+/** The title row of the changes dialog: its icon and words, what it was opened on, and which way a move goes. */
 export function ShareDialogTitle({ what, lead = "Move to shared", icon, children }: { what: string; lead?: string; icon?: ReactNode; children?: ReactNode }) {
   return (
     <>

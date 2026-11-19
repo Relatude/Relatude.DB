@@ -18,6 +18,11 @@ namespace Relatude.DB.NodeServer.UI;
 /// its path relative to the application's folder, with relatude-changes.md saying what is in it. Nothing
 /// is written on the server: the zip is for an installation whose files the next deployment replaces, to
 /// be put into the project by hand. What the configuration section decides is never exported.
+///
+/// The same list is the admin UI's one dialog of what THIS SERVER holds: besides the download, each entry
+/// says whether it can be moved into SHARED or discarded where it is (MoveBlocked, DiscardBlocked: null when
+/// it can), and each group where it is kept and where a move writes it, so the dialog asks the command of
+/// the entry's kind - settings-overrides-move, datamodel-overrides-move, custom-logs-data-move... - itself.
 /// </summary>
 sealed partial class UISettings {
     // for people: ø and • as they are, not escaped
@@ -28,10 +33,18 @@ sealed partial class UISettings {
     }
 
     /// <summary>One entry of the list. Before and after are what the application's file has and would have,
-    /// as text, secrets blanked out; Blocked says why an entry cannot be exported.</summary>
-    sealed record ExportEntry(string Id, string Label, string? Where, string File, string Change, string? Before, string? After, bool Secret, string? Blocked);
-    sealed record ExportGroup(string Kind, string Title, Guid? StoreId, ExportEntry[] Entries);
-    sealed record ExportList(string Server, List<ExportGroup> Groups, List<string> Problems);
+    /// as text, secrets blanked out; Blocked says why an entry cannot be exported, MoveBlocked why it cannot be
+    /// moved into SHARED and DiscardBlocked why it cannot be discarded, each null when it can. Section is what
+    /// the dialog's tree lists it under within its group: a settings section, a type, a source.</summary>
+    sealed record ExportEntry(string Id, string Label, string? Where, string? Section, string File, string Change, string? Before, string? After, bool Secret,
+        string? Blocked, string? MoveBlocked, string? DiscardBlocked);
+    /// <summary>Entries of one kind in one place. Area is the kind as the tree names it ("Settings", a custom set's
+    /// title), Database the database's name (null for the server's own), Key a custom set's file key; From is
+    /// where THIS SERVER keeps them and Into where a move writes them, for the dialog's questions.</summary>
+    sealed record ExportGroup(string Kind, string Title, string Area, Guid? StoreId, string? Database, string? Key, string? From, string? Into, ExportEntry[] Entries);
+    /// <summary>Development: relatude.settings is most likely the one in source control, so what is moved into
+    /// it is kept; elsewhere it is the deployed copy the next deployment replaces.</summary>
+    sealed record ExportList(string Server, bool Development, string Environment, string? ConfigSection, List<ExportGroup> Groups, List<string> Problems);
 
     ExportList exportList() {
         var groups = new List<ExportGroup>();
@@ -50,16 +63,25 @@ sealed partial class UISettings {
         }
         foreach (var container in _server.GetContainers().OrderBy(c => c.Settings.Name, StringComparer.OrdinalIgnoreCase)) {
             var name = databaseName(container.Settings);
-            kind("Datamodel overrides of " + name, () => add(groups, "datamodel", "Datamodel overrides", container, exportDatamodel(container)));
-            kind("Logs of " + name, () => add(groups, "logs", "Logs", container, exportDefinitions(container, "logs")));
-            kind("GraphQL endpoints of " + name, () => add(groups, "graphql", "GraphQL endpoints", container, exportDefinitions(container, "graphql")));
-            kind("Runtime types of " + name, () => add(groups, "types", "Runtime types", container, exportTypes(container)));
+            kind("Datamodel overrides of " + name, () => {
+                var file = container.OverridesFile;
+                add(groups, "datamodel", "Datamodel overrides", container, file.DataLocation, file.SettingsLocation, exportDatamodel(container));
+            });
+            foreach (var definitions in new[] { "logs", "graphql" }) {
+                kind((definitions == "logs" ? "Logs of " : "GraphQL endpoints of ") + name, () => {
+                    var found = layers(container, definitions);
+                    add(groups, definitions, definitions == "logs" ? "Logs" : "GraphQL endpoints", container, found.Folders?.Data.Display, found.Folders?.Settings?.Display,
+                        exportDefinitions(container, definitions, found));
+                });
+            }
+            kind("Runtime types of " + name, () => add(groups, "types", "Runtime types", container, null, null, exportTypes(container)));
         }
-        return new ExportList(_server.Settings.Name, groups, problems);
+        return new ExportList(_server.Settings.Name, _server.IsDevelopment, _server.EnvironmentName, _server.ConfigurationOverlay?.SectionName, groups, problems);
     }
 
-    static void add(List<ExportGroup> groups, string kind, string title, NodeStoreContainer container, ExportEntry[] entries) {
-        if (entries.Length > 0) groups.Add(new(kind, title + " · " + databaseName(container.Settings), container.Settings.Id, entries));
+    static void add(List<ExportGroup> groups, string kind, string area, NodeStoreContainer container, string? from, string? into, ExportEntry[] entries) {
+        var database = databaseName(container.Settings);
+        if (entries.Length > 0) groups.Add(new(kind, area + " · " + database, area, container.Settings.Id, database, null, from, into, entries));
     }
 
     static string databaseName(NodeStoreContainerSettingsBase settings) => string.IsNullOrEmpty(settings.Name) ? settings.Id.ToString() : settings.Name;
@@ -79,17 +101,22 @@ sealed partial class UISettings {
             .Select(entry => (Entry: entry, Info: describePath(entry.Path, context)))
             .GroupBy(x => x.Info.ContainerId)
             .OrderBy(g => g.Key == null ? 0 : 1)
-            .Select(g => new ExportGroup("settings", "Settings · " + (g.Key == null ? "Server" : containerTitle(g.Key.Value, context)), g.Key, [.. g.Select(x => {
-                var entry = x.Entry;
-                var fileValue = file.FileValue(entry.Path);
-                JsonNode? hide(JsonNode? v) => redact(v, entry.Path, context);
-                var configured = overlay != null && overlay.IsOverridden(entry.Path, out _);
-                return new ExportEntry(id("settings", entry.Path), x.Info.Label, x.Info.Where, target, change(entry.Kind),
-                    entry.Kind == SettingsPatch.EntryKind.Added ? null : text(hide(fileValue)),
-                    entry.Kind == SettingsPatch.EntryKind.Removed ? null : text(hide(entry.Value)),
-                    x.Info.Secret || holdsSecret(entry.Value, hide) || holdsSecret(fileValue, hide),
-                    configured ? "Set by the " + overlay!.SectionName + " configuration section, which is never exported." : null);
-            })]));
+            .Select(g => {
+                var database = g.Key == null ? null : containerTitle(g.Key.Value, context);
+                return new ExportGroup("settings", "Settings · " + (database ?? "Server"), "Settings", g.Key, database, null, file.Display, _server.SettingsFileDisplay, [.. g.Select(x => {
+                    var entry = x.Entry;
+                    var fileValue = file.FileValue(entry.Path);
+                    JsonNode? hide(JsonNode? v) => redact(v, entry.Path, context);
+                    var configured = overlay != null && overlay.IsOverridden(entry.Path, out _);
+                    var (moveBlocked, discardBlocked) = settingsBlocks(entry, x.Info);
+                    return new ExportEntry(id("settings", entry.Path), x.Info.Label, x.Info.Where, x.Info.Where, target, change(entry.Kind),
+                        entry.Kind == SettingsPatch.EntryKind.Added ? null : text(hide(fileValue)),
+                        entry.Kind == SettingsPatch.EntryKind.Removed ? null : text(hide(entry.Value)),
+                        x.Info.Secret || holdsSecret(entry.Value, hide) || holdsSecret(fileValue, hide),
+                        configured ? "Set by the " + overlay!.SectionName + " configuration section, which is never exported." : null,
+                        moveBlocked, discardBlocked);
+                })]);
+            });
     }
 
     ExportGroup? exportCustom(ICustomSettingsDefinition definition, Guid? storeId) {
@@ -103,16 +130,19 @@ sealed partial class UISettings {
             var fileValue = set.FileValue(entry.Path);
             JsonNode? hide(JsonNode? v) => redactCustom(set, v, entry.Path, root);
             var configured = set.IsConfigured(entry.Path, out _);
-            return new ExportEntry(id("custom", definition.FileKey, storeId, entry.Path), label, where, target ?? set.SettingsFileDisplay, change(entry.Kind),
+            var (moveBlocked, discardBlocked) = customBlocks(set, entry.Path);
+            return new ExportEntry(id("custom", definition.FileKey, storeId, entry.Path), label, where, where, target ?? set.SettingsFileDisplay, change(entry.Kind),
                 entry.Kind == SettingsPatch.EntryKind.Added ? null : text(hide(fileValue)),
                 entry.Kind == SettingsPatch.EntryKind.Removed ? null : text(hide(entry.Value)),
                 secret || holdsSecret(entry.Value, hide) || holdsSecret(fileValue, hide),
                 configured ? "Set by " + set.DecidedOutsideTheFiles(entry.Path) + ", which is never exported."
-                    : target == null ? set.SettingsFileDisplay + " is outside the application's folder." : null);
+                    : target == null ? set.SettingsFileDisplay + " is outside the application's folder." : null,
+                moveBlocked, discardBlocked);
         }).ToArray();
         if (entries.Length == 0) return null;
-        var database = storeId is Guid sid && _server.Containers.TryGetValue(sid, out var c) ? c.Settings : null;
-        return new ExportGroup("custom", definition.Title + (database == null ? "" : " · " + databaseName(database)), storeId, entries);
+        var database = storeId is Guid sid && _server.Containers.TryGetValue(sid, out var c) ? databaseName(c.Settings) : null;
+        return new ExportGroup("custom", definition.Title + (database == null ? "" : " · " + database), definition.Title, storeId, database, definition.FileKey,
+            set.DataFileDisplay, set.SettingsFileDisplay, entries);
     }
 
     ExportEntry[] exportDatamodel(NodeStoreContainer container) {
@@ -124,18 +154,21 @@ sealed partial class UISettings {
             var label = shortName(e.TypeName) + (e.PropertyId == null ? "" : "." + (e.PropertyName ?? e.PropertyId.ToString())) + ": " + e.Attribute;
             var change = !inSettings ? e.Value == null ? "same" : "added"
                 : JsonNode.DeepEquals(shared, e.Value) ? "same" : e.Value == null ? "removed" : "changed";
-            return new ExportEntry(id("datamodel", container.Settings.Id, e.TypeId, e.PropertyId, e.Attribute), label, null, target, change,
-                inSettings ? text(shared) : null, text(e.Value), false, null);
+            // discarding is a change of the draft, which the data model editor makes itself: the dialog asks it
+            return new ExportEntry(id("datamodel", container.Settings.Id, e.TypeId, e.PropertyId, e.Attribute), label, null, e.TypeName ?? e.TypeId.ToString(), target, change,
+                inSettings ? text(shared) : null, text(e.Value), false, null,
+                file.CanWrite ? null : "The database has no storage provider to keep THIS SERVER's overrides in.", null);
         })];
         static string shortName(string? fullName) => fullName == null ? "" : fullName[(fullName.LastIndexOf('.') + 1)..];
     }
 
-    ExportEntry[] exportDefinitions(NodeStoreContainer container, string kind) {
-        var (folders, definitions) = layers(container, kind);
+    static ExportEntry[] exportDefinitions(NodeStoreContainer container, string kind, (LayeredDefinitionFolders? Folders, List<LayeredDefinition> Definitions) found) {
+        var (folders, definitions) = found;
         if (folders?.Settings == null) return [];
         return [.. definitions.Where(d => d.DataKey != null).Select(d => {
             var after = LayeredDefinitions.SettingsAfterMove(folders, d)!.Value;
-            return new ExportEntry(id(kind, container.Settings.Id, d.Id), definitionName(d), null, folders.Settings.DisplayOf(after.Key), change(d.Change), d.SettingsText, d.DataText, false, null);
+            return new ExportEntry(id(kind, container.Settings.Id, d.Id), definitionName(d), null, null, folders.Settings.DisplayOf(after.Key), change(d.Change), d.SettingsText, d.DataText, false,
+                null, null, null);
         })];
     }
 
@@ -171,8 +204,10 @@ sealed partial class UISettings {
             var (files, _, _) = DatamodelSourceLoader.ResolveFiles(DatamodelSourceLoader.ResolveFilePath(source, root), DatamodelSourceLoader.DefaultPath(source), "*.json");
             foreach (var path in files) {
                 var relative = _server.RelativeToApplication(path);
-                result.Add(new ExportEntry(id("types", container.Settings.Id, source.Id, relative ?? path), Path.GetFileNameWithoutExtension(path), source.Name, relative ?? path, "file",
-                    null, File.ReadAllText(path), false, relative == null ? "The file is outside the application's folder." : null));
+                result.Add(new ExportEntry(id("types", container.Settings.Id, source.Id, relative ?? path), Path.GetFileNameWithoutExtension(path), source.Name, source.Name,
+                    relative ?? path, "file", null, File.ReadAllText(path), false, relative == null ? "The file is outside the application's folder." : null,
+                    "A runtime type is a file of its own, not an override: download it into the project, or point its source at a folder the project tracks.",
+                    "Runtime types are changed and deleted in the data model editor."));
             }
         }
         return [.. result];
