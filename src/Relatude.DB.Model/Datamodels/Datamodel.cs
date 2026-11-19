@@ -1,4 +1,4 @@
-﻿using System.Reflection;
+using System.Reflection;
 using System.Text.Json.Serialization;
 using Relatude.DB.Datamodels.Properties;
 namespace Relatude.DB.Datamodels;
@@ -81,6 +81,19 @@ public partial class Datamodel {
                 n.InstantTextIndexing = enableInstantIndexing;
         }
         keepRequests();
+    }
+
+    /// <summary>
+    /// Resolves a switch every type may set or leave unset, such as <see cref="NodeTypeModel.History"/>: a type
+    /// that sets it has its own, one that does not takes it from the most specific types it inherits from that
+    /// set it (when they agree), and what is still unset is <paramref name="default"/>. Unlike
+    /// <see cref="SetIndexDefaults"/> it changes nothing in the types. The model must be initialized.
+    /// </summary>
+    public Dictionary<Guid, bool> ResolveSwitch(Func<NodeTypeModel, bool?> get, string name, bool @default) {
+        EnsureInitalization();
+        var result = new Dictionary<Guid, bool>();
+        foreach (var (id, value) in inheritedSwitches(get, name)) result[id] = value ?? @default;
+        return result;
     }
 
     /// <summary>

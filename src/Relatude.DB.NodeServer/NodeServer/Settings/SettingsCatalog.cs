@@ -1438,6 +1438,25 @@ public static class SettingsCatalog {
                     ],
                 },
                 new() {
+                    Id = "history",
+                    Title = "History",
+                    Help = "The change history: who changed what and when, read from the database's log files in the background into a time index of its own (indexes/history on the index storage) - where each change is and what sort it was, never a value. It is shown under Activity › History and in applications such as a CMS. It follows the log a few seconds behind and puts nothing on the write path. With the secondary log on it is read from there, so it reaches back across truncations; otherwise it reaches as far back as the log files kept.",
+                    Settings = [
+                        new() {
+                            Path = "LocalSettings.History.Enabled", Label = "Record change history", Applies = SettingApplies.Live,
+                            Help = "Off by default. Turned on, the reader builds the history index from the log files there are, in the background, then follows the log. Turned off, it stops and holds nothing in memory; the index stays on disk until it is rebuilt.",
+                        },
+                        new() {
+                            Path = "LocalSettings.History.TypesByDefault", Label = "Types that say nothing", Applies = SettingApplies.Live,
+                            Help = "Whether a type is in history when neither its code, the types it inherits from nor an override says (the Change history switch of a type in the data model editor). A type put in shows its earlier changes once the history index is rebuilt.",
+                        },
+                        new() {
+                            Path = "LocalSettings.History.BuildSpeed", Label = "First build speed", Applies = SettingApplies.Live,
+                            Help = "How hard the reader works while it builds the index from what the log holds: Low takes a quarter of one core and of the disk's reads, Medium half, High all of one core. Following the log afterwards costs next to nothing whatever it is.",
+                        },
+                    ],
+                },
+                new() {
                     Id = "truncate",
                     Title = "Log truncation",
                     Help = "The transaction log holds every change ever made, so it only grows. Truncating rewrites it as the current state plus what came after, reclaiming the space - and giving up the history before that point, including the ability to revert into it.",

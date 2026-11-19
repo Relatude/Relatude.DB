@@ -20,7 +20,7 @@ namespace Relatude.DB.Serialization {
         }
         static PrimitiveNodeAction nodeAction(Datamodel datamodel, Stream stream, long logFormatVersion, out long nodeSegmentRelativeOffset, out int nodeSegmentLength) {
             var operation = (PrimitiveOperation)stream.ReadOneByte();
-            if (logFormatVersion >= DataStores.Stores.WALFile._logVersioNumber) {
+            if (DataStores.Stores.WALFile.HasVersionChain(logFormatVersion)) {
                 stream.ReadLong(); // version-chain header: the transaction timestamp,
                 stream.ReadLong(); // the node data position of the previous add of the same node,
                 stream.ReadInt();  // and its length. Only used by the version API, which reads it by fixed offset.

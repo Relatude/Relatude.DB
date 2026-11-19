@@ -1,4 +1,4 @@
-﻿using Relatude.DB.Datamodels.Properties;
+using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.Native;
 using System.Text.Json.Serialization;
 
@@ -104,6 +104,13 @@ public partial class NodeTypeModel { // with default values
     public string? Namespace { get; set; } = string.Empty;
     public string CodeName { get; set; } = string.Empty;
     public bool? InstantTextIndexing { get; set; }
+    /// <summary>
+    /// Whether changes to nodes of the type are in the database's change history (the time index the history
+    /// reader keeps of the log). Unset takes it from the closest type it inherits from that sets it, else the
+    /// database's default (<c>History.TypesByDefault</c>, on). Read through <see cref="Datamodel.ResolveSwitch"/>;
+    /// it rebuilds nothing when changed.
+    /// </summary>
+    public bool? History { get; set; }
     public bool? TextIndex { get; set; }
     public double TextIndexBoost { get; set; } = 0;
     public bool? SemanticIndex { get; set; }

@@ -1,4 +1,4 @@
-﻿using System.Buffers;
+using System.Buffers;
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.DataStores.Definitions;
@@ -29,8 +29,19 @@ internal class WALFile : IDisposable {
     // consistent chain. Files with version 1000 keep getting 1000-format records appended, so a file
     // never mixes formats; the primary upgrades at the next log rewrite, the secondary when it is
     // reset or recreated.
-    public readonly static long _logVersioNumber = 1001; // file format version written to new files
+    // Version 1002 added who wrote each transaction and what kind of write it is to the transaction's
+    // header, right after the action count: [writer: 16][flags: 1]. The history reader names the person
+    // behind every change from it, deletes, links and binning too, and leaves a truncation's copy out.
+    public readonly static long _logVersioNumber = 1002; // file format version written to new files
+    public readonly static long _logVersionNumberV1001 = 1001; // version-chain headers, no writer in the transaction header
     public readonly static long _logVersionNumberV1000 = 1000; // legacy format without version-chain headers
+    internal const int TransactionWriterHeaderSize = 17; // v1002 transactions: [writer:16][flags:1] after the action count
+    /// <summary>Whether a log file of the format version is one this version reads and appends to.</summary>
+    internal static bool IsKnownFormat(long version) => version == _logVersioNumber || version == _logVersionNumberV1001 || version == _logVersionNumberV1000;
+    /// <summary>Whether node actions of the format carry the version-chain header (1001 and later).</summary>
+    internal static bool HasVersionChain(long version) => version >= _logVersionNumberV1001;
+    /// <summary>Whether transactions of the format carry their writer and flags (1002 and later).</summary>
+    internal static bool HasTransactionWriter(long version) => version >= _logVersioNumber;
     internal const int VersionHeaderSize = 20; // v1001 node actions: [timestamp:8][prevAddPos:8][prevAddLen:4] right before the node data
     public readonly static Guid _logStartMarker = new Guid("01114d5b-d268-4ece-a498-2b7961c1a3f8"); // just a unique number
     public readonly static Guid _transactionStartMarker = new Guid("a02520c1-60aa-426b-b002-76c76e71a8be"); // just a unique number
@@ -136,7 +147,7 @@ internal class WALFile : IDisposable {
             } else {
                 if (s.GetGuid(0) != _logStartMarker) throw new IOException("Unable to open log file. Data is not compatible. ");
                 var version = s.GetVerifiedLong(16);
-                if (version != _logVersioNumber && version != _logVersionNumberV1000) throw new IOException("Incompatible log file format version number. Expected version " + _logVersioNumber + " or " + _logVersionNumberV1000 + " but found " + version + " .");
+                if (!IsKnownFormat(version)) throw new IOException("Incompatible log file format version number. Expected version " + _logVersioNumber + ", " + _logVersionNumberV1001 + " or " + _logVersionNumberV1000 + " but found " + version + " .");
                 formatVersion = version;
                 var readFileId = s.GetGuid(32);
                 if (!isSecondaryLog) {
@@ -156,12 +167,12 @@ internal class WALFile : IDisposable {
     long write(ExecutedPrimitiveTransaction[] transactions, Action<string, int>? progress, int actionCount, int transactionCount) {
         Action<string, int>? progress1 = progress != null ? (_ioSecondary != null ? (msg, perc) => progress("Primary: " + msg, perc / 2) : progress) : null;
         var written = writeStatic(transactions, _appendStream, _formatVersion, _definition.Datamodel, _registerAndConfrimeNodeWrite,
-            _formatVersion >= _logVersioNumber ? _chainHeads : null, _chainLock, progress1, actionCount, transactionCount);
+            HasVersionChain(_formatVersion) ? _chainHeads : null, _chainLock, progress1, actionCount, transactionCount);
         if (_ioSecondary != null) {
             Action<string, int>? progress2 = progress != null ? (msg, perc) => progress("Secondary: " + msg, 50 + (perc / 2)) : null;
             if (_secondaryAppendStream == null) _secondaryAppendStream = getWriteStream(_ioSecondary, _secondaryFileKey!, true, out _secondaryFormatVersion);
             writeStatic(transactions, _secondaryAppendStream, _secondaryFormatVersion, _definition.Datamodel, null,
-                _secondaryFormatVersion >= _logVersioNumber ? _secondaryChainHeads : null, _chainLock, progress2, actionCount, transactionCount);
+                HasVersionChain(_secondaryFormatVersion) ? _secondaryChainHeads : null, _chainLock, progress2, actionCount, transactionCount);
         }
         return written;
     }
@@ -178,6 +189,10 @@ internal class WALFile : IDisposable {
             stream.WriteMarker(_transactionStartMarker);  // marking end of a new transaction, making it possible to separate each transaction in a corrupted file
             stream.WriteLong(transaction.Timestamp);
             stream.WriteVerifiedInt(transaction.ExecutedActions.Count);
+            if (HasTransactionWriter(formatVersion)) { // a file keeps the format it was made in, so an older file gets no writer
+                stream.WriteGuid(transaction.Writer);
+                stream.Append([(byte)transaction.Flags], 1);
+            }
             // an update is written as remove(old) + add(new) within one transaction, and the add must
             // chain to the version the remove ended; entries removed here stay reachable until the
             // transaction ends, so only a delete that stands at transaction end breaks the chain:
@@ -510,7 +525,7 @@ internal class WALFile : IDisposable {
             // (SeedChainHeadsWhileClosed); at a runtime reset they are copied now:
             lock (_chainLock) {
                 _secondaryChainHeads.Clear();
-                if (_secondaryFormatVersion >= _logVersioNumber) {
+                if (HasVersionChain(_secondaryFormatVersion)) {
                     foreach (var (id, segment) in store._nodes.WrittenSegments()) _secondaryChainHeads.Set(id, segment);
                 }
             }
@@ -527,6 +542,36 @@ internal class WALFile : IDisposable {
             _secondaryAppendStream = getWriteStream(_ioSecondary, _secondaryFileKey, true, out _secondaryFormatVersion);
         }
     }
+
+    #region History reader
+
+    /// <summary>The format version of the log file in use, and of the secondary log (0 when it is not open).</summary>
+    internal long FormatVersion => _formatVersion;
+    internal long SecondaryFormatVersion => _secondaryAppendStream != null ? _secondaryFormatVersion : 0;
+    internal Guid SecondaryFileId => _secondaryFileId;
+    internal bool HasSecondaryStream => _secondaryAppendStream != null;
+    /// <summary>
+    /// For the history reader: how long the log file in use (or the secondary log) is now, read through the log's own
+    /// stream under a read lease, so a swap, a revert or a close waits for it and it never holds the file. -1 when the
+    /// stream is not open.
+    /// </summary>
+    internal long LengthForHistory(bool secondary) {
+        using var lease = _gate.EnterRead();
+        var stream = secondary ? _secondaryAppendStream : _appendStream;
+        return stream?.Length ?? -1;
+    }
+    /// <summary>For the history reader: <paramref name="count"/> bytes from <paramref name="position"/> into the start of
+    /// <paramref name="buffer"/>, through the log's own stream under a read lease held for this read alone. False when the
+    /// stream is not open or does not reach that far.</summary>
+    internal bool ReadForHistory(bool secondary, long position, int count, byte[] buffer) {
+        using var lease = _gate.EnterRead();
+        var stream = secondary ? _secondaryAppendStream : _appendStream;
+        if (stream == null || position < 0 || position + count > stream.Length) return false;
+        stream.Get(position, count, buffer);
+        return true;
+    }
+
+    #endregion
 
     #region Version chains
 
@@ -555,7 +600,7 @@ internal class WALFile : IDisposable {
                 logError("Unable to read the secondary log file header. Node version chains in the secondary log restart from here. ", err);
                 return;
             }
-            if (_secondaryFormatVersion < _logVersioNumber) return; // legacy format, carries no chains
+            if (!HasVersionChain(_secondaryFormatVersion)) return; // legacy format, carries no chains
             if (persisted != null && persisted.SecondaryFileId == _secondaryFileId && persisted.SecondaryLength <= secondarySize) {
                 foreach (var kv in persisted.Heads) {
                     if (kv.Value.AbsolutePosition + kv.Value.Length <= secondarySize) _secondaryChainHeads.Set(kv.Key, kv.Value);
@@ -588,7 +633,7 @@ internal class WALFile : IDisposable {
     internal void SaveChainState(IAppendStream stream) {
         stream.WriteMarker(_chainStateMarker);
         stream.RecordChecksum();
-        var hasSecondary = _secondaryAppendStream != null && _secondaryFormatVersion >= _logVersioNumber;
+        var hasSecondary = _secondaryAppendStream != null && HasVersionChain(_secondaryFormatVersion);
         stream.WriteBool(hasSecondary);
         if (hasSecondary) {
             stream.WriteGuid(_secondaryFileId);
@@ -636,7 +681,7 @@ internal class WALFile : IDisposable {
     internal List<NodeVersionRecord> CollectOlderVersions(int id, Guid nodeGuid, NodeSegment currentSegment, int maxCount) {
         var results = new List<NodeVersionRecord>();
         var seenTimestamps = new HashSet<long>();
-        if (_formatVersion >= _logVersioNumber) {
+        if (HasVersionChain(_formatVersion)) {
             NodeSegment start;
             bool skipFirst;
             if (currentSegment.AbsolutePosition > 0) {
@@ -650,7 +695,7 @@ internal class WALFile : IDisposable {
             }
             walkChain(_appendStream, FileKey.AsKeyString(), start, skipFirst, nodeGuid, maxCount, seenTimestamps, results);
         }
-        if (_secondaryAppendStream != null && _secondaryFormatVersion >= _logVersioNumber && _secondaryFileKey != null) {
+        if (_secondaryAppendStream != null && HasVersionChain(_secondaryFormatVersion) && _secondaryFileKey != null) {
             NodeSegment head;
             lock (_chainLock) _secondaryChainHeads.TryGetValue(id, out head);
             // the secondary head is the current version, or one the primary walk already covered

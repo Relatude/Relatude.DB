@@ -1,4 +1,4 @@
-﻿using Relatude.DB.Common;
+using Relatude.DB.Common;
 using Relatude.DB.DataStores;
 using Relatude.DB.DataStores.Stores;
 using Relatude.DB.FileConversion;
@@ -51,6 +51,7 @@ public sealed class UIServer {
         _serviceTests.Register(Commands);
         _logs = new UILogs(server);
         _logs.Register(Commands);
+        new UIHistory(server).Register(Commands);
         _customLogs = new UICustomLogs(server);
         _customLogs.Register(Commands);
         _transfer = new UIFileTransfer(server);

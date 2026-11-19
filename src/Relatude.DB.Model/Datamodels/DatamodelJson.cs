@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
@@ -90,6 +90,7 @@ public static class DatamodelJson {
             removeProperty(typeInfo, nameof(NodeTypeModel.Icon));
             removeProperty(typeInfo, nameof(NodeTypeModel.Title));
             removeProperty(typeInfo, nameof(NodeTypeModel.Description));
+            removeProperty(typeInfo, nameof(NodeTypeModel.History)); // what the history reader records, which no index holds
             // what nodes may be made, not how they are stored: IsAbstract is new and left out, and IsInnerNode, which
             // every state file has held as false, is written as false, so a model that sets either rebuilds nothing
             removeProperty(typeInfo, nameof(NodeTypeModel.IsAbstract));
@@ -121,7 +122,7 @@ public static class DatamodelJson {
     static bool hasPresentation(PropertyOverride p) => p.Display != null || p.AllowInlineEditing != null || p.MaxCount != null || p.TitleLayout != null || p.Unit != null
         || p.Height != null || p.Width != null || p.Title != null || p.TextLines != null || p.GuidType != null || p.StringType is StringValueType.SingleLineText or StringValueType.MultiLineText or StringValueType.Code;
     static DatamodelOverrides? withoutPresentation(DatamodelOverrides? overrides) {
-        if (overrides == null || !overrides.NodeTypes.Values.Any(t => t.Icon != null || t.Title != null || t.Description != null
+        if (overrides == null || !overrides.NodeTypes.Values.Any(t => t.Icon != null || t.Title != null || t.Description != null || t.History != null
             || t.IsAbstract != null || t.IsInnerNode != null || t.Properties?.Values.Any(hasPresentation) == true)) return overrides;
         var copy = new DatamodelOverrides();
         foreach (var (id, t) in overrides.NodeTypes) {
@@ -129,6 +130,7 @@ public static class DatamodelJson {
             c.Icon = null;
             c.Title = null;
             c.Description = null;
+            c.History = null; // what the history reader records
             c.IsAbstract = null; // what may be made, which the state does not hold
             c.IsInnerNode = null;
             if (c.Properties != null) foreach (var p in c.Properties.Values) {

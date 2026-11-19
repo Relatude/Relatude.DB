@@ -110,6 +110,18 @@ public sealed partial class DataStoreLocal : IDataStore {
         },
         "Queues every node of the text-indexed types for text indexing again, and every stored file that file analysis (AI image analysis, file text indexing) has not covered yet. The work itself happens in the task queue afterwards, one task per node or file.");
 
+        _jobs.AddBuiltIn("rebuild-history-index", ctx => {
+            arguments(ctx);
+            if (!(_settings.History?.Enabled ?? false)) {
+                ctx.Report("The change history is off: nothing to rebuild.");
+                return Task.CompletedTask;
+            }
+            History.Rebuild();
+            ctx.Report("The history index is being built again from the log, in the background.");
+            return Task.CompletedTask;
+        },
+        "Throws the change history's index away and builds it again from the log files the database keeps, in the background at the build speed set. Nothing in the log changes.");
+
         _jobs.AddBuiltIn("delete-unreferenced-files", async ctx => {
             var countOnly = arguments(ctx, "count").Contains("count");
             var result = await DeleteUnreferencedFilesAsync(countOnly, (text, percentage) => ctx.Progress(percentage, text), ctx.CancellationToken);

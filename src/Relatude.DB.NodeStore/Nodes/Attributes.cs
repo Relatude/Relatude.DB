@@ -1,4 +1,4 @@
-﻿using Relatude.DB.Common;
+using Relatude.DB.Common;
 using Relatude.DB.Datamodels.Properties;
 namespace Relatude.DB.Nodes;
 
@@ -37,6 +37,11 @@ public class NodeAttribute : Attribute {
     /// takes the count above it fails.</summary>
     public int MaxNoInstances { get; set; } = int.MaxValue;
     public BoolValue InstantTextIndexing { get; set; } = BoolValue.Default;
+    /// <summary>
+    /// Whether changes to nodes of this type are in the database's change history. Default takes it from the
+    /// types it inherits from, else the database's default (on). An administrator can override it in the admin UI.
+    /// </summary>
+    public BoolValue History { get; set; } = BoolValue.Default;
     public BoolValue TextIndex { get; set; }
     public BoolValue SemanticIndex { get; set; }
     public double TextIndexBoost { get; set; } = 0;

@@ -1,4 +1,4 @@
-﻿using System.Data;
+using System.Data;
 using System.Diagnostics;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Relatude.DB.Common;
@@ -183,7 +183,9 @@ public sealed partial class DataStoreLocal : IDataStore {
         var executed = executeActions(transaction, lockExcemptions, transformValues, resultingOperations, newTasks, activityId, ctx); // may encounter invalid data, then reverse actions and throw ExceptionWithoutIntegrityLoss
         primitiveActionCount = executed.Count;
         if (executed.Count == 0) return; // no actions executed, no need to write to disk
-        var executedTransaction = new ExecutedPrimitiveTransaction(executed, transaction.Timestamp);
+        // who made it and what kind of write it is go into the log's transaction header (format 1002), which the history names it by
+        var executedTransaction = new ExecutedPrimitiveTransaction(executed, transaction.Timestamp, ctx.UserId,
+            transaction.SystemWrite ? TransactionLogFlags.System : TransactionLogFlags.None);
         _wal.QueDiskWrites(executedTransaction);
         _rewriter?.RegisterNewTransactionWhileRewriting(executedTransaction);
         //if (flushToDisk) _wal.DequeuAllTransactionWritesAndFlushStreams(Settings.DeepFlushDisk);

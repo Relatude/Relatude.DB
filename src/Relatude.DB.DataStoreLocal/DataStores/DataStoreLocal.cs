@@ -1,4 +1,4 @@
-﻿using System.Data;
+using System.Data;
 using System.Diagnostics;
 using Relatude.DB.AI;
 using Relatude.DB.Common;
@@ -529,6 +529,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             _fileConversionEngine.ClearTempFolder();
             _scheduler.Start();
             warmIndexesInBackground();
+            History.Start(); // the change history's reader, which does nothing while history is off
         }
     }
     public void Close() {
@@ -536,6 +537,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         try {
             if (_state != DataStoreState.Open) throw new Exception("Store not opened. Current state is: " + _state);
             stopIndexWarmUp(); // before the flush: a warm-up left running would save its caches after the close
+            _history?.Stop(); // mid-chunk, with no final flush: what it read last is read again at the next open
             endRevertWindowAsCommitIfActive(); // before the flush, so the engines become durable at the head
             FlushToDisk(true, 0);
             _state = DataStoreState.Closing;
@@ -594,6 +596,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         // takes no store lock, so the warm-up would otherwise go on reading engines disposed below and
         // saving the facet-set sidecar after this returns:
         try { stopIndexWarmUp(); } catch { }
+        try { _history?.Dispose(); } catch { }
         try { _fileConversionEngine.Dispose(); } catch { } // stops its heartbeat timer; a live Timer roots this whole store
         try { cancelRewriteForDispose(); } catch { } // its new log file is open on a storage the closes below may not cover
         try { TaskQueue?.TryGracefulShutdown(5000); } catch { }

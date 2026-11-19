@@ -117,9 +117,9 @@ public static class LogFileScan {
         } catch {
             throw new IOException("The file is not a database log file: its format version is unreadable. ");
         }
-        if (version != WALFile._logVersioNumber && version != WALFile._logVersionNumberV1000)
+        if (!WALFile.IsKnownFormat(version))
             throw new IOException("Unsupported database log file version " + version + ". Expected "
-                + WALFile._logVersioNumber + " or " + WALFile._logVersionNumberV1000 + ". ");
+                + WALFile._logVersioNumber + ", " + WALFile._logVersionNumberV1001 + " or " + WALFile._logVersionNumberV1000 + ". ");
         var fileId = stream.ReadGuid();
         // the first transaction starts right after the header, so its timestamp sits one marker in
         long first = 0;
@@ -151,7 +151,7 @@ public static class LogFileScan {
         // transaction that is too new, everything goes. Without that rule a copy could keep a
         // transaction whose effect depends on one it left out.
         var pastTarget = false;
-        walk(stream, fileSize, t => {
+        walk(stream, header.FormatVersion, fileSize, t => {
             if (first == 0) first = t.Timestamp;
             last = t.Timestamp;
             if (!pastTarget && t.Timestamp <= untilTimestamp) {
@@ -180,7 +180,7 @@ public static class LogFileScan {
     /// everything after the last transaction that reads cleanly, which is the rule the log format is
     /// built on.
     /// </summary>
-    static void walk(IReadStream stream, long endPosition, Func<walkedTransaction, bool> onTransaction) {
+    static void walk(IReadStream stream, long formatVersion, long endPosition, Func<walkedTransaction, bool> onTransaction) {
         while (stream.Position + markerLength <= endPosition) {
             var start = stream.Position;
             long timestamp;
@@ -196,6 +196,7 @@ public static class LogFileScan {
                 timestamp = stream.ReadLong();
                 actions = stream.ReadVerifiedInt();
                 if (actions < 0) throw new IOException("Negative action count. ");
+                if (WALFile.HasTransactionWriter(formatVersion)) stream.Skip(WALFile.TransactionWriterHeaderSize); // who wrote it and the flags
                 for (var i = 0; i < actions; i++) {
                     if (stream.ReadGuid() != WALFile._actionMarker) throw new IOException("Action marker missing. ");
                     var length = stream.ReadVerifiedInt();
@@ -278,7 +279,7 @@ public static class LogFileScan {
         long origin = 0, total = 0, totalActions = 0, first = 0, last = 0;
         var started = false;
         var sinceProgress = 0;
-        walk(stream, to, t => {
+        walk(stream, header.FormatVersion, to, t => {
             if (!started) {
                 started = true;
                 first = t.Timestamp;

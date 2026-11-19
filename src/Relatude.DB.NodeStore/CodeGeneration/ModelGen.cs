@@ -1,4 +1,4 @@
-﻿using System.Globalization;
+using System.Globalization;
 using System.Text;
 using System.Xml.Linq;
 using Relatude.DB.Datamodels;
@@ -88,6 +88,7 @@ public static class ModelGen {
             if (nodeDef.TextIndex.HasValue) sb.Append(", " + nameof(NodeAttribute.TextIndex) + " = " + addAttributeBool(nodeDef.TextIndex.Value ? BoolValue.True : BoolValue.False));
             if (nodeDef.SemanticIndex.HasValue) sb.Append(", " + nameof(NodeAttribute.SemanticIndex) + " = " + addAttributeBool(nodeDef.SemanticIndex.Value ? BoolValue.True : BoolValue.False));
             if (nodeDef.InstantTextIndexing.HasValue) sb.Append(", " + nameof(NodeAttribute.InstantTextIndexing) + " = " + addAttributeBool(nodeDef.InstantTextIndexing.Value ? BoolValue.True : BoolValue.False));
+            if (nodeDef.History.HasValue) sb.Append(", " + nameof(NodeAttribute.History) + " = " + addAttributeBool(nodeDef.History.Value ? BoolValue.True : BoolValue.False));
             if (nodeDef.TextIndexBoost != 0) sb.Append(", " + nameof(NodeAttribute.TextIndexBoost) + " = " + nodeDef.TextIndexBoost.ToString(CultureInfo.InvariantCulture));
             if (!string.IsNullOrWhiteSpace(nodeDef.Icon)) sb.Append(", " + nameof(NodeAttribute.Icon) + " = " + stringLiteral(nodeDef.Icon));
             if (!string.IsNullOrWhiteSpace(nodeDef.Title)) sb.Append(", " + nameof(NodeAttribute.Title) + " = " + stringLiteral(nodeDef.Title));

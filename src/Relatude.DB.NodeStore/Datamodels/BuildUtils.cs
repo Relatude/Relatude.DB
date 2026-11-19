@@ -1,4 +1,4 @@
-﻿using System.Globalization;
+using System.Globalization;
 using Relatude.DB.Common;
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
@@ -128,6 +128,7 @@ internal static class BuildUtils {
         c.IsAbstract = nodeAttr.Abstract || (type.IsClass && type.IsAbstract);
         c.IsInnerNode = nodeAttr.InnerNode;
         if (nodeAttr.InstantTextIndexing != BoolValue.Default) c.InstantTextIndexing = nodeAttr.InstantTextIndexing == BoolValue.True;
+        if (nodeAttr.History != BoolValue.Default) c.History = nodeAttr.History == BoolValue.True;
         if (nodeAttr.SemanticIndex != BoolValue.Default) c.SemanticIndex = nodeAttr.SemanticIndex == BoolValue.True;
         // no limit stays at the model's int.MinValue/int.MaxValue (a count is never negative, so a minimum
         // of 0 is no limit), keeping the checksum of every model that sets neither as it was:

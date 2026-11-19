@@ -138,6 +138,9 @@ public sealed class NodeTypeOverride {
     public bool? SemanticIndex { get; set; }
     [OverrideScope(OverrideScope.Inherited), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public bool? InstantTextIndexing { get; set; }
+    /// <summary>Whether changes to nodes of the type are in the database's change history (<see cref="NodeTypeModel.History"/>), which the types inheriting from it without one of their own follow.</summary>
+    [OverrideScope(OverrideScope.Inherited), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? History { get; set; }
     [OverrideScope(OverrideScope.ThisType), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public bool? Hidden { get; set; }
     /// <summary>Whether no node is ever of the type itself, only of the types inheriting from it (<see cref="NodeTypeModel.IsAbstract"/>): this type's alone.</summary>

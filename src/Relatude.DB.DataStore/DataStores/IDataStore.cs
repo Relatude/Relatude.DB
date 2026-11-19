@@ -1,4 +1,4 @@
-﻿using Relatude.DB.AI;
+using Relatude.DB.AI;
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.Datamodels.Properties;
@@ -341,6 +341,33 @@ public interface IDataStore : IDisposable {
     /// rewritten under log format 1001) are not reachable.
     /// </summary>
     NodeVersionData[] FindOlderVersions(Guid nodeId, int maxCount = 100, QueryContext? ctx = null);
+
+    // ---- the change history: a time index of the log kept by the history reader, administrators only ----
+
+    /// <summary>
+    /// Whether the change history is on, where it is read from, how far back it reaches and how far it has got.
+    /// A store that keeps none answers <see cref="LogHistoryStatus.NotSupported"/>. Anyone may ask.
+    /// </summary>
+    LogHistoryStatus GetLogHistoryStatus() => LogHistoryStatus.NotSupported;
+    /// <summary>
+    /// A page of the changes made to the database, newest first, as the log holds them: who changed which version of
+    /// which node when, and the links made and taken away. Read from the history index, which follows the log a few
+    /// seconds behind; names and changed properties are read from the log for the page alone
+    /// (<see cref="LogChangeQuery.WithDetails"/>). Refused for anyone but an administrator.
+    /// </summary>
+    LogChangePage ReadLogChanges(LogChangeQuery query, QueryContext? ctx = null) => throw new NotSupportedException("This store keeps no change history. ");
+    /// <summary>How much changed when, in bars by hour, day, week or month, split by kind, type, person, language or site. Administrators only.</summary>
+    LogActivity AnalyseLogChanges(LogActivityQuery query, QueryContext? ctx = null) => throw new NotSupportedException("This store keeps no change history. ");
+    /// <summary>
+    /// A node as one save left it, by the save's log timestamp, from wherever the log holds it - older log files too,
+    /// which <see cref="FindOlderVersions"/> does not reach. A save that deleted the node gives the node as it was.
+    /// Null when the history does not know the save or its log file is gone. Administrators only. With
+    /// <paramref name="revisionId"/> the version is that revision of the node as the save left it (the node itself when it
+    /// had no revisions then; null when it had revisions but not that one), else the one the context reads.
+    /// </summary>
+    NodeVersionData? FindVersionAt(Guid nodeId, long timestamp, QueryContext? ctx = null, Guid? revisionId = null) => throw new NotSupportedException("This store keeps no change history. ");
+    /// <summary>Throws the history index away and builds it again from the log, in the background. Administrators only.</summary>
+    void RebuildLogHistory(QueryContext? ctx = null) => throw new NotSupportedException("This store keeps no change history. ");
     TextExtract[] GetTextExtract(IEnumerable<int> ids, TextIndexType indexType);
     /// <summary>
     /// What the store has been doing, cheaply enough to ask every few seconds - see

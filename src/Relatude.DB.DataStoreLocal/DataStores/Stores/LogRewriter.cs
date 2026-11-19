@@ -1,4 +1,4 @@
-﻿using Relatude.DB.Common;
+using Relatude.DB.Common;
 using Relatude.DB.DataStores.Definitions;
 using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Relations;
@@ -133,7 +133,8 @@ internal class LogRewriter {
                 var action = new PrimitiveNodeAction(PrimitiveOperation.Add, node);
                 actions.Add(action);
             }
-            var t = new ExecutedPrimitiveTransaction(actions, _newWAL.NewTimestamp());
+            // a copy of the node as it is, no change: flagged so (format 1002), so history leaves it out
+            var t = new ExecutedPrimitiveTransaction(actions, _newWAL.NewTimestamp(), Guid.Empty, TransactionLogFlags.Copy);
             queueDiskWrites(t);
             _newWAL.DequeuAllTransactionWritesAndFlushStreamsThreadSafe(true);
         }
@@ -148,7 +149,7 @@ internal class LogRewriter {
                 actions.Add(action);
             }
             actions.AddRange(r.reorders); // restores list orders that the plain add sequence cannot reproduce
-            var t = new ExecutedPrimitiveTransaction(actions, _newWAL.NewTimestamp());
+            var t = new ExecutedPrimitiveTransaction(actions, _newWAL.NewTimestamp(), Guid.Empty, TransactionLogFlags.Copy);
             queueDiskWrites(t);
             _newWAL.DequeuAllTransactionWritesAndFlushStreamsThreadSafe(true);
         }

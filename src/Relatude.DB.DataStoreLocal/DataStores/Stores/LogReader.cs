@@ -1,4 +1,4 @@
-﻿using System.Diagnostics.CodeAnalysis;
+using System.Diagnostics.CodeAnalysis;
 using Relatude.DB.Common;
 using Relatude.DB.DataStores.Definitions;
 using Relatude.DB.IO;
@@ -46,7 +46,7 @@ internal class LogReader : IDisposable {
         try {
             readStream.ValidateMarker(WALFile._logStartMarker);
             var version = readStream.ReadVerifiedLong();
-            if (version != WALFile._logVersioNumber && version != WALFile._logVersionNumberV1000) throw new IOException("Incompatible log file format version number. Expected version " + WALFile._logVersioNumber + " or " + WALFile._logVersionNumberV1000 + " but found " + version + " .");
+            if (!WALFile.IsKnownFormat(version)) throw new IOException("Incompatible log file format version number. Expected version " + WALFile._logVersioNumber + ", " + WALFile._logVersionNumberV1001 + " or " + WALFile._logVersionNumberV1000 + " but found " + version + " .");
             formatVersion = version;
             fileId = readStream.ReadGuid();
             if (fromTransactionAtPos > 0) { // reopen at a specific position
@@ -88,6 +88,12 @@ internal class LogReader : IDisposable {
         var startPosition = readStream.Position;
         var timestamp = readStream.ReadLong();
         var noActions = readStream.ReadVerifiedInt();
+        var writer = Guid.Empty;
+        var flags = TransactionLogFlags.None;
+        if (WALFile.HasTransactionWriter(formatVersion)) {
+            writer = readStream.ReadGuid();
+            flags = (TransactionLogFlags)readStream.ReadOneByte();
+        }
         if (timestamp < skipTransactionsOlderThan) { // the markers are still checked, so a damaged transaction is reported as one
             for (var i = 0; i < noActions; i++) {
                 readStream.ValidateMarker(WALFile._actionMarker);
@@ -97,7 +103,7 @@ internal class LogReader : IDisposable {
             readStream.ValidateMarker(WALFile._transactionEndMarker);
             if (lastTimestampID < timestamp) lastTimestampID = timestamp;
             byteSizeOfTransaction = readStream.Position - startPosition;
-            return new ExecutedPrimitiveTransaction([], timestamp);
+            return new ExecutedPrimitiveTransaction([], timestamp, writer, flags);
         }
         var actions = new List<PrimitiveActionBase>(noActions);
         for (var i = 0; i < noActions; i++) {
@@ -142,7 +148,7 @@ internal class LogReader : IDisposable {
             }
         }
         readStream.ValidateMarker(WALFile._transactionEndMarker);
-        var t = new ExecutedPrimitiveTransaction(actions, timestamp);
+        var t = new ExecutedPrimitiveTransaction(actions, timestamp, writer, flags);
         if (lastTimestampID < t.Timestamp) lastTimestampID = t.Timestamp;
         byteSizeOfTransaction = readStream.Position - startPosition;
         return t;

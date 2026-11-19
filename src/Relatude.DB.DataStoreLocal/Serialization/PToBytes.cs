@@ -15,7 +15,7 @@ internal static class PToBytes {
     }
     static void nodeAction(PrimitiveNodeAction action, Datamodel def, Stream stream, long logFormatVersion, long transactionTimestamp, NodeSegment previousVersion, out long nodeSegmentRelativeOffset, out int nodeSegmentLength) {
         StreamExtenstions.WriteOneByte(stream, (byte)action.Operation);
-        if (logFormatVersion >= WALFile._logVersioNumber) {
+        if (WALFile.HasVersionChain(logFormatVersion)) {
             // version-chain header, at a fixed offset right before the node data so it can be read
             // from any node segment position without parsing the surrounding transaction
             stream.WriteLong(transactionTimestamp);

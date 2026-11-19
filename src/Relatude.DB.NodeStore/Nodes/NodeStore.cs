@@ -1,4 +1,4 @@
-﻿
+
 using Relatude.DB.AI;
 using Relatude.DB.CodeGeneration;
 using Relatude.DB.Common;
@@ -796,6 +796,12 @@ public class NodeStore : IDisposable {
     }
     /// <summary>Finds strictly older versions of a node as untyped node objects. See <see cref="FindOlderVersions{T}"/>.</summary>
     public NodeVersion<object>[] FindOlderVersions(Guid nodeId, int maxCount = 100) => FindOlderVersions<object>(nodeId, maxCount);
+    /// <summary>
+    /// The database's change history, read from the log through the history index (switched on in the database
+    /// settings, History): every change made, by whom and when. Asked as this store's context, which must be an
+    /// administrator's for anything but the status.
+    /// </summary>
+    public NodeStoreHistory History => new(this);
     /// <summary>Moves a revision to another state, which is how content is published, archived or binned.</summary>
     public TransactionResult ChangeRevisionType(Guid id, Guid revisionId, RevisionType newRevisionType, bool flushToDisk = false) => Execute(new Transaction(this).ChangeRevisionType(id, revisionId, newRevisionType), flushToDisk);
     /// <summary>Moves a revision of the node with this internal id to another state.</summary>

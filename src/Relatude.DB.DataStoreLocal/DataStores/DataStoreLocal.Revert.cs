@@ -213,6 +213,10 @@ public sealed partial class DataStoreLocal : IDataStore {
                 // the engines are reset and disposed below and the store reopens with new ones: a warm-up
                 // still loading the old indexes ends first (it gives up on the write lock held here)
                 stopIndexWarmUp();
+                // the history reader stops before the log is cut, and cuts the rows of what goes when it starts again
+                _reverting = true;
+                _history?.Stop();
+                _history?.NoteRevert(walFileKey, keepEnd, _settings.SecondaryBackupLog && _ioLog2.GetFileSizeOrZeroIfUnknown(FileKeyUtility.WAL_GetSecondaryFileKey()) == walFileSize);
                 if (fullReset) {
                     // the state snapshot is newer than the revert point and cannot be used; delete
                     // it together with the index files and reset the engines, so the reload below
@@ -246,8 +250,10 @@ public sealed partial class DataStoreLocal : IDataStore {
                 }
                 UpdateActivity(activityId, "Reloading", 30);
                 initialize();
+                _reverting = false;
                 Open(throwOnBadLogFile: false, throwOnBadStateFile: false);
             } catch (Exception err) {
+                _reverting = false;
                 throw createCriticalErrorAndSetDbToErrorState("Revert failed. Database left in unknown state. ", err);
             }
             var newHead = _wal!.LastTimestamp; // reassigned by initialize() above

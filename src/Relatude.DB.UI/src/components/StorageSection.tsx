@@ -29,6 +29,8 @@ import { deleteFiles, downloadUrl, fetchIoList, pickDirectory, type IoInfo } fro
 import { fetchLatestBenchmark, runStorageBenchmark, type BenchmarkRun } from "../server/benchmark";
 import { BenchmarkReportDialog, BenchmarkSetupDialog, BenchmarkSummary } from "./StorageBenchmark";
 import { waitForSharedJob } from "../server/sharedTasks";
+import { fetchHistoryInfo, rebuildHistory, type HistoryInfo } from "../server/history";
+import { openInSettings } from "../navigate";
 import {
   addDemoContent,
   backupNow,
@@ -91,6 +93,7 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
   const [message, setMessage] = useState<string | null>(null); // the backups panel
   const [dbFileMessage, setDbFileMessage] = useState<string | null>(null); // the database file panel
   const [maintenanceMessage, setMaintenanceMessage] = useState<string | null>(null);
+  const [history, setHistory] = useState<HistoryInfo | null>(null);
   const [filesMessage, setFilesMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const uploadInput = useRef<HTMLInputElement>(null);
@@ -158,6 +161,9 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
     fetchMaintenanceInfo(db.id)
       .then(setMaintenance)
       .catch(() => {});
+    fetchHistoryInfo(db.id)
+      .then(setHistory)
+      .catch(() => setHistory(null));
     fetchFileStorages(db.id)
       .then(setFileStorages)
       .catch(() => {});
@@ -246,6 +252,29 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
     );
     load();
   }
+
+  async function onRebuildHistory() {
+    const choice = await showConfirm(
+      "Rebuild the history index",
+      "The history index is thrown away and read again from the log files the database keeps, in the background at the build speed set (Settings › History)."
+        + " The log itself is not touched. History shows what is built so far meanwhile.",
+      { confirmLabel: "Rebuild" },
+    );
+    if (!choice.ok) return;
+    try {
+      await rebuildHistory(db.id);
+      setMaintenanceMessage(null);
+      setHistory(await fetchHistoryInfo(db.id));
+    } catch (e) {
+      showError("Could not rebuild the history index", e instanceof Error ? e.message : String(e));
+    }
+  }
+  // while it builds, how far it has got
+  useEffect(() => {
+    if (!history?.status?.building) return;
+    const timer = window.setInterval(() => fetchHistoryInfo(db.id).then(setHistory, () => {}), 3000);
+    return () => window.clearInterval(timer);
+  }, [db.id, history?.status?.building]);
 
   async function onTruncate() {
     const choice = await showConfirm(
@@ -877,6 +906,48 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
                     : "extracts the searchable text of every indexed node again and rewrites the search index")}
               </span>
             </div>
+            <div className="process-action">
+              <button className="action-button" onClick={onRebuildHistory} disabled={!maintenance.open || !history?.settings.enabled}>
+                <IconHistory size={14} stroke={1.8} /> Rebuild history index
+              </button>
+              <span className="muted">
+                {!history?.settings.enabled ? (
+                  <>
+                    change history is off ·{" "}
+                    <button
+                      className="link-button"
+                      onClick={() => openInSettings({ scope: "database", storeId: db.id, sectionId: "maintenance", groupId: "history", path: "LocalSettings.History.Enabled" })}
+                    >
+                      Settings › History
+                    </button>
+                  </>
+                ) : history.status?.building ? (
+                  `building from the log, ${history.status.percent}%`
+                ) : (
+                  "reads the log files again into the time index of who changed what, in the background"
+                )}
+              </span>
+            </div>
+            {history?.settings.enabled && history.status && (
+              <div className="facts-grid storage-facts history-facts">
+                <div className="fact">
+                  <div className="fact-k">History index</div>
+                  <div className="fact-v">{formatBytes(history.status.indexBytes)}</div>
+                </div>
+                <div className="fact">
+                  <div className="fact-k">Changes</div>
+                  <div className="fact-v">{formatCount(history.status.changes)}</div>
+                </div>
+                <div className="fact">
+                  <div className="fact-k">Reaches back to</div>
+                  <div className="fact-v">{history.status.reachesBackToUtc ? new Date(history.status.reachesBackToUtc).toLocaleDateString() : "—"}</div>
+                </div>
+                <div className="fact" title="Bytes of the log the reader has not read yet">
+                  <div className="fact-k">Behind the log</div>
+                  <div className="fact-v">{formatBytes(history.status.bytesBehind)}</div>
+                </div>
+              </div>
+            )}
           </>
         )}
       </section>

@@ -9,6 +9,7 @@ import {
   IconDownload,
   IconEraser,
   IconHelpCircle,
+  IconHistory,
   IconLetterCase,
   IconListSearch,
   IconRadar2,
@@ -51,6 +52,7 @@ import type { DatabaseInfo } from "../server/serverInfo";
 import { useLive } from "../live";
 import { formatBytes, formatCount, formatTime } from "../format";
 import { Loading } from "./Loading";
+import { HistoryTab } from "./HistoryTab";
 import { databasePath, SettingsShareButton } from "./OverridesDialog";
 
 /**
@@ -99,6 +101,7 @@ export function LogsSection({ db }: { db: DatabaseInfo }) {
           />
         ))}
         <Tab id="scans" label="Scans" icon={IconRadar2} active={tab} onSelect={setTab} />
+        <Tab id="history" label="History" icon={IconHistory} active={tab} onSelect={setTab} />
         {/* what is recorded is saved on this server, like every other setting */}
         <SettingsShareButton
           className="at-end"
@@ -115,6 +118,8 @@ export function LogsSection({ db }: { db: DatabaseInfo }) {
         <TraceTab db={db} />
       ) : tab === "scans" ? (
         <ScansTab db={db} />
+      ) : tab === "history" ? (
+        <HistoryTab db={db} />
       ) : tab === "overview" ? (
         <OverviewTab db={db} info={info} onChanged={load} />
       ) : log ? (

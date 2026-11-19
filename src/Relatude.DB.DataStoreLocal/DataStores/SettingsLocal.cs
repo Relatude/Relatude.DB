@@ -1,4 +1,4 @@
-﻿using Relatude.DB.FileConversion.ImageEncoders;
+using Relatude.DB.FileConversion.ImageEncoders;
 using Relatude.DB.Native;
 using Relatude.DB.Web;
 namespace Relatude.DB.DataStores;
@@ -82,6 +82,12 @@ public class SettingsLocal {
     public int AutoTruncateActionCountLowerLimit { get; set; } = 100000;
     public double AutoTruncateRedundantPercentageLimit { get; set; } = 50; // the share of the log a truncation would drop; due at this or the count above, 0 = off
     public bool AutoTruncateDeleteOldFileOnSuccess { get; set; } = false; //true;
+
+    /// <summary>
+    /// The change history: a time index of the log that the history reader keeps in the background, of every
+    /// change made, by whom and when (see <see cref="LogHistorySettings"/>). Off by default.
+    /// </summary>
+    public LogHistorySettings? History { get; set; } = new();
 
     public bool AutoPurgeCache { get; set; } = true;
     public double AutoPurgeCacheIntervalInMinutes { get; set; } = 5;
@@ -323,4 +329,27 @@ public enum FileStoreEngine {
     MultiFile = 1,
 }
 
+/// <summary>How fast the history reader reads the log while it builds the history index from what the log holds.</summary>
+public enum LogHistoryBuildSpeed {
+    /// <summary>A quarter of one core and of the disk's reads: slow, and barely felt.</summary>
+    Low = 0,
+    /// <summary>Half of one core.</summary>
+    Medium = 1,
+    /// <summary>As fast as one core reads.</summary>
+    High = 2,
+}
 
+/// <summary>
+/// The change history (<see cref="SettingsLocal.History"/>): the history reader follows the log a few seconds
+/// behind, in the background, and keeps a time index of it in <c>indexes/history</c> on the index storage - where
+/// each change is and what sort it was, never a value. Read live: turning it on starts the first build at the next
+/// run of the reader, off stops it and holds nothing in memory (the index stays on disk).
+/// </summary>
+public class LogHistorySettings {
+    /// <summary>Records the change history. Off by default.</summary>
+    public bool Enabled { get; set; } = false;
+    /// <summary>Whether a type that neither its code, the types it inherits from nor an override says anything about is in history.</summary>
+    public bool TypesByDefault { get; set; } = true;
+    /// <summary>How fast the history index is built from the log files that are there when it is switched on or rebuilt.</summary>
+    public LogHistoryBuildSpeed BuildSpeed { get; set; } = LogHistoryBuildSpeed.Low;
+}

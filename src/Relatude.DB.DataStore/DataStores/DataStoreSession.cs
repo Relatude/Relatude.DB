@@ -1,4 +1,4 @@
-﻿using Relatude.DB.AI;
+using Relatude.DB.AI;
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.FileConversion;
@@ -77,6 +77,11 @@ public class DataStoreSession : IDataStore {
     // Node versions from the transaction log:
     public NodeVersionData[] FindOlderVersions(Guid nodeId, int maxCount = 100, QueryContext? ctx = null)
         => _datastore.FindOlderVersions(nodeId, maxCount, ctx ?? QueryContext);
+    public LogHistoryStatus GetLogHistoryStatus() => _datastore.GetLogHistoryStatus();
+    public LogChangePage ReadLogChanges(LogChangeQuery query, QueryContext? ctx = null) => _datastore.ReadLogChanges(query, ctx ?? QueryContext);
+    public LogActivity AnalyseLogChanges(LogActivityQuery query, QueryContext? ctx = null) => _datastore.AnalyseLogChanges(query, ctx ?? QueryContext);
+    public NodeVersionData? FindVersionAt(Guid nodeId, long timestamp, QueryContext? ctx = null, Guid? revisionId = null) => _datastore.FindVersionAt(nodeId, timestamp, ctx ?? QueryContext, revisionId);
+    public void RebuildLogHistory(QueryContext? ctx = null) => _datastore.RebuildLogHistory(ctx ?? QueryContext);
 
     // Access controlled queries
     public object? Query(string query, IEnumerable<Parameter> parameters, QueryContext? userCtx = null)
