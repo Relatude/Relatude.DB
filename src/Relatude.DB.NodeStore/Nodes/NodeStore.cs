@@ -844,7 +844,9 @@ public class NodeStore : IDisposable {
     /// <summary>Awaitable single node lookup by public id. Throws if the node does not exist or is another type, see TryGet for a softer version.</summary>
     public async Task<T> GetAsync<T>(Guid id) => Mapper.CreateObjectFromNodeData<T>(await Datastore.GetAsync(id), null, this);
     /// <summary>Runs a transaction you have built yourself. Everything in it is applied atomically.</summary>
-    public Task<TransactionResult> ExecuteAsync(Transaction transaction, bool flushToDisk = false) => Datastore.ExecuteAsync(transaction._transactionData, flushToDisk);
+    public Task<TransactionResult> ExecuteAsync(Transaction transaction, bool flushToDisk = false) => Datastore.ExecuteAsync(transaction._transactionData, FlushOrDefault(flushToDisk));
+    // false is "not asked for", so the store's FlushDiskOnEveryTransactionByDefault decides: passed on as false it would overrule the setting
+    static bool? FlushOrDefault(bool flushToDisk) => flushToDisk ? true : null;
 
     // ---------------------------------------------------------------------------------------------------------
     // QUERIES
@@ -1088,7 +1090,7 @@ public class NodeStore : IDisposable {
         try {
             transaction.PrepareRelevantPlugins();
             transaction.OnBeforeExecute();
-            var result = Datastore.Execute(transaction._transactionData, flushToDisk);
+            var result = Datastore.Execute(transaction._transactionData, FlushOrDefault(flushToDisk));
             transaction.OnAfterExecute(result);
             return result;
         } catch (Exception error) {

@@ -12,20 +12,9 @@ public class SqliteStringArrayIndex : PersistedStringArrayIndexBase {
     }
     // one row per node; the array is packed into a single JSON TEXT value and queries run on the
     // in-memory mirror, so the table needs no value index
-    protected override IEnumerable<KeyValuePair<int, string[]>> ReadAllPersisted() {
-        using var cmd = _store.CreateCommand("SELECT id, value FROM " + _tableName);
-        using var reader = cmd.ExecuteReader();
-        while (reader.Read()) yield return new(reader.GetInt32(0), JsonSerializer.Deserialize<string[]>(reader.GetString(1))!);
-    }
-    protected override void PersistAdd(int nodeId, string[] value) {
-        using var cmd = _store.CreateCommand("INSERT INTO " + _tableName + " (id, value) VALUES (@id, @value)");
-        cmd.Parameters.AddWithValue("@id", nodeId);
-        cmd.Parameters.AddWithValue("@value", JsonSerializer.Serialize(value));
-        cmd.ExecuteNonQuery();
-    }
-    protected override void PersistRemove(int nodeId) {
-        using var cmd = _store.CreateCommand("DELETE FROM " + _tableName + " WHERE id = @id");
-        cmd.Parameters.AddWithValue("@id", nodeId);
-        cmd.ExecuteNonQuery();
-    }
+    protected override IEnumerable<KeyValuePair<int, string[]>> ReadAllPersisted()
+        => _store.Rows("SELECT id, value FROM " + _tableName, r => new KeyValuePair<int, string[]>(r.GetInt32(0), JsonSerializer.Deserialize<string[]>(r.GetString(1))!));
+    protected override void PersistAdd(int nodeId, string[] value)
+        => _store.Execute("INSERT INTO " + _tableName + " (id, value) VALUES (@id, @value)", ("@id", nodeId), ("@value", JsonSerializer.Serialize(value)));
+    protected override void PersistRemove(int nodeId) => _store.Execute("DELETE FROM " + _tableName + " WHERE id = @id", ("@id", nodeId));
 }

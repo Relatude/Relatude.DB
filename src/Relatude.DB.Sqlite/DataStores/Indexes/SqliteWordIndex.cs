@@ -1,5 +1,4 @@
-﻿using System.Diagnostics;
-using Relatude.DB.Common;
+﻿using Relatude.DB.Common;
 using Relatude.DB.DataStores.Sets;
 namespace Relatude.DB.DataStores.Indexes;
 
@@ -32,19 +31,14 @@ public class SqliteWordIndex : PersistedIndexBase, IWordIndex {
         // OR REPLACE, so re-delivering an add the table already holds (a WAL replay after a crash)
         // updates the row instead of failing on the rowid's uniqueness. One node has one text per
         // word index, so replacing is what the contract means.
-        using var cmd = _store.CreateCommand("INSERT OR REPLACE INTO " + _tableName + " (rowid, value) VALUES (@id, @value)");
-        cmd.Parameters.AddWithValue("@id", id);
-        cmd.Parameters.AddWithValue("@value", _store.CastToDb(value));
-        cmd.ExecuteNonQuery();
+        _store.Execute("INSERT OR REPLACE INTO " + _tableName + " (rowid, value) VALUES (@id, @value)", ("@id", id), ("@value", _store.CastToDb(value)));
         _stateId.RegisterAddition(id, value);
     }
     void remove(int id, string value) {
         value = IndexUtil.Clean(value, MinWordLength, MaxWordLength);
         // by rowid: an fts5 column is full-text indexed rather than key-indexed, so the node id has
         // to be the rowid for this to be a lookup instead of a scan of the entire table
-        using var cmd = _store.CreateCommand("DELETE FROM " + _tableName + " WHERE rowid = @id");
-        cmd.Parameters.AddWithValue("@id", id);
-        cmd.ExecuteNonQuery();
+        _store.Execute("DELETE FROM " + _tableName + " WHERE rowid = @id", ("@id", id));
         _stateId.RegisterRemoval(id, value);
     }
     public void Add(int id, object value) => add(id, (string)value);
@@ -57,17 +51,8 @@ public class SqliteWordIndex : PersistedIndexBase, IWordIndex {
     public IdSet SearchForIdSetUnranked(TermSet value, bool orSearch, int maxWordsEval) {
         if (value.Terms.Length == 0) return IdSet.Empty;
         return _sets.SearchForIdSetUnranked(_stateId.Current, value, orSearch, () => {
-            string sql = "SELECT rowid FROM " + _tableName + " WHERE value MATCH @value";
-            using var cmd = _store.CreateCommand(sql);
-            cmd.Parameters.AddWithValue("@value", getSearchValue(value, orSearch));
-            cmd.Parameters.AddWithValue("@flag", 1);
-            var sw = Stopwatch.StartNew();
             try {
-                using var reader = cmd.ExecuteReader();
-                var result = new List<int>();
-                while (reader.Read()) result.Add(reader.GetInt32(0));
-                // Console.WriteLine("Search '" + value + "' with " + result.Count + " hit(s) took " + sw.ElapsedMilliseconds + " ms");
-                return result;
+                return _store.Rows("SELECT rowid FROM " + _tableName + " WHERE value MATCH @value", r => r.GetInt32(0), ("@value", getSearchValue(value, orSearch)));
             } catch {
                 return [];
             }
@@ -105,23 +90,10 @@ public class SqliteWordIndex : PersistedIndexBase, IWordIndex {
         }
         var sql = "SELECT rowid, rank FROM " + _tableName;
         sql += " WHERE value MATCH @query ORDER BY rank LIMIT @skip, @take";
-        using var cmd = _store.CreateCommand(sql);
-        cmd.Parameters.AddWithValue("@query", getSearchValue(value, orSearch));
-        cmd.Parameters.AddWithValue("@skip", pageSize * pageIndex);
-        cmd.Parameters.AddWithValue("@take", pageSize);
-        using var reader = cmd.ExecuteReader();
-
-        var result = new List<KeyValuePair<int, double>>();
-        while (reader.Read()) result.Add(new(reader.GetInt32(0), reader.GetDouble(1)));
-        List<RawSearchHit> hits = [];
-        foreach (var r in result) {
-            hits.Add(new() { NodeId = r.Key, Score = (float)(r.Value / 100d) });
-        }
-
-        var sql2 = "SELECT COUNT(*) FROM " + _tableName + " WHERE value MATCH @query";
-        using var cmd2 = _store.CreateCommand(sql2);
-        cmd2.Parameters.AddWithValue("@query", getSearchValue(value, orSearch));
-        totalHits = (int)(long)cmd2.ExecuteScalar()!;
+        var query = getSearchValue(value, orSearch);
+        var hits = _store.Rows(sql, r => new RawSearchHit { NodeId = r.GetInt32(0), Score = (float)(r.GetDouble(1) / 100d) },
+            ("@query", query), ("@skip", pageSize * pageIndex), ("@take", pageSize));
+        totalHits = (int)(long)_store.Scalar("SELECT COUNT(*) FROM " + _tableName + " WHERE value MATCH @query", ("@query", query))!;
 
         return hits;
     }
