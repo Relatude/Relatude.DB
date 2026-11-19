@@ -597,6 +597,28 @@ sealed class WhereCultureFallbackMethodDef : MethodDef {
     protected override IExpression Create(MethodCallToken e, Datamodel dm) => new WhereCultureFallbackMethod(BuildSource(e, dm), e.Arguments[0].ToString());
 }
 
+/// <summary>WherePublishedIn(culture, has = true): a code, an id, or null or "" for no culture; then true or false.</summary>
+sealed class WherePublishedInMethodDef : MethodDef {
+    public override string[] Names => ["wherepublishedin"];
+    public override int MinArgs => 1;
+    public override int MaxArgs => 2;
+    public override MethodParamDef[] Params => [MethodParamDef.Nullable(MethodParamKind.Constant), MethodParamDef.Optional(MethodParamKind.Constant)];
+    protected override IExpression Create(MethodCallToken e, Datamodel dm) {
+        var culture = e.Arguments[0] is ValueConstantToken c ? c.DirectValue switch {
+            null => null,
+            string s => s,
+            Guid g => g.ToString(),
+            var other => other.ToString(),
+        } : throw new Exception("WherePublishedIn takes a culture's code or id, or null for none. ");
+        var has = e.Arguments.Count < 2 || (e.Arguments[1] is ValueConstantToken h ? h.DirectValue switch {
+            bool b => b,
+            string s when bool.TryParse(s, out var b) => b,
+            _ => throw new Exception("WherePublishedIn's second argument is true or false. "),
+        } : throw new Exception("WherePublishedIn's second argument is true or false. "));
+        return new WherePublishedInMethod(BuildSource(e, dm), culture, has);
+    }
+}
+
 sealed class WhereHiddenMethodDef : MethodDef {
     public override string[] Names => ["wherehidden"];
     public override int MinArgs => 1;
@@ -863,7 +885,7 @@ internal class BuildMethod {
         new TraverseMethodDef(), new ShortestPathMethodDef(),
         new IncludeMethodDef(), new InRangeMethodDef(), new ContainsMethodDef(), new StartsWithMethodDef(),
         new MatchesSearchMethodDef(), new IsWithinMethodDef(), new DistanceToMethodDef(),
-        new WhereCultureMethodDef(), new WhereCultureFallbackMethodDef(), new WhereHiddenMethodDef(),
+        new WhereCultureMethodDef(), new WhereCultureFallbackMethodDef(), new WhereHiddenMethodDef(), new WherePublishedInMethodDef(),
         new PivotMethodDef(), new GroupByMethodDef(),
         new PivotGroupMethodDef("addrow", true, null), new PivotGroupMethodDef("addrowvalues", true, false), new PivotGroupMethodDef("addrowranges", true, true), new PivotRangeMethodDef("addrowrange", true),
         new PivotGroupMethodDef("addcolumn", false, null), new PivotGroupMethodDef("addcolumnvalues", false, false), new PivotGroupMethodDef("addcolumnranges", false, true), new PivotRangeMethodDef("addcolumnrange", false),

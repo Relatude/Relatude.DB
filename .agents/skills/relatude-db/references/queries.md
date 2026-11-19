@@ -879,4 +879,18 @@ nb.Query<IEvent>().Execute();
 nb.Get<IVenue>(venueId);
 ```
 
+Which nodes have a version published in a culture, as its readers read it (released, not expired,
+without falling back to another), is a set operation on the same cached sets the context reads
+through, so no node is read. It keeps the query's own context and order:
+
+```csharp
+// an editor's list in Norwegian: what Norwegian readers do not read as their own
+editor.Query<IEvent>()
+    .WherePublishedIn("nb-NO", false)   // no version published in nb-NO
+    .WherePublishedIn(null, false)      // nor one in no culture, which every culture reads
+    .Execute();
+```
+
+As a string: `IEvent.WherePublishedIn("nb-NO", false)`; `null` or `""` is no culture, and the second
+argument defaults to `true`.
 `db.Context.Admin()` returns a store that **bypasses ACL filtering**. Use it in trusted server code only — never hand it to a request handler. The master admin skips access checks and nothing else: it still reads only published content, in the context's culture, and no hidden types. `db.Context.AllContent()` (as a context: `QueryContext.AllContent`) adds drafts, every culture and hidden types, for imports, migrations and maintenance.

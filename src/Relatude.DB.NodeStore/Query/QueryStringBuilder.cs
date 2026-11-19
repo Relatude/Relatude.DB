@@ -468,5 +468,10 @@ internal sealed class QueryStringBuilder {
         _sb.Append(include.ToStringLiteral());
         _sb.Append(')');
     }
+    internal void WherePublishedIn(string? cultureCode, bool has) {
+        _sb.Append(".WherePublishedIn(");
+        _sb.Append(cultureCode == null ? "null" : cultureCode.ToStringLiteral());
+        _sb.Append(has ? ", true)" : ", false)");
+    }
 }
 
