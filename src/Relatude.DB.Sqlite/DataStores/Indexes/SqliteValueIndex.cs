@@ -20,28 +20,22 @@ public class SqliteValueIndex<T> : PersistedIndexBase, IValueIndex<T>, GapCacheK
         FriendlyName = friendlyName;
         _keyBuilder = new GapCacheKeyBuilder<T>(this);
     }
+    int count(string sql, params (string Name, object? Value)[] parameters) => _store.CastFromDb<int>(_store.Scalar(sql, parameters));
+    List<int> ids(string sql, params (string Name, object? Value)[] parameters) => _store.Rows(sql, r => r.GetInt32(0), parameters);
     int _idCount = -1;
     public int IdCount {
         get {
-            if (_idCount == -1) {
-                using var cmd = _store.CreateCommand("SELECT COUNT(*) FROM " + _tableName);
-                _idCount = _store.CastFromDb<int>(cmd.ExecuteScalar());
-            }
+            if (_idCount == -1) _idCount = count("SELECT COUNT(*) FROM " + _tableName);
             return _idCount;
         }
     }
     void add(int id, T value) {
-        using var cmd = _store.CreateCommand("INSERT INTO " + _tableName + " (id, value) VALUES (@id, @value)");
-        cmd.Parameters.AddWithValue("@id", id);
-        cmd.Parameters.AddWithValue("@value", _store.CastToDb(value));
-        cmd.ExecuteNonQuery();
+        _store.Execute("INSERT INTO " + _tableName + " (id, value) VALUES (@id, @value)", ("@id", id), ("@value", _store.CastToDb(value)));
         _stateId.RegisterAddition(id, value);
         if (_idCount != -1) _idCount++;
     }
     void remove(int id, T value) {
-        using var cmd = _store.CreateCommand("DELETE FROM " + _tableName + " WHERE id = @id");
-        cmd.Parameters.AddWithValue("@id", id);
-        cmd.ExecuteNonQuery();
+        _store.Execute("DELETE FROM " + _tableName + " WHERE id = @id", ("@id", id));
         _stateId.RegisterRemoval(id, value);
         if (_idCount != -1) _idCount--;
     }
@@ -52,47 +46,20 @@ public class SqliteValueIndex<T> : PersistedIndexBase, IValueIndex<T>, GapCacheK
 
     public void RegisterAddDuringStateLoad(int nodeId, object value) => add(nodeId, (T)value);
     public void RegisterRemoveDuringStateLoad(int nodeId, object value) => remove(nodeId, (T)value);
-    public IEnumerable<int> Ids {
-        get {
-            using var cmd = _store.CreateCommand("SELECT id FROM " + _tableName);
-            using var reader = cmd.ExecuteReader();
-            while (reader.Read()) yield return reader.GetInt32(0);
-        }
-    }
+    public IEnumerable<int> Ids => ids("SELECT id FROM " + _tableName);
     public long StateId => _stateId.Current;
-    public IEnumerable<T> UniqueValues {
-        get {
-            using var cmd = _store.CreateCommand("SELECT DISTINCT value FROM " + _tableName);
-            using var reader = cmd.ExecuteReader();
-            while (reader.Read()) yield return _store.CastFromDb<T>(reader.GetValue(0));
-        }
-    }
-    public int ValueCount {
-        get {
-            using var cmd = _store.CreateCommand("SELECT COUNT(DISTINCT value) FROM " + _tableName);
-            return _store.CastFromDb<int>(cmd.ExecuteScalar());
-        }
-    }
+    public IEnumerable<T> UniqueValues => _store.Rows("SELECT DISTINCT value FROM " + _tableName, r => _store.CastFromDb<T>(r.GetValue(0)));
+    public int ValueCount => count("SELECT COUNT(DISTINCT value) FROM " + _tableName);
     public string UniqueKey => _indexId;
     public void ClearCache() { _keyBuilder.Clear(); _idCount = -1; }
     public void CompressMemory() { }
-    public bool ContainsValue(T value) {
-        using var cmd = _store.CreateCommand("SELECT COUNT(*) FROM " + _tableName + " WHERE value = @value");
-        cmd.Parameters.AddWithValue("@value", _store.CastToDb(value));
-        return _store.CastFromDb<int>(cmd.ExecuteScalar()) > 0;
-    }
+    public bool ContainsValue(T value) => countEqual(value) > 0;
     public int CountEqual(IdSet nodeIds, T value) => _sets.CountEqual(this, nodeIds, value);
-    public int CountGreaterThan(T value, bool inclusive) {
-        using var cmd = _store.CreateCommand("SELECT COUNT(*) FROM " + _tableName + " WHERE value " + (inclusive ? ">=" : ">") + " @value");
-        cmd.Parameters.AddWithValue("@value", _store.CastToDb(value));
-        return _store.CastFromDb<int>(cmd.ExecuteScalar());
-    }
+    public int CountGreaterThan(T value, bool inclusive)
+        => count("SELECT COUNT(*) FROM " + _tableName + " WHERE value " + (inclusive ? ">=" : ">") + " @value", ("@value", _store.CastToDb(value)));
     public int CountInRangeEqual(IdSet nodeIds, T from, T to, bool fromInclusive, bool toInclusive) => _sets.CountInRange(this, nodeIds, from, to, fromInclusive, toInclusive);
-    public int CountLessThan(T value, bool inclusive) {
-        using var cmd = _store.CreateCommand("SELECT COUNT(*) FROM " + _tableName + " WHERE value " + (inclusive ? "<=" : "<") + " @value");
-        cmd.Parameters.AddWithValue("@value", _store.CastToDb(value));
-        return _store.CastFromDb<int>(cmd.ExecuteScalar());
-    }
+    public int CountLessThan(T value, bool inclusive)
+        => count("SELECT COUNT(*) FROM " + _tableName + " WHERE value " + (inclusive ? "<=" : "<") + " @value", ("@value", _store.CastToDb(value)));
     public void Dispose() { }
 
     public IdSet Filter(IdSet nodeIds, IndexOperator op, T v) => _sets.Filter(this, nodeIds, op, v);
@@ -119,15 +86,13 @@ public class SqliteValueIndex<T> : PersistedIndexBase, IValueIndex<T>, GapCacheK
         return true;
     }
     (object? bound, int count) boundAndCount(T value, string aggregate, string op) {
-        using var cmd = _store.CreateCommand("SELECT " + aggregate + "(value), COUNT(*) FROM " + _tableName + " WHERE value " + op + " @value");
-        cmd.Parameters.AddWithValue("@value", _store.CastToDb(value));
-        using var reader = cmd.ExecuteReader();
-        reader.Read();
-        var count = _store.CastFromDb<int>(reader.GetValue(1));
-        if (reader.IsDBNull(0)) return (null, count);
-        var raw = reader.GetValue(0);
-        if (raw is string s) return (s, count); // keep db representation, see comment above _gap
-        return (_store.CastFromDb<T>(raw), count); // numeric types round-trip exactly
+        return _store.Rows<(object?, int)>("SELECT " + aggregate + "(value), COUNT(*) FROM " + _tableName + " WHERE value " + op + " @value", reader => {
+            var count = _store.CastFromDb<int>(reader.GetValue(1));
+            if (reader.IsDBNull(0)) return (null, count);
+            var raw = reader.GetValue(0);
+            if (raw is string s) return (s, count); // keep db representation, see comment above _gap
+            return (_store.CastFromDb<T>(raw), count); // numeric types round-trip exactly
+        }, ("@value", _store.CastToDb(value)))[0];
     }
     // must match how sqlite compares the stored values: TEXT columns use the default BINARY
     // collation, a memcmp of the UTF-8 bytes; the remaining supported types are stored
@@ -146,47 +111,23 @@ public class SqliteValueIndex<T> : PersistedIndexBase, IValueIndex<T>, GapCacheK
         return comparer.Compare(value, other);
     }
     static int compareText(string a, string b) => Encoding.UTF8.GetBytes(a).AsSpan().SequenceCompareTo(Encoding.UTF8.GetBytes(b));
-    public ICollection<int> GetIds(T value) {
-        using var cmd = _store.CreateCommand("SELECT id FROM " + _tableName + " WHERE value = @value");
-        cmd.Parameters.AddWithValue("@value", _store.CastToDb(value));
-        using var reader = cmd.ExecuteReader();
-        var result = new List<int>();
-        while (reader.Read()) result.Add(reader.GetInt32(0));
-        return result;
-    }
+    public ICollection<int> GetIds(T value) => ids("SELECT id FROM " + _tableName + " WHERE value = @value", ("@value", _store.CastToDb(value)));
 
-    public T GetValue(int nodeId) {
-        using var cmd = _store.CreateCommand("SELECT value FROM " + _tableName + " WHERE id = @id");
-        cmd.Parameters.AddWithValue("@id", nodeId);
-        return _store.CastFromDb<T>(cmd.ExecuteScalar());
-    }
+    public T GetValue(int nodeId) => _store.CastFromDb<T>(_store.Scalar("SELECT value FROM " + _tableName + " WHERE id = @id", ("@id", nodeId)));
     public bool HasFastPointLookup => false;
     public bool TryGetValue(int nodeId, out T value) {
-        using var cmd = _store.CreateCommand("SELECT value FROM " + _tableName + " WHERE id = @id");
-        cmd.Parameters.AddWithValue("@id", nodeId);
-        var result = cmd.ExecuteScalar();
+        var result = _store.Scalar("SELECT value FROM " + _tableName + " WHERE id = @id", ("@id", nodeId));
         if (result == null || result is DBNull) { value = default!; return false; }
         value = _store.CastFromDb<T>(result);
         return true;
     }
-    public IEnumerable<int> GreaterThan(T value, bool inclusive) {
-        using var cmd = _store.CreateCommand("SELECT id FROM " + _tableName + " WHERE value " + (inclusive ? ">=" : ">") + " @value");
-        cmd.Parameters.AddWithValue("@value", _store.CastToDb(value));
-        using var reader = cmd.ExecuteReader();
-        while (reader.Read()) yield return reader.GetInt32(0);
-    }
-    public IEnumerable<int> LessThan(T value, bool inclusive) {
-        using var cmd = _store.CreateCommand("SELECT id FROM " + _tableName + " WHERE value " + (inclusive ? "<=" : "<") + " @value");
-        cmd.Parameters.AddWithValue("@value", _store.CastToDb(value));
-        using var reader = cmd.ExecuteReader();
-        while (reader.Read()) yield return reader.GetInt32(0);
-    }
-    public int InSetRangeCount(IdSet ids, T from, T to, bool fromInclusive, bool toInclusive) {
-        using var cmd = _store.CreateCommand("SELECT COUNT(*) FROM " + _tableName + " WHERE id IN (" + ids.AsStringList() + ") AND value " + (fromInclusive ? ">=" : ">") + " @from AND value " + (toInclusive ? "<=" : "<") + " @to");
-        cmd.Parameters.AddWithValue("@from", _store.CastToDb(from));
-        cmd.Parameters.AddWithValue("@to", _store.CastToDb(to));
-        return _store.CastFromDb<int>(cmd.ExecuteScalar());
-    }
+    public IEnumerable<int> GreaterThan(T value, bool inclusive)
+        => ids("SELECT id FROM " + _tableName + " WHERE value " + (inclusive ? ">=" : ">") + " @value", ("@value", _store.CastToDb(value)));
+    public IEnumerable<int> LessThan(T value, bool inclusive)
+        => ids("SELECT id FROM " + _tableName + " WHERE value " + (inclusive ? "<=" : "<") + " @value", ("@value", _store.CastToDb(value)));
+    public int InSetRangeCount(IdSet ids, T from, T to, bool fromInclusive, bool toInclusive)
+        => count("SELECT COUNT(*) FROM " + _tableName + " WHERE id IN (" + ids.AsStringList() + ") AND value " + (fromInclusive ? ">=" : ">") + " @from AND value " + (toInclusive ? "<=" : "<") + " @to",
+            ("@from", _store.CastToDb(from)), ("@to", _store.CastToDb(to)));
 
     static readonly Comparer<T> comparer = Comparer<T>.Default;
     public int MaxCount(IndexOperator op, T value) {
@@ -200,29 +141,14 @@ public class SqliteValueIndex<T> : PersistedIndexBase, IValueIndex<T>, GapCacheK
             _ => IdCount,
         };
     }
-    int countEqual(T value) {
-        using var cmd = _store.CreateCommand("SELECT COUNT(*) FROM " + _tableName + " WHERE value = @value");
-        cmd.Parameters.AddWithValue("@value", _store.CastToDb(value));
-        return _store.CastFromDb<int>(cmd.ExecuteScalar());
-    }
-    public T? MaxValue() {
-        using var cmd = _store.CreateCommand("SELECT MAX(value) FROM " + _tableName);
-        return _store.CastFromDb<T>(cmd.ExecuteScalar());
-    }
-    public T? MinValue() {
-        using var cmd = _store.CreateCommand("SELECT MIN(value) FROM " + _tableName);
-        return _store.CastFromDb<T>(cmd.ExecuteScalar());
-    }
-    public IEnumerable<int> RangeSearch(T from, T to, bool fromInclusive, bool toInclusive) {
-        using var cmd = _store.CreateCommand("SELECT id FROM " + _tableName + " WHERE value " + (fromInclusive ? ">=" : ">") + " @from AND value " + (toInclusive ? "<=" : "<") + " @to");
-        cmd.Parameters.AddWithValue("@from", _store.CastToDb(from));
-        cmd.Parameters.AddWithValue("@to", _store.CastToDb(to));
-        using var reader = cmd.ExecuteReader();
-        while (reader.Read()) yield return reader.GetInt32(0);
-    }
+    int countEqual(T value) => count("SELECT COUNT(*) FROM " + _tableName + " WHERE value = @value", ("@value", _store.CastToDb(value)));
+    public T? MaxValue() => _store.CastFromDb<T>(_store.Scalar("SELECT MAX(value) FROM " + _tableName));
+    public T? MinValue() => _store.CastFromDb<T>(_store.Scalar("SELECT MIN(value) FROM " + _tableName));
+    public IEnumerable<int> RangeSearch(T from, T to, bool fromInclusive, bool toInclusive)
+        => ids("SELECT id FROM " + _tableName + " WHERE value " + (fromInclusive ? ">=" : ">") + " @from AND value " + (toInclusive ? "<=" : "<") + " @to",
+            ("@from", _store.CastToDb(from)), ("@to", _store.CastToDb(to)));
     public IEnumerable<int> WhereRangeOverlapsRange(IValueIndex<T> indexTo, T queryFrom, T queryTo, bool fromInclusive, bool toInclusive) {
         throw new NotImplementedException();
     }
     public string FriendlyName { get; }
 }
-

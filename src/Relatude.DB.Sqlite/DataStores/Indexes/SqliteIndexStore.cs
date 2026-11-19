@@ -26,6 +26,9 @@ public class SqliteIndexStore : ValueIndexEngineBase, ITextIndexEngine {
     static string _settingsTableName = "settings";
     SqliteConnection _connection;
     SqliteTransaction? _transaction;
+    // One connection to the file, and a SqliteConnection is not thread safe, while a store's readers are many at
+    // once: whatever uses the connection holds this for as long as it does.
+    readonly object _sync = new();
     readonly Dictionary<string, idxInfo> _idxs = [];
     readonly Dictionary<string, IWordIndex> _wordIndexes = []; // opened word indexes, for idempotent re-open
     public string GetTableName(string id) => _idxs[id].Table;
@@ -55,38 +58,49 @@ public class SqliteIndexStore : ValueIndexEngineBase, ITextIndexEngine {
         if (!doesTableExist(_settingsTableName)) createSettingsTable();
     }
     bool doesTableExist(string tableName) {
-        var result = executeScalar("SELECT name FROM sqlite_master WHERE type='table' AND name='" + tableName + "'");
+        var result = Scalar("SELECT name FROM sqlite_master WHERE type='table' AND name='" + tableName + "'");
         return result != null;
     }
 
     void createSettingsTable() {
-        executeCommand("CREATE TABLE " + _settingsTableName + " (key TEXT PRIMARY KEY, value TEXT)");
+        Execute("CREATE TABLE " + _settingsTableName + " (key TEXT PRIMARY KEY, value TEXT)");
     }
     string getSetting(string key, string fallback) {
-        using var cmd = CreateCommand("SELECT value FROM " + _settingsTableName + " WHERE key = @key");
-        cmd.Parameters.AddWithValue("@key", key);
-        var result = cmd.ExecuteScalar();
+        var result = Scalar("SELECT value FROM " + _settingsTableName + " WHERE key = @key", ("@key", key));
         return result == null ? fallback : (string)result;
     }
     void setSetting(string key, string value) {
-        using var cmd = CreateCommand("INSERT OR REPLACE INTO " + _settingsTableName + " (key, value) VALUES (@key, @value)");
-        cmd.Parameters.AddWithValue("@key", key);
-        cmd.Parameters.AddWithValue("@value", value);
-        cmd.ExecuteNonQuery();
+        Execute("INSERT OR REPLACE INTO " + _settingsTableName + " (key, value) VALUES (@key, @value)", ("@key", key), ("@value", value));
     }
-    public SqliteCommand CreateCommand(string? sql = null) {
+    // for a caller that holds _sync
+    SqliteCommand createCommand(string sql, (string Name, object? Value)[] parameters) {
         var cmd = _connection.CreateCommand();
         if (_transaction != null) cmd.Transaction = _transaction;
-        if (sql != null) cmd.CommandText = sql;
+        cmd.CommandText = sql;
+        foreach (var (name, value) in parameters) cmd.Parameters.AddWithValue(name, value ?? DBNull.Value);
         return cmd;
     }
-    void executeCommand(string sql) {
-        using var cmd = CreateCommand(sql);
-        cmd.ExecuteNonQuery();
+    internal int Execute(string sql, params (string Name, object? Value)[] parameters) {
+        lock (_sync) {
+            using var cmd = createCommand(sql, parameters);
+            return cmd.ExecuteNonQuery();
+        }
     }
-    object? executeScalar(string sql) {
-        using var cmd = CreateCommand(sql);
-        return cmd.ExecuteScalar();
+    internal object? Scalar(string sql, params (string Name, object? Value)[] parameters) {
+        lock (_sync) {
+            using var cmd = createCommand(sql, parameters);
+            return cmd.ExecuteScalar();
+        }
+    }
+    /// <summary>Every row, read while the connection is held: a reader handed out to be walked later would hold it too.</summary>
+    internal List<T> Rows<T>(string sql, Func<SqliteDataReader, T> read, params (string Name, object? Value)[] parameters) {
+        lock (_sync) {
+            using var cmd = createCommand(sql, parameters);
+            using var reader = cmd.ExecuteReader();
+            var rows = new List<T>();
+            while (reader.Read()) rows.Add(read(reader));
+            return rows;
+        }
     }
 
     // ---- WAL id / timestamp (backend primitives; see base for the public surface) ----
@@ -111,11 +125,8 @@ public class SqliteIndexStore : ValueIndexEngineBase, ITextIndexEngine {
         _idxs.Add(id, new idxInfo(id, type, tableName));
         var index = new SqliteValueIndex<T>(sets, this, id, tableName, friendlyName, justCreated);
         if (justCreated) {
-            using var cmd = CreateCommand();
-            cmd.CommandText = "CREATE TABLE IF NOT EXISTS " + tableName + " (id INTEGER PRIMARY KEY, value " + getSqlType(type) + ")";
-            cmd.ExecuteNonQuery();
-            cmd.CommandText = "CREATE INDEX IF NOT EXISTS " + tableName + "_value ON " + tableName + " (value)";
-            cmd.ExecuteNonQuery();
+            Execute("CREATE TABLE IF NOT EXISTS " + tableName + " (id INTEGER PRIMARY KEY, value " + getSqlType(type) + ")");
+            Execute("CREATE INDEX IF NOT EXISTS " + tableName + "_value ON " + tableName + " (value)");
         }
         return index;
     }
@@ -125,7 +136,7 @@ public class SqliteIndexStore : ValueIndexEngineBase, ITextIndexEngine {
         _idxs.Add(id, new idxInfo(id, type, tableName));
         // one JSON-encoded TEXT value per node; queries run on the index's in-memory mirror,
         // so no value index is needed (see SqliteStringArrayIndex)
-        if (justCreated) executeCommand("CREATE TABLE IF NOT EXISTS " + tableName + " (id INTEGER PRIMARY KEY, value TEXT)");
+        if (justCreated) Execute("CREATE TABLE IF NOT EXISTS " + tableName + " (id INTEGER PRIMARY KEY, value TEXT)");
         return new SqliteStringArrayIndex(sets, this, id, tableName, friendlyName, justCreated);
     }
     // guid-array indexes share the "A" table prefix and schema with string arrays (ids are unique
@@ -136,7 +147,7 @@ public class SqliteIndexStore : ValueIndexEngineBase, ITextIndexEngine {
         _idxs.Add(id, new idxInfo(id, type, tableName));
         // one JSON-encoded TEXT value per node; queries run on the index's in-memory mirror,
         // so no value index is needed (see SqliteGuidArrayIndex)
-        if (justCreated) executeCommand("CREATE TABLE IF NOT EXISTS " + tableName + " (id INTEGER PRIMARY KEY, value TEXT)");
+        if (justCreated) Execute("CREATE TABLE IF NOT EXISTS " + tableName + " (id INTEGER PRIMARY KEY, value TEXT)");
         return new SqliteGuidArrayIndex(sets, this, id, tableName, friendlyName, justCreated);
     }
     // int-array indexes (enum arrays) also share the "A" prefix and schema
@@ -146,7 +157,7 @@ public class SqliteIndexStore : ValueIndexEngineBase, ITextIndexEngine {
         _idxs.Add(id, new idxInfo(id, type, tableName));
         // one JSON-encoded TEXT value per node; queries run on the index's in-memory mirror,
         // so no value index is needed (see SqliteIntArrayIndex)
-        if (justCreated) executeCommand("CREATE TABLE IF NOT EXISTS " + tableName + " (id INTEGER PRIMARY KEY, value TEXT)");
+        if (justCreated) Execute("CREATE TABLE IF NOT EXISTS " + tableName + " (id INTEGER PRIMARY KEY, value TEXT)");
         return new SqliteIntArrayIndex(sets, this, id, tableName, friendlyName, justCreated);
     }
     /// <summary>
@@ -188,14 +199,8 @@ public class SqliteIndexStore : ValueIndexEngineBase, ITextIndexEngine {
 
     /// <summary>True for a word index table from before the node id moved into the rowid, which is
     /// recognisable by the <c>id</c> column it still declares.</summary>
-    bool isLegacyWordIndexTable(string tableName) {
-        using var cmd = CreateCommand("PRAGMA table_info(" + tableName + ")");
-        using var reader = cmd.ExecuteReader();
-        while (reader.Read()) {
-            if (string.Equals(reader.GetString(1), "id", StringComparison.OrdinalIgnoreCase)) return true;
-        }
-        return false;
-    }
+    bool isLegacyWordIndexTable(string tableName)
+        => Rows("PRAGMA table_info(" + tableName + ")", r => r.GetString(1)).Any(column => string.Equals(column, "id", StringComparison.OrdinalIgnoreCase));
 
     // The built-in FTS5 word index, used when this instance is also the text engine. The word
     // index shares the value store's connection and transaction, so it takes part in the base's
@@ -210,12 +215,12 @@ public class SqliteIndexStore : ValueIndexEngineBase, ITextIndexEngine {
             // is about to disappear. Dropping it and reporting the index as just created sets its
             // persisted timestamp to 0, which is exactly the signal the startup loader rebuilds an
             // index from the whole log on.
-            executeCommand("DROP TABLE " + tableName);
+            Execute("DROP TABLE " + tableName);
             justCreated = true;
         }
         _idxs.Add(id, new idxInfo(id, PropertyType.String, tableName)); // registered first: SqliteWordIndex resolves its table via GetTableName(id)
         if (justCreated) {
-            executeCommand(createWordIndexTableSql(tableName));
+            Execute(createWordIndexTableSql(tableName));
         }
         var index = new SqliteWordIndex(sets, this, id, friendlyName, options.MinWordLength, options.MaxWordLength, options.PrefixSearch, options.InfixSearch, justCreated);
         RegisterManagedIndex(id, index, justCreated);
@@ -306,28 +311,28 @@ public class SqliteIndexStore : ValueIndexEngineBase, ITextIndexEngine {
     // ---- transactions (backend primitives; the base owns the guard + first-commit protocol) ----
 
     protected override void BeginTransactionCore() {
-        _transaction = _connection.BeginTransaction();
+        lock (_sync) _transaction = _connection.BeginTransaction();
     }
     protected override void CommitTransactionCore(long timestamp) {
-        setTimestamp(timestamp); // persisted in the same transaction as the index data
-        _transaction!.Commit();
-        _transaction.Dispose();
-        _transaction = null;
+        lock (_sync) {
+            setTimestamp(timestamp); // persisted in the same transaction as the index data
+            _transaction!.Commit();
+            _transaction.Dispose();
+            _transaction = null;
+        }
     }
     protected override void RollbackTransactionCore() {
-        try { _transaction!.Rollback(); }
-        finally { _transaction?.Dispose(); _transaction = null; }
+        lock (_sync) {
+            try { _transaction!.Rollback(); }
+            finally { _transaction?.Dispose(); _transaction = null; }
+        }
     }
 
     // ---- maintenance / lifecycle (backend primitives; word indexes handled by the base) ----
 
     protected override void DeleteUnopenedIndexesCore() {
         var openTables = _idxs.Values.Select(i => i.Table).ToHashSet();
-        List<string> allTables = new();
-        using (var cmd = CreateCommand("SELECT name FROM sqlite_master WHERE type='table'")) {
-            using var reader = cmd.ExecuteReader();
-            while (reader.Read()) allTables.Add(reader.GetString(0));
-        }
+        var allTables = Rows("SELECT name FROM sqlite_master WHERE type='table'", r => r.GetString(0));
         // value tables are "P...", word tables "W...", array tables (string and guid) "A...". Skip open tables and anything derived from
         // them ("<openTable>_..." covers the fts5 shadow tables of an open word index). Shorter
         // names first so an unopened fts5 virtual table drops before its shadow tables; the
@@ -339,16 +344,18 @@ public class SqliteIndexStore : ValueIndexEngineBase, ITextIndexEngine {
             .OrderBy(t => t.Length)
             .ToList();
         foreach (var table in doomed) {
-            try { executeCommand("DROP TABLE IF EXISTS " + table); } catch { }
+            try { Execute("DROP TABLE IF EXISTS " + table); } catch { }
         }
     }
 
     public override void OptimizeDisk() {
-        _connection.Close();
-        _connection.Open();
-        using var cmd = _connection.CreateCommand();
-        cmd.CommandText = "VACUUM";
-        cmd.ExecuteNonQuery();
+        lock (_sync) {
+            _connection.Close();
+            _connection.Open();
+            using var cmd = _connection.CreateCommand();
+            cmd.CommandText = "VACUUM";
+            cmd.ExecuteNonQuery();
+        }
     }
     public override long GetTotalDiskSpace() {
         // only this engine's own folder: the index folder is shared, and IndexEngines sums the engines
@@ -363,6 +370,9 @@ public class SqliteIndexStore : ValueIndexEngineBase, ITextIndexEngine {
     }
 
     protected override void ResetAllDataCore() {
+        lock (_sync) resetAllData();
+    }
+    void resetAllData() {
         _connection.Close();
         _connection.Open(); // reopen connection to clear all tables
         using var cmd = _connection.CreateCommand();
@@ -401,11 +411,13 @@ public class SqliteIndexStore : ValueIndexEngineBase, ITextIndexEngine {
     }
 
     protected override void DisposeCore() {
-        try {
-            if (_connection.State != System.Data.ConnectionState.Closed) _connection.Close();
-        } catch { }
-        _transaction?.Dispose();
-        _connection.Dispose();
-        SqliteConnection.ClearAllPools();
+        lock (_sync) {
+            try {
+                if (_connection.State != System.Data.ConnectionState.Closed) _connection.Close();
+            } catch { }
+            _transaction?.Dispose();
+            _connection.Dispose();
+            SqliteConnection.ClearAllPools();
+        }
     }
 }
