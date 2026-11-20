@@ -29,6 +29,12 @@ public interface IStoreNodeDataCollection : ICollectionData, IIncludeBranches {
     IStoreNodeDataCollection RelatesAny(Guid propertyId, IEnumerable<Guid> nodeId);
     IStoreNodeDataCollection WhereIn(Guid propertyId, IEnumerable<object?> values);
     IStoreNodeDataCollection WhereInIds(IEnumerable<Guid> values);
+    /// <summary>
+    /// The nodes that have (<paramref name="has"/>), or have not, a version published in the culture (a code or an id;
+    /// null or "" for no culture), released and not expired at the time the collection was read at: what readers of the
+    /// culture read as its own, without falling back to another. In the collection's order.
+    /// </summary>
+    IStoreNodeDataCollection WherePublishedIn(string? culture, bool has);
     IEnumerable<INodeDataExternal> NodeValues { get; }
     IEnumerable<int> NodeIds { get; }
     IEnumerable<Guid> NodeGuids { get; }

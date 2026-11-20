@@ -124,6 +124,8 @@ public class QueryOfNodes<TNode, TInclude> : IQueryOfNodes<TNode, TInclude> {
         => fork(q => q.WhereHidden(include));
     public IQueryOfNodes<TNode, TInclude> WhereCultureFallback(bool include)
         => fork(q => q.WhereCultureFallback(include));
+    public IQueryOfNodes<TNode, TInclude> WherePublishedIn(string? cultureCode, bool has = true)
+        => fork(q => q.WherePublishedIn(cultureCode, has));
     public IQueryOfNodes<TNode, TInclude> Page(int pageIndex0based, int pageSize)
         => fork(q => q.Page(pageIndex0based, pageSize));
     public IQueryOfNodes<TNode, TInclude> Take(int count)

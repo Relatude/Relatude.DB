@@ -56,6 +56,12 @@ public interface IQueryOfNodes<TNode, TInclude> : IQueryCollection<ResultSet<TNo
     [Pure] IQueryOfNodes<TNode, TInclude> WhereCulture(Guid cultureId);
     [Pure] IQueryOfNodes<TNode, TInclude> WhereHidden(bool include);
     [Pure] IQueryOfNodes<TNode, TInclude> WhereCultureFallback(bool include);
+    /// <summary>
+    /// The nodes that have (<paramref name="has"/>), or have not, a version published in the culture, released and not
+    /// expired now: what its readers read as its own, without falling back to another culture. Null is no culture,
+    /// content in none. Answered from the meta index's cached id sets: no node is read.
+    /// </summary>
+    [Pure] IQueryOfNodes<TNode, TInclude> WherePublishedIn(string? cultureCode, bool has = true);
 
 
     [Pure] QueryOfSearch<TNode, TInclude> Search(string text, double? semanticRatio = null, float? minimumVectorSimilarity = null, bool? orSearch = null, int? maxWordsEvaluated = null, int? maxHitsEvaluated = null);

@@ -5238,6 +5238,24 @@ relation properties do apply it. To check what a visitor may read, query:
 bool canRead = visitor.Query().Where(id).Count() > 0;
 ```
 
+### Published in a culture
+
+`WherePublishedIn(culture, has)` keeps the nodes of a query that have (`true`, the default), or have
+not, a version published in the culture, as its readers read it: released, not expired, without
+falling back to another culture. `null` is no culture. An editor's list, read in edit view with
+fallbacks so that it holds every node, can say what Norwegian readers do not read as their own:
+
+```csharp
+var editor = db.Context.Culture("nb-NO").CultureFallbacks().Unpublished().EditView().Create();
+var notInNorwegian = editor.Query<IArticle>()
+    .WherePublishedIn("nb-NO", false)   // no version published in nb-NO
+    .WherePublishedIn(null, false)      // nor one in no culture, which every culture reads
+    .Execute();
+```
+
+No node is read. The answer is a set operation on the meta index's id set for that culture, which is
+cached per type and culture whoever asks, and kept up to date as nodes are written. The query keeps
+its order, so it may come before or after `OrderBy`. As a string: `IArticle.WherePublishedIn("nb-NO", false)`.
 ### Who may write
 
 A write runs in its store's context, as a read does, and the database checks it against the user's
