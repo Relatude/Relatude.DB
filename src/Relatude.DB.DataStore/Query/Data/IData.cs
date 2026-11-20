@@ -34,6 +34,8 @@ public interface IStoreNodeDataCollection : ICollectionData, IIncludeBranches {
     IEnumerable<Guid> NodeGuids { get; }
     ObjectData ToObjectCollection();
     bool TryOrderByIndexes(string propertyName, bool descending);
+    /// <summary>The sum of a numeric property over the collection, read from the property's index with no node loaded. False when it has no index that can answer.</summary>
+    bool TrySumByIndex(string propertyName, [System.Diagnostics.CodeAnalysis.MaybeNullWhen(false)] out object sum);
     IStoreNodeDataCollection FilterByTypes(Guid[] types, bool includeDescendants);
 }
 public interface ISearchQueryResultData : IIncludeBranches, ICollectionBase {

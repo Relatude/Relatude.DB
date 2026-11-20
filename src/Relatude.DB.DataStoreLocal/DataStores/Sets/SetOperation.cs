@@ -35,4 +35,6 @@ public enum SetOperation : int {
     CountMissing,
     FilterByUserReadAccess,
     TraverseRelation,
+    WhereProbed,
+    WhereProbedRange,
 }

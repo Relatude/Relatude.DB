@@ -30,6 +30,9 @@ public class SumMethod : IExpression {
             var lambdaParamaterName = _lambda.Parameters[0];
             rowVars.Declare(lambdaParamaterName);
             if (data.Count == 0) return 0;
+            // x => x.Property of an indexed property: the index has every value, so no node is read
+            if (data is IStoreNodeDataCollection nodes && _lambda.Body is PropertyReferenceExpression property
+                && property.SourceObject.Name == lambdaParamaterName && nodes.TrySumByIndex(property.PropertyName, out var indexed)) return indexed;
             var firstRow = data.Values.First();
             rowVars.Set(lambdaParamaterName, firstRow);
             var firstValue = _lambda.Evaluate(rowVars);

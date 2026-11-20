@@ -69,18 +69,20 @@ public class EmptyRelations : IRelations { // Always empty relations ( for cache
     public bool TryGetReferences(Guid propertyId, [MaybeNullWhen(false)] out NodeDataWithRelations[] references) { references = null; return false; }
 }
 public class Relations : IRelations {
-    readonly Properties<NodeDataWithRelations[]> _manyRelations = new(0);
-    readonly Properties<NodeDataWithRelations?> _oneRelations = new(0);
-    readonly Properties<NodeDataWithRelations?> _references = new(0);
-    readonly Properties<NodeDataWithRelations[]> _manyReferences = new(0);
-    public bool ContainsRelation(Guid propertyId) => _oneRelations.ContainsKey(propertyId) || _manyRelations.ContainsKey(propertyId) || _references.ContainsKey(propertyId) || _manyReferences.ContainsKey(propertyId);
-    public void AddManyRelation(Guid propertyId, NodeDataWithRelations[] manyRelation) => _manyRelations.Add(propertyId, manyRelation);
-    public void AddOneRelation(Guid propertyId, NodeDataWithRelations oneRelation) => _oneRelations.Add(propertyId, oneRelation);
-    public void AddReference(Guid propertyId, NodeDataWithRelations reference) => _references.Add(propertyId, reference);
-    public void AddReferences(Guid propertyId, NodeDataWithRelations[] references) => _manyReferences.Add(propertyId, references);
-    public void SetNoRelation(Guid propertyId) => _oneRelations.Add(propertyId, null);
+    // made when first added to: every node of an include result has one of these, and most use one of the four or none
+    Properties<NodeDataWithRelations[]>? _manyRelations;
+    Properties<NodeDataWithRelations?>? _oneRelations;
+    Properties<NodeDataWithRelations?>? _references;
+    Properties<NodeDataWithRelations[]>? _manyReferences;
+    public bool ContainsRelation(Guid propertyId) => (_oneRelations?.ContainsKey(propertyId) ?? false) || (_manyRelations?.ContainsKey(propertyId) ?? false)
+        || (_references?.ContainsKey(propertyId) ?? false) || (_manyReferences?.ContainsKey(propertyId) ?? false);
+    public void AddManyRelation(Guid propertyId, NodeDataWithRelations[] manyRelation) => (_manyRelations ??= new(1)).Add(propertyId, manyRelation);
+    public void AddOneRelation(Guid propertyId, NodeDataWithRelations oneRelation) => (_oneRelations ??= new(1)).Add(propertyId, oneRelation);
+    public void AddReference(Guid propertyId, NodeDataWithRelations reference) => (_references ??= new(1)).Add(propertyId, reference);
+    public void AddReferences(Guid propertyId, NodeDataWithRelations[] references) => (_manyReferences ??= new(1)).Add(propertyId, references);
+    public void SetNoRelation(Guid propertyId) => _oneRelations?.Add(propertyId, null);
     public void LookUpOneRelation(Guid propertyId, out bool isIncluded, ref NodeDataWithRelations? value, ref bool? isSet) {
-        if (_oneRelations.TryGetValue(propertyId, out var value1)) {
+        if (_oneRelations != null && _oneRelations.TryGetValue(propertyId, out var value1)) {
             value = value1;
             isIncluded = true;
             isSet = value1 != null;
@@ -88,17 +90,33 @@ public class Relations : IRelations {
             isIncluded = false;
         }
     }
-    public bool TryGetOneRelation(Guid propertyId, out NodeDataWithRelations? value) => _oneRelations.TryGetValue(propertyId, out value);
-    public bool TryGetManyRelation(Guid propertyId, [MaybeNullWhen(false)] out NodeDataWithRelations[] value) => _manyRelations.TryGetValue(propertyId, out value);
-    public bool TryGetReference(Guid propertyId, [MaybeNullWhen(false)] out NodeDataWithRelations value) => _references.TryGetValue(propertyId, out value);
-    public bool TryGetReferences(Guid propertyId, [MaybeNullWhen(false)] out NodeDataWithRelations[] references) => _manyReferences.TryGetValue(propertyId, out references);
+    public bool TryGetOneRelation(Guid propertyId, out NodeDataWithRelations? value) {
+        if (_oneRelations != null) return _oneRelations.TryGetValue(propertyId, out value);
+        value = null;
+        return false;
+    }
+    public bool TryGetManyRelation(Guid propertyId, [MaybeNullWhen(false)] out NodeDataWithRelations[] value) {
+        if (_manyRelations != null) return _manyRelations.TryGetValue(propertyId, out value);
+        value = null;
+        return false;
+    }
+    public bool TryGetReference(Guid propertyId, [MaybeNullWhen(false)] out NodeDataWithRelations value) {
+        if (_references != null) return _references.TryGetValue(propertyId, out value);
+        value = null;
+        return false;
+    }
+    public bool TryGetReferences(Guid propertyId, [MaybeNullWhen(false)] out NodeDataWithRelations[] references) {
+        if (_manyReferences != null) return _manyReferences.TryGetValue(propertyId, out references);
+        references = null;
+        return false;
+    }
     internal void SwapNodeData(Dictionary<int, INodeDataExternal> dic) {
-        foreach (var kv in _oneRelations.Items) kv.Value?.SwapNodeData(dic);
-        foreach (var kv in _manyRelations.Items) {
+        if (_oneRelations != null) foreach (var kv in _oneRelations.Items) kv.Value?.SwapNodeData(dic);
+        if (_manyRelations != null) foreach (var kv in _manyRelations.Items) {
             foreach (var v in kv.Value) v.SwapNodeData(dic);
         }
-        foreach (var kv in _references.Items) kv.Value?.SwapNodeData(dic);
-        foreach (var kv in _manyReferences.Items) {
+        if (_references != null) foreach (var kv in _references.Items) kv.Value?.SwapNodeData(dic);
+        if (_manyReferences != null) foreach (var kv in _manyReferences.Items) {
             foreach (var v in kv.Value) v.SwapNodeData(dic);
         }
     }

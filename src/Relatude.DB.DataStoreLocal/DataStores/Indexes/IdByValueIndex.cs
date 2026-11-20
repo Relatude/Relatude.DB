@@ -24,9 +24,11 @@ internal class IdByValue<T>(SetRegister sets) where T : notnull {
     // for values with multiple ids, is stored in _idsByValue
     readonly Dictionary<T, int> _idByValue = [];
     readonly Dictionary<T, MutableSet> _idsByValue = [];
-    List<T>? _sortedValues;
+    // volatile: readers check these without the lock, and a writer only ever sets them back to null
+    volatile List<T>? _sortedValues;
     int[]? _cumCounts; // _cumCounts[i] = total ids for _sortedValues[0..i], built and invalidated together with _sortedValues
-    List<int>? _sortedIds; // sorted list of all ids, sorted by their values, and reset on every change, and lazily re-created on request ( somewhat expensive operation )
+    volatile int[]? _sortedIds; // all ids ordered by their values, reset on every change and lazily re-created ( somewhat expensive operation )
+    long _idsRangedSinceChange; // ids collected by range since the last change: when it passes the id count, _sortedIds has paid for itself
     readonly SetRegister _sets = sets;
     public void Index(T value, int id) {
         if (_idByValue.TryGetValue(value, out var existingId)) {
@@ -42,6 +44,7 @@ internal class IdByValue<T>(SetRegister sets) where T : notnull {
         _sortedIds = null;
         _sortedValues = null;
         _cumCounts = null;
+        _idsRangedSinceChange = 0;
     }
     public void DeIndex(T value, int id) {
         if (_idsByValue.TryGetValue(value, out var idList)) {
@@ -57,6 +60,7 @@ internal class IdByValue<T>(SetRegister sets) where T : notnull {
         _sortedIds = null;
         _sortedValues = null;
         _cumCounts = null;
+        _idsRangedSinceChange = 0;
     }
     public bool ContainsValue(T value) => _idByValue.ContainsKey(value) || _idsByValue.ContainsKey(value);
     public bool TryGetValue(T value, [MaybeNullWhen(false)] out ICollection<int> ids) {
@@ -94,17 +98,11 @@ internal class IdByValue<T>(SetRegister sets) where T : notnull {
         ensureSortedValues();
         return _sortedValues!;
     }
-    public List<int> GetIdsSortedByValue() {
-        ensureIdsSortedByValues();
-        return _sortedIds!;
-    }
-    public IEnumerable<int> AscendingIds() {
-        ensureIdsSortedByValues();
-        return _sortedIds!;
-    }
+    public int[] GetIdsSortedByValue() => ensureIdsSortedByValues();
+    public IEnumerable<int> AscendingIds() => ensureIdsSortedByValues();
     public IEnumerable<int> DescendingIds() {
-        ensureIdsSortedByValues();
-        for (int i = _sortedIds!.Count - 1; i >= 0; i--) yield return _sortedIds[i];
+        var ids = ensureIdsSortedByValues();
+        for (int i = ids.Length - 1; i >= 0; i--) yield return ids[i];
     }
     public IEnumerable<T> AscendingValues() {
         ensureSortedValues();
@@ -115,22 +113,29 @@ internal class IdByValue<T>(SetRegister sets) where T : notnull {
         for (int i = _sortedValues!.Count - 1; i >= 0; i--) yield return _sortedValues[i];
     }
     object _sortLock = new();
-    void ensureIdsSortedByValues() {
+    int[] ensureIdsSortedByValues() {
+        if (_sortedIds is { } ready) return ready;
         lock (_sortLock) {
+            if (_sortedIds is { } made) return made;
             ensureSortedValues();
-            if (_sortedIds == null) {
-                _sortedIds = new(_idCount);
-                foreach (var v in _sortedValues!) {
-                    if (TryGetValue(v, out var set)) {
-                        _sortedIds.AddRange(set);
-                    } else {
-                        throw new Exception("Integrity problems with index. ");
-                    }
+            var sorted = _sortedValues!;
+            var ids = new int[sorted.Count == 0 ? 0 : _cumCounts![^1]];
+            var n = 0;
+            foreach (var v in sorted) {
+                if (_idByValue.TryGetValue(v, out var id)) {
+                    ids[n++] = id;
+                } else if (_idsByValue.TryGetValue(v, out var set)) {
+                    set.CopyTo(ids, n);
+                    n += set.Count;
+                } else {
+                    throw new Exception("Integrity problems with index. ");
                 }
             }
+            return _sortedIds = ids;
         }
     }
     void ensureSortedValues() {
+        if (_sortedValues != null) return;
         lock (_sortLock) {
             if (_sortedValues == null) {
                 var sorted = Values.ToList();
@@ -239,17 +244,59 @@ internal class IdByValue<T>(SetRegister sets) where T : notnull {
     public ICollection<int> CollectGreaterThan(T from, bool inclusive) {
         if (ValueCount == 0) return Array.Empty<int>();
         ensureSortedValues();
-        return collect(greaterThan(_sortedValues!, from, inclusive));
+        var sorted = _sortedValues!;
+        int lower = sorted.BinarySearch(from, _comparer);
+        lower = lower < 0 ? ~lower : inclusive ? lower : lower + 1;
+        return collectSpan(lower, sorted.Count - 1, false);
     }
     public ICollection<int> CollectLessThan(T to, bool inclusive) {
         if (ValueCount == 0) return Array.Empty<int>();
         ensureSortedValues();
-        return collect(lessThan(_sortedValues!, to, inclusive));
+        var sorted = _sortedValues!;
+        int upper = sorted.BinarySearch(to, _comparer);
+        upper = upper < 0 ? ~upper - 1 : inclusive ? upper : upper - 1;
+        return collectSpan(0, upper, true); // from the highest value down, as lessThan() enumerates
     }
     public ICollection<int> CollectRangeSearch(T from, T to, bool fromInclusive, bool toInclusive) {
         if (ValueCount == 0) return Array.Empty<int>();
         ensureSortedValues();
-        return collect(rangeSearch(_sortedValues!, from, to, fromInclusive, toInclusive));
+        var sorted = _sortedValues!;
+        int lower = sorted.BinarySearch(from, _comparer);
+        lower = lower < 0 ? ~lower : fromInclusive ? lower : lower + 1;
+        int upper = sorted.BinarySearch(to, _comparer);
+        upper = upper < 0 ? ~upper - 1 : toInclusive ? upper : upper - 1;
+        return collectSpan(lower, upper, false);
+    }
+    // the ids of the values at lower..upper of the sorted values. They are one stretch of the ids sorted by
+    // value, so once that array is there no value is looked up; it is built when the ranges asked for since
+    // the last change add up to the whole index, so an index written between every range never pays for it
+    ICollection<int> collectSpan(int lower, int upper, bool descending) {
+        var sorted = _sortedValues!;
+        var cum = _cumCounts!;
+        if (lower < 0) lower = 0;
+        if (upper >= sorted.Count) upper = sorted.Count - 1;
+        if (lower > upper) return Array.Empty<int>();
+        var start = lower > 0 ? cum[lower - 1] : 0;
+        var total = cum[upper] - start;
+        if (total == 0) return Array.Empty<int>();
+        var ids = _sortedIds;
+        if (ids == null && Interlocked.Add(ref _idsRangedSinceChange, total) >= _idCount) ids = ensureIdsSortedByValues();
+        if (ids == null) return collect(descending ? valuesDown(sorted, lower, upper) : valuesUp(sorted, lower, upper));
+        var span = ids.AsSpan(start, total);
+        if (DenseBitSet.WorthIt(total, 0, _maxId)) {
+            var bits = new DenseBitSet(0, _maxId);
+            foreach (var id in span) bits.Add(id);
+            return bits;
+        }
+        var result = span.ToArray();
+        if (descending) Array.Reverse(result);
+        return result;
+    }
+    static IEnumerable<T> valuesUp(List<T> sorted, int lower, int upper) {
+        for (int i = lower; i <= upper; i++) yield return sorted[i];
+    }
+    static IEnumerable<T> valuesDown(List<T> sorted, int lower, int upper) {
+        for (int i = upper; i >= lower; i--) yield return sorted[i];
     }
     public ICollection<int> CollectValues(IEnumerable<T> distinctValues) {
         if (ValueCount == 0) return Array.Empty<int>();

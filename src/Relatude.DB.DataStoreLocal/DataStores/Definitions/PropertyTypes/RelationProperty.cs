@@ -69,13 +69,14 @@ internal class RelationProperty : Property {
         facets.IsRangeFacet = false; // ranges are not supported for relations
         facets.IncludeMissing = given?.IncludeMissing ?? false; // the missing bucket: the nodes with no related node (SQL's NULL group)
         var db = Definition.Store;
+        var converter = db.GetOuterConverter(ctx); // resolved once: per node it was most of what a bucket cost
         if (given != null && given.HasValues()) {
             // given buckets (typically re-posted selections) hold guids; resolve them to node data
             // so the buckets stay homogeneous with the default enumeration below
             foreach (var f in given.Values) {
                 var clone = f.Clone();
                 if (clone.Value != null && tryCoerceToNodeId(clone.Value, out var id) && db._nodes.TryGet(id, out var node, out _)
-                    && tryToOuter(node, ctx, out var outer)) {
+                    && converter.TryToOuter(node, out var outer)) {
                     clone.Value = outer;
                     if (clone.ExplicitDisplayName == null) clone.DisplayName = nameOfNode(outer);
                 }
@@ -88,7 +89,7 @@ internal class RelationProperty : Property {
             foreach (var node in nodes) {
                 // revision/context correct, same as include queries; a node with no revision
                 // visible in this context (e.g. unpublished) is simply not a bucket
-                if (!tryToOuter(node, ctx, out var outer)) continue;
+                if (!converter.TryToOuter(node, out var outer)) continue;
                 values.Add(new FacetValue(outer) { DisplayName = nameOfNode(outer) });
             }
             // deterministic order: Facets.Sort() cannot sort node data values (not IComparable)
@@ -106,15 +107,6 @@ internal class RelationProperty : Property {
         var buckets = rel.DistinctIds(dir).Select(id => rel.GetRelated(id, dir)).ToList();
         if (buckets.Count == 0) return nodeIds;
         return sets.Difference(nodeIds, sets.Union(buckets));
-    }
-    bool tryToOuter(INodeDataInternal node, QueryContext ctx, [System.Diagnostics.CodeAnalysis.MaybeNullWhen(false)] out INodeDataExternal outer) {
-        try {
-            outer = Definition.Store.ToOuter(node, ctx);
-            return true;
-        } catch {
-            outer = null; // no suitable revision for this context
-            return false;
-        }
     }
     public override void CountFacets(IdSet nodeIds, Facets facets, QueryContext ctx, bool nodeIdsCoverIndex) { // covered counting not needed: relation sets are cached in memory
         var rel = relation;

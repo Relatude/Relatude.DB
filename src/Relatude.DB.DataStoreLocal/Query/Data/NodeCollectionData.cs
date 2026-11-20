@@ -113,6 +113,11 @@ internal partial class NodeCollectionData : IStoreNodeDataCollection, IFacetSour
         _ids = sorted;
         return true;
     }
+    public bool TrySumByIndex(string propertyName, [System.Diagnostics.CodeAnalysis.MaybeNullWhen(false)] out object sum) {
+        sum = null;
+        if (!_def.NodeTypes[_nodeType.Id].AllPropertiesByName.TryGetValue(propertyName, out var prop)) return false;
+        return prop is IValueProperty valueProperty && valueProperty.TrySum(_ids, _ctx, out sum);
+    }
     public ICollectionData ReOrder(IEnumerable<int> newPos) {
         //newPos = newPos.ToArray();
         var oldOrder = _ids.ToArray();

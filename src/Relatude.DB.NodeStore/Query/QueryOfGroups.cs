@@ -260,11 +260,13 @@ public class QueryOfGroupRows<TResult> : IQueryCollection<ResultSet<TResult>> {
                 IsMissing = Array.IndexOf(g.Values, null) >= 0,
             });
         }
-        var project = _projection.Compiled;
+        // compiling a lambda to IL costs most of a millisecond, more than interpreting it over a few groups
+        var interpret = rows.Count <= RowProjection<TResult>.InterpretedRowLimit;
+        var project = _projection.For(rows.Count);
         IEnumerable<TResult> items = rows.Select(project);
-        foreach (var filter in _filters) items = items.Where(((Expression<Func<TResult, bool>>)filter).Compile());
+        foreach (var filter in _filters) items = items.Where(((Expression<Func<TResult, bool>>)filter).Compile(interpret));
         if (!engineSorted && _orders.Count > 0) {
-            var keys = _orders.Select(o => compileKey(o.key)).ToArray();
+            var keys = _orders.Select(o => compileKey(o.key, interpret)).ToArray();
             var ordered = _orders[0].descending ? items.OrderByDescending(keys[0], Comparer<object?>.Default) : items.OrderBy(keys[0], Comparer<object?>.Default);
             for (var i = 1; i < keys.Length; i++) ordered = _orders[i].descending ? ordered.ThenByDescending(keys[i], Comparer<object?>.Default) : ordered.ThenBy(keys[i], Comparer<object?>.Default);
             items = ordered;
@@ -278,8 +280,8 @@ public class QueryOfGroupRows<TResult> : IQueryCollection<ResultSet<TResult>> {
         var pageIndex = _take is int size ? _skip / size : 0;
         return new ResultSetGroups<TResult>(list, list.Count, total, pageIndex, _take, r.DurationMs, r.SourceCount);
     }
-    static Func<TResult, object?> compileKey(LambdaExpression key)
-        => Expression.Lambda<Func<TResult, object?>>(Expression.Convert(key.Body, typeof(object)), key.Parameters).Compile();
+    static Func<TResult, object?> compileKey(LambdaExpression key, bool interpret)
+        => Expression.Lambda<Func<TResult, object?>>(Expression.Convert(key.Body, typeof(object)), key.Parameters).Compile(interpret);
 
     /// <summary>The query string the store runs: a pivot with one axis, in its GroupBy spelling.</summary>
     public override string ToString() => GroupByQueryText.Render(_plan.BaseQuery, buildSpec().spec, _plan.Datamodel);
@@ -488,9 +490,17 @@ internal sealed class GroupByPlan(NodeStore store, string baseQuery, List<Parame
 
 /// <summary>A compiled shape of one group row, remembering which of its parts are plain measure reads (for the engine sort).</summary>
 internal sealed class RowProjection<TResult>(ParameterExpression row, Expression body, Dictionary<Expression, string> measureMarkers) {
+    public const int InterpretedRowLimit = 2000;
     Func<GroupRow, TResult>? _compiled;
+    Func<GroupRow, TResult>? _interpreted;
     public Expression Body => body;
-    public Func<GroupRow, TResult> Compiled => _compiled ??= Expression.Lambda<Func<GroupRow, TResult>>(body.Type == typeof(TResult) ? body : Expression.Convert(body, typeof(TResult)), row).Compile();
+    /// <summary>Interpreted the first time a query runs over a few rows; compiled for many rows, or once the query is run again.</summary>
+    public Func<GroupRow, TResult> For(int rowCount) {
+        if (_compiled != null) return _compiled;
+        var lambda = Expression.Lambda<Func<GroupRow, TResult>>(body.Type == typeof(TResult) ? body : Expression.Convert(body, typeof(TResult)), row);
+        if (_interpreted == null && rowCount <= InterpretedRowLimit) return _interpreted = lambda.Compile(preferInterpretation: true);
+        return _compiled = lambda.Compile();
+    }
     /// <summary>The measure an order key reads, when it is nothing but that: r => r.Member assigned from one aggregate, g => g.Count, g => g["name"].</summary>
     public string? MeasureOf(LambdaExpression orderKey, GroupByPlan plan) {
         var parameter = orderKey.Parameters[0];
@@ -505,7 +515,7 @@ internal sealed class RowProjection<TResult>(ParameterExpression row, Expression
         }
         if (e is MethodCallExpression call && call.Method.Name == "get_Item" && ExpressionUtil.Strip(call.Object) == parameter
             && call.Arguments.Count == 1 && call.Arguments[0].Type == typeof(string) && !ExpressionUtil.References(call.Arguments[0], parameter)) {
-            var name = (string?)Expression.Lambda(call.Arguments[0]).Compile().DynamicInvoke();
+            var name = (string?)Expression.Lambda(call.Arguments[0]).Compile(preferInterpretation: true).DynamicInvoke();
             if (name == null) return null;
             if (string.Equals(name, "Count", StringComparison.OrdinalIgnoreCase)) return "Count";
             return plan.Measures.FirstOrDefault(x => string.Equals(x.Name, name, StringComparison.OrdinalIgnoreCase))?.Name; // unknown: the in-memory sort reports it
@@ -540,7 +550,7 @@ internal static class ExpressionUtil {
             Coerced(row, nameof(GroupRow.Values), index, valueType), Coerced(row, nameof(GroupRow.Values2), index, valueType), ValueAt(row, nameof(GroupRow.Labels), index));
     }
     /// <summary>A constant or closure argument, evaluated now.</summary>
-    public static object? Evaluate(Expression e) => e is ConstantExpression c ? c.Value : Expression.Lambda(e).Compile().DynamicInvoke();
+    public static object? Evaluate(Expression e) => e is ConstantExpression c ? c.Value : Expression.Lambda(e).Compile(preferInterpretation: true).DynamicInvoke();
 }
 
 /// <summary>

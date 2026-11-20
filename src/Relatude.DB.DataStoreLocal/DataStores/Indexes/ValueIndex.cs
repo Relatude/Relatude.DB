@@ -163,7 +163,7 @@ public sealed class ValueIndex<T> : IIndex, IRangeIndex, IValueIndex<T> where T 
     public IEnumerable<int> Ids => _valueById.Keys;
     public int IdCount => _valueById.Count;
     List<T> GetSortedValues() => _idByValue.GetSortedValues();
-    List<int> GetIdsSortedByValue() => _idByValue.GetIdsSortedByValue();
+    int[] GetIdsSortedByValue() => _idByValue.GetIdsSortedByValue();
     List<(int id, T from, T to)> getRangesSortedByFrom(ValueIndex<T> indexTo) {
         lock (_sortLock) {
             if (_last != null && _last.Value.fromStateId == StateId && _last.Value.toStateId == indexTo.StateId) return _last.Value.list;
@@ -272,6 +272,13 @@ public sealed class ValueIndex<T> : IIndex, IRangeIndex, IValueIndex<T> where T 
     public int MaxCount(IndexOperator op, T value) {
         // optimized for fastest speed, not accuracy, important for performance of query engine
         if (IdCount == 0) return 0;
+        // the counts of a range come from the sorted values, which the filter itself needs next
+        switch (op) {
+            case IndexOperator.Greater: return _idByValue.CountGreaterThan(value, false);
+            case IndexOperator.GreaterOrEqual: return _idByValue.CountGreaterThan(value, true);
+            case IndexOperator.Smaller: return _idByValue.CountLessThan(value, false);
+            case IndexOperator.SmallerOrEqual: return _idByValue.CountLessThan(value, true);
+        }
         if (comparer.Compare(value, MaxValue()!) > 0) return 0; // value is larger than max value in index
         if (comparer.Compare(value, MinValue()!) < 0) return 0; // value is smaller than min value in index
         return op switch {

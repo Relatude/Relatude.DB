@@ -98,12 +98,12 @@ internal sealed class LinqQueryVisitor(List<Parameter> _queryParams) : Expressio
                 throw new NotSupportedException("Invocation target is not a delegate.");
             case UnaryExpression u:
                 var operand = evaluate(u.Operand);
-                return Expression.Lambda(u.Update(Expression.Constant(operand))).Compile().DynamicInvoke();
+                return Expression.Lambda(u.Update(Expression.Constant(operand))).Compile(preferInterpretation: true).DynamicInvoke(); // run once: not worth compiling to IL
             case BinaryExpression b:
                 var left = evaluate(b.Left);
                 var right = evaluate(b.Right);
                 return Expression
-                    .Lambda(b.Update(Expression.Constant(left), b.Conversion, Expression.Constant(right))).Compile()
+                    .Lambda(b.Update(Expression.Constant(left), b.Conversion, Expression.Constant(right))).Compile(preferInterpretation: true)
                     .DynamicInvoke();
             default: throw new NotSupportedException($"Cannot evaluate {expr.NodeType}");
         }

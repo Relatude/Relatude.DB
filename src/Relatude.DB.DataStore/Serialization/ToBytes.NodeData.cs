@@ -40,7 +40,7 @@ public static partial class ToBytes {
 
         // Node data properties
         var allPossibleProps = datamodel.NodeTypes[nodeData.NodeType].AllProperties;
-        List<KeyValuePair<PropertyModel, object>> propsToStore = new();
+        List<KeyValuePair<PropertyModel, object>> propsToStore = new(nodeData.ValueCount);
         foreach (var kv in nodeData.Values) {
             if (allPossibleProps.TryGetValue(kv.PropertyId, out var prop) && prop.PropertyType != PropertyType.Relation) {
                 // only props that are part of datamodel and not relations

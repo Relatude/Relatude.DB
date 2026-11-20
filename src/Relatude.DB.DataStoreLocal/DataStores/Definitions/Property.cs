@@ -34,6 +34,7 @@ namespace Relatude.DB.DataStores.Definitions {
     public interface IValueProperty : IProperty {
         IdSet FilterRanges(IdSet set, object from, object to, QueryContext ctx);
         bool TryReorder(IdSet unsorted, bool descending, QueryContext ctx, [MaybeNullWhen(false)] out IdSet sorted);
+        bool TrySum(IdSet ids, QueryContext ctx, [MaybeNullWhen(false)] out object sum);
         IdSet WhereIn(IdSet ids, IEnumerable<object?> values, QueryContext ctx);
     }
     internal abstract class ValueProperty<T> : Property, IValueProperty where T : notnull {
@@ -56,6 +57,41 @@ namespace Relatude.DB.DataStores.Definitions {
                 return true;
             }
             return base.TryReorder(unsorted, descending, ctx, out sorted);
+        }
+        // The sum in the property's own type, as adding up the nodes' values gives it. Only when the index has a
+        // value for every id: a node it has none for is one the rows have to answer for.
+        public bool TrySum(IdSet ids, QueryContext ctx, [MaybeNullWhen(false)] out object sum) {
+            sum = null;
+            if (!TryValueGetIndex(ctx, out var index)) return false;
+            if (index is IValueIndexWrapper<T> wrapper) index = wrapper.DequeueAndGetInner();
+            // a probe of a persisted index is a tree read: more than reading a node that is in the cache, far less
+            // than reading one from the log. Only with every node cached are the rows known to be the cheaper way
+            var nodes = Definition.Store._nodes;
+            if (!index.HasFastPointLookup && nodes.CacheCount >= nodes.Count) return false;
+            if (typeof(T) == typeof(int)) { var s = 0; if (!each(index, ids, v => s += (int)(object)v)) return false; sum = s; return true; }
+            if (typeof(T) == typeof(double)) { var s = 0d; if (!each(index, ids, v => s += (double)(object)v)) return false; sum = s; return true; }
+            if (typeof(T) == typeof(float)) { var s = 0f; if (!each(index, ids, v => s += (float)(object)v)) return false; sum = s; return true; }
+            if (typeof(T) == typeof(decimal)) { var s = 0m; if (!each(index, ids, v => s += (decimal)(object)v)) return false; sum = s; return true; }
+            if (typeof(T) == typeof(long)) { var s = 0L; if (!each(index, ids, v => s += (long)(object)v)) return false; sum = s; return true; }
+            return false;
+        }
+        // false when an id has no value in the index. A persisted index answers a set that is most of it from one
+        // walk of its entries, where a probe per id would be a tree read each (as AggregateGrid does)
+        static bool each(IValueIndex<T> index, IdSet ids, Action<T> add) {
+            if (index.HasFastPointLookup || (long)ids.Count * 8 < index.IdCount) {
+                foreach (var id in ids.Enumerate()) {
+                    if (!index.TryGetValue(id, out var v)) return false;
+                    add(v);
+                }
+                return true;
+            }
+            var found = 0;
+            foreach (var e in index.Entries) {
+                if (!ids.Has(e.Key)) continue;
+                add(e.Value);
+                found++;
+            }
+            return found == ids.Count;
         }
         public virtual bool ContainsValue(object value, QueryContext ctx) {
             return GetValueIndex(ctx).ContainsValue((T)value);

@@ -101,7 +101,7 @@ public class SetRegister(long maxSize) {
     }
 
     public IdSet Filter<T>(IValueIndex<T> index, IdSet nodeIds, IndexOperator op, T v) where T : notnull {
-        // optimize later, intersect in index directly
+        if (tryProbe(index, nodeIds, op, v, out var probed)) return probed;
         var matches = op switch {
             IndexOperator.Equal => this.WhereEqual(index, v),
             IndexOperator.NotEqual => this.WhereNotEqual(index, v),
@@ -126,6 +126,72 @@ public class SetRegister(long maxSize) {
         }
         if (matches == null) return IdSet.Empty;
         return this.Intersection(nodeIds, matches);
+    }
+    /// <summary>The ids of the set whose value lies between two bounds: one range of the index, where two half open filters would each collect most of it.</summary>
+    public IdSet FilterRange<T>(IValueIndex<T> index, IdSet nodeIds, T from, T to, bool fromInclusive, bool toInclusive) where T : notnull {
+        if (nodeIds.Count == 0) return IdSet.Empty;
+        if (index.HasFastPointLookup && worthProbing(index, nodeIds, index.CountInRange(from, to, fromInclusive, toInclusive))) {
+            var key = new SetCacheKey(SetOperation.WhereProbedRange, [index.StateId, nodeIds.StateId], [
+                .. index.GetCacheKey(from, fromInclusive ? QueryType.GreaterOrEqual : QueryType.Greater),
+                .. index.GetCacheKey(to, toInclusive ? QueryType.LessOrEqual : QueryType.Less),
+                fromInclusive,
+                toInclusive]);
+            return createOrLookup(key, () => {
+                var comparer = ValueIndex<T>.comparer;
+                var values = unwrapped(index);
+                var hits = new List<int>();
+                foreach (var id in nodeIds.Enumerate()) {
+                    if (!values.TryGetValue(id, out var value)) continue;
+                    var low = comparer.Compare(value, from);
+                    if (low < 0 || (low == 0 && !fromInclusive)) continue;
+                    var high = comparer.Compare(value, to);
+                    if (high < 0 || (high == 0 && toInclusive)) hits.Add(id);
+                }
+                return hits;
+            });
+        }
+        return Intersection(nodeIds, WhereValueInRange(index, from, to, fromInclusive, toInclusive));
+    }
+    // A set much smaller than what the index holds for a filter is tested id by id: the other way is to collect
+    // everything the index matches, a set made for this one value, only to keep a fraction of it.
+    // the index under its write-optimizing wrapper, which takes a lock on every call: a loop over ids reads the inner one
+    static IValueIndex<T> unwrapped<T>(IValueIndex<T> index) where T : notnull => index is IValueIndexWrapper<T> wrapper ? wrapper.DequeueAndGetInner() : index;
+    static bool worthProbing<T>(IValueIndex<T> index, IdSet nodeIds, long matches) where T : notnull
+        => index.HasFastPointLookup && nodeIds.Count > 0 && (long)nodeIds.Count * 4 <= matches;
+    bool tryProbe<T>(IValueIndex<T> index, IdSet nodeIds, IndexOperator op, T v, out IdSet result) where T : notnull {
+        result = null!;
+        if (op == IndexOperator.Equal || !index.HasFastPointLookup) return false; // the ids of one value are a set the index already has
+        long matches;
+        QueryType type;
+        switch (op) {
+            case IndexOperator.NotEqual: matches = index.IdCount - index.CountEqual(v); type = QueryType.NotEqual; break;
+            case IndexOperator.Greater: matches = index.CountGreaterThan(v, false); type = QueryType.Greater; break;
+            case IndexOperator.GreaterOrEqual: matches = index.CountGreaterThan(v, true); type = QueryType.GreaterOrEqual; break;
+            case IndexOperator.Smaller: matches = index.CountLessThan(v, false); type = QueryType.Less; break;
+            case IndexOperator.SmallerOrEqual: matches = index.CountLessThan(v, true); type = QueryType.LessOrEqual; break;
+            default: return false;
+        }
+        if (!worthProbing(index, nodeIds, matches)) return false;
+        var key = new SetCacheKey(SetOperation.WhereProbed, [index.StateId, nodeIds.StateId], index.GetCacheKey(v, type));
+        result = createOrLookup(key, () => {
+            var comparer = ValueIndex<T>.comparer;
+            var equality = EqualityComparer<T>.Default;
+            var values = unwrapped(index);
+            var hits = new List<int>();
+            foreach (var id in nodeIds.Enumerate()) {
+                if (!values.TryGetValue(id, out var value)) continue;
+                var keep = op switch {
+                    IndexOperator.NotEqual => !equality.Equals(value, v),
+                    IndexOperator.Greater => comparer.Compare(value, v) > 0,
+                    IndexOperator.GreaterOrEqual => comparer.Compare(value, v) >= 0,
+                    IndexOperator.Smaller => comparer.Compare(value, v) < 0,
+                    _ => comparer.Compare(value, v) <= 0,
+                };
+                if (keep) hits.Add(id);
+            }
+            return hits;
+        });
+        return true;
     }
     public IdSet FilterRangesObject<T>(IValueIndex<T> index, IdSet set, object from, object to) where T : notnull {
         return FilterRanges(index, set, [new Tuple<T, T>((T)from, (T)to)]);
@@ -495,15 +561,39 @@ public class SetRegister(long maxSize) {
             // and would order the same data differently than every other index operation
             // a node the index has no value for goes last: one only a selected revision makes readable (a preview
             // of a draft never published) is in the set, while the index holds what readers read
-            var valued = new List<(int Id, T Value)>(unsorted.Count);
+            var ids = new int[unsorted.Count];
+            var values = new T[unsorted.Count];
+            var n = 0;
             List<int>? missing = null;
+            var inner = unwrapped(index);
             foreach (var id in unsorted.Enumerate()) {
-                if (index.TryGetValue(id, out var value)) valued.Add((id, value));
+                if (inner.TryGetValue(id, out var value)) { ids[n] = id; values[n++] = value; }
                 else (missing ??= []).Add(id);
             }
-            var sorted = (descending ? valued.OrderByDescending(v => v.Value, ValueIndex<T>.comparer) : valued.OrderBy(v => v.Value, ValueIndex<T>.comparer)).Select(v => v.Id);
+            var sorted = sortStable(values, ids, n, descending);
             return new FixedOrderedSet(missing == null ? sorted : sorted.Concat(missing), unsorted.Count);
         });
+    }
+    // The ids by their values, equal values in the order they came in, as a stable sort leaves them (a second
+    // OrderBy keeps the first as its tie-break). Sorting the values as a plain array is several times faster than
+    // a LINQ OrderBy; it is not stable, so the positions within each run of equal values are put back in order.
+    static int[] sortStable<T>(T[] values, int[] ids, int n, bool descending) where T : notnull {
+        var comparer = ValueIndex<T>.comparer;
+        var positions = new int[n];
+        for (var i = 0; i < n; i++) positions[i] = i;
+        Array.Sort(values, positions, 0, n, typeof(T) == typeof(string) ? comparer : null); // null: the default comparer, on its fast path
+        var result = new int[n];
+        var at = descending ? n : 0;
+        for (var start = 0; start < n;) {
+            var end = start + 1;
+            while (end < n && comparer.Compare(values[start], values[end]) == 0) end++;
+            if (end - start > 1) Array.Sort(positions, start, end - start);
+            if (descending) at -= end - start;
+            for (var i = start; i < end; i++) result[at + i - start] = ids[positions[i]];
+            if (!descending) at += end - start;
+            start = end;
+        }
+        return result;
     }
     public int CountEqual<T>(IValueIndex<T> index, IdSet nodeIds, T v) where T : notnull {
         var key = new SetCacheKey(SetOperation.CountEqual, [index.StateId, nodeIds.StateId], index.GetCacheKey(v, QueryType.Equal));

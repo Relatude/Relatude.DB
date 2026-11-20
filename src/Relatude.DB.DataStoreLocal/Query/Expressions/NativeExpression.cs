@@ -18,6 +18,10 @@ namespace Relatude.DB.Query.Expressions {
         /// <returns>Worst case maximum number of values returned</returns>
         public int MaxCount(QueryContext ctx);
     }
+    internal interface IRangeBoundNativeExpression : IBooleanNativeExpression {
+        /// <summary>The two as one range, when the other is the opposite bound on the same property.</summary>
+        IBooleanNativeExpression? TryMergeToRange(IBooleanNativeExpression other);
+    }
     internal interface IAndOrNativeExpression : IBooleanNativeExpression {
         public List<IBooleanNativeExpression> Expressions { get; }
     }
@@ -34,13 +38,27 @@ namespace Relatude.DB.Query.Expressions {
         public List<IBooleanNativeExpression> Expressions { get; }
         public IdSet Filter(IdSet set, QueryContext ctx) {
             if (Expressions.Count < 2) throw new Exception("Too few expressions in AND statement. ");
-            var optimizedOrder = Expressions.OrderBy(e => e.MaxCount(ctx));
+            var optimizedOrder = withRangesMerged().OrderBy(e => e.MaxCount(ctx));
             foreach (var exp in optimizedOrder) {
                 set = exp.Filter(set, ctx);
-                var after = set.Count;
                 if (set.Count == 0) break;
             }
             return set;
+        }
+        // a lower and an upper bound on one property are evaluated as the one range they are
+        List<IBooleanNativeExpression> withRangesMerged() {
+            if (!Expressions.Any(e => e is IRangeBoundNativeExpression)) return Expressions;
+            var merged = new List<IBooleanNativeExpression>(Expressions);
+            for (var i = 0; i < merged.Count; i++) {
+                if (merged[i] is not IRangeBoundNativeExpression bound) continue;
+                for (var j = i + 1; j < merged.Count; j++) {
+                    if (bound.TryMergeToRange(merged[j]) is not { } range) continue;
+                    merged[i] = range;
+                    merged.RemoveAt(j);
+                    break;
+                }
+            }
+            return merged;
         }
         public int MaxCount(QueryContext ctx) {
             return Expressions.Min(e => e.MaxCount(ctx)); // in a and statement, the maximum count is the smallest count of the expressions
@@ -124,7 +142,12 @@ namespace Relatude.DB.Query.Expressions {
             }
         }
     }
-    internal abstract class OperatorExpressionNativeProperty<T> : IBooleanNativeExpression where T : notnull {
+    internal sealed class RangeNativeExpression<T>(ValueProperty<T> property, T from, T to, bool fromInclusive, bool toInclusive) : IBooleanNativeExpression where T : notnull {
+        public IdSet Filter(IdSet set, QueryContext ctx) => property.Definition.Sets.FilterRange(property.GetValueIndex(ctx), set, from, to, fromInclusive, toInclusive);
+        public int MaxCount(QueryContext ctx) => property.GetValueIndex(ctx).CountInRange(from, to, fromInclusive, toInclusive);
+        public object Evaluate(IVariables vars) => throw new NotImplementedException();
+    }
+    internal abstract class OperatorExpressionNativeProperty<T> : IRangeBoundNativeExpression where T : notnull {
         readonly T _value;
         readonly ValueProperty<T> _property;
         readonly IndexOperator _operator;
@@ -135,6 +158,14 @@ namespace Relatude.DB.Query.Expressions {
         }
         public IdSet Filter(IdSet set, QueryContext ctx) => _property.GetValueIndex(ctx).Filter(set, _operator, _value);
         public int MaxCount(QueryContext ctx) => _property.GetValueIndex(ctx).MaxCount(_operator, _value);
+        public IBooleanNativeExpression? TryMergeToRange(IBooleanNativeExpression other) {
+            if (other is not OperatorExpressionNativeProperty<T> o || !ReferenceEquals(o._property, _property)) return null;
+            static bool isLower(IndexOperator op) => op is IndexOperator.Greater or IndexOperator.GreaterOrEqual;
+            static bool isUpper(IndexOperator op) => op is IndexOperator.Smaller or IndexOperator.SmallerOrEqual;
+            var (lower, upper) = isLower(_operator) && isUpper(o._operator) ? (this, o) : isUpper(_operator) && isLower(o._operator) ? (o, this) : (null, null);
+            if (lower == null || upper == null) return null;
+            return new RangeNativeExpression<T>(_property, lower._value, upper._value, lower._operator == IndexOperator.GreaterOrEqual, upper._operator == IndexOperator.SmallerOrEqual);
+        }
         public override string ToString() {
             return IndexOperatorUtil.ToString(_property.CodeName, _operator, _value is string s ? s.ToStringLiteral() : _value.ToString()!);
         }

@@ -316,7 +316,8 @@ public class StoreLogger : IDisposable, IStoreLogger {
     }
     
 
-    bool _isRecordingPropertyHits = false;
+    // read without a lock: it is asked for every property a scan reads
+    volatile bool _isRecordingPropertyHits = false;
     Dictionary<Guid, int> _propertyHits = [];
     public bool RecordingPropertyHits {
         set {
@@ -327,15 +328,11 @@ public class StoreLogger : IDisposable, IStoreLogger {
                         _isRecordingPropertyHits = true;
                     }
                 } else {
-                    lock (_propertyHits) {
-                        _isRecordingPropertyHits = false;
-                    }
+                    _isRecordingPropertyHits = false;
                 }
             }
         }
-        get {
-            lock (_propertyHits) return _isRecordingPropertyHits;
-        }
+        get => _isRecordingPropertyHits;
     }
     public KeyValuePair<string, int>[] AnalyzePropertyHits() {
         if (_datamodel == null) return [];
