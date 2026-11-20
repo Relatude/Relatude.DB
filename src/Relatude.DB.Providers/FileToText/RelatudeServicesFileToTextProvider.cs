@@ -96,7 +96,7 @@ public class RelatudeServicesFileToTextProvider : IFileToTextProvider {
             var path = tempPath(engine, media);
             try {
                 await File.WriteAllBytesAsync(path, file, cancellationToken);
-                return await transcribeAsync(engine, path, media, fileName, languages, fresh, cancellationToken);
+                return await TranscribeAsync(new TempFileRecording(engine, path, media, fileName), languages, fresh, null, cancellationToken);
             } finally {
                 tryDelete(path);
             }
@@ -109,28 +109,71 @@ public class RelatudeServicesFileToTextProvider : IFileToTextProvider {
     /// file rather than into memory - a video can be large, and only its sound is sent - and anything
     /// else is read to its end first. See the overload taking the bytes.
     /// </summary>
-    public async Task<FileToTextResult> ExtractTextAsync(Stream file, string? fileName = null, IReadOnlyList<string>? languages = null,
-        bool fresh = false, CancellationToken cancellationToken = default) {
+    public Task<FileToTextResult> ExtractTextAsync(Stream file, string? fileName = null, IReadOnlyList<string>? languages = null,
+        bool fresh = false, CancellationToken cancellationToken = default)
+        => ExtractTextAsync(file, fileName, languages, fresh, null, cancellationToken);
+
+    /// <summary>
+    /// As the overload without progress, telling how far it has come: the file read (by its length, when the stream
+    /// has one), a recording's sound taken out, part by part as ffmpeg goes, and each part sent and transcribed; the
+    /// service says nothing until it answers, so its wait is told with where the whole stands once it does
+    /// (<see cref="FileToTextProgress.UpTo"/>) and how long the sound sent plays.
+    /// </summary>
+    public async Task<FileToTextResult> ExtractTextAsync(Stream file, string? fileName, IReadOnlyList<string>? languages, bool fresh,
+        IProgress<FileToTextProgress>? progress, CancellationToken cancellationToken = default) {
         ArgumentNullException.ThrowIfNull(file);
         var head = new byte[MediaFiles.HeadBytes];
         int read = 0, n;
         while (read < head.Length && (n = await file.ReadAsync(head.AsMemory(read), cancellationToken)) > 0) read += n;
+        long? length = null;
+        try {
+            if (file.CanSeek) length = file.Length;
+        } catch (NotSupportedException) { }
         if (MediaFiles.Detect(head.AsSpan(0, read)) is { } media && converterFor(media) is { } engine) {
             var path = tempPath(engine, media);
             try {
                 await using (var target = File.Create(path)) {
                     await target.WriteAsync(head.AsMemory(0, read), cancellationToken);
-                    await file.CopyToAsync(target, cancellationToken);
+                    await copyAsync(file, target, read, length, progress, "Reading the file", 0, ReadShare, cancellationToken);
                 }
-                return await transcribeAsync(engine, path, media, fileName, languages, fresh, cancellationToken);
+                return await TranscribeAsync(new TempFileRecording(engine, path, media, fileName), languages, fresh, progress, cancellationToken);
             } finally {
                 tryDelete(path);
             }
         }
         using var buffer = new MemoryStream();
         buffer.Write(head, 0, read);
-        await file.CopyToAsync(buffer, cancellationToken);
+        await copyAsync(file, buffer, read, length, progress, "Reading the file", 0, ReadShare, cancellationToken);
+        progress?.Report(new FileToTextProgress("Reading its text", ReadShare) { UpTo = 1 });
         return await readAsync(buffer.ToArray(), fileName, languages, fresh, cancellationToken);
+    }
+
+    /// <summary>The share of the whole that reading the file is told as: the rest is its sound and the service.</summary>
+    const double ReadShare = 0.05;
+    /// <summary>Of a part of a recording, how much its sound being taken out is told as; sending it is to <see cref="SentShare"/>, and the service's answer the rest.</summary>
+    const double SoundShare = 0.35, SentShare = 0.42;
+
+    /// <summary>The rest of the stream copied, told as going from <paramref name="from"/> to <paramref name="to"/> of the whole by the bytes when its length is known.</summary>
+    static async Task copyAsync(Stream source, Stream target, long already, long? length, IProgress<FileToTextProgress>? progress, string message, double from, double to,
+        CancellationToken cancellationToken) {
+        if (progress == null) {
+            await source.CopyToAsync(target, cancellationToken);
+            return;
+        }
+        progress.Report(new FileToTextProgress(message, from));
+        var buffer = new byte[81920];
+        var copied = already;
+        var told = from;
+        int n;
+        while ((n = await source.ReadAsync(buffer, cancellationToken)) > 0) {
+            await target.WriteAsync(buffer.AsMemory(0, n), cancellationToken);
+            copied += n;
+            if (length is not > 0) continue;
+            var share = from + (to - from) * Math.Min(1, (double)copied / length.Value);
+            if (share - told < 0.002) continue; // a step worth telling, not one for every buffer
+            told = share;
+            progress.Report(new FileToTextProgress(message, share));
+        }
     }
 
     /// <summary>
@@ -138,8 +181,7 @@ public class RelatudeServicesFileToTextProvider : IFileToTextProvider {
     /// Ogg Opus at 24 kbps, the encoder tuned for speech. What speech to text needs, at about 11 MB an
     /// hour; speech to text hears at 16 kHz in any case.
     /// </summary>
-    public static FileAdjustmentAudio SpeechAdjustment() =>
-        new() { RequestedFormat = FileFormat.Ogg, Channels = 1, SampleRate = 16_000, BitRateKbps = 24, Speech = true };
+    public static FileAdjustmentAudio SpeechAdjustment() => SpeechSound.Adjustment();
 
     /// <summary>
     /// The engine that takes the sound of this kind of file, when the database has a file converter
@@ -161,20 +203,26 @@ public class RelatudeServicesFileToTextProvider : IFileToTextProvider {
     static readonly TimeSpan _partMargin = TimeSpan.FromSeconds(5);
 
     /// <summary>
-    /// The transcript of a recording or a video at <paramref name="path"/>: its sound taken by the
-    /// engine's converter, in parts when it plays for longer than the service takes in one call, each
-    /// part read by the service and the transcripts put together, timed from the start of the whole.
+    /// The transcript of a recording or a video: in parts when it plays for longer than the service takes in one call,
+    /// each part's speech asked of the recording (a stored file's made by the database's cached conversions, a file given
+    /// here by <see cref="TempFileRecording"/>), read by the service, and the transcripts put together, timed from the start
+    /// of the whole. Told how far it has come: the speech taken out (or kept from before), sent, and the service's wait.
     /// </summary>
-    async Task<FileToTextResult> transcribeAsync(FileConversionEngine engine, string path, FileFormat media, string? fileName,
-        IReadOnlyList<string>? languages, bool fresh, CancellationToken cancellationToken) {
+    /// <summary>Yes: a recording's speech is asked of it part by part, so the database makes a stored one's by its cached conversions.</summary>
+    public bool TranscribesRecordings => true;
+
+    public async Task<FileToTextResult> TranscribeAsync(IRecording recording, IReadOnlyList<string>? languages, bool fresh,
+        IProgress<FileToTextProgress>? progress, CancellationToken cancellationToken = default) {
+        ArgumentNullException.ThrowIfNull(recording);
         var maxMinutes = await maxAudioMinutesAsync(cancellationToken);
         TimeSpan? length = null;
-        if (maxMinutes > 0 && engine.CanConvert(media, FileFormat.FileMetaJson)) {
-            var meta = await engine.ConvertFileAsync(path, media, new FileAdjustmentMeta(), cancellationToken);
+        // its length tells the parts, and how long each plays, which the service's wait goes by
+        if (maxMinutes > 0 || progress != null) {
+            progress?.Report(new FileToTextProgress("Measuring the recording", ReadShare));
             try {
-                length = BasicFileMeta.FromBytes(await File.ReadAllBytesAsync(meta, cancellationToken))?.Duration;
-            } finally {
-                tryDelete(meta);
+                length = await recording.LengthAsync(cancellationToken);
+            } catch (Exception) when (maxMinutes <= 0 && !cancellationToken.IsCancellationRequested) {
+                // measured only to tell the progress: the transcript does without
             }
         }
         var part = TimeSpan.FromMinutes(Math.Max(1, maxMinutes)) - _partMargin;
@@ -182,19 +230,64 @@ public class RelatudeServicesFileToTextProvider : IFileToTextProvider {
         var parts = maxMinutes > 0 && length is { } total && total > part ? (int)Math.Ceiling((total - TimeSpan.FromSeconds(1)) / part) : 1;
         var read = new List<(TimeSpan Offset, FileToTextResult Text)>();
         for (var i = 0; i < parts; i++) {
-            var sound = SpeechAdjustment();
-            if (i > 0) sound.StartMs = (int)(part * i).TotalMilliseconds;
-            if (i < parts - 1) sound.DurationMs = (int)part.TotalMilliseconds;
-            var converted = await engine.ConvertFileAsync(path, media, sound, cancellationToken);
-            byte[] bytes;
+            // each part a share of the rest of the whole: its speech, then sending it, then the service's answer
+            var from = ReadShare + (1 - ReadShare) * i / parts;
+            var span = (1 - ReadShare) / parts;
+            var of = parts > 1 ? ", part " + (i + 1) + " of " + parts : "";
+            var seconds = length is { } all ? (i < parts - 1 ? part : all - part * i).TotalSeconds : (double?)null;
+            progress?.Report(new FileToTextProgress("Taking the sound out" + of, from));
+            var speech = await recording.SpeechAsync(i > 0 ? part * i : null, i < parts - 1 ? part : null,
+                progress == null ? null : new Progress(status => progress.Report(new FileToTextProgress(
+                    (string.IsNullOrWhiteSpace(status.Message) ? "Taking the sound out" : status.Message.TrimEnd('.', ' ')) + of,
+                    from + span * SoundShare * Math.Clamp(status.ProgressPercentage, 0, 100) / 100.0))),
+                cancellationToken);
+            var bytes = speech.Sound;
+            var sending = (parts > 1 ? "Sending part " + (i + 1) + " of " + parts : "Sending the sound") + " (" + bytes.LongLength.ToByteString() + ")";
+            progress?.Report(new FileToTextProgress(speech.Kept ? sending + ", kept from before" : sending, from + span * SoundShare));
+            var sent = readAsync(bytes, recording.FileName, languages, fresh, cancellationToken,
+                progress == null ? null : () => progress.Report(new FileToTextProgress(parts > 1 ? "Transcribing part " + (i + 1) + " of " + parts : "Transcribing", from + span * SentShare) {
+                    UpTo = from + span, Seconds = seconds,
+                }));
+            read.Add((part * i, await sent));
+        }
+        return join(read, recording.Format, length);
+    }
+
+    /// <summary>
+    /// A recording given to this provider as bytes or a stream, written to a temp file: its length and speech taken by
+    /// the engine's converters there and then, as nothing is kept of a file that is not stored.
+    /// </summary>
+    sealed class TempFileRecording(FileConversionEngine engine, string path, FileFormat media, string? fileName) : IRecording {
+        public string? FileName => fileName;
+        public FileFormat Format => media;
+        public string? Identity => null;
+
+        public async Task<TimeSpan?> LengthAsync(CancellationToken cancellationToken = default) {
+            if (!engine.CanConvert(media, FileFormat.FileMetaJson)) return null;
+            var meta = await engine.ConvertFileAsync(path, media, new FileAdjustmentMeta(), cancellationToken);
             try {
-                bytes = await File.ReadAllBytesAsync(converted, cancellationToken);
+                return BasicFileMeta.FromBytes(await File.ReadAllBytesAsync(meta, cancellationToken))?.Duration;
+            } finally {
+                tryDelete(meta);
+            }
+        }
+
+        public async Task<RecordingSpeech> SpeechAsync(TimeSpan? start, TimeSpan? duration, IProgress<FileConversionProgressInfo>? progress = null, CancellationToken cancellationToken = default) {
+            var sound = SpeechSound.Adjustment(start is { } s ? (int)s.TotalMilliseconds : null, duration is { } d ? (int)d.TotalMilliseconds : null);
+            // the converter's own words ("Converting...") are not passed on: they say less than "Taking the sound out"
+            var told = progress == null ? null : new Progress(status => progress.Report(new FileConversionProgressInfo(status.Status, status.ProgressPercentage, status.RemainingSeconds)));
+            var converted = await engine.ConvertFileAsync(path, media, sound, told, cancellationToken);
+            try {
+                return new RecordingSpeech(await File.ReadAllBytesAsync(converted, cancellationToken), false);
             } finally {
                 tryDelete(converted);
             }
-            read.Add((part * i, await readAsync(bytes, fileName, languages, fresh, cancellationToken)));
         }
-        return join(read, media, length);
+    }
+
+    /// <summary>A converter's progress handed on at once, on the thread it is told on: <see cref="Progress{T}"/> would post it to the thread pool.</summary>
+    sealed class Progress(Action<FileConversionProgressInfo> report) : IProgress<FileConversionProgressInfo> {
+        public void Report(FileConversionProgressInfo value) => report(value);
     }
 
     /// <summary>The parts' transcripts as one: timed from the start of the whole, what they cost added up, and the file taken for what it is.</summary>
@@ -256,7 +349,7 @@ public class RelatudeServicesFileToTextProvider : IFileToTextProvider {
     }
 
     /// <summary>The text of a file the service reads as it is: sent once, named by its SHA-256, and asked for.</summary>
-    async Task<FileToTextResult> readAsync(byte[] file, string? fileName, IReadOnlyList<string>? languages, bool fresh, CancellationToken cancellationToken) {
+    async Task<FileToTextResult> readAsync(byte[] file, string? fileName, IReadOnlyList<string>? languages, bool fresh, CancellationToken cancellationToken, Action? sent = null) {
         var input = ServiceFile.Of(file, nameof(file));
         var codes = (languages ?? []).Where(l => !string.IsNullOrWhiteSpace(l)).Select(l => l.Trim()).ToArray();
         string body;
@@ -275,7 +368,7 @@ public class RelatudeServicesFileToTextProvider : IFileToTextProvider {
             }
             body = Encoding.UTF8.GetString(ms.ToArray());
         }
-        var (response, _) = await _client.PostAsync("extract", body, fresh, [input], cancellationToken);
+        var (response, _) = await _client.PostAsync("extract", body, fresh, [input], cancellationToken, sent);
         using (response) {
             var json = await response.Content.ReadAsStringAsync(cancellationToken);
             var text = _client.Parse<FileToTextResult>(json, "extract", "the text of a file");

@@ -182,6 +182,21 @@ public readonly record struct FileAnalysisState(FileAnalysisKinds Wanted, FileAn
     public FileAnalysisKinds Queued { get; init; }
 }
 
+/// <summary>
+/// How far an analysis asked for at once has come (IDataStore.AnalyseFileAsync with progress): its kind, what it is
+/// doing, for people, and how far it is, 0 to 1. Told by the text extraction, which can take minutes for a recording or a
+/// video (its sound taken out, sent and transcribed); the analyses of a picture tell only that they started.
+/// <para>While a service works on what was sent, which says nothing of how far it is until it answers,
+/// <see cref="Share"/> is where it stood when sent, <see cref="UpTo"/> where it stands once the answer comes, and
+/// <see cref="Seconds"/> how long the sound sent plays, which the wait goes by.</para>
+/// </summary>
+public sealed record FileAnalysisProgress(FileAnalysisKinds Kind, string Message, double Share) {
+    /// <summary>Where the analysis stands once the service has answered; null when it is not waiting on one.</summary>
+    public double? UpTo { get; init; }
+    /// <summary>How long the sound being transcribed plays, in seconds; null when it is not a recording, or not known.</summary>
+    public double? Seconds { get; init; }
+}
+
 /// <summary>The analyses of a file asked for at once, and the file once their results are kept; null when it was replaced or removed meanwhile.</summary>
 public sealed record FileAnalysisReport(FileValue? File, FileAnalysisStepReport[] Steps);
 

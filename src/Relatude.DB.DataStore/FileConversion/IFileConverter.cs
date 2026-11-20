@@ -24,6 +24,8 @@ public class ConversionProgress(FileConversionProgressInfo info, Stream? output 
     public Stream? Output { get; } = output;
     public string? LocalFilePathOutput { get; } = localFilePathOutput;
 }
+/// <summary>A converted file read whole, and whether it was made before it was asked for (FileConversionEngine.ConvertAsync).</summary>
+public sealed record ConvertedFile(byte[] Bytes, bool Kept);
 public class InputFileSource {
     Func<Task<Stream>> _getInputStream;
     string? _localFilePath;

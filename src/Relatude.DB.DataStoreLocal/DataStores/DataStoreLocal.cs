@@ -125,7 +125,9 @@ public sealed partial class DataStoreLocal : IDataStore {
         _ioAutoBackup = bkup ?? _io;
         _ioLog = log ?? _io;
         _ioLog2 = secondaryLogIO ?? _io;
-        fileConverters = [.. (fileConverters ?? []), new NativeImageConverter(), new NativeVideoConverter()];
+        // transcripts are conversions too (FileAdjustmentTranscript), made by the file-to-text provider the store is given later
+        fileConverters = [.. (fileConverters ?? []), new NativeImageConverter(), new NativeVideoConverter(),
+            new FileToText.TranscriptConverter(() => _analysisFileToText), new FileToText.TranscriptFormatConverter()];
         if (filestores != null) foreach (var fs in filestores) _fileStores.Add(fs.Id, fs);
         _ai = ai;
         if (_ai != null) _ai.LogCallback = (string text) => Log(SystemLogEntryType.Info, text);

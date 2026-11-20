@@ -135,6 +135,14 @@ public interface IDataStore : IDisposable {
     Task<Stream> GetFileStream(PropertyPath propertyPath, FileAdjustmentBase adj, int maxWait = -1, QueryContext? ctx = null, bool firstInQueue = false);
     Task<StreamAndValue> GetFileStreamAndValue(PropertyPath propertyPath, QueryContext? ctx = null);
     Task<StateAndStream> GetFileStreamAndState(PropertyPath propertyPath, FileAdjustmentBase adj, int maxWait = -1, QueryContext? ctx = null, bool firstInQueue = false);
+    /// <summary>
+    /// As <see cref="GetFileStreamAndState(PropertyPath, FileAdjustmentBase, int, QueryContext?, bool)"/>, for an adjustment a URL
+    /// names, which anyone may ask for: it starts no conversion that costs credits. A transcript (<see cref="FileAdjustmentTranscript"/>)
+    /// is served when it is made or being made, and otherwise answered with its status, nothing queued. What a site's file
+    /// route calls; a store that makes no such conversions answers as GetFileStreamAndState.
+    /// </summary>
+    Task<StateAndStream> GetFileStreamAndStateForUrl(PropertyPath propertyPath, FileAdjustmentBase adj, int maxWait = -1, QueryContext? ctx = null, bool firstInQueue = false)
+        => GetFileStreamAndState(propertyPath, adj, maxWait, ctx, firstInQueue);
     bool TryGetConversionInfo(PropertyPath propertyPath, FileAdjustmentBase adj, bool queueConversionIfNotRequested, [MaybeNullWhen(false)] out FileConversionProgressInfo progressInfo, QueryContext? ctx = null, bool firstInQueue = false);
     bool IsFileReady(PropertyPath propertyPath, FileAdjustmentBase adj, bool requestIfNot, QueryContext? ctx = null, bool firstInQueue = false);
     void EnsureConversionRequested(PropertyPath propertyPath, FileAdjustmentBase adj, QueryContext? ctx = null, bool firstInQueue = false);
@@ -250,6 +258,14 @@ public interface IDataStore : IDisposable {
     /// (the background queue's) is waited for rather than paid for twice.
     /// </summary>
     Task<FileAnalysisReport> AnalyseFileAsync(PropertyPath propertyPath, FileAnalysisKinds kinds, bool force = false, QueryContext? ctx = null, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// As <see cref="AnalyseFileAsync(PropertyPath, FileAnalysisKinds, bool, QueryContext?, CancellationToken)"/>, telling
+    /// <paramref name="progress"/> how far each analysis has come: the text of a recording or a video step by step (its
+    /// sound taken out, sent, transcribed). A store that tells nothing (one elsewhere) analyses as the overload without it.
+    /// An analysis of the same file already under way, which this one waits for, tells nothing.
+    /// </summary>
+    Task<FileAnalysisReport> AnalyseFileAsync(PropertyPath propertyPath, FileAnalysisKinds kinds, bool force, QueryContext? ctx, IProgress<FileAnalysisProgress>? progress,
+        CancellationToken cancellationToken = default) => AnalyseFileAsync(propertyPath, kinds, force, ctx, cancellationToken);
 
     Task<Guid> InitiateMultipartUploadAsync(PropertyPath propertyPath, string fileName, QueryContext? ctx = null);
     Task AppendMultipartUploadAsync(Guid fileId, byte[] data, int length);

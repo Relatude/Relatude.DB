@@ -55,10 +55,57 @@ public interface IFileToTextProvider : IDisposable {
     }
 
     /// <summary>
+    /// As the overload without <paramref name="progress"/>, telling it how far the work has come: for a recording,
+    /// its sound being taken out (how far the converter has come), each part being sent and transcribed. A provider
+    /// that tells nothing reads the file as the overload without it does, which is what this does unless it is
+    /// implemented.
+    /// </summary>
+    Task<FileToTextResult> ExtractTextAsync(Stream file, string? fileName, IReadOnlyList<string>? languages, bool fresh,
+        IProgress<FileToTextProgress>? progress, CancellationToken cancellationToken = default)
+        => ExtractTextAsync(file, fileName, languages, fresh, cancellationToken);
+
+    /// <summary>
+    /// Whether the provider reads a recording by the speech its holder makes (<see cref="TranscribeAsync"/>): the database
+    /// then hands it a stored recording or video so, its speech made once by the cached file conversions. False unless
+    /// a provider says so, and such a provider is given the stored file itself, as before.
+    /// </summary>
+    bool TranscribesRecordings => false;
+
+    /// <summary>
+    /// The transcript of a recording whose speech its holder makes (<see cref="IRecording"/>): the database hands a stored
+    /// recording or video so, its sound made by its cached file conversions. A provider that reads recordings in parts
+    /// asks for each part's speech; one that does not implement this is given the whole speech as an Ogg file through
+    /// the overload taking the bytes, named as the recording with the extension .ogg.
+    /// </summary>
+    async Task<FileToTextResult> TranscribeAsync(IRecording recording, IReadOnlyList<string>? languages, bool fresh,
+        IProgress<FileToTextProgress>? progress, CancellationToken cancellationToken = default) {
+        ArgumentNullException.ThrowIfNull(recording);
+        var speech = await recording.SpeechAsync(null, null, null, cancellationToken);
+        var name = Path.ChangeExtension(string.IsNullOrWhiteSpace(recording.FileName) ? "recording" : recording.FileName, ".ogg");
+        var result = await ExtractTextAsync(speech.Sound, name, languages, fresh, cancellationToken);
+        return result with { FileName = recording.FileName ?? result.FileName };
+    }
+
+    /// <summary>
     /// Every kind of file the service knows and whether it reads it there, what a file costs, and how
     /// large a file may be. Costs nothing, and needs no license.
     /// </summary>
     Task<FileToTextFormats> GetFormatsAsync(CancellationToken cancellationToken = default);
+}
+
+/// <summary>
+/// How far the text of a file has come (<see cref="IFileToTextProvider.ExtractTextAsync(Stream, string?, IReadOnlyList{string}?, bool, IProgress{FileToTextProgress}?, CancellationToken)"/>):
+/// what is being done, for people, and how far the whole is, 0 to 1.
+/// <para>While the service reads what was sent, which says nothing of how far it is until it answers,
+/// <see cref="Share"/> is where the whole stood when it was sent, <see cref="UpTo"/> where it stands once
+/// the answer comes, and <see cref="Seconds"/> how long the sound sent plays, for a recording: what the
+/// wait goes by, so an interface can let its bar creep toward <see cref="UpTo"/> meanwhile.</para>
+/// </summary>
+public sealed record FileToTextProgress(string Message, double Share) {
+    /// <summary>Where the whole stands once the service has answered; null when the work is not waiting on it.</summary>
+    public double? UpTo { get; init; }
+    /// <summary>How long the sound being transcribed plays, in seconds; null when it is not a recording, or not known.</summary>
+    public double? Seconds { get; init; }
 }
 
 /// <summary>

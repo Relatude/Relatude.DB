@@ -3873,8 +3873,10 @@ string url = db.GetUrl(logo, new FileAdjustmentImage { Width = 200, Height = 200
 `RequestedFormat` is optional for images: left out, you get the original file when nothing is
 adjusted, and otherwise the store's default format
 ([Image variants adapt by default](#image-variants-adapt-by-default)). `FileAdjustmentVideo` converts
-a video, `FileAdjustmentAudio` takes the sound of a video or a recording (Mp3 by default), and
-`FileAdjustmentMeta` asks for a file's metadata as JSON.
+a video, `FileAdjustmentAudio` takes the sound of a video or a recording (Mp3 by default),
+`FileAdjustmentTranscript` gives what is said in either as text or subtitles
+([A stored recording's transcript](#a-stored-recordings-transcript)), and `FileAdjustmentMeta` asks
+for a file's metadata as JSON.
 
 Conversion runs in the background:
 
@@ -7071,6 +7073,39 @@ seconds, and each line of `Text` starts with when it is spoken:
   it is.
 - **Long recordings** (over an hour, on the hosted service) are sent in parts. Each part is charged
   as a file.
+
+#### A stored recording's transcript
+
+A recording or video your database holds has its transcript as a file conversion, like a picture's
+size: one adjustment, `FileAdjustmentTranscript`, and the text comes back.
+
+```csharp
+var path = new PropertyPath(talkId, propertyId);
+var vtt = await db.Datastore.GetFileStream(path, new FileAdjustmentTranscript { RequestedFormat = FileFormat.Vtt });
+string track = db.GetUrl(talk.Recording, new FileAdjustmentTranscript { RequestedFormat = FileFormat.Vtt });
+// <video src="…"><track kind="captions" src="@track" srclang="en"></video>
+```
+
+| `RequestedFormat` | What you get |
+|---|---|
+| `Json` (the default) | The transcript and what was learnt of it: `text`, `timed`, `language`, `duration`, `characters`, `truncated`, `provider`, `credits` (`TranscriptData`) |
+| `Txt` | The timed lines, as `TextExtract` keeps them; `Timestamps = false` leaves the times out |
+| `Vtt` | WebVTT subtitles, for a `<track>` |
+| `Srt` | SubRip subtitles |
+
+- **It is made in steps, all inside the conversions.** The speech is taken out part by part (each a
+  cached `FileAdjustmentAudio`), sent to `db.Services.FileToText`, and the parts are joined. Every
+  step is queued, listed in the admin UI's conversions and cached, so the sound is taken out once.
+- **It is paid for once.** Every format is written from the one `Json` transcript, at no cost.
+  `Language` names the language spoken; left out, it is the language the text analysis uses (the
+  database's default culture), so it is the transcript the analysis makes and keeps in `TextExtract`.
+- **A URL never starts one.** Anyone can ask for a URL, and a transcript costs credits, so a URL
+  serves a transcript once it is made, or being made, and otherwise answers its status (not
+  cacheable) and queues nothing. Code that asks the store starts it, as does the text analysis.
+  A transcript kept in `TextExtract` from before is served without asking the service.
+- **Made again** with the text analysis and force:
+  `await db.Datastore.AnalyseFileAsync(path, FileAnalysisKinds.Text, force: true)`. The transcript
+  is made anew, while the sound stays kept.
 
 ### 34.4 Translation
 

@@ -80,7 +80,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                     r.PropertyValue = GetValue<object>(keys.PropertyPath!, ctx);
                     if (r.PropertyValue is FileValue fileValue) {
                         r.FileValue = fileValue;
-                        var stateAndStream = await GetFileStreamAndState(keys.PropertyPath!, keys.Adjustment!, maxWaitMs, firstInQueue: firstInQueue);
+                        var stateAndStream = await GetFileStreamAndStateForUrl(keys.PropertyPath!, keys.Adjustment!, maxWaitMs, firstInQueue: firstInQueue);
                         r.Stream = stateAndStream.Stream;
                         r.Cacheable = stateAndStream.IsReady;
                         r.ContentType = FileFormatUtil.GetContentType(stateAndStream.RequestedFormat);
@@ -128,7 +128,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         } else if (keys.Target == UrlTarget.PropertyAdjusted) {
             var path = keys.PropertyPath ?? throw new Exception("URL does not point to an adjusted file property");
             var adj = keys.Adjustment ?? throw new Exception("URL does not point to an adjusted file property");
-            return await GetFileStreamAndState(path, adj, maxWait, ctx, firstInQueue);
+            return await GetFileStreamAndStateForUrl(path, adj, maxWait, ctx, firstInQueue); // what a URL may ask for: no transcript is started by one
         }
         throw new Exception("URL does not point to a file property");
     }

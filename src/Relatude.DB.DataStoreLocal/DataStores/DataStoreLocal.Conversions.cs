@@ -3,6 +3,7 @@ using Relatude.DB.Datamodels;
 using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.DataStores.Files;
 using Relatude.DB.FileConversion;
+using Relatude.DB.FileToText;
 using Relatude.DB.Web;
 using System.Diagnostics.CodeAnalysis;
 namespace Relatude.DB.DataStores;
@@ -40,6 +41,8 @@ public sealed partial class DataStoreLocal : IDataStore {
     FileAdjustmentBase resolveAdaptiveFormat(FileValue fileValue, FileAdjustmentBase adj, out bool serveOriginal) {
         serveOriginal = false;
         adj = adj.Normalized(); // a copy: the caller's instance may be shared (the URL decoders cache theirs)
+        // a transcript in no language named is the one the text analysis makes: one transcript, paid once
+        if (adj is FileAdjustmentTranscript transcript) transcript.Language ??= FileAdjustmentTranscript.LanguageCodeOf(analysisLanguage());
         if (adj is FileAdjustmentImage asked) applyPictureDefaults(fileValue, asked);
         if (adj is not FileAdjustmentImage image || image.RequestedFormat != FileFormat.Image) return adj;
         if (image.IsPlainRequest() && fileValue.Format != FileFormat.Ora // a browser shows no OpenRaster file: its picture is made
@@ -133,7 +136,17 @@ public sealed partial class DataStoreLocal : IDataStore {
     public async Task<Stream> GetFileStream(PropertyPath propertyPath, FileAdjustmentBase adj, int maxWait = -1, QueryContext? ctx = null, bool firstInQueue = false) {
         return (await GetFileStreamAndState(propertyPath, adj, maxWait, ctx, firstInQueue)).Stream;
     }
-    public async Task<StateAndStream> GetFileStreamAndState(PropertyPath propertyPath, FileAdjustmentBase adj, int maxWait = -1, QueryContext? ctx = null, bool firstInQueue = false) {
+    public Task<StateAndStream> GetFileStreamAndState(PropertyPath propertyPath, FileAdjustmentBase adj, int maxWait = -1, QueryContext? ctx = null, bool firstInQueue = false)
+        => getFileStreamAndStateAsync(propertyPath, adj, maxWait, ctx, firstInQueue, fromUrl: false);
+    /// <summary>
+    /// As <see cref="GetFileStreamAndState(PropertyPath, FileAdjustmentBase, int, QueryContext?, bool)"/>, for an adjustment a
+    /// URL names, which anyone may ask for: it starts no conversion that costs credits. A transcript
+    /// (<see cref="FileAdjustmentTranscript"/>) is served when it is made or being made, and otherwise answered with its
+    /// status, not cacheable, nothing queued; code asking the store, or the text analysis, makes it.
+    /// </summary>
+    public Task<StateAndStream> GetFileStreamAndStateForUrl(PropertyPath propertyPath, FileAdjustmentBase adj, int maxWait = -1, QueryContext? ctx = null, bool firstInQueue = false)
+        => getFileStreamAndStateAsync(propertyPath, adj, maxWait, ctx, firstInQueue, fromUrl: true);
+    async Task<StateAndStream> getFileStreamAndStateAsync(PropertyPath propertyPath, FileAdjustmentBase adj, int maxWait, QueryContext? ctx, bool firstInQueue, bool fromUrl) {
         var fileValue = GetValue<FileValue>(propertyPath, ctx);
         adj = resolveAdaptiveFormat(fileValue, adj, out var serveOriginal);
         if (serveOriginal) { // a plain adaptive request: the original file, untouched
@@ -141,22 +154,14 @@ public sealed partial class DataStoreLocal : IDataStore {
             var originalStream = await originalStore.GetFileStream(fileValue);
             return new StateAndStream(originalStream, true, fileValue, fileValue.Format, Guid.Empty, null);
         }
-        var idWithAdj = FileIdWithAdjustment.Of(fileValue, adj, propertyPath);
-        var info = new FileConversionInfo(idWithAdj, fileValue.Name, fileValue.Hash, fileValue.Format);
-        var fileStore = getFileStore(fileValue.StorageId);
-        InputFileSource source;
-        var conversionId = idWithAdj.GetKey();
-        if (fileStore.TryGetLocalFilePath(fileValue, out var localFilePath)) {
-            var getInputStreamFunc = new Func<Task<Stream>>(async () => {
-                return File.OpenRead(localFilePath);
-            });
-            source = new InputFileSource(getInputStreamFunc, localFilePath);
-        } else {
-            var getInputStreamFunc = new Func<Task<Stream>>(async () => {
-                if (fileValue.IsEmpty) throw new Exception("File value is empty");
-                return await fileStore.GetFileStream(fileValue);
-            });
-            source = new InputFileSource(getInputStreamFunc, null);
+        var (info, source) = conversionOf(propertyPath, fileValue, adj);
+        var conversionId = info.IdWithAdjustment.GetKey();
+        if (adj is FileAdjustmentTranscript transcript) {
+            await keepTranscriptMadeBeforeAsync(fileValue, info, source, transcript);
+            if (fromUrl && transcriptNotStarted(info, source, transcript) is { } why) {
+                var status = new MemoryStream(TranscriptStatus.Of(adj.RequestedFormat, why), writable: false);
+                return new StateAndStream(status, false, fileValue, adj.RequestedFormat, conversionId, info);
+            }
         }
         var result = await _fileConversionEngine.TryGetFormatAndStreamAsync(info, maxWait, source, firstInQueue);
         Stream stream;
@@ -175,11 +180,78 @@ public sealed partial class DataStoreLocal : IDataStore {
             progressInfo = new FileConversionProgressInfo(FileConversionStatus.Ready, 100, 0);
             return true;
         }
-        var idWithAdj = FileIdWithAdjustment.Of(fileValue, adj, propertyPath);
+        var (info, source) = conversionOf(propertyPath, fileValue, adj);
+        if (adj is FileAdjustmentTranscript transcript && madeBefore(fileValue, info, source, transcript) is { } kept) {
+            // rare (once a file, after its conversions were cleared), and a write of a small file: not worth an async version
+            Task.Run(() => _fileConversionEngine.KeepAsync(info, transcript.AsJson(), kept.ToBytes())).GetAwaiter().GetResult();
+        }
+        return _fileConversionEngine.TryGetProgressInfo(info, requestIfNot, source, out progressInfo, firstInQueue);
+    }
+
+    /// <summary>A conversion of the file the property holds, as the engine keys, runs and caches it, and where its converter reads the file.</summary>
+    (FileConversionInfo Info, InputFileSource Source) conversionOf(PropertyPath propertyPath, FileValue fileValue, FileAdjustmentBase adj) {
+        var info = new FileConversionInfo(FileIdWithAdjustment.Of(fileValue, adj, propertyPath), fileValue.Name, fileValue.Hash, fileValue.Format);
         var fileStore = getFileStore(fileValue.StorageId);
-        var fileConversionInfo = new FileConversionInfo(idWithAdj, fileValue.Name, fileValue.Hash, fileValue.Format);
-        fileStore.TryGetLocalFilePath(fileValue, out var localFilePath);
-        return _fileConversionEngine.TryGetProgressInfo(fileConversionInfo, requestIfNot, new InputFileSource(() => fileStore.GetFileStream(fileValue), localFilePath), out progressInfo, firstInQueue);
+        if (fileStore.TryGetLocalFilePath(fileValue, out var localFilePath)) {
+            return (info, new InputFileSource(() => Task.FromResult<Stream>(File.OpenRead(localFilePath)), localFilePath));
+        }
+        return (info, new InputFileSource(async () => {
+            if (fileValue.IsEmpty) throw new Exception("File value is empty");
+            return await fileStore.GetFileStream(fileValue);
+        }, null));
+    }
+
+    /// <summary>
+    /// Why a URL may not have the transcript asked for: none made, none being made, or the last try failed. Null when it
+    /// is made or being made, so the format asked for (written from it at no cost) may be.
+    /// </summary>
+    string? transcriptNotStarted(FileConversionInfo info, InputFileSource source, FileAdjustmentTranscript transcript) {
+        var json = FileConversionEngine.InfoOf(info, transcript.AsJson());
+        if (!_fileConversionEngine.TryGetProgressInfo(json, false, source, out var status)) return "No transcript of this file has been made. ";
+        return status.Status == FileConversionStatus.Error ? "The transcript of this file could not be made: " + status.Message : null;
+    }
+
+    /// <summary>
+    /// The transcript the text analysis keeps with the file (<see cref="FileValue.TextExtract"/>), when a transcript in the
+    /// analysis's language is asked for and none is cached: a transcript made before transcripts were conversions, or
+    /// one whose conversion was cleared since. Kept as the conversion at no cost, rather than paid for again.
+    /// </summary>
+    TranscriptData? madeBefore(FileValue fileValue, FileConversionInfo info, InputFileSource source, FileAdjustmentTranscript transcript) {
+        if (string.IsNullOrEmpty(fileValue.TextExtract) || fileValue.FileType is not (FileType.Audio or FileType.Video)) return null;
+        var meta = fileValue.GetMeta();
+        if (meta.TextExtraction is not { Timed: true, Error: null } step) return null;
+        if (transcript.Language != FileAdjustmentTranscript.LanguageCodeOf(analysisLanguage())) return null;
+        var json = FileConversionEngine.InfoOf(info, transcript.AsJson());
+        if (_fileConversionEngine.TryGetProgressInfo(json, false, source, out var status) && status.Status != FileConversionStatus.Error) return null; // made, or being made
+        return new TranscriptData {
+            Text = fileValue.TextExtract,
+            Timed = true,
+            Language = meta.Language,
+            Duration = meta is MediaFileMeta { Duration: { } length } ? length.TotalSeconds : null,
+            Characters = step.Characters > 0 ? step.Characters : fileValue.TextExtract.Length,
+            Truncated = step.Truncated,
+            Format = step.Format,
+            Provider = step.Provider,
+            MadeUtc = step.CompletedUtc,
+        };
+    }
+    async Task keepTranscriptMadeBeforeAsync(FileValue fileValue, FileConversionInfo info, InputFileSource source, FileAdjustmentTranscript transcript) {
+        if (madeBefore(fileValue, info, source, transcript) is { } kept) await _fileConversionEngine.KeepAsync(info, transcript.AsJson(), kept.ToBytes());
+    }
+
+    /// <summary>
+    /// Every format of a file's transcript in one language taken out of the cache, its failures too: what a transcript
+    /// made again (text extraction with force) does first, so it is made anew while the speech it was made of stays kept.
+    /// </summary>
+    void clearTranscripts(FileConversionInfo info, FileAdjustmentTranscript transcript) {
+        FileAdjustmentTranscript[] formats = [
+            transcript.AsJson(),
+            new() { RequestedFormat = FileFormat.Txt, Language = transcript.Language },
+            new() { RequestedFormat = FileFormat.Txt, Language = transcript.Language, Timestamps = false },
+            new() { RequestedFormat = FileFormat.Vtt, Language = transcript.Language },
+            new() { RequestedFormat = FileFormat.Srt, Language = transcript.Language },
+        ];
+        foreach (var format in formats) _fileConversionEngine.ClearCache(FileConversionEngine.InfoOf(info, format).IdWithAdjustment);
     }
     public bool IsFileReady(PropertyPath propertyPath, FileAdjustmentBase adj, bool requestIfNot, QueryContext? ctx = null, bool firstInQueue = false) {
         return TryGetConversionInfo(propertyPath, adj, requestIfNot, out var progressInfo, ctx, firstInQueue) && progressInfo.Status != FileConversionStatus.InProgress;

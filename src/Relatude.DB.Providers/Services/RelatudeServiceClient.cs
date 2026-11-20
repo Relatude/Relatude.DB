@@ -99,13 +99,16 @@ internal sealed class RelatudeServiceClient : IDisposable {
     /// again and the call made again. Returns the successful answer, which the caller disposes, with
     /// the key it was made with; anything else is thrown as a <see cref="RelatudeServiceException"/>.
     /// </summary>
-    public async Task<(HttpResponseMessage Response, string Key)> PostAsync(string operation, string jsonBody, bool fresh, IReadOnlyList<ServiceFile> files, CancellationToken cancellationToken) {
+    /// <param name="posting">Told once the files are sent, as the call itself goes: for a caller telling how far it has come.</param>
+    public async Task<(HttpResponseMessage Response, string Key)> PostAsync(string operation, string jsonBody, bool fresh, IReadOnlyList<ServiceFile> files, CancellationToken cancellationToken,
+        Action? posting = null) {
         var key = apiKey(); // once, before anything is sent: every request of the call goes with the same key
         var url = _api + "/" + operation;
         var named = files.DistinctBy(f => f.Sha256).ToArray();
         foreach (var file in named) {
             if (!isKnown(key, file.Sha256)) await sendFileAsync(key, file, cancellationToken);
         }
+        posting?.Invoke();
         // twice at most: a file let go between the upload and the call is rare, twice in a row rarer still
         for (var round = 0; ; round++) {
             var response = await sendAsync(url, () => HttpRetry.SendAsync(_http, () => {

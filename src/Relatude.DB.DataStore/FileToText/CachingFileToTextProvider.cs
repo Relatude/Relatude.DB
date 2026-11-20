@@ -32,8 +32,13 @@ public sealed class CachingFileToTextProvider(IFileToTextProvider inner, IServic
         return keep(key, await Inner.ExtractTextAsync(file, fileName, languages, fresh, cancellationToken));
     }
 
-    public async Task<FileToTextResult> ExtractTextAsync(Stream file, string? fileName = null, IReadOnlyList<string>? languages = null,
-        bool fresh = false, CancellationToken cancellationToken = default) {
+    public Task<FileToTextResult> ExtractTextAsync(Stream file, string? fileName = null, IReadOnlyList<string>? languages = null,
+        bool fresh = false, CancellationToken cancellationToken = default)
+        => ExtractTextAsync(file, fileName, languages, fresh, null, cancellationToken);
+
+    /// <summary>As the overload without progress; the provider asked tells how far it has come, and a text kept here is at once.</summary>
+    public async Task<FileToTextResult> ExtractTextAsync(Stream file, string? fileName, IReadOnlyList<string>? languages, bool fresh,
+        IProgress<FileToTextProgress>? progress, CancellationToken cancellationToken = default) {
         ArgumentNullException.ThrowIfNull(file);
         if (file.CanSeek) {
             var start = file.Position;
@@ -41,7 +46,7 @@ public sealed class CachingFileToTextProvider(IFileToTextProvider inner, IServic
             var key = keyOf(sha, languages);
             if (!fresh && kept(key, fileName) is { } answer) return answer;
             file.Position = start;
-            return keep(key, await Inner.ExtractTextAsync(file, fileName, languages, fresh, cancellationToken));
+            return keep(key, await Inner.ExtractTextAsync(file, fileName, languages, fresh, progress, cancellationToken));
         }
         // read once into a file of its own while the SHA-256 is taken, and handed on from there
         var path = Path.Combine(Path.GetTempPath(), "relatude-filetotext-" + Guid.NewGuid().ToString("N"));
@@ -50,7 +55,24 @@ public sealed class CachingFileToTextProvider(IFileToTextProvider inner, IServic
         var copiedKey = keyOf(copiedSha, languages);
         if (!fresh && kept(copiedKey, fileName) is { } copiedAnswer) return copiedAnswer;
         copy.Position = 0;
-        return keep(copiedKey, await Inner.ExtractTextAsync(copy, fileName, languages, fresh, cancellationToken));
+        return keep(copiedKey, await Inner.ExtractTextAsync(copy, fileName, languages, fresh, progress, cancellationToken));
+    }
+
+    /// <summary>
+    /// A recording's transcript, kept by what the recording is known by (<see cref="IRecording.Identity"/>) and the
+    /// languages: the database's stored files say it, so the same file transcribed again is answered from here, its sound
+    /// not even read. A recording that says nothing is handed on, and not kept.
+    /// </summary>
+    /// <summary>As the provider it wraps.</summary>
+    public bool TranscribesRecordings => Inner.TranscribesRecordings;
+
+    public async Task<FileToTextResult> TranscribeAsync(IRecording recording, IReadOnlyList<string>? languages, bool fresh,
+        IProgress<FileToTextProgress>? progress, CancellationToken cancellationToken = default) {
+        ArgumentNullException.ThrowIfNull(recording);
+        if (string.IsNullOrWhiteSpace(recording.Identity)) return await Inner.TranscribeAsync(recording, languages, fresh, progress, cancellationToken);
+        var key = keyOf("recording|" + recording.Identity, languages);
+        if (!fresh && kept(key, recording.FileName) is { } answer) return answer;
+        return keep(key, await Inner.TranscribeAsync(recording, languages, fresh, progress, cancellationToken));
     }
 
     /// <summary>Costs nothing, so it is not kept: the list is the service's as it is now.</summary>

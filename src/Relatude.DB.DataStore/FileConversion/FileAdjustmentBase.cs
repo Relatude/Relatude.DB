@@ -1,4 +1,5 @@
 ﻿using System.Buffers.Binary;
+using System.Text;
 using Relatude.DB.Common;
 
 namespace Relatude.DB.FileConversion;
@@ -40,6 +41,7 @@ public enum FileAdjustmentType { // the first byte of ToBytes: fixed numbers, li
     Video = 1,
     Meta = 2,
     Audio = 3,
+    Transcript = 4,
 }
 public abstract class FileAdjustmentBase {
     public FileFormat RequestedFormat { get; set; }
@@ -76,6 +78,7 @@ public abstract class FileAdjustmentBase {
             FileAdjustmentType.Video => FileAdjustmentVideo.FromBytes(bytes),
             FileAdjustmentType.Meta => FileAdjustmentMeta.FromBytes(bytes),
             FileAdjustmentType.Audio => FileAdjustmentAudio.FromBytes(bytes),
+            FileAdjustmentType.Transcript => FileAdjustmentTranscript.FromBytes(bytes),
             _ => throw new NotSupportedException($"Unsupported adjustment type: {adjustmentType}")
         };
     }
@@ -495,6 +498,83 @@ public class FileAdjustmentAudio : FileAdjustmentBase {
         obj.DurationMs = next(s);
         obj.Speech = s[p++] != 0;
         obj.Temporary = s[p] != 0;
+        return obj;
+    }
+}
+
+/// <summary>
+/// The transcript of a recording or of the sound of a video: what is said, as text. One adjustment, though made in
+/// steps inside the conversions (the speech taken out part by part, each a cached <see cref="FileAdjustmentAudio"/>,
+/// sent to the database's File to text provider, the parts joined), and like any conversion queued, listed and cached,
+/// so the service is paid once a file and language. <see cref="FileAdjustmentBase.RequestedFormat"/> is
+/// <see cref="FileFormat.Json"/> (the default: the transcript with what was learnt of it, <c>TranscriptData</c>),
+/// <see cref="FileFormat.Txt"/> (a line for each stretch of speech, beginning with when it is spoken, as the database
+/// keeps it; <see cref="Timestamps"/> false leaves the times out), <see cref="FileFormat.Vtt"/> (a player's subtitles)
+/// or <see cref="FileFormat.Srt"/>. Every format is written from the one Json transcript, at no cost.
+/// <para>A request by URL never starts a transcript, which costs credits: it serves one already made, and a status
+/// otherwise. Code asking the store starts it, as the text analysis does.</para>
+/// </summary>
+public class FileAdjustmentTranscript : FileAdjustmentBase {
+    public FileAdjustmentTranscript() {
+        RequestedFormat = FileFormat.Json;
+    }
+    /// <summary>The formats a transcript is given in.</summary>
+    public static bool IsTranscriptFormat(FileFormat format) => format is FileFormat.Json or FileFormat.Txt or FileFormat.Vtt or FileFormat.Srt;
+    /// <summary>
+    /// The language spoken, as a code of two or three letters such as "en" or "nb"; null is the language the store's
+    /// text analysis asks for (its default culture's), so a transcript asked for here is the one the analysis made.
+    /// </summary>
+    public string? Language { get; set; }
+    /// <summary>For <see cref="FileFormat.Txt"/>: false gives the lines of speech without when each is spoken.</summary>
+    public bool Timestamps { get; set; } = true;
+    /// <summary>The same transcript in the canonical form, <see cref="FileFormat.Json"/>, which every other format is written from.</summary>
+    public FileAdjustmentTranscript AsJson() => new() { Language = Language, Temporary = Temporary };
+    /// <summary>A language code as the adjustment keeps it: lower case letters, 2 to 8 of them, else none.</summary>
+    public static string? LanguageCodeOf(string? code) {
+        if (string.IsNullOrWhiteSpace(code)) return null;
+        var trimmed = code.Trim().ToLowerInvariant();
+        return trimmed.Length is >= 2 and <= 8 && trimmed.All(char.IsAsciiLetterLower) ? trimmed : null;
+    }
+    public override void BasicSanitization() {
+        if (!IsTranscriptFormat(RequestedFormat)) RequestedFormat = FileFormat.Json;
+        base.BasicSanitization();
+        Language = LanguageCodeOf(Language);
+        if (RequestedFormat != FileFormat.Txt) Timestamps = true; // only text leaves them out: one key for the others
+    }
+    public override FileAdjustmentType GetAdjustmentType() => FileAdjustmentType.Transcript;
+    const int CURRENT_VERSION = 1;
+    protected override string GenerateStringKey() {
+        var key = "Transcript" + (int)RequestedFormat + "|" + Language;
+        if (!Timestamps) key += "NoTimes";
+        if (Temporary) key += "Tmp";
+        return key;
+    }
+    public override byte[] ToBytes() {
+        var language = Encoding.ASCII.GetBytes(LanguageCodeOf(Language) ?? string.Empty);
+        var buf = new byte[1 + 4 + 4 + 1 + 1 + language.Length];
+        var s = buf.AsSpan();
+        int p = 0;
+        s[p++] = (byte)FileAdjustmentType.Transcript;
+        BinaryPrimitives.WriteInt32LittleEndian(s[p..], CURRENT_VERSION); p += 4;
+        BinaryPrimitives.WriteInt32LittleEndian(s[p..], (int)RequestedFormat); p += 4;
+        s[p++] = (byte)((Timestamps ? 0 : 1) | (Temporary ? 2 : 0));
+        s[p++] = (byte)language.Length;
+        language.CopyTo(s[p..]);
+        return buf;
+    }
+    static public new FileAdjustmentTranscript FromBytes(byte[] bytes) {
+        if (bytes.Length < 11) throw new ArgumentException("Invalid byte array length for FileAdjustmentTranscript");
+        var s = bytes.AsSpan();
+        int p = 1; // skip type byte
+        var version = BinaryPrimitives.ReadInt32LittleEndian(s[p..]); p += 4;
+        if (version < 1 || version > CURRENT_VERSION) throw new NotSupportedException($"Unsupported FileAdjustmentTranscript version: {version}");
+        var obj = new FileAdjustmentTranscript { RequestedFormat = (FileFormat)BinaryPrimitives.ReadInt32LittleEndian(s[p..]) }; p += 4;
+        var flags = s[p++];
+        obj.Timestamps = (flags & 1) == 0;
+        obj.Temporary = (flags & 2) != 0;
+        int length = s[p++];
+        if (bytes.Length < p + length) throw new ArgumentException("Invalid byte array length for FileAdjustmentTranscript");
+        obj.Language = length == 0 ? null : Encoding.ASCII.GetString(s.Slice(p, length));
         return obj;
     }
 }

@@ -61,6 +61,10 @@ public enum FileFormat {
     // OpenRaster: a zip of layers (PNG, or SVG in the extended format), stack.xml saying how they stack, and the
     // picture they make (mergedimage.png), which is what is converted and shown; the layers are the editor's
     Ora = 31,
+    // Text made of a recording's speech (FileAdjustmentTranscript), and what else it may be asked as
+    Vtt = 32, // WebVTT, the subtitles of a <track>
+    Srt = 33, // SubRip subtitles
+    Json = 34,
 }
 public static class FileFormatUtil {
     public static FileType GetFileType(string fileNameWithExtension) {
@@ -99,6 +103,9 @@ public static class FileFormatUtil {
             ".ppt" => FileFormat.Ppt,
             ".pptx" => FileFormat.Pptx,
             ".txt" => FileFormat.Txt,
+            ".vtt" => FileFormat.Vtt,
+            ".srt" => FileFormat.Srt,
+            ".json" => FileFormat.Json,
             ".filemeta" => FileFormat.FileMetaJson,
             _ => FileFormat.Unknown, // This should probably be a different value or throw an exception since it's not a detailed format
         };
@@ -108,7 +115,8 @@ public static class FileFormatUtil {
             FileFormat.Jpeg or FileFormat.Png or FileFormat.Gif or FileFormat.Bmp or FileFormat.Svg or FileFormat.Webp or FileFormat.Avif or FileFormat.Ora or FileFormat.Image => FileType.Image,
             FileFormat.Mp4 or FileFormat.Avi or FileFormat.Mov or FileFormat.Wmv or FileFormat.Flv or FileFormat.Mkv or FileFormat.Webm => FileType.Video,
             FileFormat.Mp3 or FileFormat.Wav or FileFormat.Aac or FileFormat.Flac or FileFormat.Ogg or FileFormat.M4a => FileType.Audio,
-            FileFormat.Pdf or FileFormat.Doc or FileFormat.Docx or FileFormat.Xls or FileFormat.Xlsx or FileFormat.Ppt or FileFormat.Pptx or FileFormat.Txt => FileType.Document,
+            FileFormat.Pdf or FileFormat.Doc or FileFormat.Docx or FileFormat.Xls or FileFormat.Xlsx or FileFormat.Ppt or FileFormat.Pptx or FileFormat.Txt
+                or FileFormat.Vtt or FileFormat.Srt or FileFormat.Json => FileType.Document,
             FileFormat.FileMetaJson => FileType.Meta,
             FileFormat.Unknown => FileType.Unknown,
             _ => throw new Exception("Internal error. Unhandled FileFormat value: " + format.ToString()), // This should never happen if all FileFormat values are covered
@@ -145,6 +153,9 @@ public static class FileFormatUtil {
         FileFormat.Ppt => "application/vnd.ms-powerpoint",
         FileFormat.Pptx => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
         FileFormat.Txt => "text/plain",
+        FileFormat.Vtt => "text/vtt",
+        FileFormat.Srt => "application/x-subrip",
+        FileFormat.Json => "application/json",
         FileFormat.FileMetaJson => "application/json",
         _ => "application/octet-stream",
     };
@@ -180,11 +191,15 @@ public static class FileFormatUtil {
             FileFormat.Ppt => ".ppt",
             FileFormat.Pptx => ".pptx",
             FileFormat.Txt => ".txt",
+            FileFormat.Vtt => ".vtt",
+            FileFormat.Srt => ".srt",
+            FileFormat.Json => ".json",
             FileFormat.FileMetaJson => ".filemeta",
             _ => null,
         };
     }
     public static bool AsAttachement(FileFormat requestedFormat) {
+        if (requestedFormat is FileFormat.Vtt or FileFormat.Json) return false; // a player's subtitles, and data a page reads
         var basicType = GetFileType(requestedFormat);
         return basicType switch {
             FileType.Image => false,

@@ -253,6 +253,99 @@ public class FileConversionEngine : IDisposable {
         if (entry != null) return new(entry.ProgressInfo, null);
         return new(new(FileConversionStatus.Error, 0, 0, "Unknown status"), null);
     }
+
+    /// <summary>
+    /// Another conversion of the file a conversion is of: the same file, property and source format, another
+    /// adjustment, keyed exactly as the store keys it (<see cref="FileIdWithAdjustment.KeyOf"/>), so it shares the cache
+    /// with the store's own requests. What a converter that works in steps asks for, as the transcript asks for the
+    /// speech of a video part by part.
+    /// </summary>
+    public static FileConversionInfo InfoOf(FileConversionInfo of, FileAdjustmentBase adjustment) {
+        var parent = of.IdWithAdjustment;
+        var id = new FileIdWithAdjustment(parent.FileId, adjustment.Normalized(), parent.PropertyPath, parent.SharedSourceFormat);
+        return new FileConversionInfo(id, of.FileName, of.Hash, of.FromFormat);
+    }
+
+    /// <summary>How often <see cref="ConvertAsync"/> looks again at a conversion it waits for.</summary>
+    static readonly TimeSpan _followEvery = TimeSpan.FromMilliseconds(250);
+
+    /// <summary>
+    /// Another conversion of the file a conversion is of (<see cref="InfoOf"/>), from the cache or made now: queued first
+    /// in line and followed until it is made, <paramref name="progress"/> told how far its converter has come or that it
+    /// waits for its turn. <c>Kept</c> is true when it was made before this was asked. Throws with the converter's reason
+    /// when it fails, and when it is cancelled meanwhile (as in the admin UI); cancelling the token cancels the conversion,
+    /// so its converter stops and no error is kept. A converter may wait for another converter's work this way, never for
+    /// its own: it would hold the slot the other conversion needs.
+    /// </summary>
+    public async Task<ConvertedFile> ConvertAsync(FileConversionInfo of, FileAdjustmentBase adjustment, InputFileSource source,
+        IProgress<FileConversionProgressInfo>? progress = null, CancellationToken cancellationToken = default) {
+        var info = InfoOf(of, adjustment);
+        if (!_fileConverters.TryGetConverter(info.Formats, out var converter)) {
+            throw new NotSupportedException($"No file converter here converts {info.FromFormat.ToString().ToUpper()} to {info.ToFormat.ToString().ToUpper()}. ");
+        }
+        var key = info.IdWithAdjustment.GetKey();
+        var asked = false;
+        var joined = false; // under way when asked for: another's, which may be being cancelled
+        var kept = true;
+        (bool Running, int Percent, string? Message)? told = null;
+        while (true) {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!asked) joined = _conversions.TryGet(key, out _);
+            if (!TryGetProgressInfo(info, !asked, source, out var status, firstInQueue: !asked)) {
+                if (joined) { // the one joined went (its asker stopped it): asked for again, as this one's own
+                    asked = joined = false;
+                    continue;
+                }
+                // neither made nor waiting, after it was asked for: cancelled meanwhile, as in the admin UI
+                throw new InvalidOperationException("The conversion to " + info.ToFormat.ToString().ToUpper() + " of \"" + info.FileName + "\" was cancelled. ");
+            }
+            asked = true;
+            if (status.Status == FileConversionStatus.Ready) {
+                if (_fileCache.TryGetResultAndStream(info.IdWithAdjustment, out var made) && made.Output is { } output) {
+                    await using (output) {
+                        using var copy = new MemoryStream();
+                        await output.CopyToAsync(copy, cancellationToken);
+                        return new ConvertedFile(copy.ToArray(), kept);
+                    }
+                }
+                asked = false; // gone from the cache meanwhile (cleared): asked for again
+                continue;
+            }
+            if (status.Status == FileConversionStatus.Error) {
+                throw new InvalidOperationException((status.Message ?? "The conversion to " + info.ToFormat.ToString().ToUpper() + " failed").TrimEnd('.', ' ') + ". ");
+            }
+            kept = false;
+            if (progress != null && _conversions.TryGet(key, out var entry)) {
+                var running = _conversions.DoingWorkNow(entry);
+                FileConversionProgressInfo? live = null;
+                if (running) converter.TryGetLiveStatus(key, out live);
+                var now = (running, Math.Clamp(live?.ProgressPercentage ?? 0, 0, 100), running ? live?.Message : "Waiting for the converter");
+                if (now != told) {
+                    told = now;
+                    progress.Report(new FileConversionProgressInfo(FileConversionStatus.InProgress, now.Item2, live?.RemainingSeconds ?? -1, now.Item3));
+                }
+            }
+            try {
+                await Task.Delay(_followEvery, cancellationToken);
+            } catch (OperationCanceledException) {
+                // what waited for it was stopped: so is the conversion, which is kept as no error
+                try { await CancelRunning(key, false); } catch { }
+                throw;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Keeps bytes made elsewhere as a conversion of the file a conversion is of (<see cref="InfoOf"/>), as if it had
+    /// been converted: what a store does with a transcript it had made before transcripts were conversions. A
+    /// conversion made already is left as it is.
+    /// </summary>
+    public async Task KeepAsync(FileConversionInfo of, FileAdjustmentBase adjustment, byte[] bytes) {
+        var info = InfoOf(of, adjustment);
+        if (_fileCache.TryGetStatusNoStream(info.IdWithAdjustment, out var status) && status.Status == FileConversionStatus.Ready) return;
+        _fileCache.Clear(info.IdWithAdjustment); // an error kept for it
+        await _fileCache.SetFromStreamAsync(info.IdWithAdjustment, new MemoryStream(bytes, writable: false));
+    }
     // The scheduler's heartbeat is a Timer, and a live Timer is rooted by the runtime's timer queue.
     // Leaving it running keeps this engine - and through it the whole data store, indexes and WAL
     // buffers included - alive for the rest of the process, so a store that is opened and closed
@@ -443,7 +536,18 @@ public class FileConversionEngine : IDisposable {
     /// <see cref="InvalidOperationException"/> with the converter's reason when it fails. Cancelling
     /// asks the converter to stop.
     /// </summary>
-    public async Task<string> ConvertFileAsync(string inputPath, FileFormat from, FileAdjustmentBase adjustment, CancellationToken cancellationToken = default) {
+    public Task<string> ConvertFileAsync(string inputPath, FileFormat from, FileAdjustmentBase adjustment, CancellationToken cancellationToken = default)
+        => ConvertFileAsync(inputPath, from, adjustment, null, cancellationToken);
+
+    /// <summary>How often a conversion run by <see cref="ConvertFileAsync(string, FileFormat, FileAdjustmentBase, IProgress{FileConversionProgressInfo}?, CancellationToken)"/> is asked how far it has come.</summary>
+    static readonly TimeSpan _progressEvery = TimeSpan.FromMilliseconds(250);
+
+    /// <summary>
+    /// As <see cref="ConvertFileAsync(string, FileFormat, FileAdjustmentBase, CancellationToken)"/>, telling
+    /// <paramref name="progress"/> how far the converter has come while it runs, as its live status says (ffmpeg's
+    /// time against the file's length, for a video or a sound): asked every quarter of a second, and told only when it changed.
+    /// </summary>
+    public async Task<string> ConvertFileAsync(string inputPath, FileFormat from, FileAdjustmentBase adjustment, IProgress<FileConversionProgressInfo>? progress, CancellationToken cancellationToken = default) {
         var adj = adjustment.Normalized();
         if (!_fileConverters.TryGetConverter(new FormatPair(from, adj.RequestedFormat), out var converter)) {
             throw new NotSupportedException($"No file converter here converts {from.ToString().ToUpper()} to {adj.RequestedFormat.ToString().ToUpper()}. ");
@@ -454,7 +558,19 @@ public class FileConversionEngine : IDisposable {
         var source = new InputFileSource(() => Task.FromResult<Stream>(File.OpenRead(inputPath)), inputPath);
         ConversionProgress result;
         using (cancellationToken.Register(() => _ = converter.CancelAsync(id.GetKey()))) {
-            result = await converter.DoConvertWork(source, info);
+            var work = converter.DoConvertWork(source, info);
+            if (progress != null) {
+                var key = id.GetKey();
+                (int Percent, string? Message)? told = null;
+                while (!work.IsCompleted) {
+                    await Task.WhenAny(work, Task.Delay(_progressEvery, CancellationToken.None));
+                    if (work.IsCompleted || !converter.TryGetLiveStatus(key, out var status)) continue;
+                    if (told is { } last && last.Percent == status.ProgressPercentage && last.Message == status.Message) continue;
+                    told = (status.ProgressPercentage, status.Message);
+                    progress.Report(status);
+                }
+            }
+            result = await work;
         }
         if (cancellationToken.IsCancellationRequested || result.ProgressInfo.Status != FileConversionStatus.Ready) {
             if (result.LocalFilePathOutput is { } left) tryDelete(left);

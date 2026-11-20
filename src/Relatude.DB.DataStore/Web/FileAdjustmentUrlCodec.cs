@@ -10,7 +10,7 @@ namespace Relatude.DB.Web;
 /// carrying the adjustment inside the opaque asset token (see <see cref="AssetUrlFormat"/>).
 /// Two framings share one key set: query parameters ("w=100&amp;h=200&amp;f=jpeg") and a compact
 /// path segment ("w100h200fjpeg"). Keys not set on the adjustment are omitted, unknown keys fail
-/// the parse, and every property of the image, video, audio and meta adjustments has a key, so encode
+/// the parse, and every property of the image, video, audio, meta and transcript adjustments has a key, so encode
 /// followed by parse reproduces an equivalent adjustment.
 /// </summary>
 public static class FileAdjustmentUrlCodec {
@@ -21,7 +21,7 @@ public static class FileAdjustmentUrlCodec {
     enum Kind { Int, Double, Flag, Name }
     sealed record keyDef(string Key, Kind kind);
     static readonly keyDef[] _keys = [
-        new("k", Kind.Name),      // adjustment type: i (image, default), v (video), a (audio), m (meta)
+        new("k", Kind.Name),      // adjustment type: i (image, default), v (video), a (audio), m (meta), t (transcript)
         new("f", Kind.Name),      // RequestedFormat, enum name
         new("w", Kind.Int),       // Width
         new("h", Kind.Int),       // Height
@@ -58,6 +58,8 @@ public static class FileAdjustmentUrlCodec {
         new("ss", Kind.Int),      // StartMs (audio)
         new("du", Kind.Int),      // DurationMs (audio)
         new("spc", Kind.Flag),    // Speech (audio)
+        new("lng", Kind.Name),    // Language (transcript), a code of lower case letters
+        new("nts", Kind.Flag),    // Timestamps left out (transcript)
         new("tmp", Kind.Flag),    // Temporary
     ];
     static readonly keyDef[] _keysLongestFirst = [.. _keys.OrderByDescending(k => k.Key.Length)];
@@ -81,6 +83,7 @@ public static class FileAdjustmentUrlCodec {
     static readonly FileFormat _defaultVideoFormat = new FileAdjustmentVideo().RequestedFormat;
     static readonly FileFormat _defaultMetaFormat = new FileAdjustmentMeta().RequestedFormat;
     static readonly FileFormat _defaultAudioFormat = new FileAdjustmentAudio().RequestedFormat;
+    static readonly FileFormat _defaultTranscriptFormat = new FileAdjustmentTranscript().RequestedFormat;
 
     static bool tryEncode(FileAdjustmentBase adjustment, Action<StringBuilder, string, string> pair, out string result) {
         result = string.Empty;
@@ -126,6 +129,13 @@ public static class FileAdjustmentUrlCodec {
                 pair(sb, "k", "m");
                 if (meta.RequestedFormat != _defaultMetaFormat) pair(sb, "f", name(meta.RequestedFormat));
                 if (!meta.Temporary) pair(sb, "tmp", "0"); // meta defaults to temporary
+                break;
+            case FileAdjustmentTranscript transcript:
+                pair(sb, "k", "t");
+                if (transcript.RequestedFormat != _defaultTranscriptFormat) pair(sb, "f", name(transcript.RequestedFormat));
+                if (FileAdjustmentTranscript.LanguageCodeOf(transcript.Language) is { } language) pair(sb, "lng", language);
+                if (!transcript.Timestamps) pair(sb, "nts", "1");
+                if (transcript.Temporary) pair(sb, "tmp", "1");
                 break;
             default:
                 return false; // an adjustment type the codec does not know: keep it inside the token
@@ -191,7 +201,8 @@ public static class FileAdjustmentUrlCodec {
         "f" => tryEnumName<FileFormat>(value, out _),
         "crop" => tryEnumName<ImageCropMode>(value, out _),
         "ald" => tryEnumName<AutoLightDarkSwitch>(value, out _),
-        "k" => value is "i" or "v" or "a" or "m",
+        "k" => value is "i" or "v" or "a" or "m" or "t",
+        "lng" => FileAdjustmentTranscript.LanguageCodeOf(value) == value,
         "bg" => value.All(char.IsAsciiHexDigit),
         _ => true,
     };
@@ -251,6 +262,20 @@ public static class FileAdjustmentUrlCodec {
                         if (found.TryGetValue("f", out var f) && !fmt(f, meta)) return null;
                         if (found.TryGetValue("tmp", out var tmp)) meta.Temporary = tmp == "1";
                         return meta;
+                    }
+                case "t": {
+                        var transcript = new FileAdjustmentTranscript();
+                        foreach (var (key, value) in found) {
+                            switch (key) {
+                                case "k": break;
+                                case "f": if (!fmt(value, transcript) || !FileAdjustmentTranscript.IsTranscriptFormat(transcript.RequestedFormat)) return null; break;
+                                case "lng": if (FileAdjustmentTranscript.LanguageCodeOf(value) is not { } language) return null; transcript.Language = language; break;
+                                case "nts": transcript.Timestamps = value != "1"; break;
+                                case "tmp": transcript.Temporary = value == "1"; break;
+                                default: return null; // a key the transcript does not have
+                            }
+                        }
+                        return transcript;
                     }
                 default: return null;
             }

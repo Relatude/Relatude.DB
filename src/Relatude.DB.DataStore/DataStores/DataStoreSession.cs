@@ -135,6 +135,8 @@ public class DataStoreSession : IDataStore {
     public FileAnalysisState GetFileAnalyses(PropertyPath propertyPath, FileValue value) => _datastore.GetFileAnalyses(propertyPath, value);
     public Task<FileAnalysisReport> AnalyseFileAsync(PropertyPath propertyPath, FileAnalysisKinds kinds, bool force = false, QueryContext? ctx = null, CancellationToken cancellationToken = default)
         => _datastore.AnalyseFileAsync(propertyPath, kinds, force, ctx ?? QueryContext, cancellationToken);
+    public Task<FileAnalysisReport> AnalyseFileAsync(PropertyPath propertyPath, FileAnalysisKinds kinds, bool force, QueryContext? ctx, IProgress<FileAnalysisProgress>? progress, CancellationToken cancellationToken = default)
+        => _datastore.AnalyseFileAsync(propertyPath, kinds, force, ctx ?? QueryContext, progress, cancellationToken);
 
     public bool TryGetNodeType(Guid id, out Guid nodeTypeId)
         => _datastore.TryGetNodeType(id, out nodeTypeId);
@@ -264,6 +266,8 @@ public class DataStoreSession : IDataStore {
         => _datastore.GetFileStream(propertyPath, adj, maxWait, ctx ?? QueryContext, firstInQueue);
     public Task<StateAndStream> GetFileStreamAndState(PropertyPath propertyPath, FileAdjustmentBase adj, int maxWait, QueryContext? ctx = null, bool firstInQueue = false)
         => _datastore.GetFileStreamAndState(propertyPath, adj, maxWait, ctx ?? QueryContext, firstInQueue);
+    public Task<StateAndStream> GetFileStreamAndStateForUrl(PropertyPath propertyPath, FileAdjustmentBase adj, int maxWait = -1, QueryContext? ctx = null, bool firstInQueue = false)
+        => _datastore.GetFileStreamAndStateForUrl(propertyPath, adj, maxWait, ctx ?? QueryContext, firstInQueue);
     public Task<StreamAndValue> GetFileStreamAndValue(PropertyPath propertyPath, QueryContext? ctx = null)
         => _datastore.GetFileStreamAndValue(propertyPath, ctx ?? QueryContext);
     public bool TryGetConversionInfo(PropertyPath propertyPath, FileAdjustmentBase adj, bool requestIfNot, [MaybeNullWhen(false)] out FileConversionProgressInfo progressInfo, QueryContext? ctx = null, bool firstInQueue = false)

@@ -172,13 +172,16 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
     }
 
-    public async Task<FileAnalysisReport> AnalyseFileAsync(PropertyPath propertyPath, FileAnalysisKinds kinds, bool force = false, QueryContext? ctx = null, CancellationToken cancellationToken = default) {
+    public Task<FileAnalysisReport> AnalyseFileAsync(PropertyPath propertyPath, FileAnalysisKinds kinds, bool force = false, QueryContext? ctx = null, CancellationToken cancellationToken = default)
+        => AnalyseFileAsync(propertyPath, kinds, force, ctx, null, cancellationToken);
+
+    public async Task<FileAnalysisReport> AnalyseFileAsync(PropertyPath propertyPath, FileAnalysisKinds kinds, bool force, QueryContext? ctx, IProgress<FileAnalysisProgress>? progress, CancellationToken cancellationToken = default) {
         validateDatabaseState();
         ctx ??= _defaultQueryCtx;
         if (!Datamodel.Properties.TryGetValue(propertyPath.PropertyId, out var property) || property is not FilePropertyModel) throw new Exception("Property is not a file");
         if (!TryGetValue<FileValue>(propertyPath, out var value, ctx) || value.IsEmpty) throw new Exception("The property holds no file. ");
         ensureMayWriteFile(propertyPath, ctx);
-        var steps = await analyseAsync(propertyPath, value, kinds, force, ctx, cancellationToken);
+        var steps = await analyseAsync(propertyPath, value, kinds, force, ctx, cancellationToken, progress: progress);
         return new(TryGetValue<FileValue>(propertyPath, out var now, ctx) && !now.IsEmpty && now.FileId == value.FileId ? now : null, steps);
     }
 
@@ -190,7 +193,9 @@ public sealed partial class DataStoreLocal : IDataStore {
     /// mode), which a run without it leaves.
     /// </summary>
     // system: the queue's analysis of a file written before, not a user's asking, so not checked for write access
-    async Task<FileAnalysisStepReport[]> analyseAsync(PropertyPath path, FileValue value, FileAnalysisKinds kinds, bool force, QueryContext ctx, CancellationToken cancellationToken, bool system = false) {
+    // progress: told how far the text extraction has come, and that each of the others started
+    async Task<FileAnalysisStepReport[]> analyseAsync(PropertyPath path, FileValue value, FileAnalysisKinds kinds, bool force, QueryContext ctx, CancellationToken cancellationToken, bool system = false,
+        IProgress<FileAnalysisProgress>? progress = null) {
         var possible = possibleFileAnalyses(value);
         var done = GetCompletedFileAnalyses(value);
         // one picture for both of the picture's analyses
@@ -201,10 +206,13 @@ public sealed partial class DataStoreLocal : IDataStore {
             if (!kinds.HasFlag(kind)) continue;
             if (!possible.HasFlag(kind)) steps.Add(Task.FromResult(new FileAnalysisStepReport(kind, FileAnalysisStepState.NotPossible, nameOf(kind) + ": not for this file here")));
             else if (!force && done.HasFlag(kind)) steps.Add(Task.FromResult(new FileAnalysisStepReport(kind, FileAnalysisStepState.DoneBefore, nameOf(kind) + ": done before")));
-            else steps.Add(analyseOnceAsync(path + "|" + value.FileId + "|" + kind, kind, cancellationToken, () => kind switch {
-                FileAnalysisKinds.ImageMeta => imageMetaStepAsync(path, value, pictureOnce, force, ctx, system, cancellationToken),
-                FileAnalysisKinds.ImageCropMode => cropModeStepAsync(path, value, pictureOnce, force, ctx, system, cancellationToken),
-                _ => textStepAsync(path, value, ctx, system, cancellationToken),
+            else steps.Add(analyseOnceAsync(path + "|" + value.FileId + "|" + kind, kind, cancellationToken, () => {
+                progress?.Report(new FileAnalysisProgress(kind, char.ToUpperInvariant(nameOf(kind)[0]) + nameOf(kind)[1..], 0));
+                return kind switch {
+                    FileAnalysisKinds.ImageMeta => imageMetaStepAsync(path, value, pictureOnce, force, ctx, system, cancellationToken),
+                    FileAnalysisKinds.ImageCropMode => cropModeStepAsync(path, value, pictureOnce, force, ctx, system, cancellationToken),
+                    _ => textStepAsync(path, value, ctx, system, cancellationToken, progress, force),
+                };
             }));
         }
         return await Task.WhenAll(steps);
@@ -295,17 +303,20 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
     }
 
-    async Task<FileAnalysisStepReport> textStepAsync(PropertyPath path, FileValue value, QueryContext ctx, bool system, CancellationToken cancellationToken) {
+    async Task<FileAnalysisStepReport> textStepAsync(PropertyPath path, FileValue value, QueryContext ctx, bool system, CancellationToken cancellationToken,
+        IProgress<FileAnalysisProgress>? progress = null, bool force = false) {
         const FileAnalysisKinds kind = FileAnalysisKinds.Text;
         try {
-            var (step, text) = await extractTextAsync(value, cancellationToken);
+            var (step, text) = await extractTextAsync(path, value, ctx, cancellationToken, progress == null ? null
+                : new TextProgress(p => progress.Report(new FileAnalysisProgress(kind, p.Message, p.Share) { UpTo = p.UpTo, Seconds = p.Seconds })), force);
+            progress?.Report(new FileAnalysisProgress(kind, "Keeping the text", 1));
             var stored = await storeFileAnalysisAsync(path, value.FileId, ctx, system, (file, meta) => {
                 meta.TextExtraction = step;
                 if (text != null) applyText(file, meta, text);
             });
             if (!stored) return replaced(kind);
             return step.Succeeded
-                ? new(kind, FileAnalysisStepState.Done, "text: " + step.Characters.To1000N() + " characters")
+                ? new(kind, FileAnalysisStepState.Done, "text: " + step.Characters.To1000N() + " characters", text?.Credits)
                 : new(kind, FileAnalysisStepState.Skipped, "text extraction skipped: " + step.Error);
         } catch (Exception error) when (error is not OperationCanceledException || !cancellationToken.IsCancellationRequested) {
             return failed(kind, error);
@@ -445,7 +456,24 @@ public sealed partial class DataStoreLocal : IDataStore {
         return bytes.Length <= limit ? bytes : null;
     }
 
-    async Task<(FileTextExtraction Step, FileToTextResult? Result)> extractTextAsync(FileValue value, CancellationToken cancellationToken) {
+    /// <summary>The text's progress handed on at once, on the thread it is told on.</summary>
+    sealed class TextProgress(Action<FileToTextProgress> report) : IProgress<FileToTextProgress> {
+        public void Report(FileToTextProgress value) => report(value);
+    }
+
+    /// <summary>The progress of a transcript's conversion told as the text's.</summary>
+    sealed class ConversionAsText(IProgress<FileToTextProgress> text) : IProgress<FileConversionProgressInfo> {
+        public void Report(FileConversionProgressInfo value) => text.Report(new FileToTextProgress(value.Message ?? "Transcribing", Math.Clamp(value.ProgressPercentage, 0, 100) / 100.0));
+    }
+
+    /// <summary>
+    /// The text of a file by the file-to-text provider. A stored recording or video is its transcript, a conversion
+    /// (<see cref="FileAdjustmentTranscript"/>, made by <see cref="TranscriptConverter"/>): cached like any, so read from
+    /// there when a site or code asked for it before, and made anew, its speech still kept, with <paramref name="force"/>.
+    /// Any other file is read from its stream.
+    /// </summary>
+    async Task<(FileTextExtraction Step, FileToTextResult? Result)> extractTextAsync(PropertyPath path, FileValue value, QueryContext ctx, CancellationToken cancellationToken,
+        IProgress<FileToTextProgress>? progress = null, bool force = false) {
         var reader = _analysisFileToText ?? throw new Exception("No file-to-text provider. ");
         FileTextExtraction skipped(string reason) => new() { CompletedUtc = DateTime.UtcNow, Provider = reader.Name, Error = reason };
         var formats = await fileToTextFormatsAsync(reader, cancellationToken);
@@ -457,9 +485,19 @@ public sealed partial class DataStoreLocal : IDataStore {
             if (formats.MaxFileBytes > 0 && value.Size > formats.MaxFileBytes) return (skipped("The file is larger than the " + formats.MaxFileBytes.ToByteString() + " the file-to-text service reads. "), null);
         }
         try {
-            await using var stream = await GetFileStream(value);
             var languages = analysisLanguage() is { } language ? new[] { language } : null;
-            var result = await reader.ExtractTextAsync(stream, value.Name, languages, false, cancellationToken);
+            FileToTextResult result;
+            if (value.FileType is FileType.Audio or FileType.Video && _fileConversionEngine.CanConvert(value.Format, FileFormat.Json)) {
+                var transcript = (FileAdjustmentTranscript)resolveAdaptiveFormat(value, new FileAdjustmentTranscript(), out _);
+                var (info, source) = conversionOf(path, value, transcript);
+                if (force) clearTranscripts(info, transcript);
+                var made = await _fileConversionEngine.ConvertAsync(info, transcript, source, progress == null ? null : new ConversionAsText(progress), cancellationToken);
+                result = TranscriptData.FromBytes(made.Bytes).ToResult(value.Name, made.Kept);
+            } else {
+                await using var stream = await GetFileStream(value);
+                result = progress == null ? await reader.ExtractTextAsync(stream, value.Name, languages, false, cancellationToken)
+                    : await reader.ExtractTextAsync(stream, value.Name, languages, false, progress, cancellationToken);
+            }
             return (new FileTextExtraction {
                 CompletedUtc = DateTime.UtcNow,
                 Provider = reader.Name,
