@@ -3812,7 +3812,7 @@ the same thing share one conversion.
 | Tone | `Brightness`, `Contrast`, `Saturation` (−100…100), `HueShift` (−180…180), `Sharpness` (0…100) |
 | Light/dark | `InvertLuminance`, `AutoLightDarkMode` (below) |
 | Output | `RequestedFormat`, `Quality` (0…100, lossy formats only) |
-| From a video | `TimeOffsetMs` or `TimeOffsetPercentage`: the frame to take; or `Frames` (2…200): a series across the video, and `KeyframesOnly` (below) |
+| From a video | `TimeOffsetMs` or `TimeOffsetPercentage`: the frame to take; or `Frames` (2…200): a series across the video, with `KeyframesOnly` and `FrameDuration` (below) |
 
 #### A video's frames as a series
 
@@ -3829,9 +3829,14 @@ whatever the video, fewer frames than asked where keyframes are far apart. Witho
 frames at even times, and a long one, where that would cost too much, gets keyframes too. Like any conversion of a
 video it is made in the background; ask `TryGetConversionInfo` until it is `Ready`.
 
+`FrameDuration` (20…10,000 ms) shows every frame that long instead, so the animation plays the whole video through in
+`Frames` × `FrameDuration` whatever its length: a thumbnail that plays the video while it is pointed at.
+
 ```csharp
 var frames = new FileAdjustmentImage { RequestedFormat = FileFormat.Webp, Frames = 120, Width = 384, Height = 384 };
 var url = db.GetUrl(path, frames); // the URL's short form names it as frm120
+
+var playing = new FileAdjustmentImage { RequestedFormat = FileFormat.Webp, Frames = 50, FrameDuration = 100, Width = 384, Height = 384 }; // five seconds
 ```
 
 #### A picture's own defaults

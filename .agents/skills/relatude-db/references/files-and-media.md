@@ -297,6 +297,7 @@ var thumb = new FileAdjustmentImage {
 | `TimeOffsetPercentage` | 0–100 | Same, as a percentage of duration. |
 | `Frames` | 2–200 | **Video sources**: that many frames across the video, as an animation (`Webp`, or `Gif`), each frame shown until the next one's time, so its time is the sum of the durations before it (the first at 0); every frame of a WebP whole. `Width`/`Height` bound each frame (384 on the longer side when neither is set), never enlarged. |
 | `KeyframesOnly` | bool | With `Frames`: the keyframe before each time, decoded alone, so a series takes about a second whatever the video. Without it a short video is decoded once at even times, a long one gets keyframes. |
+| `FrameDuration` | 20–10,000 ms | With `Frames`: every frame shown that long, so the animation plays the whole video through in `Frames` × `FrameDuration`: a moving thumbnail. None: each frame until the next one's time. |
 | `Temporary` | bool | See below. |
 
 Out-of-range values are clamped rather than rejected, and a `Width`/`Height`/`Zoom` of zero or less becomes "unset".

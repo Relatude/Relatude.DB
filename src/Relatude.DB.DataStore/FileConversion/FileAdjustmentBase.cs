@@ -143,7 +143,7 @@ public class FileAdjustmentImage : FileAdjustmentBase {
     /// <summary>
     /// Only for video files: so many frames across the video rather than one, written as an animation
     /// (<see cref="FileFormat.Webp"/> or <see cref="FileFormat.Gif"/>) in which each frame is shown until the next one's
-    /// time, so a frame's time in the video is the sum of the durations before it, the first at 0; in a WebP every frame
+    /// time (or <see cref="FrameDuration"/>), so a frame's time in the video is the sum of the durations before it, the first at 0; in a WebP every frame
     /// is the whole picture, so a reader can take any one alone. For timelines and scrubbing, and as a preview that plays
     /// the video's frames. <see cref="Width"/> and <see cref="Height"/> bound each
     /// frame, which keeps the video's shape and is never enlarged (384 on its longer side when neither is given), and
@@ -159,6 +159,12 @@ public class FileAdjustmentImage : FileAdjustmentBase {
     /// </summary>
     public bool? KeyframesOnly { get; set; }
     public const int MaxFrames = 200;
+    /// <summary>
+    /// With <see cref="Frames"/>: every frame shown so many milliseconds, so the animation plays the whole video through
+    /// in Frames × FrameDuration whatever its length, as a moving thumbnail does. 20 to 10,000; null is the video's own times.
+    /// </summary>
+    public int? FrameDuration { get; set; }
+    public const int MinFrameDuration = 20, MaxFrameDuration = 10_000;
 
     /// <summary>
     /// True when nothing is requested beyond the adaptive format: no dimensions, no quality, no
@@ -195,7 +201,7 @@ public class FileAdjustmentImage : FileAdjustmentBase {
         || Rotation != null || Brightness != null || Contrast != null || Saturation != null
         || HueShift != null || Sharpness != null || InvertLuminance != null || AutoLightDarkMode != null
         || BackgroundColor != null || AutoBackgroundColor != null || CropMode != null || Quality != null
-        || TimeOffsetMs != null || TimeOffsetPercentage != null || Frames != null || KeyframesOnly != null
+        || TimeOffsetMs != null || TimeOffsetPercentage != null || Frames != null || KeyframesOnly != null || FrameDuration != null
         || SourceX != null || SourceY != null || SourceWidth != null || SourceHeight != null;
     bool dimensionsSameOrAbsent(int originalWidth, int originalHeight) =>
         (Width == null || (originalWidth > 0 && Width == originalWidth))
@@ -228,7 +234,7 @@ public class FileAdjustmentImage : FileAdjustmentBase {
         if (SourceWidth.HasValue || SourceHeight.HasValue) key += "S" + SourceX + "," + SourceY + "," + SourceWidth + "," + SourceHeight;
         if (AutoBackgroundColor.HasValue) key += AutoBackgroundColor.Value.ToString();
         if (InvertLuminance.HasValue) key += "Inv" + InvertLuminance.Value.ToString();
-        if (Frames.HasValue) key += "Frames" + Frames.Value + (KeyframesOnly == true ? "Key" : string.Empty);
+        if (Frames.HasValue) key += "Frames" + Frames.Value + (KeyframesOnly == true ? "Key" : string.Empty) + (FrameDuration is int ms ? "Dur" + ms : string.Empty);
         if (Temporary) key += "Tmp"; // before the free text color; a persistent key stays what it always was
         if (BackgroundColor != null) key += BackgroundColor;
         return key;
@@ -259,6 +265,7 @@ public class FileAdjustmentImage : FileAdjustmentBase {
         // one frame is no series; KeyframesOnly false is the default and says nothing, so it has one key either way
         if (Frames.HasValue) Frames = Frames <= 1 ? null : Math.Min(Frames.Value, MaxFrames);
         if (Frames == null || KeyframesOnly == false) KeyframesOnly = null;
+        if (FrameDuration.HasValue) FrameDuration = Frames == null || FrameDuration <= 0 ? null : Math.Clamp(FrameDuration.Value, MinFrameDuration, MaxFrameDuration);
         if (CropMode.HasValue && !Enum.IsDefined(CropMode.Value)) CropMode = null;
         if (AutoLightDarkMode.HasValue && !Enum.IsDefined(AutoLightDarkMode.Value)) AutoLightDarkMode = null;
         BackgroundColor = canonicalColor(BackgroundColor);
@@ -271,16 +278,17 @@ public class FileAdjustmentImage : FileAdjustmentBase {
         if (hex.Length == 0) return null;
         return hex.All(char.IsAsciiHexDigit) ? "#" + hex.ToLowerInvariant() : color.Trim();
     }
-    const int CURRENT_VERSION = 5;
-    // as below: version 4 ends with the four source rectangle ints, version 5 adds Frames and KeyframesOnly. Version 4 is
-    // still written for an adjustment that asks for no series, so the bytes, and the URL tokens made of them, of every
-    // other picture stay what they were.
+    const int CURRENT_VERSION = 6;
+    // as below: version 4 ends with the four source rectangle ints, version 5 adds Frames and KeyframesOnly, version 6
+    // FrameDuration. Each is written only for an adjustment that asks for what it adds, so the bytes, and the URL tokens
+    // made of them, of every other picture stay what they were.
     const int FIXED_SIZE_4 = 136;
     const int FIXED_SIZE_5 = 141;
+    const int FIXED_SIZE_6 = 145;
     public override byte[] ToBytes() {
         var bgBytes = BackgroundColor != null ? System.Text.Encoding.UTF8.GetBytes(BackgroundColor) : [];
-        var version = Frames != null || KeyframesOnly != null ? CURRENT_VERSION : 4;
-        var buf = new byte[(version >= 5 ? FIXED_SIZE_5 : FIXED_SIZE_4) + 2 + bgBytes.Length];
+        var version = FrameDuration != null ? 6 : Frames != null || KeyframesOnly != null ? 5 : 4;
+        var buf = new byte[(version >= 6 ? FIXED_SIZE_6 : version >= 5 ? FIXED_SIZE_5 : FIXED_SIZE_4) + 2 + bgBytes.Length];
         var s = buf.AsSpan();
         int p = 0;
         s[p++] = (byte)FileAdjustmentType.Image;
@@ -314,6 +322,9 @@ public class FileAdjustmentImage : FileAdjustmentBase {
         if (version >= 5) {
             BinaryPrimitives.WriteInt32LittleEndian(s[p..], Frames ?? int.MinValue); p += 4;
             s[p++] = KeyframesOnly.HasValue ? (byte)(KeyframesOnly.Value ? 2 : 1) : (byte)0;
+        }
+        if (version >= 6) {
+            BinaryPrimitives.WriteInt32LittleEndian(s[p..], FrameDuration ?? int.MinValue); p += 4;
         }
         BinaryPrimitives.WriteUInt16LittleEndian(s[p..], (ushort)bgBytes.Length); p += 2;
         bgBytes.CopyTo(s[p..]);
@@ -360,6 +371,9 @@ public class FileAdjustmentImage : FileAdjustmentBase {
         if (version >= 5) {
             obj.Frames = (ri = BinaryPrimitives.ReadInt32LittleEndian(s[p..])) == int.MinValue ? null : ri; p += 4;
             var kfo = s[p++]; obj.KeyframesOnly = kfo == 0 ? null : kfo == 2;
+        }
+        if (version >= 6) {
+            obj.FrameDuration = (ri = BinaryPrimitives.ReadInt32LittleEndian(s[p..])) == int.MinValue ? null : ri; p += 4;
         }
         var bgLen = BinaryPrimitives.ReadUInt16LittleEndian(s[p..]); p += 2;
         obj.BackgroundColor = bgLen == 0 ? null : System.Text.Encoding.UTF8.GetString(s.Slice(p, bgLen));

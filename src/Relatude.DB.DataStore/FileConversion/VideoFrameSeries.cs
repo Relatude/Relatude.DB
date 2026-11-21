@@ -104,9 +104,11 @@ internal static class VideoFrameSeries {
 
     /// <summary>
     /// How long each frame is shown, in milliseconds, so that each starts at its time: the first at 0 whatever its own
-    /// time (a video's first frame), the last until the video's end. At least 1 each.
+    /// time (a video's first frame), the last until the video's end. At least 1 each. <paramref name="each"/> instead
+    /// shows every frame that long (<see cref="FileAdjustmentImage.FrameDuration"/>).
     /// </summary>
-    public static int[] Durations(IReadOnlyList<long> times, double duration) {
+    public static int[] Durations(IReadOnlyList<long> times, double duration, int? each = null) {
+        if (each is int ms) return [.. times.Select(_ => ms)];
         var durations = new int[times.Count];
         for (var i = 0; i < times.Count; i++) {
             var start = i == 0 ? 0 : times[i];
@@ -164,7 +166,7 @@ internal static class VideoFrameSeries {
                 // every frame is the canvas's size; a frame ffmpeg made otherwise (it should not) is made so
                 pictures[i] = picture.Width == plan.Width && picture.Height == plan.Height ? picture : picture.Resize(plan.Width, plan.Height);
             }
-            var animation = new Animation(pictures, Durations([.. ordered.Select(f => f.Key)], plan.Duration), 0);
+            var animation = new Animation(pictures, Durations([.. ordered.Select(f => f.Key)], plan.Duration, adj.FrameDuration), 0);
             await using var stream = new FileStream(output, FileMode.Create, FileAccess.Write, FileShare.None, 81920, FileOptions.Asynchronous);
             // whole frames, so a reader takes any one alone: a browser shows a frame as a still WebP, with no canvas to draw it on
             if (format == FileFormat.Webp) WebpCodec.WriteAnimation(animation, stream, new ImageSaveOptions { Quality = adj.Quality ?? defaultQuality }, wholeFrames: true);

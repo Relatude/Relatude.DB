@@ -53,7 +53,7 @@ internal class AzureBlobRestClient : IDisposable {
         _canonicalContainerPath = new Uri(_containerUrl).AbsolutePath;
         _http = new HttpClient() { Timeout = TimeSpan.FromMinutes(10) };
     }
-    static void parseConnectionString(string connectionString, out string accountName, out byte[]? accountKey, out KeyValuePair<string, string>[]? sas, out string blobEndpoint) {
+    internal static void parseConnectionString(string connectionString, out string accountName, out byte[]? accountKey, out KeyValuePair<string, string>[]? sas, out string blobEndpoint) {
         var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (var part in connectionString.Split(';')) {
             if (string.IsNullOrWhiteSpace(part)) continue;
@@ -70,9 +70,12 @@ internal class AzureBlobRestClient : IDisposable {
             return;
         }
         values.TryGetValue("AccountName", out var name);
-        if (string.IsNullOrEmpty(name)) throw new ArgumentException("The blob connection string has no AccountName. ");
-        accountName = name;
+        values.TryGetValue("BlobEndpoint", out var endpoint);
+        // only SharedKey signing needs the account name: Azure's own SAS connection strings give just BlobEndpoint
+        if (string.IsNullOrEmpty(name) && string.IsNullOrEmpty(endpoint)) throw new ArgumentException("The blob connection string has neither an AccountName nor a BlobEndpoint. ");
+        accountName = name ?? "";
         if (values.TryGetValue("AccountKey", out var key) && !string.IsNullOrEmpty(key)) {
+            if (accountName.Length == 0) throw new ArgumentException("The blob connection string has an AccountKey but no AccountName. ");
             accountKey = Convert.FromBase64String(key);
             sas = null;
         } else if (values.TryGetValue("SharedAccessSignature", out var sasString) && !string.IsNullOrEmpty(sasString)) {
@@ -84,7 +87,7 @@ internal class AzureBlobRestClient : IDisposable {
         } else {
             throw new ArgumentException("The blob connection string has neither an AccountKey nor a SharedAccessSignature. ");
         }
-        if (values.TryGetValue("BlobEndpoint", out var endpoint) && !string.IsNullOrEmpty(endpoint)) {
+        if (!string.IsNullOrEmpty(endpoint)) {
             blobEndpoint = endpoint;
         } else {
             values.TryGetValue("DefaultEndpointsProtocol", out var protocol);
@@ -228,7 +231,11 @@ internal class AzureBlobRestClient : IDisposable {
         using var response = HttpRetry.Send(_http, () => build(r));
         if (response.IsSuccessStatusCode) return;
         if ((int)response.StatusCode == 409) return; // BlobAlreadyExists
-        throw error(response, "create append blob");
+        var ex = error(response, "create append blob");
+        // Azure checks a lease before If-None-Match: a blob another process holds answers 412 LeaseIdMissing, not 409.
+        // It exists, and the lease wait that follows the create deals with the lease. Azurite answers 409.
+        if (ex.StatusCode == 412 && ex.ErrorCode == "LeaseIdMissing") return;
+        throw ex;
     }
     Request appendBlockRequest(string blobName, byte[] data, int count, string? leaseId, long appendOffset) {
         var r = new Request {

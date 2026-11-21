@@ -50,6 +50,7 @@ public static class FileAdjustmentUrlCodec {
         new("tpc", Kind.Double),  // TimeOffsetPercentage
         new("frm", Kind.Int),     // Frames: a series of frames of a video
         new("kfo", Kind.Flag),    // KeyframesOnly
+        new("fdu", Kind.Int),     // FrameDuration
         new("br", Kind.Double),   // TargetBitRateInMbps (video)
         new("cnz", Kind.Flag),    // CropNotZoom (video)
         new("ch", Kind.Int),      // Channels (audio)
@@ -106,7 +107,7 @@ public static class FileAdjustmentUrlCodec {
                 if (!string.IsNullOrEmpty(img.BackgroundColor)) pair(sb, "bg", img.BackgroundColor.TrimStart('#').ToLowerInvariant());
                 flag(sb, "abg", img.AutoBackgroundColor);
                 dbl(sb, "tms", img.TimeOffsetMs); dbl(sb, "tpc", img.TimeOffsetPercentage);
-                num(sb, "frm", img.Frames); flag(sb, "kfo", img.KeyframesOnly);
+                num(sb, "frm", img.Frames); flag(sb, "kfo", img.KeyframesOnly); num(sb, "fdu", img.FrameDuration);
                 if (img.Temporary) pair(sb, "tmp", "1");
                 break;
             case FileAdjustmentVideo vid:
@@ -314,6 +315,7 @@ public static class FileAdjustmentUrlCodec {
                 case "tpc": img.TimeOffsetPercentage = d(value); break;
                 case "frm": img.Frames = i(value); break;
                 case "kfo": img.KeyframesOnly = value == "1"; break;
+                case "fdu": img.FrameDuration = i(value); break;
                 case "tmp": img.Temporary = value == "1"; break;
                 case "k": break;
                 default: return false;
