@@ -167,7 +167,7 @@ public sealed partial class DataStoreLocal : IDataStore {
     }
     public StoreMetrics DequeMetrics() {
         var metrics = new StoreMetrics() {
-            MemUsage = Process.GetCurrentProcess().WorkingSet64,
+            MemUsage = Environment.WorkingSet, // not Process.WorkingSet64, which lists every process on the machine on Windows, every second per store
             CpuUsage = _cpuMonitorMetrics.DequeCpuUsage(),
             QueryCount = _noQueriesSinceLastMetric,
             ActionCount = _noActionsSinceLastMetric,

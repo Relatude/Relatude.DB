@@ -434,7 +434,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             info.QueuedBatchesPendingPersisted = TaskQueuePersisted?.CountBatch(Tasks.BatchState.Pending) ?? 0;
             info.QueuedBatchesStateCountsPersisted = TaskQueuePersisted?.BatchCountsPerState().ToDictionary(kv => kv.Key.ToString(), kv => kv.Value) ?? [];
 
-            info.ProcessWorkingMemory = Process.GetCurrentProcess().WorkingSet64;
+            info.ProcessWorkingMemory = Environment.WorkingSet;
             info.CpuUsagePercentage = _cpuMonitorInfo.DequeCpuUsage() * 100.0;
             info.CpuUsagePercentageLastMinute = _cpuMonitorInfo.Estimate(TimeSpan.FromMinutes(1)) * 100.0;
             _definition.AddInfo(info);
