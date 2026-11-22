@@ -39,11 +39,11 @@ public static class ProjectTypes {
             Layout = "Two folders: Backend/ is an ASP.NET Core minimal API on Relatude.DB, Client/ is a React + TypeScript + Vite "
                 + "app that calls it under /api and is built into Backend/wwwroot for production.",
             SuitedFor = "Interactive web applications: rich, app-like user interfaces where a browser client talks to an API.",
-            Prerequisites = ".NET 10 SDK and Node.js 20 or newer",
+            Prerequisites = ".NET 11 SDK and Node.js 20 or newer",
             ProjectFolder = "Backend",
             AssemblyName = "Backend",
             Summary = [
-                ("Backend/", "ASP.NET Core minimal API + Relatude.DB {version} (net10.0)"),
+                ("Backend/", "ASP.NET Core minimal API + Relatude.DB {version} (net11.0)"),
                 ("Client/", "React + TypeScript + Vite"),
             ],
             NextSteps = [
@@ -61,11 +61,11 @@ public static class ProjectTypes {
                 + "No JavaScript build step.",
             SuitedFor = "Content websites with traditional page navigation and SEO: every page is a crawlable, "
                 + "server-rendered URL with its own title and description.",
-            Prerequisites = ".NET 10 SDK",
+            Prerequisites = ".NET 11 SDK",
             ProjectFolder = "",
             AssemblyName = null,
             Summary = [
-                ("{ns}.csproj", "ASP.NET Core MVC + Relatude.DB {version} (net10.0)"),
+                ("{ns}.csproj", "ASP.NET Core MVC + Relatude.DB {version} (net11.0)"),
                 ("Controllers/, Views/", "server-rendered pages; HomeController renders the start page"),
             ],
             NextSteps = [

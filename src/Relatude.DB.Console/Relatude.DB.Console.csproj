@@ -4,15 +4,15 @@
 		<OutputType>Exe</OutputType>
 		<!-- the tool reflects over the application's model assembly, which only loads on a runtime at least
 		     as new as the one it was built for, so this has to stay at or above the framework the projects
-		     "relatude new" writes target (see Templates\*, net10.0). -->
-		<TargetFramework>net10.0</TargetFramework>
+		     "relatude new" writes target (see Templates\*, net11.0). -->
+		<TargetFramework>net11.0</TargetFramework>
 		<ImplicitUsings>enable</ImplicitUsings>
 		<Nullable>enable</Nullable>
 		<!-- NOT Relatude.DB.Console: a namespace named Console would shadow System.Console -->
 		<RootNamespace>Relatude.DB.Cli</RootNamespace>
 		<AssemblyName>relatude</AssemblyName>
 		<InvariantGlobalization>true</InvariantGlobalization>
-		<Version>1.1.11.35</Version>
+		<Version>1.1.11.36</Version>
 		<PackAsTool>true</PackAsTool>
 		<ToolCommandName>relatude</ToolCommandName>
 		<PackageId>Relatude.DB.Tool</PackageId>

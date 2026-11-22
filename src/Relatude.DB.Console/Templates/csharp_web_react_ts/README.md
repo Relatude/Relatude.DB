@@ -6,7 +6,7 @@ the default; `relatude new --list-types` describes the other types, such as `csh
 server-rendered content website in one project).
 
 ```
-Backend/                    ASP.NET Core minimal API + Relatude.DB (C#, net10.0)
+Backend/                    ASP.NET Core minimal API + Relatude.DB (C#, net11.0)
   Program.cs                app setup and the /api endpoints
   Models/                   node classes in the namespace __NAMESPACE__.Models (see Models/README.md)
   Middleware/               serves files stored in the database by their URL
@@ -22,7 +22,7 @@ The client only makes same-origin calls to `/api/...`. There is no CORS to confi
 
 ## Prerequisites
 
-- .NET 10 SDK (`dotnet --version`)
+- .NET 11 SDK (`dotnet --version`)
 - Node.js 20 or newer (`node --version`)
 - Optional: the Relatude.DB command line tool, `dotnet tool install -g Relatude.DB.Tool`
 

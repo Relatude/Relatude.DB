@@ -419,7 +419,7 @@ span.linenos.special { color: #000000; background-color: #ffffc0; padding-left: 
 <p><strong>A practical manual</strong></p>
 <p>Relatude.DB is an open-source, C#-native object-oriented graph database with integrated full-text
 (BM25) search, vector/semantic search, file storage, faceting and a built-in admin UI. It runs
-in-process or server-hosted, and targets .NET 10+.</p>
+in-process or server-hosted, and targets .NET 11+.</p>
 <p>This manual shows how to shape your data, write it and get it back out, and covers the tools and
 services around the engine. It uses <strong>one running example domain</strong>, a venue-and-events platform, so
 each concept builds on the last.</p>
@@ -3875,6 +3875,26 @@ every overridden key to its value from the files, so a secret from configuration
 settings pages lock overridden keys.</p>
 <p>The section is merged before <code>OnServerSettingsInit</code> runs, so every callback sees the merged settings.
 <code>ServerOptions.ConfigurationSectionName</code> renames the section, and <code>null</code> turns it off.</p>
+<h4 id="the-default-databases-storage-without-its-ids">The default database's storage, without its ids<a class="anchor" href="#the-default-databases-storage-without-its-ids" aria-label="Link to this section">#</a></h4>
+<p><code>RelatudeDB:DefaultStore</code> moves the default database without naming any id from <code>relatude.db.json</code>. It
+is for a host that runs an application it did not build, such as Relatude hosting:</p>
+<div class="codehilite"><pre><span></span><code><span class="nv">RelatudeDB__DefaultStore__BlobConnectionString</span><span class="o">=</span><span class="nv">BlobEndpoint</span><span class="o">=</span>https://…blob.core.windows.net/<span class="p">;</span><span class="nv">SharedAccessSignature</span><span class="o">=</span>…
+<span class="nv">RelatudeDB__DefaultStore__BlobContainerName</span><span class="o">=</span>app-site
+<span class="nv">RelatudeDB__DefaultStore__IndexFolderPath</span><span class="o">=</span>/tmp/relatude
+</code></pre></div>
+
+<ul>
+<li>With the two blob keys, every storage provider the default database uses (database, indexes,
+  backup, log, file stores) becomes that blob container, with leases on. A provider another database
+  shares moves with it. A secondary log is turned off, as in the same container it would write the
+  primary log's blobs. A database without a storage provider gets one. One blob key without the other
+  is warned about and ignored.</li>
+<li><code>IndexFolderPath</code> is the default database's <code>LocalSettings.PersistedValueIndexFolderPath</code>. On Azure
+  App Service for Linux, give a folder outside <code>/home</code>: the old and new container share <code>/home</code> during
+  a restart, and must not open the same index files.</li>
+<li>Both become ordinary overrides: never saved, locked in the admin UI, and followed when the overrides
+  file is looked for, which is then in the container. A key of the section's own still overrides them.</li>
+</ul>
 <h3 id="changes-made-in-the-admin-ui-relatudedboverridesjson">Changes made in the admin UI: relatude.db.overrides.json<a class="anchor" href="#changes-made-in-the-admin-ui-relatudedboverridesjson" aria-label="Link to this section">#</a></h3>
 <p>The settings pages of the admin UI never write <code>relatude.db.json</code>. That file describes the
 application: you write it, keep it in source control and deploy it with the code. What an
@@ -6979,7 +6999,7 @@ dotnet<span class="w"> </span>tool<span class="w"> </span>update<span class="w">
 relatude<span class="w"> </span><span class="nb">help</span>
 </code></pre></div>
 
-<p>The tool needs the .NET 10 runtime. It binds your model types to its own copy of Relatude.DB, so keep
+<p>The tool needs the .NET 11 runtime. It binds your model types to its own copy of Relatude.DB, so keep
 the tool on the same version as the Relatude.DB packages your project uses.</p>
 <h3 id="the-commands">The commands<a class="anchor" href="#the-commands" aria-label="Link to this section">#</a></h3>
 <table>
@@ -7182,7 +7202,7 @@ nothing. <code>--projecttype</code> picks the kind of application:</p>
 </tr>
 </tbody>
 </table>
-<p>Both need the .NET 10 SDK, and the React type also needs Node.js 20 or newer.
+<p>Both need the .NET 11 SDK, and the React type also needs Node.js 20 or newer.
 <code>relatude new --list-types</code> prints the same list, and <code>--json</code> makes it machine readable.</p>
 <p>Each project has a README that says how to run it and where models, pages or endpoints go. Its
 <code>relatude.settings/relatude.db.json</code> points at the <code>MyApp.Models</code> namespace, so every class you add

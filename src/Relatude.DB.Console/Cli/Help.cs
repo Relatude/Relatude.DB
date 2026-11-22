@@ -180,11 +180,11 @@ public static class Help {
             csharp_web_react_ts   C# ASP.NET Core API + React/TypeScript client (Vite), two folders:
                                   Backend/ and Client/. For interactive web applications: rich,
                                   app-like user interfaces where a browser client talks to an API.
-                                  Needs the .NET 10 SDK and Node.js 20+. The default.
+                                  Needs the .NET 11 SDK and Node.js 20+. The default.
             csharp_web_mvc        C# ASP.NET Core MVC website in one project: controllers, Razor views,
                                   HTML rendered on the server. For content websites with traditional
                                   page navigation and SEO: crawlable URLs, titles and descriptions per
-                                  page, no JavaScript build step. Needs the .NET 10 SDK.
+                                  page, no JavaScript build step. Needs the .NET 11 SDK.
           Ask what the site is for before choosing: an application wants the SPA type, a content site
           wants the MVC type. More types (other languages and stacks) will be added under the same
           language_platform_flavour naming.

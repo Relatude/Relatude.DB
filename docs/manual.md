@@ -4,7 +4,7 @@
 
 Relatude.DB is an open-source, C#-native object-oriented graph database with integrated full-text
 (BM25) search, vector/semantic search, file storage, faceting and a built-in admin UI. It runs
-in-process or server-hosted, and targets .NET 10+.
+in-process or server-hosted, and targets .NET 11+.
 
 This manual shows how to shape your data, write it and get it back out, and covers the tools and
 services around the engine. It uses **one running example domain**, a venue-and-events platform, so
@@ -5475,7 +5475,7 @@ dotnet tool update -g Relatude.DB.Tool       # update to the latest version
 relatude help
 ```
 
-The tool needs the .NET 10 runtime. It binds your model types to its own copy of Relatude.DB, so keep
+The tool needs the .NET 11 runtime. It binds your model types to its own copy of Relatude.DB, so keep
 the tool on the same version as the Relatude.DB packages your project uses.
 
 ### The commands
@@ -5606,7 +5606,7 @@ nothing. `--projecttype` picks the kind of application:
 | `csharp_web_react_ts` (default) | `Backend/`, an ASP.NET Core minimal API on Relatude.DB, and `Client/`, a React + TypeScript + Vite app that calls it under `/api` | Interactive web applications where a browser client talks to an API |
 | `csharp_web_mvc` | One ASP.NET Core MVC project: controllers and Razor views rendered on the server, with a title and description per page | Content websites with page navigation and SEO, and no JavaScript build step |
 
-Both need the .NET 10 SDK, and the React type also needs Node.js 20 or newer.
+Both need the .NET 11 SDK, and the React type also needs Node.js 20 or newer.
 `relatude new --list-types` prints the same list, and `--json` makes it machine readable.
 
 Each project has a README that says how to run it and where models, pages or endpoints go. Its
