@@ -22,6 +22,7 @@ public sealed class SettingsOverlay {
     public const string DefaultSectionName = "RelatudeDB";
 
     readonly JsonObject _overlay;
+    readonly DefaultStoreStorage? _defaultStore;
     readonly string _sectionName;
     readonly string? _label;
     readonly Action<string> _logInfo;
@@ -29,13 +30,17 @@ public sealed class SettingsOverlay {
     readonly List<Override> _overrides = [];
     readonly Dictionary<string, JsonNode?> _overriddenByPath = new(StringComparer.OrdinalIgnoreCase);
 
-    SettingsOverlay(JsonObject overlay, string sectionName, string? label, Action<string> logInfo, Action<string> logWarning) {
+    SettingsOverlay(JsonObject overlay, string sectionName, string? label, Action<string> logInfo, Action<string> logWarning, DefaultStoreStorage? defaultStore = null) {
         _overlay = overlay;
+        _defaultStore = defaultStore;
         _sectionName = sectionName;
         _label = label;
         _logInfo = logInfo;
         _logWarning = logWarning;
     }
+
+    /// <summary>The RelatudeDB:DefaultStore section, when it holds anything usable.</summary>
+    public DefaultStoreStorage? DefaultStore => _defaultStore;
 
     /// <summary>The configuration section these overrides come from, for messages that name it.</summary>
     public string SectionName => _sectionName;
@@ -49,7 +54,9 @@ public sealed class SettingsOverlay {
         var section = configuration.GetSection(sectionName);
         if (section.Value == null && !section.GetChildren().Any()) return null;
         var overlay = convertObject(section, typeof(RelatudeDBServerSettings), sectionName, logWarning);
-        return overlay == null ? null : new SettingsOverlay(overlay, sectionName, null, logInfo, logWarning);
+        var defaultStore = DefaultStoreStorage.Read(section.GetSection(DefaultStoreStorage.ConfigurationKey), logWarning);
+        if (overlay == null && defaultStore == null) return null;
+        return new SettingsOverlay(overlay ?? [], sectionName, null, logInfo, logWarning, defaultStore);
     }
 
     /// <summary>
@@ -82,6 +89,7 @@ public sealed class SettingsOverlay {
     public bool Apply(JsonObject root) {
         _overrides.Clear();
         _overriddenByPath.Clear();
+        mergeDefaultStore(root, _logWarning);
         mergeObject(root, _overlay, []);
         if (_overrides.Count == 0) return false;
         _logInfo("Configuration overrides applied" + (_label == null ? "" : " to " + _label) + ": " + string.Join(", ", _overrides.Select(o => o.Display)));
@@ -102,6 +110,7 @@ public sealed class SettingsOverlay {
         try {
             var root = JsonSerializer.SerializeToNode(settings, LocalSettingsLoaderFile.JsonOptions) as JsonObject
                 ?? throw new Exception("Could not serialize the server settings.");
+            mergeDefaultStore(root, _ => { });
             mergeObject(root, _overlay, []);
             return root.Deserialize<RelatudeDBServerSettings>(LocalSettingsLoaderFile.JsonOptions)
                 ?? throw new Exception("Could not read the merged server settings.");
@@ -174,6 +183,11 @@ public sealed class SettingsOverlay {
     /// <c>ContainerSettings[8f1c...].LocalSettings.NodeCacheSizeGb</c>.</summary>
     public static string OverridePath(Guid? containerId, string propertyPath)
         => containerId == null ? propertyPath : "ContainerSettings[" + containerId.Value + "]." + propertyPath;
+
+    // before the section's own keys, so one of them can still override what the shorthand says
+    void mergeDefaultStore(JsonObject root, Action<string> warn) {
+        if (_defaultStore?.FragmentFor(root, warn) is JsonObject fragment) mergeObject(root, fragment, []);
+    }
 
     void mergeObject(JsonObject baseObj, JsonObject overlayObj, List<Step> path) {
         foreach (var (key, overlayValue) in overlayObj.ToArray()) {
@@ -287,6 +301,7 @@ public sealed class SettingsOverlay {
             var childPath = configPath + ":" + child.Key;
             // the application's own settings, read by the overlays of the sets it registers
             if (type == typeof(RelatudeDBServerSettings) && string.Equals(child.Key, CustomSettingsCatalog.ConfigurationKey, StringComparison.OrdinalIgnoreCase)) continue;
+            if (type == typeof(RelatudeDBServerSettings) && string.Equals(child.Key, DefaultStoreStorage.ConfigurationKey, StringComparison.OrdinalIgnoreCase)) continue;
             if (dictionaryValueType != null) {
                 var value = convert(child, dictionaryValueType, childPath, warn);
                 if (value != null) result[child.Key] = value;

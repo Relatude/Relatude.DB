@@ -2642,6 +2642,28 @@ settings pages lock overridden keys.
 The section is merged before `OnServerSettingsInit` runs, so every callback sees the merged settings.
 `ServerOptions.ConfigurationSectionName` renames the section, and `null` turns it off.
 
+#### The default database's storage, without its ids
+
+`RelatudeDB:DefaultStore` moves the default database without naming any id from `relatude.db.json`. It
+is for a host that runs an application it did not build, such as Relatude hosting:
+
+```bash
+RelatudeDB__DefaultStore__BlobConnectionString=BlobEndpoint=https://…blob.core.windows.net/;SharedAccessSignature=…
+RelatudeDB__DefaultStore__BlobContainerName=app-site
+RelatudeDB__DefaultStore__IndexFolderPath=/tmp/relatude
+```
+
+- With the two blob keys, every storage provider the default database uses (database, indexes,
+  backup, log, file stores) becomes that blob container, with leases on. A provider another database
+  shares moves with it. A secondary log is turned off, as in the same container it would write the
+  primary log's blobs. A database without a storage provider gets one. One blob key without the other
+  is warned about and ignored.
+- `IndexFolderPath` is the default database's `LocalSettings.PersistedValueIndexFolderPath`. On Azure
+  App Service for Linux, give a folder outside `/home`: the old and new container share `/home` during
+  a restart, and must not open the same index files.
+- Both become ordinary overrides: never saved, locked in the admin UI, and followed when the overrides
+  file is looked for, which is then in the container. A key of the section's own still overrides them.
+
 ### Changes made in the admin UI: relatude.db.overrides.json
 
 The settings pages of the admin UI never write `relatude.db.json`. That file describes the
