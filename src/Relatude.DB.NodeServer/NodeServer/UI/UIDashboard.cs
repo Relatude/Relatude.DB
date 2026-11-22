@@ -11,8 +11,8 @@ namespace Relatude.DB.NodeServer.UI;
 ///
 /// Split in two on purpose, because the two halves cost very different amounts:
 ///   - "dashboard" is the full picture and calls <see cref="IDataStore.GetInfoAsync"/>, which takes
-///     the store's write lock and counts every type, every backup file and every state file. Worth
-///     it once when the page opens, never worth it on a timer;
+///     the store's read lock to count every type, then lists the log, backup and state folders for
+///     their sizes. Worth it when the page opens and once a minute, never on a fast timer;
 ///   - "dashboard-live" is what the page asks for every couple of seconds. It reads counters that
 ///     are already kept (see <see cref="StoreCounters"/>), the activity list and the queue depths,
 ///     and touches no file at all. The rate graph is built in the browser from the difference

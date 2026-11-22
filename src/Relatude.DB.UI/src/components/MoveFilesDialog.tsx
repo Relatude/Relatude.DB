@@ -53,7 +53,7 @@ export function MoveFilesDialog(p: Props) {
   const [folder, setFolder] = useState(p.fromPath);
   const [overwrite, setOverwrite] = useState(false);
   const [keep, setKeep] = useState(p.mode === "copy");
-  const plain = target.kind === "projectRoot";
+  const plain = target.kind === "folder";
   const targetPath = normalizeFolder(folder);
   const same = target.id === p.source.id;
   // into the folder it all is in already: a move would leave everything where it is, a copy makes
@@ -112,7 +112,7 @@ export function MoveFilesDialog(p: Props) {
           <select className="select" value={target.id} onChange={(e) => setToIoId(e.target.value)}>
             {p.targets.map((candidate) => (
               <option key={candidate.id} value={candidate.id}>
-                {(candidate.kind === "projectRoot" ? candidate.name : `${candidate.name} (${candidate.type})`) + (candidate.id === p.source.id ? " - this storage" : "")}
+                {(candidate.kind === "folder" ? candidate.name : `${candidate.name} (${candidate.type})`) + (candidate.id === p.source.id ? " - this storage" : "")}
               </option>
             ))}
           </select>

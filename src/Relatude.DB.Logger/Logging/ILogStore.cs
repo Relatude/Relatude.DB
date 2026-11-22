@@ -67,6 +67,8 @@ namespace Relatude.DB.Logging {
         long GetFileSize(string logKey);
         long GetLogFileSize(string logKey);
         long GetStatisticsFileSize(string logKey);
+        /// <summary>Sizes and the first and last record of one log, from a single listing of its files.</summary>
+        LogFilesSummary GetFilesSummary(string logKey);
         LogSettings GetSetting(string logKey);
         IEnumerable<LogSettings> GetSettings();
         DateTime? GetTimestampOfFirstRecord(string logKey);
@@ -77,5 +79,9 @@ namespace Relatude.DB.Logging {
         bool Record(string logKey, LogEntry entry, bool flushToDisk = false, bool? forceLogging = null, bool? forceStatistics = null);
         void SaveStatistics();
         void SaveStatsAndDeleteExpiredData();
+    }
+    public sealed record LogFilesSummary(DateTime? FirstRecordUtc, DateTime? LastRecordUtc, long LogBytes, long StatisticsBytes) {
+        public static readonly LogFilesSummary Empty = new(null, null, 0, 0);
+        public long TotalBytes => LogBytes + StatisticsBytes;
     }
 }

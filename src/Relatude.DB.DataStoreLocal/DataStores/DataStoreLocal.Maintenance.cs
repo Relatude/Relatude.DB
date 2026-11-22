@@ -445,18 +445,18 @@ public sealed partial class DataStoreLocal : IDataStore {
             info.RelationCount = _relations.TotalCount();
             try { _wal.AddInfo(info); } catch { } // as files may be closed...
 
-            try { info.LoggingFileSize = Logger.GetTotalFileSize(); } catch { }
-            try { info.BackupFileSize = FileKeyUtility.WAL_GetAllBackUpFileKeys(_ioAutoBackup).Sum(f => _ioAutoBackup.GetFileSizeOrZeroIfUnknown(f)); } catch { }
-
             lock (_isRewritingOrCopyingLock) {
                 info.RunningRewriteFile = _rewriter != null ? _rewriter.FileKey.AsKeyString() : null;
             }
 
             _sets.AddInfo(info);
-            info.LogStateFileSize = FileKeyUtility.State_GetAllFileKeys(IOIndex).Sum(k => IOIndex.GetFileSizeOrZeroIfUnknown(k));
         } finally {
             _lock.ExitReadLock();
         }
+        // after letting go: on blob storage these are requests, and a writer waiting behind them holds up every reader too
+        try { info.LoggingFileSize = Logger.GetTotalFileSize(); } catch { }
+        try { info.BackupFileSize = FileKeyUtility.WAL_SizeOfAllBackUpFiles(_ioAutoBackup); } catch { }
+        try { info.LogStateFileSize = FileKeyUtility.State_SizeOfAllFiles(IOIndex); } catch { }
         _lastStoreStatusWhenOpen = info;
         return info;
     }

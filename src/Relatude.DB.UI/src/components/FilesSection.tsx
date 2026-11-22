@@ -309,10 +309,11 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
   const deep = recursive && deepFiles?.ioId === ioId && deepFiles.path === path ? deepFiles : null;
   const files = deep ? deep.files : (listing?.files ?? []);
   const io = ios.find((candidate) => candidate.id === ioId) ?? null;
-  // the website project folder: not database storage, so the type column reads from the extension
-  // and the notice is a different one
-  const projectRoot = io?.kind === "projectRoot";
-  const typeOf = useCallback((f: FileInfo) => (projectRoot ? displayType(fileName(f.key)) : (f.description ?? "")), [projectRoot]);
+  // the app root or a system folder: not database storage, so the type column reads from the
+  // extension and the notice is a different one
+  const serverFolder = io?.kind === "folder";
+  const rootName = serverFolder && io ? io.name : "the storage root";
+  const typeOf = useCallback((f: FileInfo) => (serverFolder ? displayType(fileName(f.key)) : (f.description ?? "")), [serverFolder]);
   // What a file is called in the list: its name, or - once the list reaches into the subfolders -
   // the path it sits at below the open folder, so two files with the same name are told apart and
   // the filter can be pointed at a folder ("images/*.png").
@@ -372,8 +373,8 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
   // switched on, another folder was opened, or something invalidated the one there was
   useEffect(() => {
     if (!recursive || !ioId || (deepFiles?.ioId === ioId && deepFiles.path === path)) return;
-    void scanDeep(ioId, path, showPath(path) || (projectRoot ? "the server root" : "the storage root"));
-  }, [recursive, ioId, path, deepFiles, projectRoot, scanDeep, showPath]);
+    void scanDeep(ioId, path, showPath(path) || rootName);
+  }, [recursive, ioId, path, deepFiles, rootName, scanDeep, showPath]);
 
   // Reloads what the list shows after something changed it. The open folder is always reloaded (the
   // tree reads its listing too); a deep listing is dropped, and the walk above makes it again.
@@ -585,9 +586,9 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
   }
 
   // what a name may look like, as the server will judge it: database storage keeps to the file
-  // key alphabet, the project folder takes any legal file system name
+  // key alphabet, a server folder takes any legal file system name
   function nameProblem(name: string): string | null {
-    return storageNameProblem(name, projectRoot);
+    return storageNameProblem(name, serverFolder);
   }
 
   async function onRenameFile(file: FileInfo) {
@@ -647,7 +648,7 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
 
   async function onCreateFolder() {
     if (!ioId) return;
-    const name = await showPrompt("New folder", `Created in ${showPath(path) || (projectRoot ? "the server root" : "the storage root")}.`, {
+    const name = await showPrompt("New folder", `Created in ${showPath(path) || rootName}.`, {
       label: "Folder name",
       confirmLabel: "Create",
       validate: nameProblem,
@@ -1187,7 +1188,7 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
           {ios.length === 0 && <option value="">No IO providers</option>}
           {ios.map((candidate) => (
             <option key={candidate.id} value={candidate.id}>
-              {candidate.kind === "projectRoot" ? candidate.name : `${candidate.name} (${candidate.type})`}
+              {candidate.kind === "folder" ? candidate.name : `${candidate.name} (${candidate.type})`}
             </option>
           ))}
         </select>
@@ -1385,13 +1386,12 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
               </span>
             </div>
           )}
-          {projectRoot && (
+          {serverFolder && (
             <div className="files-notice project">
               <IconWorld size={15} stroke={1.8} />
               <span>
-                <b>[Server root]</b>
-                {io?.localPath ? ` (${io.localPath})` : ""}: the website project folder on the server. These are the application's own files, not
-                database storage: what is changed or deleted here changes the running site, and the database's data folder may be below here too.
+                <b>{io?.name}</b>
+                {io?.localPath ? ` (${io.localPath})` : ""}: {io?.note ?? "a folder on the server, not database storage."}
               </span>
             </div>
           )}

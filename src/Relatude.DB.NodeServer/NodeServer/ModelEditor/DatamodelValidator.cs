@@ -29,7 +29,14 @@ public sealed class DatamodelValidator {
     /// The open database's model when there is one, else the sources loaded afresh.</summary>
     public Datamodel LoadActive() {
         var json = _container.DatamodelAsLoadedJson;
-        var dm = json != null ? DatamodelJson.Deserialize(json) : _container.LoadDatamodelFromSettings();
+        if (json != null) return FromLoadedJson(json);
+        var dm = _container.LoadDatamodelFromSettings();
+        dm.EnsureInitalization();
+        return dm;
+    }
+    /// <summary>The model a store opened with, from <see cref="NodeStoreContainer.DatamodelAsLoadedJson"/>, initialized.</summary>
+    internal static Datamodel FromLoadedJson(string json) {
+        var dm = DatamodelJson.Deserialize(json);
         dm.EnsureInitalization();
         return dm;
     }

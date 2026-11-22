@@ -188,7 +188,7 @@ function writeStored(key: string, value: string) {
 }
 
 function describeStorage(storage: IoInfo): string {
-  if (storage.kind === "projectRoot") return "the website project folder" + (storage.localPath ? " · " + storage.localPath : "");
+  if (storage.kind === "folder") return "a folder on the server" + (storage.localPath ? " · " + storage.localPath : "");
   const roles = (storage.roles ?? []).map((r) => roleLabels[r] ?? r);
   return roles.length > 0 ? roles.join(" · ") : "not used by this database";
 }

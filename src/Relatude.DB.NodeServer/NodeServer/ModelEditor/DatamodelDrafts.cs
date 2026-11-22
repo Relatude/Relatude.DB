@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
 using Relatude.DB.Datamodels;
@@ -166,24 +168,44 @@ public sealed class DatamodelDrafts {
 
     // ---- the history ----
 
+    // A history file is written once and never rewritten, so its header is read once per provider, not
+    // on every page load: on blob storage that was a full download of every file, fifty of them at most.
+    // Checked against each listing by name and size, so files another instance adds or deletes are seen.
+    static readonly ConditionalWeakTable<IIOProvider, ConcurrentDictionary<string, (long Size, DatamodelHistoryEntry Entry)>> _headers = new();
+    ConcurrentDictionary<string, (long Size, DatamodelHistoryEntry Entry)> headers => _headers.GetValue(_io, _ => new(StringComparer.OrdinalIgnoreCase));
+    DatamodelHistoryEntry headerOf(FileMeta file) {
+        var known = headers;
+        if (known.TryGetValue(file.Key, out var cached) && cached.Size == file.Size) return cached.Entry;
+        var key = file.KeyOf();
+        var bytes = _io.ReadAllBytes(key);
+        var entry = entryFromHeader(key, readHeader(bytes), bytes.Length);
+        known[file.Key] = (bytes.Length, entry);
+        return entry;
+    }
+
     /// <summary>Every history entry, newest first, headers only.</summary>
     public List<DatamodelHistoryEntry> ListHistory() {
         lock (_lock) {
+            var files = FileKeyUtility.Datamodel_GetAllHistoryFiles(_io);
             var entries = new List<DatamodelHistoryEntry>();
-            foreach (var key in FileKeyUtility.Datamodel_GetAllHistoryFileKeys(_io)) {
+            foreach (var file in files) {
                 try {
-                    var bytes = _io.ReadAllBytes(key);
-                    var entry = entryFromHeader(key, readHeader(bytes), bytes.Length);
-                    entries.Add(entry);
+                    entries.Add(copyOf(headerOf(file)));
                 } catch {
                     // an unreadable history file is left where it is and left out of the list: it is
                     // somebody's backup, and not a reason to hide the rest
                 }
             }
+            var listed = files.Select(f => f.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            foreach (var gone in headers.Keys.Where(k => !listed.Contains(k)).ToList()) headers.TryRemove(gone, out _);
             entries.Reverse();
             return entries;
         }
     }
+    static DatamodelHistoryEntry copyOf(DatamodelHistoryEntry e) => new() {
+        Key = e.Key, SavedUtc = e.SavedUtc, Reason = e.Reason, Checksum = e.Checksum,
+        NodeTypes = e.NodeTypes, Relations = e.Relations, Properties = e.Properties, Size = e.Size,
+    };
     public DatamodelHistoryEntry? LoadHistory(string key) {
         lock (_lock) {
             var fileKey = key.SplitKey();
@@ -210,11 +232,10 @@ public sealed class DatamodelDrafts {
     public DatamodelHistoryEntry? Snapshot(Datamodel model, string reason, bool onlyIfChanged = true) {
         lock (_lock) {
             var checksum = DatamodelJson.Checksum(model);
-            var existing = FileKeyUtility.Datamodel_GetAllHistoryFileKeys(_io);
-            if (onlyIfChanged && existing.Length > 0) {
+            var existing = FileKeyUtility.Datamodel_GetAllHistoryFiles(_io);
+            if (onlyIfChanged && existing.Count > 0) {
                 try {
-                    var newest = readHeader(_io.ReadAllBytes(existing[^1]));
-                    if (guid(newest, "Checksum") == checksum) return null;
+                    if (headerOf(existing[^1]).Checksum == checksum) return null;
                 } catch { }
             }
             var now = DateTime.UtcNow;
@@ -231,8 +252,10 @@ public sealed class DatamodelDrafts {
             // retention: the oldest go first, and only after the new one is safely written
             var all = FileKeyUtility.Datamodel_GetAllHistoryFileKeys(_io);
             for (var i = 0; i < all.Length - HistoryRetention; i++) _io.DeleteFileIfItExists(all[i]);
-            var bytes = Encoding.UTF8.GetByteCount(text);
-            return entryFromHeader(key, readHeader(Encoding.UTF8.GetBytes(text)), bytes);
+            var written = Encoding.UTF8.GetBytes(text);
+            var entry = entryFromHeader(key, readHeader(written), written.Length);
+            headers[entry.Key] = (written.Length, entry);
+            return copyOf(entry);
         }
     }
 

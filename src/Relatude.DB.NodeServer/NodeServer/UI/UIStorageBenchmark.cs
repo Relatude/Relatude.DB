@@ -99,7 +99,7 @@ sealed class UIStorageBenchmark {
         var list = (c.Settings.IOSettings ?? [])
             .Select(io => new StorageChoice(io.Id, string.IsNullOrEmpty(io.Name) ? io.IOType.ToString() : io.Name, io.IOType.ToString()))
             .ToList();
-        list.Add(new StorageChoice(RelatudeDBServer.ProjectRootIOId, "[Server root]", IOTypes.LocalDisk.ToString()));
+        list.AddRange(_server.ServerFolders.Select(folder => new StorageChoice(folder.Id, folder.Name, IOTypes.LocalDisk.ToString())));
         return list;
     }
 

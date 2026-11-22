@@ -210,6 +210,8 @@ public static class FileKeyUtility {
     /// <summary>Whether the key names a state snapshot file, numbered or legacy.</summary>
     public static bool State_IsStateFileKey(string[] key) => key.IsSameKey(stateFileLegacyPattern) || State_IsNumberedFileKey(key);
     public static string[][] State_GetNumberedFileKeys(IIOProvider io) => [.. io.Search(stateFilePattern).Where(k => hasNumberedFileName(k, 3))];
+    /// <summary>What every state snapshot file takes, numbered or legacy, from one listing of the state folder.</summary>
+    public static long State_SizeOfAllFiles(IIOProvider io) => io.GetFiles([StateFolderName]).Where(f => State_IsStateFileKey(f.KeyOf())).Sum(f => f.Size);
     /// <summary>All state snapshot files, oldest first: the legacy unnumbered file (if present), then the numbered files.</summary>
     public static string[][] State_GetAllFileKeys(IIOProvider io) {
         List<string[]> keys = [];
@@ -293,6 +295,8 @@ public static class FileKeyUtility {
     public static string[] WAL_NextFileKey(IIOProvider io) => nextFileKey(WAL_GetLatestFileKey(io), WAL_GetFileKey);
     public static DateTime WAL_GetBackUpDateTimeFromFileKey(string[] fileKey) => backupDateTime(fileKey);
     public static string[][] WAL_GetAllBackUpFileKeys(IIOProvider io) => [.. io.Search(walFileBackupPattern)];
+    /// <summary>What every backup takes, from one listing of the backup folder.</summary>
+    public static long WAL_SizeOfAllBackUpFiles(IIOProvider io) => io.SearchFiles(walFileBackupPattern).Sum(f => f.Size);
     /// <summary>Whether the key names a database log file in the data folder (data/db.00000001.bin).
     /// For listings that are already in hand: the search helpers above list a provider's files again.</summary>
     public static bool WAL_IsFileKey(string[] fileKey) => fileKey.MatchesPattern(walFilePattern);
@@ -367,9 +371,18 @@ public static class FileKeyUtility {
             _ => throw new NotImplementedException(),
         }, System.Globalization.CultureInfo.InvariantCulture), DateTimeKind.Utc);
     }
+    static string[] logFilePattern(string logName, FileInterval fileInterval, string fileExt) => [.. Logger_FolderKey(logName), Logger_NamePrefix(logName, fileInterval) + "*" + fileExt];
     static List<DateTime> getLogFileDates(IIOProvider io, string logName, FileInterval fileInterval, string fileExt) {
-        string[] pattern = [.. Logger_FolderKey(logName), Logger_NamePrefix(logName, fileInterval) + "*" + fileExt];
-        return io.Search(pattern).Select(f => logger_ParseFileName(f.FileName(), logName, fileInterval, fileExt)).OrderBy(i => i).ToList();
+        return io.Search(logFilePattern(logName, fileInterval, fileExt)).Select(f => logger_ParseFileName(f.FileName(), logName, fileInterval, fileExt)).OrderBy(i => i).ToList();
+    }
+    /// <summary>A log's binary files in a listing of its folder (<see cref="Logger_FolderKey"/>), oldest first.</summary>
+    public static List<(DateTime Date, FileMeta File)> Logger_FilesBin(IEnumerable<FileMeta> listing, string logName, FileInterval fileInterval) => logFiles(listing, logName, fileInterval, loggerBinaryExt);
+    /// <summary>A log's text files in a listing of its folder (<see cref="Logger_FolderKey"/>), oldest first.</summary>
+    public static List<(DateTime Date, FileMeta File)> Logger_FilesTxt(IEnumerable<FileMeta> listing, string logName, FileInterval fileInterval) => logFiles(listing, logName, fileInterval, loggerTextExt);
+    static List<(DateTime Date, FileMeta File)> logFiles(IEnumerable<FileMeta> listing, string logName, FileInterval fileInterval, string fileExt) {
+        var pattern = logFilePattern(logName, fileInterval, fileExt);
+        return [.. listing.Select(f => (Key: f.KeyOf(), File: f)).Where(f => f.Key.MatchesPattern(pattern))
+            .Select(f => (logger_ParseFileName(f.Key.FileName(), logName, fileInterval, fileExt), f.File)).OrderBy(f => f.Item1)];
     }
 
     public static string[] Queue_GetFileKey(string ext) => [StateFolderName, queueFileName + "." + ext];
@@ -391,6 +404,8 @@ public static class FileKeyUtility {
         && DateTime.TryParseExact(key.FileName().Split('.')[^2], dateTimeTemplate, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out _);
     /// <summary>All datamodel history files, oldest first.</summary>
     public static string[][] Datamodel_GetAllHistoryFileKeys(IIOProvider io) => [.. io.Search(datamodelHistoryFilePattern).Where(Datamodel_IsHistoryFileKey)];
+    /// <summary>The history files as listed, oldest first, with their sizes.</summary>
+    public static List<FileMeta> Datamodel_GetAllHistoryFiles(IIOProvider io) => [.. io.SearchFiles(datamodelHistoryFilePattern).Where(f => Datamodel_IsHistoryFileKey(f.KeyOf()))];
     public static DateTime Datamodel_GetHistoryDateTimeFromFileKey(string[] fileKey) => backupDateTime(fileKey);
 
     // Before the folder layout every file lived in the storage root. The startup migration moves

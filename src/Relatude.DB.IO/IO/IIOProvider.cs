@@ -15,6 +15,14 @@ public interface IIOProvider {
     bool DoesNotExistOrIsEmpty(string[] path);
     void DeleteFileIfItExists(string[] path);
     FileMeta[] GetFiles();
+    /// <summary>What <see cref="GetFiles()"/> lists, narrowed to the files at any depth below
+    /// <paramref name="folder"/> (all of it for an empty path). Blob storage overrides it to list only that
+    /// folder: there, <see cref="GetFiles()"/> is the whole container.</summary>
+    FileMeta[] GetFiles(string[] folder) {
+        if (folder.Length == 0) return GetFiles();
+        var prefix = folder.AsKeyString() + FileKeyExtensions.KeyDelimiter;
+        return [.. GetFiles().Where(f => f.Key.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))];
+    }
     long GetFileSizeOrZeroIfUnknown(string[] path);
     bool CanRenameFile { get; }
     void RenameFile(string[] path, string[] newPath);
@@ -87,8 +95,17 @@ public static class IIOProviderExtensions {
     }
     /// <summary>The keys of all listed files matching the pattern, segment by segment (see
     /// <see cref="FileKeyExtensions.MatchesPattern"/>), ordered by their joined form.</summary>
-    public static List<string[]> Search(this IIOProvider io, string[] wildcardPattern) {
-        return io.GetFiles().Select(f => f.KeyOf()).Where(k => k.MatchesPattern(wildcardPattern)).OrderBy(k => k.AsKeyString()).ToList();
+    public static List<string[]> Search(this IIOProvider io, string[] wildcardPattern) => [.. io.SearchFiles(wildcardPattern).Select(f => f.KeyOf())];
+    /// <summary>As <see cref="Search"/>, with what the listing says of each file: its size needs no request of its own.</summary>
+    public static List<FileMeta> SearchFiles(this IIOProvider io, string[] wildcardPattern) {
+        return io.GetFiles(LiteralFolderOf(wildcardPattern)).Where(f => f.KeyOf().MatchesPattern(wildcardPattern)).OrderBy(f => f.KeyOf().AsKeyString()).ToList();
+    }
+    /// <summary>The leading folders of a pattern that hold no wildcard, which every match lies below.</summary>
+    public static string[] LiteralFolderOf(string[] wildcardPattern) {
+        var count = 0;
+        // a trailing dot is a wildcard of its own to MatchesWildcard (Windows style)
+        while (count < wildcardPattern.Length - 1 && wildcardPattern[count].IndexOfAny(['*', '?']) < 0 && !wildcardPattern[count].EndsWith('.')) count++;
+        return wildcardPattern[..count];
     }
     public static string ReadString(this IIOProvider io, string[] path, string? fallback = null) {
         if (io.GetFileSizeOrZeroIfUnknown(path) == 0) return fallback ?? string.Empty;

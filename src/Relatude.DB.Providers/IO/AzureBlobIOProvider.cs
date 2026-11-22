@@ -275,14 +275,14 @@ public class AzureBlobIOProvider : IIOProvider {
 
     // ---- files ----
 
-    void syncDirInfo(List<BlobListItem> existing) {
-        long getSize(BlobListItem blob) {
-            var match = _openStreams.Where(s => s.FileKey == blob.Name).FirstOrDefault();
-            if (match != null)
-                return match.Length;
-            return blob.ContentLength;
-        }
+    // a listing below prefix only answers for the tracked files below it
+    void syncDirInfo(List<BlobListItem> existing, string? prefix = null) {
+        var openStreams = new Dictionary<string, IStream>(StringComparer.Ordinal);
+        foreach (var stream in _openStreams) openStreams.TryAdd(stream.FileKey, stream);
+        var listed = new HashSet<string>(StringComparer.Ordinal);
+        long getSize(BlobListItem blob) => openStreams.TryGetValue(blob.Name, out var open) ? open.Length : blob.ContentLength;
         foreach (var blob in existing) {
+            listed.Add(blob.Name);
             if (!_files.TryGetValue(blob.Name, out var meta)) {
                 _files.Add(blob.Name, new FileMeta {
                     Key = blob.Name,
@@ -296,7 +296,7 @@ public class AzureBlobIOProvider : IIOProvider {
                 meta.CreationTimeUtc = blob.CreatedOnUtc;
             }
         }
-        var deleted = _files.Keys.Where(k => !existing.Any(f => f.Name == k)).ToArray();
+        var deleted = _files.Keys.Where(k => (prefix == null || k.StartsWith(prefix, StringComparison.Ordinal)) && !listed.Contains(k)).ToArray();
         foreach (var k in deleted) _files.Remove(k);
     }
 
@@ -435,6 +435,16 @@ public class AzureBlobIOProvider : IIOProvider {
         lock (_lock) {
             syncDirInfo(existing);
             return _files.Values.ToArray();
+        }
+    }
+    // Blob names are case sensitive, so unlike the other providers the folder must match in case.
+    public FileMeta[] GetFiles(string[] folder) {
+        if (folder.Length == 0) return GetFiles();
+        var prefix = getAndValidateBlobName(folder) + _virtualFolderChar;
+        var existing = Client.ListBlobs(prefix);
+        lock (_lock) {
+            syncDirInfo(existing, prefix);
+            return [.. _files.Values.Where(f => f.Key.StartsWith(prefix, StringComparison.Ordinal))];
         }
     }
     public long GetFileSizeOrZeroIfUnknown(string[] path) {

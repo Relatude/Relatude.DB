@@ -7,14 +7,15 @@ export interface IoInfo {
   id: string;
   name: string;
   type: string; // Memory | LocalDisk | AzureBlobStorage
-  // "storage" for a provider from the database settings; "projectRoot" for the one every server
-  // has over the website project folder, which is not in any settings
-  kind: "storage" | "projectRoot";
+  // "storage" for a provider from the database settings; "folder" for the server's own folders
+  // (app root, %HOME%, temp), which are not in any settings
+  kind: "storage" | "folder";
   canRenameFile: boolean;
   canRenameFolder: boolean;
   // false where folders are key prefixes (memory, blob storage): an empty folder is not stored
   supportsEmptyFolders: boolean;
-  localPath?: string | null; // the project root's folder on the server
+  localPath?: string | null; // a server folder's path on the server
+  note?: string | null; // what a server folder is, for its notice
   // what the database keeps there: "database" (its log file, data/), "files" (a multi file store,
   // files/), "secondary", "indexes", "backup", "log"
   roles?: string[];

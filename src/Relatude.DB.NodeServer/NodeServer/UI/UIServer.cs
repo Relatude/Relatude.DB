@@ -761,7 +761,7 @@ public sealed class UIServer {
             .Select(io => (io.Id, Name: string.IsNullOrEmpty(io.Name) ? io.IOType.ToString() : io.Name))
             .DistinctBy(provider => provider.Id).ToList();
         if (!providers.Any(provider => provider.Id == RelatudeDBServer.ProjectRootIOId))
-            providers.Add((RelatudeDBServer.ProjectRootIOId, "[Server root]"));
+            providers.Add((RelatudeDBServer.ProjectRootIOId, _server.ServerFolders[0].Name));
         return providers;
     }
 
@@ -1099,8 +1099,8 @@ public sealed class UIServer {
             addEngineNames(map, local?.VectorIndexes, "vector");
             return (object?)map;
         });
-        // the IO providers of one database container, for the files section, plus the one every server
-        // has: the website project folder (see RelatudeDBServer.ProjectRootIO). What each can do is
+        // the IO providers of one database container, for the files section, plus the server's own
+        // folders: the app root and the system folders (see RelatudeDBServer.ServerFolders). What each can do is
         // told from its type rather than from a live instance, so listing never connects to anything.
         Commands.Register("io-list", ctx => {
             var p = ctx.Payload<IoListPayload>();
@@ -1115,17 +1115,19 @@ public sealed class UIServer {
                 SupportsEmptyFolders = io.IOType == IOTypes.LocalDisk,
                 Roles = rolesOf(c.Settings, io.Id),
             }).ToList();
-            var root = _server.ProjectRootIO;
-            list.Add(new IoInfo {
-                Id = RelatudeDBServer.ProjectRootIOId,
-                Name = "[Server root]",
-                Type = IOTypes.LocalDisk.ToString(),
-                Kind = "projectRoot",
-                CanRenameFile = root.CanRenameFile,
-                CanRenameFolder = root.CanRenameFolder,
-                SupportsEmptyFolders = root.SupportsEmptyFolders,
-                LocalPath = root.BaseFolder,
-            });
+            foreach (var folder in _server.ServerFolders) {
+                list.Add(new IoInfo {
+                    Id = folder.Id,
+                    Name = folder.Name,
+                    Type = IOTypes.LocalDisk.ToString(),
+                    Kind = "folder",
+                    CanRenameFile = folder.IO.CanRenameFile,
+                    CanRenameFolder = folder.IO.CanRenameFolder,
+                    SupportsEmptyFolders = folder.IO.SupportsEmptyFolders,
+                    LocalPath = folder.IO.BaseFolder,
+                    Note = folder.Note,
+                });
+            }
             return (object?)list;
         });
         // renames one file within its folder; the new name is a single segment. A change of case
@@ -1907,13 +1909,14 @@ sealed class IoInfo {
     public Guid Id { get; init; }
     public string Name { get; init; } = "";
     public string Type { get; init; } = "";
-    /// <summary>"storage" for a provider from the database settings, "projectRoot" for the website project folder.</summary>
+    /// <summary>"storage" for a provider from the database settings, "folder" for one of <see cref="RelatudeDBServer.ServerFolders"/>.</summary>
     public string Kind { get; init; } = "storage";
     public bool CanRenameFile { get; init; }
     public bool CanRenameFolder { get; init; }
     public bool SupportsEmptyFolders { get; init; }
-    /// <summary>The folder on the server, only for the project root: the UI names it in its notice.</summary>
+    /// <summary>The folder on the server, only for a server folder: the UI names it in its notice.</summary>
     public string? LocalPath { get; init; }
+    public string? Note { get; init; }
     /// <summary>What the database keeps there: "database", "secondary", "indexes", "files", "backup", "log".</summary>
     public string[] Roles { get; init; } = [];
 }

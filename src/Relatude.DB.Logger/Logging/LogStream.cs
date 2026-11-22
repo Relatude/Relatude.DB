@@ -173,10 +173,27 @@ internal class LogStream : IDisposable {
     }
     public DateTime? GetTimestampOfFirstRecord() {
         flushBufferAndReleaseOpenFiles();
-        foreach (var fileDate in GetLogFileDates()) {
-            var fileKey = FileKeyUtility.Logger_FileNameBin(_logName, _fileInterval, fileDate);
-            if (_io.DoesNotExistOrIsEmpty(fileKey)) continue;
-            using var stream = _io.OpenRead(fileKey, 0);
+        return firstRecordIn(GetLogFileDates().Where(hasContent));
+    }
+    public DateTime? GetTimestampOfLastRecord() {
+        flushBufferAndReleaseOpenFiles();
+        return lastRecordIn(Enumerable.Reverse(GetLogFileDates()).Where(hasContent));
+    }
+    bool hasContent(DateTime fileDate) => !_io.DoesNotExistOrIsEmpty(FileKeyUtility.Logger_FileNameBin(_logName, _fileInterval, fileDate));
+    /// <summary>Writes out what is buffered and lets go of the open file, so a listing sees every record.</summary>
+    internal void ReleaseFiles() => flushBufferAndReleaseOpenFiles();
+    /// <summary>
+    /// The first and last record of files the caller has listed itself, after <see cref="ReleaseFiles"/>:
+    /// the dates of the files holding anything, oldest first. Saves the listing and a size lookup per file.
+    /// </summary>
+    internal (DateTime? First, DateTime? Last) GetFirstAndLastRecord(IReadOnlyList<DateTime> datesOfFilesWithContent) {
+        var first = firstRecordIn(datesOfFilesWithContent);
+        if (first == null) return (null, null);
+        return (first, lastRecordIn(Enumerable.Reverse(datesOfFilesWithContent)));
+    }
+    DateTime? firstRecordIn(IEnumerable<DateTime> fileDates) {
+        foreach (var fileDate in fileDates) {
+            using var stream = _io.OpenRead(FileKeyUtility.Logger_FileNameBin(_logName, _fileInterval, fileDate), 0);
             if (!stream.More()) continue;
             if (!stream.MoveToNextValidMarker(_startMarker)) continue;
             try {
@@ -187,13 +204,9 @@ internal class LogStream : IDisposable {
         }
         return null;
     }
-    public DateTime? GetTimestampOfLastRecord() {
-        flushBufferAndReleaseOpenFiles();
-        var fileDates = GetLogFileDates();
-        for (var i = fileDates.Count - 1; i >= 0; i--) {
-            var fileKey = FileKeyUtility.Logger_FileNameBin(_logName, _fileInterval, fileDates[i]);
-            if (_io.DoesNotExistOrIsEmpty(fileKey)) continue;
-            using var stream = _io.OpenRead(fileKey, 0);
+    DateTime? lastRecordIn(IEnumerable<DateTime> fileDatesNewestFirst) {
+        foreach (var fileDate in fileDatesNewestFirst) {
+            using var stream = _io.OpenRead(FileKeyUtility.Logger_FileNameBin(_logName, _fileInterval, fileDate), 0);
             DateTime? dtLast = null;
             while (stream.More()) {
                 if (!stream.MoveToNextValidMarker(_startMarker)) break;

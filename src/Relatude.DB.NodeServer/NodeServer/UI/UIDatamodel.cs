@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Relatude.DB.AI;
@@ -23,14 +24,14 @@ sealed class UIDatamodel {
     internal UIDatamodel(RelatudeDBServer server) => _server = server;
 
     internal void Register(UICommands commands) {
-        commands.Register("datamodel", ctx => get(ctx.Payload<StorePayload>().StoreId));
+        commands.Register("datamodel", ctx => get(ctx.Payload<StorePayload>().StoreId), compress: true);
         commands.Register("datamodel-type-counts", ctx => typeCountsOnly(ctx.Payload<StorePayload>().StoreId));
         commands.Register("datamodel-schema", ctx => DatamodelCatalog.Schema);
         commands.Register("datamodel-draft-save", ctx => saveDraft(ctx.Payload<DraftPayload>()));
         commands.Register("datamodel-draft-discard", ctx => discardDraft(ctx.Payload<StorePayload>().StoreId));
         commands.Register("datamodel-validate", ctx => validate(ctx.Payload<ValidatePayload>()));
         commands.Register("datamodel-activate", ctx => activate(ctx.Payload<ActivatePayload>()));
-        commands.Register("datamodel-history-load", ctx => historyLoad(ctx.Payload<HistoryPayload>()));
+        commands.Register("datamodel-history-load", ctx => historyLoad(ctx.Payload<HistoryPayload>()), compress: true);
         commands.Register("datamodel-history-delete", ctx => historyDelete(ctx.Payload<HistoryPayload>()));
         commands.Register("datamodel-export", ctx => export(ctx.Payload<ExportPayload>()));
         commands.Register("datamodel-code", ctx => code(ctx.Payload<CodePayload>()));
@@ -58,13 +59,27 @@ sealed class UIDatamodel {
 
     // ---- the page ----
 
+    // The active model as the page shows it, built again only when the store opens with another one:
+    // every open makes a new DatamodelAsLoadedJson string, so its identity is the version. Shared read
+    // only, like the live store's own model.
+    sealed record ActiveModel(string? LoadedJson, Datamodel Model, Guid Checksum, JsonElement Element);
+    readonly ConcurrentDictionary<Guid, ActiveModel> _active = new();
+    ActiveModel activeModel(NodeStoreContainer c) {
+        var json = c.DatamodelAsLoadedJson;
+        if (json != null && _active.TryGetValue(c.Settings.Id, out var cached) && ReferenceEquals(cached.LoadedJson, json)) return cached;
+        var model = json != null ? DatamodelValidator.FromLoadedJson(json) : new DatamodelValidator(_server, c).LoadActive();
+        var built = new ActiveModel(json, model, DatamodelJson.Checksum(model), element(model));
+        if (json != null) _active[c.Settings.Id] = built;
+        return built;
+    }
+
     object get(Guid storeId) {
         var c = container(storeId);
         var state = c.StateName;
-        Datamodel? active = null;
+        ActiveModel? active = null;
         string? activeError = null;
         try {
-            active = new DatamodelValidator(_server, c).LoadActive();
+            active = activeModel(c);
         } catch (Exception error) {
             activeError = error.Message;
         }
@@ -79,7 +94,7 @@ sealed class UIDatamodel {
                 // a draft written into compiled source code is finished once the sources load as the draft:
                 // the application has been rebuilt with it. Normally noticed when the store opens; checked
                 // here too for a database that was closed when the application restarted
-                if (draft != null && active != null && store.RemoveIfActivated(draft, active)) draft = null;
+                if (draft != null && active != null && store.RemoveIfActivated(draft, active.Model)) draft = null;
             } catch (Exception error) {
                 draftError = "The draft could not be read: " + error.Message;
             }
@@ -94,16 +109,16 @@ sealed class UIDatamodel {
             RootFolder = _server.RootDataFolderPath,
             BaseTypeId = NodeConstants.BaseNodeTypeId,
             CodeSourceId = DatamodelSource.CodeSourceId,
-            Active = active == null ? null : new { Checksum = DatamodelJson.Checksum(active), Model = element(active) },
+            Active = active == null ? null : new { active.Checksum, Model = active.Element },
             ActiveError = activeError,
             Draft = draft == null ? null : describeDraft(draft, withModel: true),
             DraftError = draftError,
             History = history.Select(describeHistory),
-            TypeCounts = typeCounts(c, active, out var countsComplete),
+            TypeCounts = typeCounts(c, active?.Model, out var countsComplete),
             // false when a transaction held the store: the counts left out are not known yet, and the page
             // asks for them again (datamodel-type-counts) instead of showing them as nothing
             TypeCountsComplete = countsComplete,
-            Sources = describeSources(c, active),
+            Sources = describeSources(c, active?.Model),
             SourcesLocked = sourcesLocked,
             IoProviders = (c.Settings.IOSettings ?? []).Select(io => new { io.Id, io.Name }),
             // where the overrides are kept; what is in force rides in the model (Datamodel.Overrides)
@@ -241,7 +256,7 @@ sealed class UIDatamodel {
         var existing = store.PeekDraft();
         Guid? baseChecksum = existing?.BaseChecksum;
         if (baseChecksum == null) {
-            try { baseChecksum = DatamodelJson.Checksum(new DatamodelValidator(_server, c).LoadActive()); } catch { }
+            try { baseChecksum = activeModel(c).Checksum; } catch { }
         }
         var draft = new DatamodelDraft {
             Model = model,

@@ -78,6 +78,9 @@ public partial class RelatudeDBServer {
     /// plain folder provider: any file system name is a legal key and folders carry no database
     /// descriptions.</summary>
     public IOProviderDisk ProjectRootIO => Validator.ThrowIfNull(_projectRootIO);
+    ServerFolder[] _serverFolders = [];
+    /// <summary>The app root, then %HOME%, the Azure App Service log folder and the temp folder where they exist.</summary>
+    public IReadOnlyList<ServerFolder> ServerFolders => _serverFolders;
     /// <summary>
     /// Drops one cached provider, so the next lookup rebuilds it from its current settings. Editing a
     /// provider in the admin UI has no effect without this: the instance is built once and kept, and
@@ -124,7 +127,7 @@ public partial class RelatudeDBServer {
             providers.Add(new(id, name, setting?.IOType ?? IOTypes.LocalDisk, io.Counters));
         }
         if (_tempIO != null) providers.Add(new(Guid.Empty, "Temporary files", IOTypes.LocalDisk, _tempIO.Counters));
-        if (_projectRootIO != null) providers.Add(new(ProjectRootIOId, "Project folder", IOTypes.LocalDisk, _projectRootIO.Counters));
+        foreach (var folder in _serverFolders) providers.Add(new(folder.Id, folder.Name, IOTypes.LocalDisk, folder.IO.Counters));
         IOCounters total;
         lock (_retiredIOCountersLock) total = _retiredIOCounters;
         foreach (var p in providers) total += p.Counters;
@@ -214,7 +217,8 @@ public partial class RelatudeDBServer {
         _serverLog.Clear();
         Log("Server starting up.");
         var environmentRoot = app.Environment.ContentRootPath;
-        _projectRootIO = new IOProviderDisk(environmentRoot, plainFolder: true);
+        _serverFolders = ServerFolderFinder.Find(environmentRoot);
+        _projectRootIO = _serverFolders[0].IO;
         if (string.IsNullOrEmpty(dataFolderPath)) dataFolderPath = string.Empty;
         dataFolderPath = dataFolderPath.EnsureDirectorySeparatorChar();
         if (!System.IO.Path.IsPathRooted(dataFolderPath)) dataFolderPath = environmentRoot.SuperPathCombine(dataFolderPath);
@@ -333,7 +337,7 @@ public partial class RelatudeDBServer {
         var ioIds = (_serverSettings.ContainerSettings ?? []).SelectMany(c => c.IOSettings ?? []).Select(s => s.Id).Distinct().ToArray();
         _ = Task.Run(async () => {
             var ios = new List<IIOProvider>();
-            if (_projectRootIO != null) ios.Add(_projectRootIO);
+            foreach (var folder in _serverFolders) ios.Add(folder.IO);
             foreach (var ioId in ioIds) {
                 try {
                     if (TryGetIO(ioId, out var io)) ios.Add(io);
@@ -654,8 +658,9 @@ public partial class RelatudeDBServer {
         }
     }
     public bool TryGetIO(Guid ioId, [MaybeNullWhen(false)] out IIOProvider io) {
-        if (ioId == ProjectRootIOId && _projectRootIO != null) {
-            io = _projectRootIO;
+        foreach (var folder in _serverFolders) {
+            if (folder.Id != ioId) continue;
+            io = folder.IO;
             return true;
         }
         lock (_ios) {

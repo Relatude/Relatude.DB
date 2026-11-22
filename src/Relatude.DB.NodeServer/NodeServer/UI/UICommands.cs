@@ -9,7 +9,7 @@ namespace Relatude.DB.NodeServer.UI;
 /// </summary>
 public sealed class UICommands {
     readonly RelatudeDBServer _server;
-    readonly Dictionary<string, Func<UICommandContext, Task<object?>>> _handlers = new(StringComparer.OrdinalIgnoreCase);
+    readonly Dictionary<string, (Func<UICommandContext, Task<object?>> Run, bool Compress)> _handlers = new(StringComparer.OrdinalIgnoreCase);
     readonly UICommandRuns _runs = new();
     internal UICommands(RelatudeDBServer server) {
         _server = server;
@@ -17,11 +17,13 @@ public sealed class UICommands {
         // cancellation token simply runs to its end
         Register("command-cancel", ctx => (object?)_runs.Cancel(ctx.Payload<UICommandCancelPayload>().RunId ?? ""));
     }
-    public void Register(string type, Func<UICommandContext, Task<object?>> handler) {
-        lock (_handlers) _handlers[type] = handler;
+    // compress: a large answer goes compressed when the browser takes it (UICompressibleJson). Opted into per
+    // command, as an answer holding a secret beside text a request put there is what BREACH reads.
+    public void Register(string type, Func<UICommandContext, Task<object?>> handler, bool compress = false) {
+        lock (_handlers) _handlers[type] = (handler, compress);
     }
-    public void Register(string type, Func<UICommandContext, object?> handler) {
-        Register(type, ctx => Task.FromResult(handler(ctx)));
+    public void Register(string type, Func<UICommandContext, object?> handler, bool compress = false) {
+        Register(type, ctx => Task.FromResult(handler(ctx)), compress);
     }
     /// <summary>
     /// Runs a command outside the POST route - what a live feed does on the cadence a tab asked for
@@ -35,10 +37,11 @@ public sealed class UICommands {
     /// <param name="cancellation">What stops the command: for a feed, the tab going away. A feed's http is the
     /// event stream's, not a request of its own, so its RequestAborted says nothing about the feed.</param>
     internal async Task<object?> Invoke(string type, RelatudeDBServer server, HttpContext http, JsonElement? payload, CancellationToken cancellation = default) {
-        Func<UICommandContext, Task<object?>>? handler;
-        lock (_handlers) _handlers.TryGetValue(type, out handler);
-        if (handler == null) throw new Exception("Unknown command: " + type);
-        return await handler(new UICommandContext(server, http, payload, cancellation));
+        bool found;
+        (Func<UICommandContext, Task<object?>> Run, bool Compress) handler;
+        lock (_handlers) found = _handlers.TryGetValue(type, out handler);
+        if (!found) throw new Exception("Unknown command: " + type);
+        return await handler.Run(new UICommandContext(server, http, payload, cancellation));
     }
     public async Task<IResult> Execute(HttpContext http) {
         UICommandRequest? request = null;
@@ -48,14 +51,15 @@ public sealed class UICommands {
         if (request == null || string.IsNullOrWhiteSpace(request.Type)) {
             return Results.BadRequest(new { error = "Expected a JSON body: { type, payload }. " });
         }
-        Func<UICommandContext, Task<object?>>? handler;
-        lock (_handlers) _handlers.TryGetValue(request.Type, out handler);
-        if (handler == null) return Results.BadRequest(new { error = "Unknown command: " + request.Type });
+        bool found;
+        (Func<UICommandContext, Task<object?>> Run, bool Compress) handler;
+        lock (_handlers) found = _handlers.TryGetValue(request.Type, out handler);
+        if (!found) return Results.BadRequest(new { error = "Unknown command: " + request.Type });
         using var run = string.IsNullOrEmpty(request.RunId) ? null : _runs.Begin(request.RunId, http.RequestAborted);
         var cancellation = run?.Token ?? http.RequestAborted;
         try {
-            var result = await handler(new UICommandContext(_server, http, request.Payload, cancellation));
-            return Results.Json(result, RelatudeDBJsonOptions.Default);
+            var result = await handler.Run(new UICommandContext(_server, http, request.Payload, cancellation));
+            return handler.Compress ? (IResult)new UICompressibleJson(result) : Results.Json(result, RelatudeDBJsonOptions.Default);
         } catch (OperationCanceledException) when (cancellation.IsCancellationRequested) {
             // stopped from the page, or the request was given up on: an answer, not a failure
             return Results.Json(new { error = "Stopped. ", cancelled = true }, RelatudeDBJsonOptions.Default, statusCode: StatusCodes.Status499ClientClosedRequest);

@@ -175,14 +175,13 @@ sealed class UICustomLogs {
             activity = [.. store.AnalyseRows(s.Key, IntervalType.Hour, from, now, false, true).Select(i => i.HasValue ? i.Value : 0)];
             lastDay = activity.Sum();
         }
-        var logBytes = store.GetLogFileSize(s.Key);
-        var statisticsBytes = store.GetStatisticsFileSize(s.Key);
+        var files = store.GetFilesSummary(s.Key);
         return new LogSummary(
             s.Key, name, s.Description,
             enabledLog, enabledStatistics, s.EnableLogTextFormat, s.Compressed,
             s.FileInterval.ToString(), s.MaxAgeOfLogFilesInDays, s.MaxTotalSizeOfLogFilesInMb, s.ResolutionRowStats, s.FirstDayOfWeek.ToString(),
-            UILogReader.Utc(store.GetTimestampOfFirstRecord(s.Key)), UILogReader.Utc(store.GetTimestampOfLastRecord(s.Key)),
-            logBytes, statisticsBytes, logBytes + statisticsBytes,
+            UILogReader.Utc(files.FirstRecordUtc), UILogReader.Utc(files.LastRecordUtc),
+            files.LogBytes, files.StatisticsBytes, files.TotalBytes,
             lastDay,
             activity,
             [.. s.Properties.Select(p => (object)new {

@@ -33,6 +33,7 @@ public class LogStore : IDisposable, ILogStore {
     public long GetFileSize(string logKey) => get(logKey)?.GetTotalFileSize() ?? 0;
     public long GetLogFileSize(string logKey) => get(logKey)?.GetLogFileSize() ?? 0;
     public long GetStatisticsFileSize(string logKey) => get(logKey)?.GetStatisticsFileSize() ?? 0;
+    public LogFilesSummary GetFilesSummary(string logKey) => get(logKey)?.GetFilesSummary() ?? LogFilesSummary.Empty;
     public void DeleteLogOlderThan(string logKey, DateTime to) => get(logKey)?.EnforceDateLimit(to);
     public void DeleteLog(string logKey) => get(logKey)?.EnforceDateLimit(DateTime.MaxValue);
     public void DeleteStatistics(string logKey) => get(logKey)?.DeleteStatistics();

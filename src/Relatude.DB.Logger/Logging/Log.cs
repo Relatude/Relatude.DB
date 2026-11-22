@@ -331,7 +331,30 @@ internal class Log : IDisposable {
         });
         if (keep < matches.Count) matches.RemoveRange(keep, matches.Count - keep);
     }
-    public long GetTotalFileSize() => GetLogFileSize() + GetStatisticsFileSize();
+    /// <summary>The log's files and its statistics, from one listing of its folder.</summary>
+    public long GetTotalFileSize() {
+        using (hold()) {
+            var files = listFiles();
+            return files.LogBytes + files.StatisticsBytes;
+        }
+    }
+    /// <summary>Sizes and first and last record from one listing of the log's folder, where asking for
+    /// each on its own lists it four times and looks up every file's size twice.</summary>
+    public LogFilesSummary GetFilesSummary() {
+        using (hold()) {
+            var files = listFiles();
+            var (first, last) = _logStream.GetFirstAndLastRecord([.. files.Binary.Where(f => f.File.Size > 0).Select(f => f.Date)]);
+            return new(first, last, files.LogBytes, files.StatisticsBytes);
+        }
+    }
+    (List<(DateTime Date, FileMeta File)> Binary, long LogBytes, long StatisticsBytes) listFiles() {
+        _logStream.ReleaseFiles();
+        var listing = _io.GetFiles(FileKeyUtility.Logger_FolderKey(_setting.Key));
+        var binary = FileKeyUtility.Logger_FilesBin(listing, _setting.Key, _setting.FileInterval);
+        var text = FileKeyUtility.Logger_FilesTxt(listing, _setting.Key, _setting.FileInterval);
+        var statisticsBytes = listing.FirstOrDefault(f => f.KeyOf().IsSameKey(_statFileKey))?.Size ?? 0;
+        return (binary, binary.Sum(f => f.File.Size) + text.Sum(f => f.File.Size), statisticsBytes);
+    }
     public long GetLogFileSize() {
         using (hold()) {
             return _logStream.Size() + _logTextStream.Size();

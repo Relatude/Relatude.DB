@@ -55,6 +55,7 @@ sealed class UILogs {
         var logs = log.GetLogKeysAndNames().Select(kv => {
             var setting = store.GetSetting(kv.Key);
             saved.TryGetValue(kv.Key, out var remembered);
+            var files = store.GetFilesSummary(kv.Key);
             return new {
                 Key = kv.Key,
                 Name = kv.Value,
@@ -64,11 +65,11 @@ sealed class UILogs {
                 // which switches are only holding until this database closes
                 SavedLog = remembered?.Log ?? false,
                 SavedStatistics = remembered?.Statistics ?? false,
-                FirstRecordUtc = utc(store.GetTimestampOfFirstRecord(kv.Key)),
-                LastRecordUtc = utc(store.GetTimestampOfLastRecord(kv.Key)),
-                LogBytes = store.GetLogFileSize(kv.Key),
-                StatisticsBytes = store.GetStatisticsFileSize(kv.Key),
-                TotalBytes = store.GetFileSize(kv.Key),
+                FirstRecordUtc = utc(files.FirstRecordUtc),
+                LastRecordUtc = utc(files.LastRecordUtc),
+                files.LogBytes,
+                files.StatisticsBytes,
+                files.TotalBytes,
                 MaxAgeInDays = setting.MaxAgeOfLogFilesInDays,
                 MaxSizeInMb = setting.MaxTotalSizeOfLogFilesInMb,
                 Columns = setting.Properties.Select(p => new {
