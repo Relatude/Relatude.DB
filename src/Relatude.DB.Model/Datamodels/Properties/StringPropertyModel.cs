@@ -1,4 +1,5 @@
 ﻿using System.Globalization;
+using Relatude.DB.Common;
 
 namespace Relatude.DB.Datamodels.Properties;
 public class StringPropertyModel : PropertyModel, IPropertyModelUniqueContraints {
@@ -83,6 +84,7 @@ public class StringPropertyModel : PropertyModel, IPropertyModelUniqueContraints
     public override string GetDefaultValueAsCode() => GetValueAsCode(DefaultValue);
     public override string GetValueAsCode(object? value) => CSharpLiteral.String(value as string);
     public override string? GetTextIndex(object value) {
-        return value.ToString();
+        var text = value.ToString();
+        return StringType == StringValueType.HTML && text is not null ? HtmlText.ToText(text) : text;
     }
 }

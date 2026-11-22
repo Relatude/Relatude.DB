@@ -277,7 +277,7 @@ sealed class UIQuery {
     internal const string matchWildcard = "wildcard";
     internal const string matchFuzzy = "fuzzy";
     internal const string matchExact = "exact";
-    static readonly char[] searchWordSeparators = [.. SearchConst.DEVIDERS.Where(c => c != SearchConst.WILDCARD)];
+    static readonly char[] searchWordSeparators = [.. SearchConst.DIVIDERS.Where(c => c != SearchConst.WILDCARD)];
     static string applyMatch(string text, string? match) {
         if (string.Equals(match, matchExact, StringComparison.OrdinalIgnoreCase)) return text;
         var marker = string.Equals(match, matchFuzzy, StringComparison.OrdinalIgnoreCase) ? SearchConst.FUZZY : SearchConst.WILDCARD;

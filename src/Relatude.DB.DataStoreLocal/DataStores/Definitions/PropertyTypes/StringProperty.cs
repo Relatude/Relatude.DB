@@ -248,6 +248,8 @@ internal class StringProperty : ValueProperty<string>, IPropertyContainsValue, I
     internal string GetWordContextText(string question, string sourceText) {
         return sourceText;
     }
+    public override object ValueForIndex(IIndex index, object value)
+        => StringType == StringValueType.HTML && index is IWordIndex && value is string html ? HtmlText.ToText(html) : value;
     override public bool IsNodeRelevantForIndex(Guid nodeTypeId, IIndex index) {
         // special handling for system text index property, allowing different node types to be indexed or not
         if (!_isSystemTextIndexPropertyId) return true;

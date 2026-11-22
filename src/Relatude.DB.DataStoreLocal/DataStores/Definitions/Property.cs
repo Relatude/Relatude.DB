@@ -675,6 +675,7 @@ namespace Relatude.DB.DataStores.Definitions {
         // which mean "no location"). Must be a pure function of the value: index and de-index of
         // the same value have to agree, or removals would target entries that were never added.
         public virtual bool ShouldIndexValue(object value) => true;
+        public virtual object ValueForIndex(IIndex index, object value) => value;
         public virtual bool SatisfyValueRequirement(object? value1, object? value2, ValueRequirement requirement) {
             throw new NotImplementedException("The property " + CodeName + " of type " + PropertyType + " cannot support value requirements. ");
         }

@@ -329,14 +329,8 @@ public class RelatudeServicesFileToTextProvider : IFileToTextProvider {
         }
     }
 
-    /// <summary>A file of this kind in the engine's temp folder, or the machine's when the database keeps none on disk.</summary>
     static string tempPath(FileConversionEngine engine, FileFormat format) {
-        string folder;
-        try {
-            folder = engine.LocalTempFolderPath;
-        } catch {
-            folder = Path.GetTempPath();
-        }
+        var folder = engine.LocalTempFolderPath;
         Directory.CreateDirectory(folder);
         return Path.Combine(folder, Guid.NewGuid().ToString("N") + (FileFormatUtil.GetExtensionWithDot(format) ?? ".bin"));
     }

@@ -35,10 +35,11 @@ public static class UtilsText {
         foreach (var prop in nodeType.TextIndexProperties) {
             if (prop is not RelationPropertyModel rm) {
                 if (node.TryGetValue(prop.Id, out var value)) {
-                    sb.AppendLine(prop.GetTextIndex(value));
+                    var text = prop.GetTextIndex(value);
+                    sb.AppendLine(text);
                     // temporary method for boosting a field (the boost is the node type's: it may override the property's):
                     var boost = nodeType.GetIndexBoost(prop);
-                    for (int i = 0; i < boost; i++) sb.AppendLine(prop.GetTextIndex(value));
+                    for (int i = 0; i < boost; i++) sb.AppendLine(text);
                 }
             } else {
                 if (rm.TextIndexRelatedContent) {

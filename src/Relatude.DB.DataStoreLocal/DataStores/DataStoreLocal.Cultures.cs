@@ -1,5 +1,6 @@
 using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
+using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.DataStores.Indexes;
 using Relatude.DB.DataStores.Transactions;
 using Relatude.DB.IO;
@@ -17,7 +18,8 @@ namespace Relatude.DB.DataStores;
 public sealed partial class DataStoreLocal {
     // 2: a node with revisions gives the indexes what its readers read (Definition.IteratePropertyIndexes), where
     // version 1 (no record) gave the first published revision it had of each property
-    const int _indexRecordVersion = 2;
+    // 3: the word index of an HTML property holds its text (StringProperty.ValueForIndex), where 2 held the markup
+    const int _indexRecordVersion = 3;
     sealed class IndexRecord {
         public int Version { get; set; }
         public Guid[] Cultures { get; set; } = [];
@@ -35,9 +37,11 @@ public sealed partial class DataStoreLocal {
             LogError("Could not read the index record " + key.AsKeyString() + ". ", err);
         }
         _definition.IndexedCultures = record?.Cultures ?? [];
-        _indexesFromOlderVersion = (record?.Version ?? 1) < _indexRecordVersion;
+        var version = record?.Version ?? 1;
+        _indexesFromOlderVersion = version < 2 || version < 3 && hasHtmlWordIndexes();
         _embeddingModelOfVectors = record?.EmbeddingModel;
     }
+    bool hasHtmlWordIndexes() => _definition.Datamodel.Properties.Values.Any(p => p is StringPropertyModel { StringType: StringValueType.HTML, IndexedByWords: true });
     void writeIndexRecord() {
         var record = new IndexRecord { Version = _indexRecordVersion, Cultures = _definition.IndexedCultures, EmbeddingModel = _embeddingModelOfVectors };
         IOIndex.WriteAllBytes(FileKeyUtility.State_IndexRecordFileKey, JsonSerializer.SerializeToUtf8Bytes(record));
@@ -52,7 +56,7 @@ public sealed partial class DataStoreLocal {
         if (!_indexesFromOlderVersion) return;
         var made = _definition.GetAllIndexes().FirstOrDefault(i => i.PersistedTimestamp > 0);
         if (made == null) return; // every index is read from the beginning of the log anyway
-        throw new StateFileReadException("The indexes were made by an earlier version, which put the revisions of a node in them differently (index \"" + made.FriendlyName + "\"). ", null);
+        throw new StateFileReadException("The indexes were made by an earlier version, which filled them differently (index \"" + made.FriendlyName + "\"). ", null);
     }
     /// <summary>
     /// Brings the culture indexes in line with the store's cultures and writes the record. At the open, after the

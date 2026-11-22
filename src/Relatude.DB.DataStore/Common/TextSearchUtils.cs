@@ -3,8 +3,8 @@ using System.Text;
 namespace Relatude.DB.Common;
 
 // chars that are LetterOrDigit are included
-// chars that are "DEVIDERS" are replaced with space ( word separator )
-// chars that are neither "DEVIDERS"  nor LetterOrDigit are ignored ( melts words together )
+// chars that are "DIVIDERS" are replaced with space ( word separator )
+// chars that are neither "DIVIDERS"  nor LetterOrDigit are ignored ( melts words together )
 // SPACE is word separator
 // TO clean a search expression, use SearchUtil...
 // TO clean a text for indexing, use IndexUtil...
@@ -15,8 +15,8 @@ namespace Relatude.DB.Common;
 public static class SearchConst {
     public const char WILDCARD = '*';
     public const char FUZZY = '~';
-    public const char DEVIDER = ' ';
-    public const string DEVIDERS = " \t\n\r,.=/\\?&|+-*()[]{}:";
+    public const char DIVIDER = ' ';
+    public const string DIVIDERS = " \t\n\r,.=/\\?&|+-*()[]{}:";
     public const string KEEP = "'"; // keep apostrophes, as in "O'Connor" or "it's"
     public static bool Keep(char c) => char.IsLetterOrDigit(c) || SearchConst.KEEP.Contains(c);
 }
@@ -39,9 +39,9 @@ public static class SearchUtil {
         search = search.ToLowerInvariant(); // must match the invariant lowercasing used when indexing
         foreach (var c in search) {
             if (SearchConst.Keep(c) || c == SearchConst.WILDCARD || c == SearchConst.FUZZY) sb.Append(c);
-            else if (SearchConst.DEVIDERS.Contains(c)) sb.Append(SearchConst.DEVIDER);
+            else if (SearchConst.DIVIDERS.Contains(c)) sb.Append(SearchConst.DIVIDER);
         }
-        var terms = sb.ToString().Split(SearchConst.DEVIDER, StringSplitOptions.RemoveEmptyEntries);
+        var terms = sb.ToString().Split(SearchConst.DIVIDER, StringSplitOptions.RemoveEmptyEntries);
         sb = new StringBuilder();
         foreach (var term in terms) {
             var termWithOutSpecialChars = term
@@ -49,7 +49,7 @@ public static class SearchUtil {
                 .Replace(SearchConst.FUZZY.ToString(), string.Empty);
             if (termWithOutSpecialChars.Length < minWordLength) continue;
             if (StopWords.Contains(term)) continue;
-            if (sb.Length > 0) sb.Append(SearchConst.DEVIDER);
+            if (sb.Length > 0) sb.Append(SearchConst.DIVIDER);
             if (term.Length > maxWordLength) sb.Append(term[..maxWordLength]);
             else sb.Append(term);
         }
@@ -64,7 +64,7 @@ public static class IndexUtil {
     // A character that is kept is a letter, digit or apostrophe, so its lowercase is never 0, 1 or 2.
     const char UNSET = '\0', DIVIDER = '\u0001', IGNORE = '\u0002';
     // invariant, the cache is process wide and must not depend on the current thread culture
-    static char classify(char c) => SearchConst.Keep(c) ? char.ToLowerInvariant(c) : SearchConst.DEVIDERS.Contains(c) ? DIVIDER : IGNORE;
+    static char classify(char c) => SearchConst.Keep(c) ? char.ToLowerInvariant(c) : SearchConst.DIVIDERS.Contains(c) ? DIVIDER : IGNORE;
     static readonly char[] _ascii = buildAscii(); // 256 bytes, stays in L1 and covers almost all text
     static readonly char[] _map = new char[char.MaxValue + 1]; // filled lazily, U+FFFF is a legal char in a string
     static char[] buildAscii() {
@@ -169,7 +169,7 @@ public static class IndexUtil {
             var word = pool[length] ??= new char[length];
             buffer.AsSpan(0, length).CopyTo(word);
             if (StopWords.Contains(word)) return;
-            if (sb.Length > 0) sb.Append(SearchConst.DEVIDER);
+            if (sb.Length > 0) sb.Append(SearchConst.DIVIDER);
             sb.Append(buffer, 0, length);
         }
     }

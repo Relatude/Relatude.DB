@@ -13,7 +13,8 @@ public class FileConversionEngine : IDisposable {
     readonly RunningConversions _conversions;
     readonly FileConversionCache _fileCache;
     readonly FileConversionScheduler _scheduler;
-    readonly string? _localTempFolderPath;
+    readonly string _localTempFolderPath;
+    readonly bool _cacheHasLocalTempFolder;
     public readonly IDataStore Store;
     public FileConversionEngine(IDataStore store, IFileConverter[] converters, IIOProvider io) {
         Store = store;
@@ -22,8 +23,10 @@ public class FileConversionEngine : IDisposable {
         _conversions = new();
         if (io.TryGetLocalFolderPath(_tempBaseFolder, out var tempFolder)) {
             _localTempFolderPath = tempFolder;
+            _cacheHasLocalTempFolder = true;
         } else {
-            _localTempFolderPath = null;
+            // a cache in blob storage has no local folder, and ffmpeg needs one
+            _localTempFolderPath = Path.Combine(Path.GetTempPath(), "relatude.db", "conversions");
         }
         _fileCache = new(io, _cacheBaseFolder);
         _scheduler = new FileConversionScheduler(pulse, ex => Store.LogError("File conversion scheduler error: ", ex));
@@ -40,14 +43,14 @@ public class FileConversionEngine : IDisposable {
     /// </summary>
     public void ClearTempFolder() {
         int deleted = 0, kept = 0;
-        if (_localTempFolderPath == null) {
+        if (!_cacheHasLocalTempFolder) {
             try {
                 (deleted, kept) = _fileCache.DeleteStaleTempFiles(_staleTempFileAge);
             } catch (Exception ex) {
                 Store.LogError("Failed to clear temp folder for file conversions. ", ex);
-                return;
             }
-        } else if (Directory.Exists(_localTempFolderPath)) {
+        }
+        if (Directory.Exists(_localTempFolderPath)) {
             var cutoff = DateTime.UtcNow - _staleTempFileAge;
             foreach (var file in Directory.EnumerateFiles(_localTempFolderPath, "*", SearchOption.AllDirectories)) {
                 try {
@@ -503,7 +506,7 @@ public class FileConversionEngine : IDisposable {
     /// when they are all deleted. See <see cref="FileConversionCache.Generation"/>.</summary>
     public Guid CacheGeneration => _fileCache.Generation;
     public FileConverterLibrary ConverterLibrary => _fileConverters;
-    public string LocalTempFolderPath => _localTempFolderPath ?? throw new Exception("Local temp folder path is not available. ");
+    public string LocalTempFolderPath => _localTempFolderPath;
 
     public FileConversions GetConversions() {
         var running = _conversions.GetAll();

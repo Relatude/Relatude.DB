@@ -152,7 +152,7 @@ internal sealed class Definition {
                 if (propDef is SystemDateTimeProperty) continue; // indexed from the node record below, never from a value
                 if (!propDef.ShouldIndexValue(kv.Value)) continue;
                 foreach (var index in propDef.AllIndexes) {
-                    if (propDef.IsNodeRelevantForIndex(nd.NodeType, index)) action(nd, index, kv.Value);
+                    if (propDef.IsNodeRelevantForIndex(nd.NodeType, index)) action(nd, index, propDef.ValueForIndex(index, kv.Value));
                 }
             }
         } else if (node is NodeDataRevisions ndr) {
@@ -186,7 +186,7 @@ internal sealed class Definition {
             if (!propDef.ShouldIndexValue(kv.Value)) continue;
             foreach (var index in propDef.AllIndexes) {
                 if (own != null && propDef.CultureIndexes.Count > 0 && own.ContainsKey(propDef.CultureOf(index))) continue; // the culture's own goes there
-                if (propDef.IsNodeRelevantForIndex(read.NodeType, index)) action(read, index, kv.Value);
+                if (propDef.IsNodeRelevantForIndex(read.NodeType, index)) action(read, index, propDef.ValueForIndex(index, kv.Value));
             }
         }
         if (own == null) return;
@@ -197,7 +197,7 @@ internal sealed class Definition {
                 if (propDef is SystemDateTimeProperty) continue;
                 if (!propDef.ShouldIndexValue(kv.Value)) continue;
                 foreach (var index in propDef.AllIndexes) {
-                    if (propDef.CultureOf(index) == culture && propDef.IsNodeRelevantForIndex(rev.NodeType, index)) action(rev, index, kv.Value);
+                    if (propDef.CultureOf(index) == culture && propDef.IsNodeRelevantForIndex(rev.NodeType, index)) action(rev, index, propDef.ValueForIndex(index, kv.Value));
                 }
             }
         }
