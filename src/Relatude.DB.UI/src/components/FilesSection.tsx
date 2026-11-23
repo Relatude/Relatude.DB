@@ -158,6 +158,7 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
   // under here?"), and a walk of thousands of files is not what anyone means to arrive at by opening
   // a folder or by coming back to the section, so it is never remembered.
   const [recursive, setRecursive] = useState(false);
+  const [findingLeases, setFindingLeases] = useState(false);
   // what that walk found, and the folder it was made from: a listing kept until something makes it
   // stale (another folder, another provider, a file written or deleted)
   const [deepFiles, setDeepFiles] = useState<({ ioId: string; path: string } & DeepListing) | null>(null);
@@ -1008,24 +1009,37 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
 
   /**
    * Blob storage only: which blobs below this folder are leased, and breaking the leases nobody is
-   * going to let go of. A lease this version takes ends within a minute of its process stopping; one
-   * that never ends was left by an older version, and blocks every open of its blob until it is broken.
-   * The ones this server holds for its own open files are never offered.
+   * going to let go of. This version leases one blob, the storage's lock, which ends within 15 seconds
+   * of its process stopping; a lease on any other blob was left by an older version. This server's own
+   * lock is never offered.
    */
   async function onLeases() {
     if (!ioId) return;
     const io = ioId;
     const where = showPath(path) || "this storage";
+    if (path === "") {
+      const look = await showConfirm(
+        "Look through the whole storage?",
+        "Finding the leases at the root lists every blob in this storage: the database's own files and every stored file. " +
+          "On a large storage that is many requests and can take a while - to look in one part only, open its folder first. " +
+          "Nothing is broken yet: the leases found are shown first, and you choose whether to break them.",
+        { confirmLabel: "Look for leases" },
+      );
+      if (!look.ok) return;
+    }
     let leases: LeasedBlob[];
+    setFindingLeases(true);
     try {
       leases = (await fetchLeases(io, path)).leases;
     } catch (e) {
       showError("Could not list the leases", e instanceof Error ? e.message : String(e));
       return;
+    } finally {
+      setFindingLeases(false);
     }
     const others = leases.filter((l) => !l.heldHere);
     const own = leases.length - others.length;
-    const ownLine = `${own} blob${own === 1 ? " is" : "s are"} leased by this server for files it has open; those leases end when the files close.`;
+    const ownLine = "This server holds the lock on this storage, and lets go of it when its databases close.";
     if (others.length === 0) {
       showInfo("No leases to break", own === 0 ? `Nothing in ${where} is leased.` : ownLine);
       return;
@@ -1039,7 +1053,7 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
           : forever > 0
             ? `${forever} of them never end by themselves: left by an older version of Relatude.DB, or taken by another tool. `
             : "") +
-        "A lease taken by this version ends within a minute of its process stopping, so one that is still held may belong to an instance that is running - " +
+        "The lock this version takes ends within 15 seconds of its process stopping, so one that is still held belongs to an instance that is running - " +
         "breaking it lets two processes write the same files. Break them only when no other instance uses this storage." +
         (own > 0 ? " " + ownLine : ""),
       {
@@ -1232,8 +1246,9 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
         {io?.type === "AzureBlobStorage" && (
           <button
             className="icon-button"
-            title="Leases: which blobs below this folder another process holds a lease on, and breaking the leases nobody is going to let go of"
+            title={findingLeases ? "Looking for leases…" : "Leases: which blobs below this folder another process holds a lease on, and breaking the leases nobody is going to let go of"}
             onClick={onLeases}
+            disabled={findingLeases}
           >
             <IconLockOpen size={16} stroke={1.8} className="tone-data" />
           </button>

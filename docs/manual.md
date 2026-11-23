@@ -2335,7 +2335,7 @@ with one database. Short names must be unique, and only one database can go with
 | `Path` | `"~"` | `LocalDisk` only. Relative to the root data folder, which `~` stands for. `relatude.data` is the usual value. |
 | `BlobConnectionString` | null | `AzureBlobStorage` only. Required. |
 | `BlobContainerName` | null | `AzureBlobStorage` only. Required. |
-| `LockBlob` | `false` | Lease every blob that has an open stream, so no other process can write or delete it. Use it wherever two instances can overlap, such as an overlapped recycle. |
+| `LockBlob` | `false` | Lock the container against other processes while this one writes it, with one lease on a blob named `_lock`. Reads take no lock. Use it wherever two instances can overlap, such as an overlapped recycle. |
 
 A `LocalDisk` path must stay inside the root data folder, even an absolute one, or the server refuses
 it. To keep the data somewhere else, move the root data folder with
@@ -2343,10 +2343,14 @@ it. To keep the data somewhere else, move the root data folder with
 can share one backend: inside it, the log, state, backups, logs and indexes each get their own
 folder.
 
-**Blob leases.** A lease lasts 60 seconds and is renewed while the stream is open. A process that
-dies without letting go keeps its blobs locked for at most a minute: an open that finds a blob leased
-waits up to 75 seconds, then fails with a `FileLockedException`. A lease that never ends, one taken by
-another tool for example, blocks every open of its blob. To release it, open **Files** in the admin UI
+**The container lock.** With `LockBlob`, the first write a process makes to a container takes a lease
+on a blob named `_lock` in it. The lease lasts 15 seconds and is renewed every 5 seconds until the
+database closes, so no second instance can write the container meanwhile. Reading takes no lock: bytes
+once written to a blob never change. Within one process, a file open for writing cannot be opened
+again, and a file that is open cannot be deleted. A process that dies without letting go holds the
+lock for at most 15 seconds. A write in another process waits up to 20 seconds for it, then fails
+with a `FileLockedException`. Older versions leased every blob they wrote, and some of those leases
+never end. A blob with such a lease cannot be written. To release it, open **Files** in the admin UI
 on that storage and press **Leases**. It lists the leased blobs and breaks the leases this server
 does not hold itself. Break them only when no other instance uses the storage.
 
@@ -2654,7 +2658,7 @@ RelatudeDB__DefaultStore__IndexFolderPath=/tmp/relatude
 ```
 
 - With the two blob keys, every storage provider the default database uses (database, indexes,
-  backup, log, file stores) becomes that blob container, with leases on. A provider another database
+  backup, log, file stores) becomes that blob container, with the container lock on. A provider another database
   shares moves with it. A secondary log is turned off, as in the same container it would write the
   primary log's blobs. A database without a storage provider gets one. One blob key without the other
   is warned about and ignored.

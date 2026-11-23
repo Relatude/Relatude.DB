@@ -137,6 +137,7 @@ internal class Log : IDisposable {
         if (_disposed) return;
         var entry = pending.Entry;
         if (pending.Record != null) {
+            _noFiles = false;
             _logStream.Record(pending.Record, flushToDisk);
             if (_setting.EnableLogTextFormat) _logTextStream.Record(entry, flushToDisk);
         }
@@ -817,9 +818,44 @@ internal class Log : IDisposable {
             }
         }
     }
-    internal void EnforceSizeLimit(int maxTotalSizeOfLogFilesInMb) {
+    // set when the last enforcement found no files and cleared by the next record written: a log that writes
+    // nothing has nothing to age out, and its folder is not listed again every minute
+    bool _noFiles;
+    /// <summary>
+    /// Deletes the files that ended before <paramref name="deleteBefore"/>, then the oldest binary files
+    /// until the rest fit <paramref name="maxTotalSizeOfLogFilesInMb"/> (0 for no limit) - the current
+    /// interval's file is never deleted. Decided from one listing of the log's folder; the open files are
+    /// let go of only when something is deleted.
+    /// </summary>
+    internal void EnforceLimits(DateTime? deleteBefore, int maxTotalSizeOfLogFilesInMb) {
         using (hold()) {
-            _logStream.DeleteLargeLog(maxTotalSizeOfLogFilesInMb);
+            if (_noFiles) return;
+            _logStream.WriteBuffered();
+            var interval = _setting.FileInterval;
+            var listing = _io.GetFiles(FileKeyUtility.Logger_FolderKey(_setting.Key), recursive: false);
+            var binary = FileKeyUtility.Logger_FilesBin(listing, _setting.Key, interval);
+            var text = FileKeyUtility.Logger_FilesTxt(listing, _setting.Key, interval);
+            if (binary.Count == 0 && text.Count == 0) {
+                _noFiles = true;
+                return;
+            }
+            var doomed = new List<(DateTime Date, FileMeta File)>();
+            if (deleteBefore is DateTime before) doomed.AddRange(binary.Concat(text).Where(f => f.Date.AddInterval(interval) <= before));
+            if (maxTotalSizeOfLogFilesInMb > 0) {
+                var kept = binary.Where(f => !doomed.Contains(f)).ToList();
+                var total = kept.Sum(f => f.File.Size);
+                var max = maxTotalSizeOfLogFilesInMb * 1024L * 1024L;
+                var current = DateTime.UtcNow.Floor(interval);
+                foreach (var f in kept.Where(f => f.Date != current)) {
+                    if (total <= max) break;
+                    total -= f.File.Size;
+                    doomed.Add(f);
+                }
+            }
+            if (doomed.Count == 0) return;
+            _logStream.ReleaseFiles();
+            _logTextStream.ReleaseFiles();
+            foreach (var f in doomed) _io.DeleteFileIfItExists(f.File.KeyOf());
         }
     }
 }

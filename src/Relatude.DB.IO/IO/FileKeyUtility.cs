@@ -52,7 +52,7 @@ public static class FileKeyUtility {
     public const string InstallationFolderName = "installation";
     /// <summary>The folder the file conversion engine caches its converted files in. Not a system
     /// folder: like the index and file store folders it owns its content and is not listed by
-    /// <see cref="IIOProvider.GetFiles"/>.</summary>
+    /// <see cref="IIOProvider.GetFiles()"/>.</summary>
     public const string ConvertedFolderName = "converted";
     /// <summary>The folder uploads are written into while they are still arriving; a file is moved
     /// onto its real key only once every byte of it is there. Leading dot so it cannot collide with
@@ -286,6 +286,8 @@ public static class FileKeyUtility {
         return [.. io.Search(indexFilePattern)];
     }
     public static string[][] Index_GetAllNumbered(IIOProvider io) => [.. io.Search(indexFilePattern).Where(k => hasNumberedFileName(k, 4))];
+    /// <summary>What the numbered index state files take, from one listing of the state folder.</summary>
+    public static long Index_SizeOfAllNumbered(IIOProvider io) => io.SearchFiles(indexFilePattern).Where(f => hasNumberedFileName(f.KeyOf(), 4)).Sum(f => f.Size);
 
 
     public static string[] WAL_GetFileKey(int n) => fill(walFilePattern, n.ToString("00000000"));
@@ -295,6 +297,8 @@ public static class FileKeyUtility {
     public static string[] WAL_NextFileKey(IIOProvider io) => nextFileKey(WAL_GetLatestFileKey(io), WAL_GetFileKey);
     public static DateTime WAL_GetBackUpDateTimeFromFileKey(string[] fileKey) => backupDateTime(fileKey);
     public static string[][] WAL_GetAllBackUpFileKeys(IIOProvider io) => [.. io.Search(walFileBackupPattern)];
+    /// <summary>The database log files and the backups of them as listed, each in key order, from one listing of their folder each.</summary>
+    public static List<FileMeta> WAL_GetAllFilesAndBackUps(IIOProvider io) => [.. io.SearchFiles(walFilePattern), .. io.SearchFiles(walFileBackupPattern)];
     /// <summary>What every backup takes, from one listing of the backup folder.</summary>
     public static long WAL_SizeOfAllBackUpFiles(IIOProvider io) => io.SearchFiles(walFileBackupPattern).Sum(f => f.Size);
     /// <summary>Whether the key names a database log file in the data folder (data/db.00000001.bin).
@@ -410,20 +414,27 @@ public static class FileKeyUtility {
 
     // Before the folder layout every file lived in the storage root. The startup migration moves
     // those files into their folders using the helpers below.
-    public static string[][] WAL_GetLegacyRootFileKeys(IIOProvider io) => [.. io.Search(["db.*.bin"])];
+    /// <summary>The keys of the files directly in the storage root, listed once for all the legacy helpers below:
+    /// on blob storage a search of the root per pattern listed every blob in the container.</summary>
+    public static string[][] RootFileKeys(IIOProvider io) => [.. io.GetFiles([], recursive: false).Select(f => f.KeyOf())];
+    static string[][] matching(string[][] keys, params string[][] patterns)
+        => [.. patterns.SelectMany(p => keys.Where(k => k.MatchesPattern(p)).OrderBy(k => k.AsKeyString()))];
+    public static string[][] WAL_GetLegacyRootFileKeys(IIOProvider io) => WAL_GetLegacyRootFileKeys(RootFileKeys(io));
+    public static string[][] WAL_GetLegacyRootFileKeys(string[][] rootKeys) => matching(rootKeys, ["db.*.bin"]);
     /// <summary>Where the secondary log was kept before it was data/secondary.bin: data/db.log, and db.log
     /// in the storage root before the folder layout. Moved to <see cref="WAL_GetSecondaryFileKey"/> at open.</summary>
     public static string[][] WAL_GetOldSecondaryFileKeys() => [[DataFolderName, "db.log"], ["db.log"]];
     public static string[] MapLegacyRootFileKeyToDataFolder(string[] legacyRootFileKey) => [DataFolderName, .. legacyRootFileKey];
     /// <summary>Database and file store backups in the storage root; they now live in the bkup folder.</summary>
-    public static string[][] Legacy_GetRootBackupFileKeys(IIOProvider io)
-        => [.. io.Search(["db.*.bkup"]), .. io.Search(["files.*.bkup"])];
+    public static string[][] Legacy_GetRootBackupFileKeys(IIOProvider io) => Legacy_GetRootBackupFileKeys(RootFileKeys(io));
+    public static string[][] Legacy_GetRootBackupFileKeys(string[][] rootKeys) => matching(rootKeys, ["db.*.bkup"], ["files.*.bkup"]);
     /// <summary>State snapshot, index states and their record, mapper dlls and queue files in the storage root; they now live in the state folder.</summary>
-    public static string[][] Legacy_GetRootStateFileKeys(IIOProvider io)
-        => [.. io.Search(["state.bin"]), .. io.Search(["state.*.bin"]), .. io.Search(["index.*.bin"]), .. io.Search([State_IndexRecordFileKey[^1]]), .. io.Search(["mapper.*.dll"]), .. io.Search(["queue.*"])];
+    public static string[][] Legacy_GetRootStateFileKeys(IIOProvider io) => Legacy_GetRootStateFileKeys(RootFileKeys(io));
+    public static string[][] Legacy_GetRootStateFileKeys(string[][] rootKeys)
+        => matching(rootKeys, ["state.bin"], ["state.*.bin"], ["index.*.bin"], [State_IndexRecordFileKey[^1]], ["mapper.*.dll"], ["queue.*"]);
     /// <summary>Logger files and the critical error log in the storage root; they now live in the log folder.</summary>
-    public static string[][] Legacy_GetRootLoggerFileKeys(IIOProvider io)
-        => [.. io.Search(["log.*"]), .. io.Search(["critical.error.txt"])];
+    public static string[][] Legacy_GetRootLoggerFileKeys(IIOProvider io) => Legacy_GetRootLoggerFileKeys(RootFileKeys(io));
+    public static string[][] Legacy_GetRootLoggerFileKeys(string[][] rootKeys) => matching(rootKeys, ["log.*"], ["critical.error.txt"]);
     /// <summary>
     /// The file name the ai cache had in the root of its local disk folder before it moved into the
     /// prefixed indexes folder (where the prefix left the file name), or null when the cache type

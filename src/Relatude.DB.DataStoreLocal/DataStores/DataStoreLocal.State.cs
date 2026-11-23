@@ -156,9 +156,10 @@ public sealed partial class DataStoreLocal : IDataStore {
         _noPrimitiveActionsInLogThatCanBeTruncated = 0;
         _noPrimitiveActionsInLog = 0;
         var sw = Stopwatch.StartNew();
-        var walFileSize = _wal.FileSize; // while it is open...
-        _wal.Close();
-        var walFileId = LogReader.ReadFileId(_wal.FileKey, _io);
+        // the log stays open through the whole open, and is read through its own stream: closed, even for a
+        // moment, another process could take it while this one loads the indexes and replays
+        var walFileSize = _wal.FileSize;
+        var walFileId = _wal.FileId;
         deleteIncompleteAndLegacyStateFiles(); // before any state or index file is opened
         // The estimate of the whole open is shared between the three things it reads - the index
         // snapshots, the state snapshot and the log - by how many bytes each is. A fixed split
@@ -166,8 +167,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         // began, with the entire replay still ahead. The log counts in full until the state snapshot
         // says where the replay starts, and then only what is left of it: that can only move the
         // estimate forward. Nothing here reaches 100 - the open is done when the store says Open.
-        long indexFileBytes = 0;
-        foreach (var key in FileKeyUtility.Index_GetAllNumbered(IOIndex)) indexFileBytes += IOIndex.GetFileSizeOrZeroIfUnknown(key);
+        long indexFileBytes = FileKeyUtility.Index_SizeOfAllNumbered(IOIndex);
         var stateFileKey = FileKeyUtility.State_GetNewestFileKey(IOIndex); // incomplete files are already deleted above
         long stateFileBytes = stateFileKey == null ? 0 : IOIndex.GetFileSizeOrZeroIfUnknown(stateFileKey);
         double estimateTotalBytes = Math.Max(1, indexFileBytes + stateFileBytes + walFileSize);
@@ -315,7 +315,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         var lastBytesRead = 0D;
         Engines.BeginTransaction();
         var idValidator = new IdValidator(this, throwOnErrors); // validation below only runs for actions newer than the node store's position
-        using (var logReader = new LogReader(_wal.FileKey, _definition, _io, readLogFileFrom, stateFileTimestamp, skipTransactionsOlderThan)) {
+        using (var logReader = _wal.ReadLog(readLogFileFrom, stateFileTimestamp, skipTransactionsOlderThan)) {
             LogInfo("   Log file size: " + logReader.FileSize.ToByteString());
             var noActionsNotCommittedInPersistedIndexes = 0;
             double progressBarFactor = 1 - readLogFileFrom / (double)logReader.FileSize;
@@ -445,10 +445,8 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
         Engines.CommitTransaction(_wal.LastTimestamp);
         Engines.MakeDurable(_wal.LastTimestamp); // replay work must not stay pending until the first background flush
-        // node segments are final here (state + replay, in write order), so the version-chain heads
-        // can be established; must happen while the log streams are still closed:
-        _wal.SeedChainHeadsWhileClosed(persistedChainState, _nodes.EnumerateSegments_NotThreadsafe(), msg => LogInfo(msg), logError);
-        _wal.OpenForAppending(); // read for appending again
+        // node segments are final here (state + replay, in write order), so the version-chain heads can be established
+        _wal.SeedChainHeads(persistedChainState, _nodes.EnumerateSegments_NotThreadsafe(), msg => LogInfo(msg), logError);
         validateStateInfoIfDebug();
         foreach (var e in idValidator.GetErrors()) logError(e);
         if (modelChanged) {

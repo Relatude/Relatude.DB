@@ -16,7 +16,7 @@ namespace Relatude.DB.DataStores.Files;
 /// Files stored before the option was turned on stay where they are, and files kept by their hash stay
 /// readable after it is turned off.
 /// </summary>
-public class MultiFileStore : IDisposable, IFileStore, IFileStoreMultiPartSupport, IFileStoreDeleteUnreferenced, IFileStoreSharing {
+public class MultiFileStore : IDisposable, IFileStore, IFileStoreMultiPartSupport, IFileStoreDeleteUnreferenced, IFileStoreSharing, IFileStoreReadStream {
     readonly IIOProvider _ioProvider;
     readonly string[] _basePath;
     public Guid Id { get; }
@@ -162,6 +162,7 @@ public class MultiFileStore : IDisposable, IFileStore, IFileStoreMultiPartSuppor
             if (entry.Value < forgetBefore) state.HandedOut.TryRemove(entry); // only if not handed out again since
         }
     }
+    public Stream OpenReadStream(FileValue value) => _ioProvider.OpenRead(getFullPath(value), 0).AsStream();
     public async Task ExtractAsync(FileValue value, Stream outStream) {
         await extractAsync(value, (buffer, count) => outStream.WriteAsync(buffer, 0, count));
     }

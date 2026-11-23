@@ -213,15 +213,19 @@ public sealed partial class DataStoreLocal : IDataStore {
     // layer.) Returns the log lines describing what was moved, to be logged once the logger exists.
     List<string> moveLegacyFilesIntoFolders() {
         var log = new List<string>();
-        foreach (var key in FileKeyUtility.WAL_GetLegacyRootFileKeys(_io)) moveLegacyFileIntoFolder(_io, key, [FileKeyUtility.DataFolderName], LegacyConflict.Throw, log);
+        // one listing of each provider's root, often the same provider; the patterns of the groups below never
+        // match each other's files, so a file moved by one group is not in another's list
+        var roots = new Dictionary<IIOProvider, string[][]>(ReferenceEqualityComparer.Instance);
+        string[][] rootOf(IIOProvider io) => roots.TryGetValue(io, out var keys) ? keys : roots[io] = FileKeyUtility.RootFileKeys(io);
+        foreach (var key in FileKeyUtility.WAL_GetLegacyRootFileKeys(rootOf(_io))) moveLegacyFileIntoFolder(_io, key, [FileKeyUtility.DataFolderName], LegacyConflict.Throw, log);
         // the secondary log was data/db.log (db.log in the root before that) and is data/secondary.bin
         foreach (var oldKey in FileKeyUtility.WAL_GetOldSecondaryFileKeys()) {
             if (_ioLog2.Exists(oldKey)) moveLegacyFile(_ioLog2, oldKey, FileKeyUtility.WAL_GetSecondaryFileKey(), LegacyConflict.Throw, log);
         }
-        foreach (var key in FileKeyUtility.Legacy_GetRootBackupFileKeys(_ioAutoBackup)) moveLegacyFileIntoFolder(_ioAutoBackup, key, [FileKeyUtility.BackupFolderName], LegacyConflict.LeaveLegacy, log);
-        foreach (var key in FileKeyUtility.Legacy_GetRootStateFileKeys(_ioIndex)) moveLegacyFileIntoFolder(_ioIndex, key, [FileKeyUtility.StateFolderName], LegacyConflict.DeleteLegacy, log);
+        foreach (var key in FileKeyUtility.Legacy_GetRootBackupFileKeys(rootOf(_ioAutoBackup))) moveLegacyFileIntoFolder(_ioAutoBackup, key, [FileKeyUtility.BackupFolderName], LegacyConflict.LeaveLegacy, log);
+        foreach (var key in FileKeyUtility.Legacy_GetRootStateFileKeys(rootOf(_ioIndex))) moveLegacyFileIntoFolder(_ioIndex, key, [FileKeyUtility.StateFolderName], LegacyConflict.DeleteLegacy, log);
         // a logger file goes into the folder of its log, which its name says
-        foreach (var key in FileKeyUtility.Legacy_GetRootLoggerFileKeys(_ioLog)) moveLegacyFileIntoFolder(_ioLog, key, FileKeyUtility.Logger_FolderKeyOfFileName(key.FileName()), LegacyConflict.LeaveLegacy, log);
+        foreach (var key in FileKeyUtility.Legacy_GetRootLoggerFileKeys(rootOf(_ioLog))) moveLegacyFileIntoFolder(_ioLog, key, FileKeyUtility.Logger_FolderKeyOfFileName(key.FileName()), LegacyConflict.LeaveLegacy, log);
         return log;
     }
     // What to do when the destination already exists with a DIFFERENT size than the legacy file:

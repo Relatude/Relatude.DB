@@ -58,6 +58,7 @@ internal static class FFmpegProcess {
             StandardErrorEncoding = Encoding.UTF8,
         };
         foreach (var argument in arguments) psi.ArgumentList.Add(argument);
+        if (OperatingSystem.IsWindows() || OperatingSystem.IsLinux()) psi.KillOnParentExit = true;
         using var process = new Process { StartInfo = psi };
         try {
             process.Start();

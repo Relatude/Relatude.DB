@@ -23,6 +23,12 @@ public interface IIOProvider {
         var prefix = folder.AsKeyString() + FileKeyExtensions.KeyDelimiter;
         return [.. GetFiles().Where(f => f.Key.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))];
     }
+    /// <summary>As <see cref="GetFiles(string[])"/>, or only the files directly in the folder when not
+    /// <paramref name="recursive"/>: on blob storage that leaves out everything below it unlisted.</summary>
+    FileMeta[] GetFiles(string[] folder, bool recursive) {
+        var files = GetFiles(folder);
+        return recursive ? files : [.. files.Where(f => f.KeyOf().Length == folder.Length + 1)];
+    }
     long GetFileSizeOrZeroIfUnknown(string[] path);
     bool CanRenameFile { get; }
     void RenameFile(string[] path, string[] newPath);
@@ -98,7 +104,10 @@ public static class IIOProviderExtensions {
     public static List<string[]> Search(this IIOProvider io, string[] wildcardPattern) => [.. io.SearchFiles(wildcardPattern).Select(f => f.KeyOf())];
     /// <summary>As <see cref="Search"/>, with what the listing says of each file: its size needs no request of its own.</summary>
     public static List<FileMeta> SearchFiles(this IIOProvider io, string[] wildcardPattern) {
-        return io.GetFiles(LiteralFolderOf(wildcardPattern)).Where(f => f.KeyOf().MatchesPattern(wildcardPattern)).OrderBy(f => f.KeyOf().AsKeyString()).ToList();
+        var folder = LiteralFolderOf(wildcardPattern);
+        // a match has as many segments as the pattern, so with only the file name left to match it lies directly in the folder
+        var recursive = folder.Length < wildcardPattern.Length - 1;
+        return io.GetFiles(folder, recursive).Where(f => f.KeyOf().MatchesPattern(wildcardPattern)).OrderBy(f => f.KeyOf().AsKeyString()).ToList();
     }
     /// <summary>The leading folders of a pattern that hold no wildcard, which every match lies below.</summary>
     public static string[] LiteralFolderOf(string[] wildcardPattern) {

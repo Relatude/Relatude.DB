@@ -28,30 +28,30 @@ internal class LogReader : IDisposable {
     /// <param name="fromTimestamp"></param>    /// <param name="skipTransactionsOlderThan">A transaction with an older timestamp is read past - no checksums, no
     /// deserialization - and returned with no actions, for a caller that already holds everything it changed.
     /// Decided per transaction, as timestamps in a log are not in order everywhere (a rewritten log is not).</param>
-    public LogReader(string[] fileKey, Definition definition, IIOProvider io, long fromTransactionAtPos, long fromTimestamp, long skipTransactionsOlderThan = long.MinValue) {
-        _fileSize = io.GetFileSizeOrZeroIfUnknown(fileKey);
-        if (_fileSize > 0) _readStream = verifyFileAndOpen(fileKey, io, fromTransactionAtPos, out _, out _formatVersion);
+    public LogReader(string[] fileKey, Definition definition, IIOProvider io, long fromTransactionAtPos, long fromTimestamp, long skipTransactionsOlderThan = long.MinValue)
+        : this(definition, io.GetFileSizeOrZeroIfUnknown(fileKey), position => io.OpenRead(fileKey, position), fromTransactionAtPos, fromTimestamp, skipTransactionsOlderThan) { }
+    /// <summary>Reads a log file through the append stream that has it open, which stays open: the file is
+    /// not let go of while it is read, so no other process can take it in the meantime.</summary>
+    internal LogReader(IAppendStream log, Definition definition, long fromTransactionAtPos, long fromTimestamp, long skipTransactionsOlderThan = long.MinValue)
+        : this(definition, log.Length, position => new StoreStreamAppendRead(log, position), fromTransactionAtPos, fromTimestamp, skipTransactionsOlderThan) { }
+    LogReader(Definition definition, long fileSize, Func<long, IReadStream> open, long fromTransactionAtPos, long fromTimestamp, long skipTransactionsOlderThan) {
+        _fileSize = fileSize;
+        if (_fileSize > 0) _readStream = verifyFileAndOpen(open, fromTransactionAtPos, out _formatVersion);
         _definition = definition;
         _lastTimestampID = fromTimestamp;
         _skipTransactionsOlderThan = skipTransactionsOlderThan;
     }
-    public static Guid ReadFileId(string[] fileKey, IIOProvider io) {
-        Guid fileId;
-        using (var readStream = verifyFileAndOpen(fileKey, io, 0, out fileId, out _)) {
-            return fileId;
-        }
-    }
-    static IReadStream verifyFileAndOpen(string[] fileKey, IIOProvider io, long fromTransactionAtPos, out Guid fileId, out long formatVersion) {
-        var readStream = io.OpenRead(fileKey, 0);
+    static IReadStream verifyFileAndOpen(Func<long, IReadStream> open, long fromTransactionAtPos, out long formatVersion) {
+        var readStream = open(0);
         try {
             readStream.ValidateMarker(WALFile._logStartMarker);
             var version = readStream.ReadVerifiedLong();
             if (!WALFile.IsKnownFormat(version)) throw new IOException("Incompatible log file format version number. Expected version " + WALFile._logVersioNumber + ", " + WALFile._logVersionNumberV1001 + " or " + WALFile._logVersionNumberV1000 + " but found " + version + " .");
             formatVersion = version;
-            fileId = readStream.ReadGuid();
+            readStream.ReadGuid(); // the file id
             if (fromTransactionAtPos > 0) { // reopen at a specific position
                 readStream.Dispose();
-                readStream = io.OpenRead(fileKey, fromTransactionAtPos);
+                readStream = open(fromTransactionAtPos);
             }
             return readStream;
         } catch {

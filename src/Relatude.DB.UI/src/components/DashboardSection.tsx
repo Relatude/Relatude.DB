@@ -77,6 +77,7 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
   const [trace, setTrace] = useState<TraceInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [openBusy, setOpenBusy] = useState(false);
+  const [findingLeases, setFindingLeases] = useState(false);
   // the page asked for an open itself: from the click on it is opening, not from the first sample
   // that happens to say so a couple of seconds later
   const [starting, setStarting] = useState(false);
@@ -214,12 +215,23 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
   // keeps others from writing its files, so breaking one is only safe once its holder is gone: the
   // dialog lists them, says which are being renewed, and wants the other instances ruled out first.
   async function onBreakLeases() {
+    const look = await showConfirm(
+      "Look through the whole blob storage?",
+      "Finding the leases lists every blob in this database's blob storage: the database's own files and every stored file. " +
+        "On a large storage that is many requests and can take a while. " +
+        "Nothing is broken yet: the leases found are shown first, and you choose whether to break them.",
+      { confirmLabel: "Look for leases" },
+    );
+    if (!look.ok) return;
     let found: Awaited<ReturnType<typeof fetchDatabaseLeases>>;
+    setFindingLeases(true);
     try {
       found = await fetchDatabaseLeases(db.id);
     } catch (e) {
       showError("Could not list the leases", e instanceof Error ? e.message : String(e));
       return;
+    } finally {
+      setFindingLeases(false);
     }
     const others = found.leases.filter((l) => !l.heldHere);
     if (others.length === 0) {
@@ -469,9 +481,10 @@ export function DashboardSection({ db }: { db: DatabaseInfo }) {
               <button
                 className="action-button danger"
                 onClick={onBreakLeases}
+                disabled={findingLeases}
                 title="Lists the leases another process holds on this database's blob storage, and breaks them once you have confirmed that no other instance uses it"
               >
-                Break leases…
+                {findingLeases ? "Looking for leases…" : "Break leases…"}
               </button>
             </div>
           )}

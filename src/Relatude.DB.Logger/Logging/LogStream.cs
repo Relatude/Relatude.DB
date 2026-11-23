@@ -80,8 +80,12 @@ internal class LogStream : IDisposable {
                 bw.Write(record.Data);
             }
             // written from the stream's own buffer: copying it out first would allocate it once more
-            var data = _compressed ? CompressionUtility.Compress(ms.ToArray()) : ms.GetBuffer();
-            var length = _compressed ? data.Length : (int)ms.Length;
+            var data = ms.GetBuffer();
+            var length = (int)ms.Length;
+            if (_compressed) {
+                data = CompressionUtility.Compress(data.AsSpan(0, length));
+                length = data.Length;
+            }
             if (_lastAppendStream == null) {
                 _lastAppendStream = _io.OpenAppend(fileKey.SplitKey());
             } else if (_lastAppendStream.FileKey != fileKey) {
@@ -182,6 +186,8 @@ internal class LogStream : IDisposable {
     bool hasContent(DateTime fileDate) => !_io.DoesNotExistOrIsEmpty(FileKeyUtility.Logger_FileNameBin(_logName, _fileInterval, fileDate));
     /// <summary>Writes out what is buffered and lets go of the open file, so a listing sees every record.</summary>
     internal void ReleaseFiles() => flushBufferAndReleaseOpenFiles();
+    /// <summary>Writes out what is buffered, keeping the open file open.</summary>
+    internal void WriteBuffered() => flushBuffer(false);
     /// <summary>
     /// The first and last record of files the caller has listed itself, after <see cref="ReleaseFiles"/>:
     /// the dates of the files holding anything, oldest first. Saves the listing and a size lookup per file.
@@ -233,20 +239,6 @@ internal class LogStream : IDisposable {
         foreach (var f in GetLogFileDates()) {
             if (f.AddInterval(_fileInterval) <= to)
                 _io.DeleteFileIfItExists(FileKeyUtility.Logger_FileNameBin(_logName, _fileInterval, f));
-        }
-    }
-    internal void DeleteLargeLog(int maxTotalSizeOfLogFilesInMb) {
-        // omitting file for current interval, this is never deleted
-        if (maxTotalSizeOfLogFilesInMb == 0) return;
-        flushBufferAndReleaseOpenFiles();
-        var maxTotalSize = maxTotalSizeOfLogFilesInMb * 1024L * 1024L;
-        var currentFile = FileKeyUtility.Logger_FileNameBin(_logName, _fileInterval, DateTime.UtcNow.Floor(_fileInterval));
-        var files = GetLogFileDates().Select(d => FileKeyUtility.Logger_FileNameBin(_logName, _fileInterval, d)).Where(f => !f.IsSameKey(currentFile)).OrderBy(f => f.AsKeyString()).ToList();
-        var currentTotalSize = files.Sum(_io.GetFileSizeOrZeroIfUnknown) + _io.GetFileSizeOrZeroIfUnknown(currentFile);
-        foreach (var f in files) { // oldest first
-            if (currentTotalSize <= maxTotalSize) return;
-            currentTotalSize -= _io.GetFileSizeOrZeroIfUnknown(f);
-            _io.DeleteFileIfItExists(f);
         }
     }
     internal long Size() {

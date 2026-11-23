@@ -172,6 +172,7 @@ static class TruncatedDownload {
         public void DeleteFileIfItExists(string[] path) => inner.DeleteFileIfItExists(path);
         public FileMeta[] GetFiles() => inner.GetFiles();
         public FileMeta[] GetFiles(string[] folder) => inner.GetFiles(folder);
+        public FileMeta[] GetFiles(string[] folder, bool recursive) => inner.GetFiles(folder, recursive);
         public long GetFileSizeOrZeroIfUnknown(string[] path) => inner.GetFileSizeOrZeroIfUnknown(path);
         public bool CanRenameFile => inner.CanRenameFile;
         public void RenameFile(string[] path, string[] newPath) => inner.RenameFile(path, newPath);

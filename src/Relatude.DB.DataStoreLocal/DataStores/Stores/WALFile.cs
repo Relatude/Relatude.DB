@@ -121,6 +121,10 @@ internal class WALFile : IDisposable {
             return 0;
         }
     }
+    /// <summary>Reads the log through its own stream, which stays open: the file is held against other
+    /// processes the whole time. Nothing may be appended while the reader is used.</summary>
+    internal LogReader ReadLog(long fromTransactionAtPos, long fromTimestamp, long skipTransactionsOlderThan = long.MinValue)
+        => new(_appendStream, _definition, fromTransactionAtPos, fromTimestamp, skipTransactionsOlderThan);
     public long FirstTimestamp { get; private set; }
     public long LastTimestamp { get => _lastTimestampID; }
     public long FileSize { // requires file to be opened
@@ -450,40 +454,34 @@ internal class WALFile : IDisposable {
             s.SecondaryLogFileSize = _secondaryAppendStream?.Length ?? 0;
         } catch { } // file may be closed....
     }
-    /// <summary>Copies the log file. A copy that fails - a destination storage gone away, say - throws
-    /// <see cref="LogCopyException"/> and leaves the log file open again as it was; any other exception
-    /// means the log file could not be opened again.</summary>
+    /// <summary>Copies the log file, read through its own stream so it stays open, and held against other
+    /// processes, all the while. A copy that fails - a destination storage gone away, say - throws
+    /// <see cref="LogCopyException"/>; the log file is as it was.</summary>
     internal void Copy(string[] newLogFileKey, IIOProvider? destinationIO = null) {
         DequeuAllTransactionWritesAndFlushStreamsThreadSafe(true);
         if (destinationIO == null) destinationIO = _io;
         if (newLogFileKey.IsSameKey(FileKey) && _io == destinationIO) throw new Exception("Cannot copy to same file. ");
-        _gate.EnterExclusive(); // the file is closed while it is copied: no reads in flight, none started
         try {
-            Close();
-            try {
-                try {
-                    destinationIO.DeleteFileIfItExists(newLogFileKey);
-                    using IReadStream readStream = _io.OpenRead(FileKey, 0);
-                    using IAppendStream writeStream = destinationIO.OpenAppend(newLogFileKey);
-                    var totalLength = readStream.Length;
-                    var pos = 0L;
-                    while (pos < totalLength) {
-                        int bytesToRead = (int)Math.Min(1024 * 1024, totalLength - pos);
-                        var bytes = readStream.Read(bytesToRead);
-                        writeStream.Append(bytes);
-                        pos += bytes.Length;
-                    }
-                    LogFileScan.AppendCompletionStamp(writeStream);
-                } catch (Exception ex) {
-                    // the streams are disposed by now; a half written copy must not pass for a whole one
-                    try { destinationIO.DeleteFileIfItExists(newLogFileKey); } catch { }
-                    throw new LogCopyException("Error copying log file. ", ex);
-                }
-            } finally {
-                OpenForAppending(); // when this throws, it replaces the copy's exception: the store is broken
-            }
-        } finally {
-            _gate.ExitExclusive();
+            destinationIO.DeleteFileIfItExists(newLogFileKey);
+            using IAppendStream writeStream = destinationIO.OpenAppend(newLogFileKey);
+            copyTo(writeStream, null);
+            LogFileScan.AppendCompletionStamp(writeStream);
+        } catch (Exception ex) {
+            // the stream is disposed by now; a half written copy must not pass for a whole one
+            try { destinationIO.DeleteFileIfItExists(newLogFileKey); } catch { }
+            throw new LogCopyException("Error copying log file. ", ex);
+        }
+    }
+    // Only while nothing is appended: the copy ends at the length the log has when it starts.
+    void copyTo(IAppendStream destination, Action<int>? progress) {
+        var length = _appendStream.Length;
+        var buffer = new byte[4 * 1024 * 1024];
+        for (var position = 0L; position < length;) {
+            var count = (int)Math.Min(buffer.Length, length - position);
+            _appendStream.Get(position, count, buffer);
+            destination.Append(buffer, count);
+            position += count;
+            progress?.Invoke((int)(position * 100 / length));
         }
     }
     internal void EnsureSecondaryLogFile(long activityId, DataStoreLocal store, bool resetSecondaryFile) {
@@ -505,24 +503,14 @@ internal class WALFile : IDisposable {
         if (!hasSecondary) {
             store.LogInfo("Creating secondary log file from primary. ");
             store.UpdateActivity(activityId, "Creating secondary log file from primary. ", 0);
-            _gate.EnterExclusive(); // the primary is closed while it is copied: no reads in flight, none started
-            try {
-                Close();
-                try {
-                    _io.CopyFile(_ioSecondary, FileKey, _secondaryFileKey, progress => {
-                        store.UpdateActivity(activityId, "Creating secondary log file from primary. ", progress);
-                    });
-                } finally {
-                    OpenForAppending();
-                }
-            } finally {
-                _gate.ExitExclusive();
+            // the primary is read through its own stream: it stays open, and held against other processes
+            using (var copy = _ioSecondary.OpenAppend(_secondaryFileKey)) {
+                copyTo(copy, progress => store.UpdateActivity(activityId, "Creating secondary log file from primary. ", progress));
             }
-            // the OpenForAppending above reopened the secondary stream on the fresh copy, so the
-            // format version and file id are current here.
+            _secondaryAppendStream = getWriteStream(_ioSecondary, _secondaryFileKey, true, out _secondaryFormatVersion);
             // A byte-identical copy of the primary: every node's written segment is a valid head in
             // it. At store open the node store is still empty here and the heads are seeded later
-            // (SeedChainHeadsWhileClosed); at a runtime reset they are copied now:
+            // (SeedChainHeads); at a runtime reset they are copied now:
             lock (_chainLock) {
                 _secondaryChainHeads.Clear();
                 if (HasVersionChain(_secondaryFormatVersion)) {
@@ -576,37 +564,30 @@ internal class WALFile : IDisposable {
     #region Version chains
 
     /// <summary>
-    /// Establishes the secondary version-chain heads after a store open. Called while the log streams
-    /// are closed, after the state file and the log replay have produced the final node segments.
-    /// The primary heads start empty (see the field). The secondary heads come from the persisted
-    /// chain state brought up to date by replaying the secondary's tail; without usable persisted
-    /// state they fall back to the node segments when the secondary is a byte-identical copy of the
-    /// primary, and otherwise start empty (chains in the file stay intact but new records start
-    /// fresh chains).
+    /// Establishes the secondary version-chain heads after a store open, once the state file and the
+    /// log replay have produced the final node segments. The log files are read through their own
+    /// streams, which stay open. The primary heads start empty (see the field). The secondary heads
+    /// come from the persisted chain state brought up to date by replaying the secondary's tail;
+    /// without usable persisted state they fall back to the node segments when the secondary is a
+    /// byte-identical copy of the primary, and otherwise start empty (chains in the file stay intact
+    /// but new records start fresh chains).
     /// </summary>
-    internal void SeedChainHeadsWhileClosed(WalChainState? persisted, IEnumerable<KeyValuePair<int, NodeSegment>> nodeSegments, Action<string> logInfo, Action<string, Exception?> logError) {
+    internal void SeedChainHeads(WalChainState? persisted, IEnumerable<KeyValuePair<int, NodeSegment>> nodeSegments, Action<string> logInfo, Action<string, Exception?> logError) {
+        if (_ioSecondary != null && _secondaryFileKey != null) _secondaryAppendStream ??= getWriteStream(_ioSecondary, _secondaryFileKey, true, out _secondaryFormatVersion);
         lock (_chainLock) {
             _chainHeads = new();
             _secondaryChainHeads.Clear();
-            if (_ioSecondary == null || _secondaryFileKey == null) return;
-            var secondarySize = _ioSecondary.GetFileSizeOrZeroIfUnknown(_secondaryFileKey);
-            if (secondarySize < posOfFirstTransaction) return; // missing, or holds no transactions yet
-            try {
-                using var s = _ioSecondary.OpenRead(_secondaryFileKey, 0);
-                s.ValidateMarker(_logStartMarker);
-                _secondaryFormatVersion = s.ReadVerifiedLong();
-                _secondaryFileId = s.ReadGuid();
-            } catch (Exception err) {
-                logError("Unable to read the secondary log file header. Node version chains in the secondary log restart from here. ", err);
-                return;
-            }
+            var secondary = _secondaryAppendStream;
+            if (secondary == null) return;
+            var secondarySize = secondary.Length;
+            if (secondarySize < posOfFirstTransaction) return; // holds no transactions yet
             if (!HasVersionChain(_secondaryFormatVersion)) return; // legacy format, carries no chains
             if (persisted != null && persisted.SecondaryFileId == _secondaryFileId && persisted.SecondaryLength <= secondarySize) {
                 foreach (var kv in persisted.Heads) {
                     if (kv.Value.AbsolutePosition + kv.Value.Length <= secondarySize) _secondaryChainHeads.Set(kv.Key, kv.Value);
                 }
-                if (persisted.SecondaryLength < secondarySize) replaySecondaryTail(persisted.SecondaryLength, logError);
-            } else if (_secondaryFileId == FileId && secondarySize == _io.GetFileSizeOrZeroIfUnknown(FileKey)) {
+                if (persisted.SecondaryLength < secondarySize) replaySecondaryTail(secondary, persisted.SecondaryLength, logError);
+            } else if (_secondaryFileId == FileId && secondarySize == _appendStream.Length) {
                 // the secondary is a byte-identical copy of the primary (same file id, same length,
                 // and identical files receive identical appends), so the primary segments are valid in it
                 foreach (var kv in nodeSegments) if (kv.Value.Length > 0) _secondaryChainHeads.Set(kv.Key, kv.Value);
@@ -617,8 +598,8 @@ internal class WALFile : IDisposable {
     }
     // brings persisted secondary heads up to date with records written after the last state save
     // (an unclean shutdown leaves the state file behind the log files)
-    void replaySecondaryTail(long fromPosition, Action<string, Exception?> logError) {
-        using var reader = new LogReader(_secondaryFileKey!, _definition, _ioSecondary!, fromPosition, 0);
+    void replaySecondaryTail(IAppendStream secondary, long fromPosition, Action<string, Exception?> logError) {
+        using var reader = new LogReader(secondary, _definition, fromPosition, 0);
         while (reader.ReadNextTransaction(out var transaction, false, logError, out _)) {
             foreach (var a in transaction.ExecutedActions) {
                 if (a is not PrimitiveNodeAction na || na.Segment == null) continue;

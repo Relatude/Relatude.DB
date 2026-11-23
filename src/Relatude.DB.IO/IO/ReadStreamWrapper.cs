@@ -40,22 +40,21 @@ public class ReadStreamWrapper : System.IO.Stream {
         return data.Length;
     }
 
+    // without this the base class runs Read on a thread of the pool, which then waits for each download
+    public override async Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) {
+        if (offset == 0) return await _stream.ReadAsync(buffer, count);
+        var part = new byte[count];
+        var read = await _stream.ReadAsync(part, count);
+        Array.Copy(part, 0, buffer, offset, read);
+        return read;
+    }
     public override long Seek(long offset, SeekOrigin origin) {
-        int newPosition;
-        switch (origin) {
-            case SeekOrigin.Begin:
-                newPosition = (int)offset;
-                break;
-            case SeekOrigin.Current:
-                newPosition = (int)(_stream.Position + offset);
-                break;
-            case SeekOrigin.End:
-                newPosition = (int)(_stream.Length + offset);
-                break;
-            default:
-                throw new ArgumentOutOfRangeException(nameof(origin), origin, null);
-        }
-        _stream.Position = newPosition;
+        _stream.Position = origin switch {
+            SeekOrigin.Begin => offset,
+            SeekOrigin.Current => _stream.Position + offset,
+            SeekOrigin.End => _stream.Length + offset,
+            _ => throw new ArgumentOutOfRangeException(nameof(origin), origin, null),
+        };
         return _stream.Position;
     }
     public override void SetLength(long value) {

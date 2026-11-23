@@ -830,7 +830,7 @@ public sealed class UIServer {
     /// then the newest, so the file the database writes to is not the current one by its key. An open
     /// of such a file only waits until it gives up.</summary>
     static bool isWritten(IIOProvider io, string[] key) =>
-        io.GetFiles().Any(f => f.Writers > 0 && f.KeyOf().IsSameKey(key));
+        io.GetFiles(key[..^1], recursive: false).Any(f => f.Writers > 0 && f.KeyOf().IsSameKey(key));
 
     /// <summary>The database's current log file, with the provider it lives in. Throws when there is
     /// nothing to read - every operation below copies from it or replaces it.</summary>
@@ -1329,10 +1329,10 @@ public sealed class UIServer {
             var listed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var provider in logFileProviders(c)) {
                 IIOProvider io;
-                FileMeta[] listing;
+                List<FileMeta> listing;
                 try {
                     io = _server.GetIO(provider.Id);
-                    listing = io.GetFiles();
+                    listing = FileKeyUtility.WAL_GetAllFilesAndBackUps(io);
                 } catch {
                     continue; // a storage that cannot be reached holds nothing the dialog could offer
                 }

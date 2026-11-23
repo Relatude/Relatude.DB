@@ -10,11 +10,10 @@ namespace Relatude.DB.IO {
     // in general: the read buffer size should be so small that the blob access latency is comparable to the download time of the read buffer
     // a first appriximation 50kb is a good size for the read buffer, and 2mb for the write buffer
     public class AzureBlobIOAppendStream : IAppendStream {
-        readonly AzureBlobIOProvider _provider;
         readonly AzureBlobRestClient _client;
         readonly string _blobName;
-        // the provider's lease on the blob, shared with any other stream it has open on it; null without lockBlob
-        readonly AzureBlobIOProvider.HeldLease? _lease;
+        // the container's lock this stream writes under; null without lockBlob
+        readonly AzureBlobContainerLock.Lease? _lease;
         readonly Action<long> _disposeCallback;
         MemoryStream _writeBuffer;
         long _committedLength; // length of the blob on the server, always _length minus what is in the write buffer
@@ -26,18 +25,29 @@ namespace Relatude.DB.IO {
         readonly object _lock = new();
         ChecksumUtil _checkSum = new();
         public string FileKey { get; }
-        // the blob exists and is leased by the time this runs: the provider does both, and gives the lease
-        // back when this throws
-        internal AzureBlobIOAppendStream(AzureBlobIOProvider provider, AzureBlobRestClient client, string blobName, AzureBlobIOProvider.HeldLease? lease, Action<long> disposeCallback) {
+        // the blob exists and the container is locked by the time this runs: the provider does both, and
+        // gives the file back when this throws
+        internal AzureBlobIOAppendStream(AzureBlobRestClient client, string blobName, AzureBlobContainerLock.Lease? lease, Action<long> disposeCallback) {
             _disposeCallback = disposeCallback;
             FileKey = blobName;
-            _provider = provider;
             _client = client;
             _blobName = blobName;
             _lease = lease;
             _writeBuffer = new MemoryStream();
-            _committedLength = _client.GetProperties(blobName)?.ContentLength ?? 0;
+            var properties = _client.GetProperties(blobName);
+            // this version leases no blob but the container's lock, so a lease on this one is an older version's
+            if (properties?.LeaseState is "leased" or "breaking") throw leasedByAnOlderVersion(blobName, properties.LeaseDuration);
+            _committedLength = properties?.ContentLength ?? 0;
             _length = _committedLength;
+        }
+        static BlobLeasedException leasedByAnOlderVersion(string blobName, string? duration) {
+            var infinite = string.Equals(duration, "infinite", StringComparison.OrdinalIgnoreCase);
+            var text = "\"" + blobName + "\" is leased, so it cannot be written. ";
+            text += infinite
+                ? "The lease never ends on its own: an older version of Relatude.DB left it behind, or another tool took it. Once no other "
+                    + "instance is using this storage, break it in the admin UI, on the dashboard of the database or under Files with Leases."
+                : "It is held by a process running an older version of Relatude.DB, which leased every blob it wrote, or by another tool. ";
+            return new BlobLeasedException(text, null, blobName, infinite);
         }
         long _bytesRead;
         long _bytesWritten;
@@ -100,32 +110,17 @@ namespace Relatude.DB.IO {
                 _writeBuffer = new MemoryStream();
             }
         }
-        // An append on a leased blob fails with a 412 once the lease is not ours any more. When it merely
-        // expired - nobody wrote or leased the blob since - renewing it brings it back and the append is
-        // made again; otherwise another process may be writing the blob, and this one must stop.
+        // the append position guard also keeps a process that lost the lock from writing over another's appends
         void appendBlock(byte[] data, int count) {
-            try {
-                _client.AppendBlock(_blobName, data, count, _lease?.LeaseId, _committedLength);
-            } catch (AzureBlobRequestException err) when (isLeaseFailure(err)) {
-                if (!_provider.TryRecoverLease(_lease!)) throw leaseLost(err);
-                _client.AppendBlock(_blobName, data, count, _lease!.LeaseId, _committedLength);
-            }
+            _lease?.EnsureWritable(_blobName);
+            _client.AppendBlock(_blobName, data, count, _committedLength);
             _committedLength += count;
         }
         async Task appendBlockAsync(byte[] data, int count) {
-            try {
-                await _client.AppendBlockAsync(_blobName, data, count, _lease?.LeaseId, _committedLength);
-            } catch (AzureBlobRequestException err) when (isLeaseFailure(err)) {
-                if (!_provider.TryRecoverLease(_lease!)) throw leaseLost(err);
-                await _client.AppendBlockAsync(_blobName, data, count, _lease!.LeaseId, _committedLength);
-            }
+            _lease?.EnsureWritable(_blobName);
+            await _client.AppendBlockAsync(_blobName, data, count, _committedLength);
             _committedLength += count;
         }
-        bool isLeaseFailure(AzureBlobRequestException err) => _lease != null && err.StatusCode == 412
-            && err.ErrorCode != null && err.ErrorCode.StartsWith("Lease", StringComparison.Ordinal);
-        IOException leaseLost(AzureBlobRequestException err) => new IOException("The lease on \"" + _blobName + "\" is no longer this process's"
-            + (_lease?.LostReason is string reason ? " (" + reason.TrimEnd() + ")" : "")
-            + ", so nothing more is written to it: another process may be writing it now. The database has to be opened again. " + err.Message, err);
         async Task flushAsync(bool deepFlush) {
             if (_writeBuffer.Length == 0) return;
             var buffer = _writeBuffer.GetBuffer();
@@ -177,7 +172,7 @@ namespace Relatude.DB.IO {
                 // a small read fetches a read buffer's worth, as small reads tend to come in sequence
                 var lengthToRead = (int)Math.Min(committedLength - position, _readBufferSize);
                 var buffer = new byte[lengthToRead];
-                _client.DownloadRange(_blobName, position, lengthToRead, null, buffer); // a lease guards writes, reading needs none
+                _client.DownloadRange(_blobName, position, lengthToRead, buffer);
                 _io.ReadThreadSafe(lengthToRead);
                 Array.Copy(buffer, 0, result, 0, committedCount);
                 lock (_lock) {
@@ -186,15 +181,15 @@ namespace Relatude.DB.IO {
                     _readBufferLength = lengthToRead;
                 }
             } else { // too big for the read buffer, straight into the result
-                _client.DownloadRange(_blobName, position, committedCount, null, result);
+                _client.DownloadRange(_blobName, position, committedCount, result);
                 _io.ReadThreadSafe(committedCount);
             }
         }
         public void RecordChecksum() => _checkSum.RecordChecksum();
         public void WriteChecksum() => _checkSum.WriteChecksum(this);
         bool _isDisposed = false;
-        // the lease and the provider's count are given back whether or not the last flush gets through:
-        // the stream is finished either way, and a failed flush must not leave the blob locked
+        // the file is given back whether or not the last flush gets through: the stream is finished either
+        // way, and a failed flush must not leave the file locked
         public void Dispose() {
             if (_isDisposed) return;
             _isDisposed = true;

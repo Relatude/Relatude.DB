@@ -55,10 +55,10 @@ public class LogStore : IDisposable, ILogStore {
     }
     public void EnforceLimits() {
         foreach (var log in _logs.Values) {
-            if (log.Setting.MaxAgeOfLogFilesInDays > 0)
-                log.EnforceDateLimit(DateTime.UtcNow.AddDays(-log.Setting.MaxAgeOfLogFilesInDays));
-            if (log.Setting.MaxTotalSizeOfLogFilesInMb > 0)
-                log.EnforceSizeLimit(log.Setting.MaxTotalSizeOfLogFilesInMb);
+            var maxAge = log.Setting.MaxAgeOfLogFilesInDays;
+            var maxSize = log.Setting.MaxTotalSizeOfLogFilesInMb;
+            if (maxAge <= 0 && maxSize <= 0) continue;
+            log.EnforceLimits(maxAge > 0 ? DateTime.UtcNow.AddDays(-maxAge) : null, Math.Max(0, maxSize));
         }
     }
     public bool IsEnabled(string logKey) => get(logKey)?.Setting.IsEnabled() ?? false;

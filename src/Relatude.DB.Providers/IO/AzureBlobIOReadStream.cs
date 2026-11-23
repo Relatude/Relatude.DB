@@ -15,9 +15,8 @@ public class AzureBlobIOReadStream : IReadStream {
     public void ResetByteCounter() {
         _bytesRead = 0;
     }
-    // the provider reads the properties and takes the lease (with lockBlob) before this runs, and lets
-    // go of the lease in the dispose callback: the lease is shared with its other streams on the blob,
-    // and reading needs none, so the downloads go without one
+    // the provider reads the properties before this runs. No lease: bytes once appended never change, so
+    // a read needs no lock
     internal AzureBlobIOReadStream(AzureBlobRestClient client, string fileKey, long position, BlobProperties? properties, Action disposeCallback) {
         FileKey = fileKey;
         _disposeCallback = disposeCallback;
@@ -37,11 +36,12 @@ public class AzureBlobIOReadStream : IReadStream {
     }
     public byte[] Read(int length) {
         length = (int)Math.Min(length, _totalLength - Position);
-        if (Position + length > _readAheadBuffer.Length + _bufferStartPos) {
+        if (length <= 0) return [];
+        if (Position < _bufferStartPos || Position + length > _readAheadBuffer.Length + _bufferStartPos) {
             var lengthToRead = Math.Max(length, _readAheadBufferSize);
             if (Position + lengthToRead > _totalLength) lengthToRead = _totalLength - Position;
             _readAheadBuffer = new byte[lengthToRead];
-            _client.DownloadRange(_blobName, Position, (int)lengthToRead, null, _readAheadBuffer);
+            _client.DownloadRange(_blobName, Position, (int)lengthToRead, _readAheadBuffer);
             _io.Read(lengthToRead);
             _bufferStartPos = Position;
         }
@@ -84,7 +84,7 @@ public class AzureBlobIOReadStream : IReadStream {
             var lengthToRead = Math.Max((long)count, _readAheadBufferSize);
             if (Position + lengthToRead > _totalLength) lengthToRead = _totalLength - Position;
             _readAheadBuffer = new byte[lengthToRead];
-            await _client.DownloadRangeAsync(_blobName, Position, (int)lengthToRead, null, _readAheadBuffer);
+            await _client.DownloadRangeAsync(_blobName, Position, (int)lengthToRead, _readAheadBuffer);
             _io.Read(lengthToRead);
             _bufferStartPos = Position;
         }

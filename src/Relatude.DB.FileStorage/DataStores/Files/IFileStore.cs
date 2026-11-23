@@ -39,11 +39,19 @@ public static class FileStoreExtensions {
         if (fs.TryGetLocalFilePath(file, out var localFilePath)) {
             return Task.FromResult<Stream>(new FileStream(localFilePath, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete, 81920, useAsync: true));
         }
+        if (fs is IFileStoreReadStream readable) return Task.FromResult(readable.OpenReadStream(file));
+        // copied out by a task of its own, as fast as it comes and whatever the reader takes: the whole file may end up in memory
         var stream = new WriteToReadStream();
         _ = fs.ExtractAsync(file, stream)
             .ContinueWith(t => stream.Complete(t.IsFaulted ? t.Exception : null));
         return Task.FromResult<Stream>(stream);
     }
+}
+/// <summary>Optional file store capability: a stored file as a stream that reads it where it lies, a part at a time
+/// as it is read, and can seek. A web response then sends a file from blob storage without copying it first, and
+/// answers the range requests video and audio make.</summary>
+public interface IFileStoreReadStream : IFileStore {
+    Stream OpenReadStream(FileValue value);
 }
 public interface IFileStoreMultiPartSupport : IFileStore {
     /// <summary>The hash the caller must compute over the parts, passed to <see cref="CompletePartialUpload"/>.</summary>

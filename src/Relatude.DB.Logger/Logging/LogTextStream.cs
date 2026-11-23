@@ -47,6 +47,7 @@ internal class LogTextStream : IDisposable {
         _openUntil = floored.EndOfInterval(_fileInterval);
         return _lastAppendStream;
     }
+    internal void ReleaseFiles() => releaseOpenFiles();
     void releaseOpenFiles() {
         if (_lastAppendStream != null) {
             _lastAppendStream.Dispose();

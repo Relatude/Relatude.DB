@@ -635,9 +635,9 @@ public static class SettingsCatalog {
                                 Help = "The blob container these files live in. It is created if it does not exist.",
                             },
                             new() {
-                                Path = "LockBlob", Label = "Lease the blobs",
+                                Path = "LockBlob", Label = "Lock the container",
                                 VisibleWhen = new() { Path = "IOType", Values = ["AzureBlobStorage"] },
-                                Help = "Takes a lease on every blob with an open stream, so a second instance cannot write the same database and corrupt it. A lease lasts a minute and is renewed while the file is open, so one left behind by an instance that stopped without letting go holds the next start back for up to a minute - the start waits for it. Leases left by older versions never end: break them under Files, on this storage, with Leases.",
+                                Help = "Locks the container while this instance writes it, so a second instance cannot write the same database and corrupt it; reads take no lock. The lock is a 15-second lease on a blob named _lock, renewed every 5 seconds, so one left behind by an instance that stopped without letting go holds the next start back for up to 15 seconds - a write waits up to 20 for it. Leases older versions left on single blobs block writes to them: break them under Files, on this storage, with Leases.",
                             },
                             new() {
                                 Path = "Id", Label = "IO provider id", ReadOnly = true,

@@ -180,12 +180,19 @@ internal class AzureBlobRestClient : IDisposable {
         if (status == 403 || status == 401) return;     // no create permission (e.g. a blob-only SAS), assume it exists
         throw error(response, "create container");
     }
-    public List<BlobListItem> ListBlobs(string? prefix) {
+    long _blobsListed;
+    /// <summary>How many blobs the listings have returned, all told.</summary>
+    internal long BlobsListed => Interlocked.Read(ref _blobsListed);
+    // oneLevel: only the blobs directly below the prefix; the service folds deeper ones into BlobPrefix entries, left out here.
+    // maxResults: one page of at most that many.
+    public List<BlobListItem> ListBlobs(string? prefix, bool oneLevel = false, int? maxResults = null) {
         var result = new List<BlobListItem>();
         string? marker = null;
         do {
             var r = new Request { Method = HttpMethod.Get, Query = { new("comp", "list"), new("restype", "container") } };
             if (!string.IsNullOrEmpty(prefix)) r.Query.Add(new("prefix", prefix));
+            if (oneLevel) r.Query.Add(new("delimiter", "/"));
+            if (maxResults is int max) r.Query.Add(new("maxresults", max.ToString(CultureInfo.InvariantCulture)));
             if (!string.IsNullOrEmpty(marker)) r.Query.Add(new("marker", marker));
             using var response = HttpRetry.Send(_http, () => build(r));
             if (!response.IsSuccessStatusCode) throw error(response, "list");
@@ -203,7 +210,8 @@ internal class AzureBlobRestClient : IDisposable {
                 });
             }
             marker = root.Element("NextMarker")?.Value;
-        } while (!string.IsNullOrEmpty(marker));
+        } while (!string.IsNullOrEmpty(marker) && maxResults == null);
+        Interlocked.Add(ref _blobsListed, result.Count);
         return result;
     }
     static DateTime parseHttpDate(string? value) {
@@ -232,31 +240,27 @@ internal class AzureBlobRestClient : IDisposable {
         if (response.IsSuccessStatusCode) return;
         if ((int)response.StatusCode == 409) return; // BlobAlreadyExists
         var ex = error(response, "create append blob");
-        // Azure checks a lease before If-None-Match: a blob another process holds answers 412 LeaseIdMissing, not 409.
-        // It exists, and the lease wait that follows the create deals with the lease. Azurite answers 409.
+        // Azure checks a lease before If-None-Match: a leased blob answers 412 LeaseIdMissing, not 409. It exists,
+        // and the open that follows finds the lease. Azurite answers 409.
         if (ex.StatusCode == 412 && ex.ErrorCode == "LeaseIdMissing") return;
         throw ex;
     }
-    Request appendBlockRequest(string blobName, byte[] data, int count, string? leaseId, long appendOffset) {
-        var r = new Request {
-            Method = HttpMethod.Put,
-            BlobName = blobName,
-            Query = { new("comp", "appendblock") },
-            Content = data,
-            ContentLength = count,
-            // the append position guard makes retries safe: a retry of a request the server already
-            // committed fails with AppendPositionConditionNotMet instead of appending twice
-            XmsHeaders = { ["x-ms-blob-condition-appendpos"] = appendOffset.ToString(CultureInfo.InvariantCulture) }
-        };
-        if (leaseId != null) r.XmsHeaders["x-ms-lease-id"] = leaseId;
-        return r;
-    }
-    public void AppendBlock(string blobName, byte[] data, int count, string? leaseId, long appendOffset) {
-        using var response = HttpRetry.Send(_http, () => build(appendBlockRequest(blobName, data, count, leaseId, appendOffset)));
+    Request appendBlockRequest(string blobName, byte[] data, int count, long appendOffset) => new() {
+        Method = HttpMethod.Put,
+        BlobName = blobName,
+        Query = { new("comp", "appendblock") },
+        Content = data,
+        ContentLength = count,
+        // the append position guard makes retries safe: a retry of a request the server already
+        // committed fails with AppendPositionConditionNotMet instead of appending twice
+        XmsHeaders = { ["x-ms-blob-condition-appendpos"] = appendOffset.ToString(CultureInfo.InvariantCulture) }
+    };
+    public void AppendBlock(string blobName, byte[] data, int count, long appendOffset) {
+        using var response = HttpRetry.Send(_http, () => build(appendBlockRequest(blobName, data, count, appendOffset)));
         verifyAppendResponse(response, blobName, count, appendOffset);
     }
-    public async Task AppendBlockAsync(string blobName, byte[] data, int count, string? leaseId, long appendOffset) {
-        using var response = await HttpRetry.SendAsync(_http, () => build(appendBlockRequest(blobName, data, count, leaseId, appendOffset)));
+    public async Task AppendBlockAsync(string blobName, byte[] data, int count, long appendOffset) {
+        using var response = await HttpRetry.SendAsync(_http, () => build(appendBlockRequest(blobName, data, count, appendOffset)));
         verifyAppendResponse(response, blobName, count, appendOffset);
     }
     void verifyAppendResponse(HttpResponseMessage response, string blobName, int count, long appendOffset) {
@@ -269,31 +273,26 @@ internal class AzureBlobRestClient : IDisposable {
         }
         throw ex;
     }
-    Request downloadRequest(string blobName, long position, int length, string? leaseId) {
-        var r = new Request {
-            Method = HttpMethod.Get,
-            BlobName = blobName,
-            XmsHeaders = { ["x-ms-range"] = $"bytes={position}-{position + length - 1}" }
-        };
-        if (leaseId != null) r.XmsHeaders["x-ms-lease-id"] = leaseId;
-        return r;
-    }
-    public void DownloadRange(string blobName, long position, int length, string? leaseId, byte[] destination) {
-        using var response = HttpRetry.Send(_http, () => build(downloadRequest(blobName, position, length, leaseId)));
+    Request downloadRequest(string blobName, long position, int length) => new() {
+        Method = HttpMethod.Get,
+        BlobName = blobName,
+        XmsHeaders = { ["x-ms-range"] = $"bytes={position}-{position + length - 1}" }
+    };
+    public void DownloadRange(string blobName, long position, int length, byte[] destination) {
+        using var response = HttpRetry.Send(_http, () => build(downloadRequest(blobName, position, length)));
         if (!response.IsSuccessStatusCode) throw error(response, "download");
         using var stream = response.Content.ReadAsStream();
         stream.ReadExactly(destination, 0, length);
     }
-    public async Task DownloadRangeAsync(string blobName, long position, int length, string? leaseId, byte[] destination) {
-        using var response = await HttpRetry.SendAsync(_http, () => build(downloadRequest(blobName, position, length, leaseId)));
+    public async Task DownloadRangeAsync(string blobName, long position, int length, byte[] destination) {
+        using var response = await HttpRetry.SendAsync(_http, () => build(downloadRequest(blobName, position, length)));
         if (!response.IsSuccessStatusCode) throw error(response, "download");
         using var stream = await response.Content.ReadAsStreamAsync();
         await stream.ReadExactlyAsync(destination, 0, length);
     }
     /// <summary>
-    /// Deletes the blob; one that is not there is not an error. A blob someone else holds a lease on
-    /// fails with LeaseIdMissing, and what to do about that is the caller's decision: breaking the
-    /// lease of a process that is still running is exactly what the lease is there to prevent.
+    /// Deletes the blob; one that is not there is not an error. A leased blob fails with LeaseIdMissing,
+    /// and what to do about that is the caller's decision.
     /// </summary>
     public void DeleteBlobIfExists(string blobName) {
         var r = new Request { Method = HttpMethod.Delete, BlobName = blobName };

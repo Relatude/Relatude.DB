@@ -119,12 +119,8 @@ internal sealed class HistoryFiles(IIOProvider io) {
     public void DeleteAll() {
         io.DeleteFolderIfItExists(Folder);
         // a provider with virtual folders: the files one by one
-        foreach (var f in io.GetFiles()) {
-            var key = f.KeyOf();
-            if (inFolder(key)) io.DeleteFileIfItExists(key);
-        }
+        foreach (var f in io.GetFiles(Folder)) io.DeleteFileIfItExists(f.KeyOf());
     }
-    static bool inFolder(string[] key) => key.Length > 2 && key[0].Equals(Folder[0], StringComparison.OrdinalIgnoreCase) && key[1].Equals(Folder[1], StringComparison.OrdinalIgnoreCase);
     public void DeleteSource(string source) {
         io.DeleteFileIfItExists(ChangesKey(source));
         io.DeleteFileIfItExists(LinksKey(source));

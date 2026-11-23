@@ -29,17 +29,15 @@ public class BlobLeasedException(string message, Exception? innerException, stri
 /// <summary>
 /// IIOProvider for Azure Blob Storage over plain HttpClient (no Azure SDK), using append blobs.
 /// Supports account key and SAS connection strings, and UseDevelopmentStorage=true for Azurite.
-/// <para><b>Leases.</b> With lockBlob every blob with an open stream is leased, so that a second
-/// process using the same container - another instance, or the next process of an overlapped recycle -
-/// cannot write or delete it. A lease is shared by every stream this provider has open on the blob and
-/// let go of when the last one closes. Leases run for <see cref="LeaseDurationSeconds"/> and are
-/// renewed in the background while they are held, so one left behind by a process that died ends by
-/// itself within that time, with nothing to clean up; an open that finds a blob leased waits for it
-/// (<see cref="LeaseWaitTimeout"/>), which is long enough to wait such a lease out. Older versions
-/// leased for ever and recorded the lease id in a file next to the executable, which failed for any
-/// blob in a folder - after the lease was taken - so the lease was stranded and the blob locked for
-/// good. Such leases never end; <see cref="GetLeasedFiles"/> finds them and <see cref="BreakLeases"/>
-/// breaks them.</para>
+/// <para><b>Open files.</b> Every provider on the same container in this process shares one table of the files
+/// open in it: a file open for writing cannot be opened again, a file open for reading can be read by any number
+/// of streams but not written, and a file open either way cannot be deleted.</para>
+/// <para><b>The lock.</b> With lockBlob the container is locked against other processes - another instance, or
+/// the next process of an overlapped recycle: a lease on one blob, "_lock", taken by the first write and let go
+/// by <see cref="CloseAllOpenStreams"/> once nothing is being written, which a database does as it closes (see
+/// <see cref="AzureBlobContainerLock"/>). Reads take no lock: bytes once appended never change. Older versions
+/// leased every blob they wrote, some of them for ever; <see cref="GetLeasedFiles"/> finds such leases and
+/// <see cref="BreakLeases"/> breaks them.</para>
 /// </summary>
 public class AzureBlobIOProvider : IIOProvider {
     const string _virtualFolderChar = "/";
@@ -50,8 +48,18 @@ public class AzureBlobIOProvider : IIOProvider {
 
     internal readonly AzureBlobRestClient Client;
     readonly bool _lockBlob;
-    readonly Dictionary<string, FileMeta> _files = new(StringComparer.OrdinalIgnoreCase);
-    readonly object _lock = new();
+    // An entry goes with its last stream. Nothing else is kept: what exists, and how big, is asked of the
+    // service, the only one that knows what another instance wrote since.
+    sealed class OpenFile { public int Readers; public int Writers; }
+    sealed class Shared {
+        public readonly object Sync = new();
+        public readonly Dictionary<string, OpenFile> OpenFiles = new(StringComparer.OrdinalIgnoreCase);
+        public readonly AzureBlobContainerLock Lock = new();
+    }
+    static readonly ConcurrentDictionary<string, Shared> _shared = new(StringComparer.OrdinalIgnoreCase);
+    readonly Shared _container;
+    readonly Dictionary<string, OpenFile> _openFiles;
+    readonly object _lock;
     readonly List<IStream> _openStreams = new();
     IOCounters _closedStreams;
     public IOCounters Counters {
@@ -63,178 +71,31 @@ public class AzureBlobIOProvider : IIOProvider {
             }
         }
     }
-    public AzureBlobIOProvider(string blobContainerName, string blobConnectionString, bool lockBlob) {
+    public AzureBlobIOProvider(string blobContainerName, string blobConnectionString, bool lockBlob)
+        : this(blobContainerName, blobConnectionString, lockBlob, "") { }
+    // a scope of its own stands in for another process in tests
+    internal AzureBlobIOProvider(string blobContainerName, string blobConnectionString, bool lockBlob, string processScope) {
         Client = new AzureBlobRestClient(blobConnectionString, blobContainerName);
         _lockBlob = lockBlob;
+        _container = _shared.GetOrAdd(processScope + "|" + Client.ContainerUrl, _ => new());
+        _openFiles = _container.OpenFiles;
+        _lock = _container.Sync;
         Client.CreateContainerIfNotExists();
-        syncDirInfo(Client.ListBlobs(null));
+        // one blob, not the container: a connection that may not list fails here rather than at its first listing
+        Client.ListBlobs(null, maxResults: 1);
+    }
+    /// <summary>How long a write waits for another process to let go of the container.</summary>
+    internal TimeSpan LockWait { get; set; } = AzureBlobContainerLock.DefaultWait;
+    AzureBlobContainerLock.Lease? enterLock() => _lockBlob ? _container.Lock.Enter(Client, LockWait) : null;
+    void exitLock(AzureBlobContainerLock.Lease? lease) {
+        if (lease != null) _container.Lock.Exit(lease);
     }
 
     // ---- leases ----
 
-    int _leaseDurationSeconds = 60;
-    /// <summary>
-    /// How long a lease lasts unless it is renewed, which is also how long a blob stays locked after the
-    /// process holding it stopped without letting go. 15 to 60 seconds, the range Azure allows; renewed
-    /// every third of it.
-    /// </summary>
-    public int LeaseDurationSeconds {
-        get => _leaseDurationSeconds;
-        set => _leaseDurationSeconds = Math.Clamp(value, 15, 60);
-    }
-    /// <summary>How long an open waits for another process to let go of a blob before it gives up. A
-    /// little longer than a lease, so the lease of a process that died is waited out.</summary>
-    public TimeSpan LeaseWaitTimeout { get; set; } = TimeSpan.FromSeconds(75);
-
-    /// <summary>A lease this provider holds, shared by every stream it has open on the blob.</summary>
-    internal sealed class HeldLease(string blobName, string leaseId) {
-        public string BlobName { get; } = blobName;
-        public string LeaseId { get; } = leaseId;
-        /// <summary>The open streams sharing it, changed under the blob's lease lock.</summary>
-        public int Users;
-        /// <summary>Set once the lease turned out to be gone - broken, or taken by another process after
-        /// it expired. Writes then fail instead of going ahead without it.</summary>
-        public volatile string? LostReason;
-    }
-    readonly ConcurrentDictionary<string, HeldLease> _leases = new(StringComparer.OrdinalIgnoreCase);
-    // the lease calls of one blob are made one at a time, so taking a lease and letting go of it can
-    // never cross; blobs in other stripes do not wait for each other
-    readonly object[] _leaseLocks = Enumerable.Range(0, 64).Select(_ => new object()).ToArray();
-    object leaseLockOf(string blobName) => _leaseLocks[(StringComparer.OrdinalIgnoreCase.GetHashCode(blobName) & int.MaxValue) % _leaseLocks.Length];
-    // only while a lease is held: a timer left running would keep the provider alive
-    Timer? _renewTimer;
-    readonly object _renewTimerLock = new();
-    int _renewing;
-    static void log(string message) => FileOpenRetry.DefaultLog?.Invoke(message);
-
-    /// <summary>
-    /// The lease on the blob, shared with any other stream of this provider open on it. When another
-    /// process holds one, waits up to <see cref="LeaseWaitTimeout"/> for it to be let go or to end.
-    /// </summary>
-    /// <exception cref="FileLockedException">Still leased by someone else when the time was up.</exception>
-    internal HeldLease AcquireLease(string blobName) {
-        return Retry.Run(() => tryAcquireLease(blobName), isLeasedElsewhere, LeaseWaitTimeout,
-            onWaitStarted: (_, err) => log("\"" + blobName + "\" is leased by another process, waiting up to "
-                + LeaseWaitTimeout.TotalSeconds.ToString("0") + " s for it to let go, or for the lease to end. "),
-            onWaitEnded: (attempts, elapsed) => log("\"" + blobName + "\" was let go of after "
-                + elapsed.TotalSeconds.ToString("0.0") + " s, leased on attempt " + attempts + "."),
-            onExhausted: (err, attempts, elapsed) => leasedElsewhere(blobName, elapsed, err));
-    }
-    // LeaseAlreadyPresent, or LeaseIsBreakingAndCannotBeAcquired while a break with a period runs out
-    static bool isLeasedElsewhere(Exception err) => err is AzureBlobRequestException { StatusCode: 409 } e
-        && e.ErrorCode != null && e.ErrorCode.StartsWith("Lease", StringComparison.Ordinal);
-    HeldLease tryAcquireLease(string blobName) {
-        HeldLease held;
-        lock (leaseLockOf(blobName)) {
-            if (_leases.TryGetValue(blobName, out var current) && current.LostReason == null) {
-                current.Users++;
-                return current;
-            }
-            // an id of our own, so a retried request cannot strand a lease the lost attempt took
-            var leaseId = Client.AcquireLease(blobName, LeaseDurationSeconds, Guid.NewGuid().ToString());
-            held = new HeldLease(blobName, leaseId) { Users = 1 };
-            _leases[blobName] = held; // replaces a lost one, which its streams still let go of on their own
-        }
-        ensureRenewTimer();
-        return held;
-    }
-    BlobLeasedException leasedElsewhere(string blobName, TimeSpan waited, Exception err) {
-        string? duration = null;
-        try { duration = Client.GetProperties(blobName)?.LeaseDuration; } catch { }
-        var infinite = string.Equals(duration, "infinite", StringComparison.OrdinalIgnoreCase);
-        var text = "\"" + blobName + "\" is leased by another process and still was after " + waited.TotalSeconds.ToString("0") + " s. ";
-        if (infinite) {
-            text += "The lease never ends on its own: it was taken by an older version of Relatude.DB, which could leave such "
-                + "a lease behind when it stopped, or by another tool. Once no other instance is using this storage, break it in the admin "
-                + "UI, on the dashboard of the database or under Files with Leases.";
-        } else {
-            text += "A lease left by a process that stopped without letting go ends within " + LeaseDurationSeconds + " s, so this one "
-                + "belongs to a process that is still running: another instance of the application on the same storage, or the previous "
-                + "process of a recycle that has not finished stopping. ";
-        }
-        return new BlobLeasedException(text, err, blobName, infinite);
-    }
-    /// <summary>Lets go of one stream's share of the lease, and of the lease itself with the last one.
-    /// Never throws: a lease that could not be released ends by itself.</summary>
-    internal void ReleaseLease(HeldLease held) {
-        var removed = false;
-        lock (leaseLockOf(held.BlobName)) {
-            if (--held.Users > 0) return;
-            if (_leases.TryGetValue(held.BlobName, out var current) && current == held) {
-                _leases.TryRemove(held.BlobName, out _);
-                removed = true;
-            }
-            if (held.LostReason == null) {
-                try {
-                    Client.ReleaseLease(held.BlobName, held.LeaseId);
-                } catch (Exception err) {
-                    log("Could not release the lease on \"" + held.BlobName + "\", it ends by itself within " + LeaseDurationSeconds + " s. " + err.Message);
-                }
-            }
-        }
-        if (removed) stopRenewTimerIfIdle();
-    }
-    /// <summary>
-    /// After a write failed on the lease: renews it, which brings back a lease that expired as long as
-    /// nobody wrote or leased the blob since - a process paused past the lease in a debugger, or
-    /// renewals that could not get through for a while. False when the lease is gone for good.
-    /// </summary>
-    internal bool TryRecoverLease(HeldLease held) {
-        lock (leaseLockOf(held.BlobName)) {
-            if (held.LostReason != null) return false;
-            try {
-                Client.RenewLease(held.BlobName, held.LeaseId);
-                return true;
-            } catch (Exception err) {
-                held.LostReason = err.Message;
-                log("The lease on \"" + held.BlobName + "\" is lost: " + err.Message);
-                return false;
-            }
-        }
-    }
-    void ensureRenewTimer() {
-        lock (_renewTimerLock) {
-            if (_renewTimer != null) return;
-            var period = TimeSpan.FromSeconds(LeaseDurationSeconds / 3.0);
-            _renewTimer = new Timer(_ => renewAll(), null, period, period);
-        }
-    }
-    void stopRenewTimerIfIdle() {
-        lock (_renewTimerLock) {
-            if (_renewTimer == null || !_leases.IsEmpty) return;
-            _renewTimer.Dispose();
-            _renewTimer = null;
-        }
-    }
-    void renewAll() {
-        if (Interlocked.Exchange(ref _renewing, 1) == 1) return; // the last round is still going
-        try {
-            foreach (var held in _leases.Values) {
-                lock (leaseLockOf(held.BlobName)) {
-                    // let go of, or replaced, since the round started
-                    if (held.LostReason != null || !_leases.TryGetValue(held.BlobName, out var current) || current != held) continue;
-                    try {
-                        Client.RenewLease(held.BlobName, held.LeaseId);
-                    } catch (AzureBlobRequestException err) when (err.StatusCode is 404 or 409 or 412) {
-                        // broken, taken by someone else after it expired, or the blob is gone
-                        held.LostReason = err.Message;
-                        log("The lease on \"" + held.BlobName + "\" is lost, writes to it will fail: " + err.Message);
-                    } catch (Exception err) {
-                        // a failure to get through: the lease lasts two more rounds, and a write finding it
-                        // expired renews it again
-                        log("Could not renew the lease on \"" + held.BlobName + "\", trying again in " + (LeaseDurationSeconds / 3) + " s. " + err.Message);
-                    }
-                }
-            }
-        } finally {
-            Volatile.Write(ref _renewing, 0);
-        }
-    }
-
     /// <summary>
     /// Every blob in this container that someone holds a lease on, below <paramref name="folder"/> when
-    /// one is given. The ones this provider holds are marked, as breaking those would only take a lock
-    /// away from this process's own open files.
+    /// one is given: the container's lock, and leases older versions left on the blobs they wrote.
     /// </summary>
     public LeasedBlob[] GetLeasedFiles(string[]? folder = null) {
         var prefix = folder is { Length: > 0 } ? getAndValidateBlobName(folder) + _virtualFolderChar : null;
@@ -244,20 +105,21 @@ public class AzureBlobIOProvider : IIOProvider {
                 Key = b.Name,
                 State = b.LeaseState!,
                 Infinite = string.Equals(b.LeaseDuration, "infinite", StringComparison.OrdinalIgnoreCase),
-                HeldHere = _leases.ContainsKey(b.Name),
+                HeldHere = heldHere(b.Name),
             })];
     }
+    bool heldHere(string blobName) => blobName == AzureBlobContainerLock.BlobName && _container.Lock.HeldHere;
     /// <summary>
-    /// Breaks the leases on the given blobs at once, whoever holds them - except the ones this provider
-    /// holds itself, which are skipped. Breaking the lease of a process that is still running lets two
-    /// processes write the same blobs, so this is for leases nobody is going to let go of: one that never
-    /// ends, or one whose holder is known to be gone and that is not worth waiting out.
+    /// Breaks the leases on the given blobs at once, whoever holds them - except this process's own lock,
+    /// which is skipped. Breaking the lock of a process that is still running lets two processes write the
+    /// container, so this is for a lock whose holder is known to be gone, and for leases nobody is going to
+    /// let go of.
     /// </summary>
     public (int Broken, int Skipped, string[] Errors) BreakLeases(IEnumerable<string> keys) {
         int broken = 0, skipped = 0;
         var errors = new List<string>();
         foreach (var key in keys) {
-            if (_leases.ContainsKey(key)) {
+            if (heldHere(key)) {
                 skipped++;
                 continue;
             }
@@ -275,29 +137,35 @@ public class AzureBlobIOProvider : IIOProvider {
 
     // ---- files ----
 
-    // a listing below prefix only answers for the tracked files below it
-    void syncDirInfo(List<BlobListItem> existing, string? prefix = null) {
-        var openStreams = new Dictionary<string, IStream>(StringComparer.Ordinal);
-        foreach (var stream in _openStreams) openStreams.TryAdd(stream.FileKey, stream);
-        var listed = new HashSet<string>(StringComparer.Ordinal);
-        long getSize(BlobListItem blob) => openStreams.TryGetValue(blob.Name, out var open) ? open.Length : blob.ContentLength;
-        foreach (var blob in existing) {
-            listed.Add(blob.Name);
-            if (!_files.TryGetValue(blob.Name, out var meta)) {
-                _files.Add(blob.Name, new FileMeta {
-                    Key = blob.Name,
-                    Size = getSize(blob),
-                    LastModifiedUtc = blob.LastModifiedUtc,
-                    CreationTimeUtc = blob.CreatedOnUtc,
-                });
-            } else {
-                meta.Size = getSize(blob);
-                meta.LastModifiedUtc = blob.LastModifiedUtc;
-                meta.CreationTimeUtc = blob.CreatedOnUtc;
-            }
+    // both under _lock
+    OpenFile openFileOf(string blobName) {
+        if (!_openFiles.TryGetValue(blobName, out var open)) _openFiles.Add(blobName, open = new());
+        return open;
+    }
+    void forgetIfClosed(string blobName, OpenFile open) {
+        if (open.Readers == 0 && open.Writers == 0 && _openFiles.TryGetValue(blobName, out var current) && current == open) _openFiles.Remove(blobName);
+    }
+    // a listed blob as the listing says, with the streams this process has open on it; one being written
+    // is as long as its stream, which counts what has not been sent yet. Under _lock.
+    FileMeta metaOf(BlobListItem blob, Dictionary<string, IStream> writing) {
+        var meta = new FileMeta { Key = blob.Name, Size = blob.ContentLength, LastModifiedUtc = blob.LastModifiedUtc, CreationTimeUtc = blob.CreatedOnUtc };
+        if (_openFiles.TryGetValue(blob.Name, out var open)) {
+            meta.Readers = open.Readers;
+            meta.Writers = open.Writers;
         }
-        var deleted = _files.Keys.Where(k => (prefix == null || k.StartsWith(prefix, StringComparison.Ordinal)) && !listed.Contains(k)).ToArray();
-        foreach (var k in deleted) _files.Remove(k);
+        if (writing.TryGetValue(blob.Name, out var stream)) meta.Size = stream.Length;
+        return meta;
+    }
+    Dictionary<string, IStream> writingStreams() {
+        var writing = new Dictionary<string, IStream>(StringComparer.OrdinalIgnoreCase);
+        foreach (var stream in _openStreams) if (stream is IAppendStream) writing.TryAdd(stream.FileKey, stream);
+        return writing;
+    }
+    FileMeta[] metasOf(List<BlobListItem> blobs) {
+        lock (_lock) {
+            var writing = writingStreams();
+            return [.. blobs.Select(b => metaOf(b, writing))];
+        }
     }
 
     public IReadStream OpenRead(string[] path, long position) {
@@ -309,35 +177,32 @@ public class AzureBlobIOProvider : IIOProvider {
         return Client.GetProperties(blobName) != null;
     }
     // The count of readers or writers is taken first, under the lock, so a second open cannot slip past
-    // the checks; the calls to the service come after, outside it, as taking a lease can wait. Whatever
-    // fails on the way gives back what was taken by then - the count and the lease - or the file would
-    // stay "locked" in this process, and leased for everyone else, until the process ends.
+    // the checks; the calls to the service come after, outside it, as taking the container's lock can wait.
+    // Whatever fails on the way gives back what was taken by then, or the file would stay "locked" in this
+    // process, and the container locked for everyone else, until the process ends.
     IReadStream openRead(long position, string blobName) {
-        FileMeta meta;
+        OpenFile open;
         lock (_lock) {
-            if (!_files.TryGetValue(blobName, out meta!)) throw new Exception($"File {blobName} does not exist");
-            if (meta.Writers > 0) throw new Exception($"File {blobName} is locked for writing. ");
-            meta.Readers++;
+            open = openFileOf(blobName);
+            if (open.Writers > 0) throw new Exception($"File {blobName} is locked for writing. ");
+            open.Readers++;
         }
-        HeldLease? lease = null;
         AzureBlobIOReadStream? stream = null;
         try {
-            var properties = Client.GetProperties(blobName);
-            if (_lockBlob && properties != null) lease = AcquireLease(blobName);
+            var properties = Client.GetProperties(blobName) ?? throw new Exception($"File {blobName} does not exist");
             stream = new AzureBlobIOReadStream(Client, blobName, position, properties, () => {
-                try {
-                    if (lease != null) ReleaseLease(lease);
-                } finally {
-                    lock (_lock) {
-                        meta.Readers--;
-                        _closedStreams += stream!.Counters;
-                        _openStreams.Remove(stream!);
-                    }
+                lock (_lock) {
+                    open.Readers--;
+                    forgetIfClosed(blobName, open);
+                    _closedStreams += stream!.Counters;
+                    _openStreams.Remove(stream!);
                 }
             });
         } catch {
-            if (lease != null) ReleaseLease(lease);
-            lock (_lock) meta.Readers--;
+            lock (_lock) {
+                open.Readers--;
+                forgetIfClosed(blobName, open);
+            }
             throw;
         }
         lock (_lock) {
@@ -350,43 +215,35 @@ public class AzureBlobIOProvider : IIOProvider {
         return openAppend(blobName);
     }
     IAppendStream openAppend(string fileKey) {
-        FileMeta meta;
-        bool added;
+        OpenFile open;
         lock (_lock) {
-            added = !_files.TryGetValue(fileKey, out meta!);
-            if (added) {
-                meta = new FileMeta { Key = fileKey };
-                _files.Add(fileKey, meta);
-            } else {
-                if (meta.Readers > 0) throw new Exception($"File {fileKey} is locked for reading. ");
-                if (meta.Writers > 0) throw new Exception($"File {fileKey} is locked for writing. ");
-            }
-            meta.Writers++;
+            open = openFileOf(fileKey);
+            if (open.Readers > 0) throw new Exception($"File {fileKey} is locked for reading. ");
+            if (open.Writers > 0) throw new Exception($"File {fileKey} is locked for writing. ");
+            open.Writers++;
         }
-        HeldLease? lease = null;
+        AzureBlobContainerLock.Lease? lease = null;
         AzureBlobIOAppendStream? stream = null;
         try {
-            Client.CreateAppendBlobIfNotExists(fileKey); // a lease needs a blob to be taken on
-            if (_lockBlob) lease = AcquireLease(fileKey);
-            stream = new AzureBlobIOAppendStream(this, Client, fileKey, lease, (long size) => {
+            lease = enterLock();
+            Client.CreateAppendBlobIfNotExists(fileKey);
+            stream = new AzureBlobIOAppendStream(Client, fileKey, lease, _ => {
                 try {
-                    if (lease != null) ReleaseLease(lease);
+                    exitLock(lease);
                 } finally {
                     lock (_lock) {
-                        meta.Writers--;
-                        meta.LastModifiedUtc = DateTime.UtcNow;
-                        meta.Size = size; // the folder listing reads this tracked meta, not the blob's properties
+                        open.Writers--;
+                        forgetIfClosed(fileKey, open);
                         _closedStreams += stream!.Counters;
                         _openStreams.Remove(stream!);
                     }
                 }
             });
         } catch {
-            if (lease != null) ReleaseLease(lease);
+            exitLock(lease);
             lock (_lock) {
-                meta.Writers--;
-                // a file this open made up is not one: the next listing finds it if the blob was created
-                if (added && meta.Writers == 0 && meta.Readers == 0 && _files.TryGetValue(fileKey, out var m) && m == meta) _files.Remove(fileKey);
+                open.Writers--;
+                forgetIfClosed(fileKey, open);
             }
             throw;
         }
@@ -400,28 +257,27 @@ public class AzureBlobIOProvider : IIOProvider {
         deleteFileIfItExists(blobName);
     }
     void deleteFileIfItExists(string fileKey) {
-        FileMeta? meta;
         lock (_lock) {
-            if (_files.TryGetValue(fileKey, out meta)) {
-                if (meta.Readers > 0) throw new Exception($"File {fileKey} is locked for reading. ");
-                if (meta.Writers > 0) throw new Exception($"File {fileKey} is locked for writing. ");
+            if (_openFiles.TryGetValue(fileKey, out var open)) {
+                if (open.Readers > 0) throw new Exception($"File {fileKey} is locked for reading. ");
+                if (open.Writers > 0) throw new Exception($"File {fileKey} is locked for writing. ");
             }
         }
+        var lease = enterLock();
         try {
+            lease?.EnsureWritable(fileKey);
             Client.DeleteBlobIfExists(fileKey);
         } catch (AzureBlobRequestException err) when (err.ErrorCode == "LeaseIdMissing") {
-            // someone holds a lease on it. One that never ends was left behind by an older version (see
-            // the class) and nobody is going to let go of it, so it is broken, as that version did; any
-            // other belongs to a process that is still using the file
+            // an older version leased it. One that never ends was left behind and nobody is going to let go
+            // of it, so it is broken, as that version did; any other belongs to a process still using the file
             var duration = Client.GetProperties(fileKey)?.LeaseDuration;
             if (!string.Equals(duration, "infinite", StringComparison.OrdinalIgnoreCase)) {
                 throw new BlobLeasedException("\"" + fileKey + "\" cannot be deleted: another process holds a lease on it. ", err, fileKey, false);
             }
             Client.BreakLease(fileKey);
             Client.DeleteBlobIfExists(fileKey);
-        }
-        lock (_lock) {
-            if (_files.TryGetValue(fileKey, out meta)) _files.Remove(fileKey);
+        } finally {
+            exitLock(lease);
         }
     }
     public bool DoesNotExistOrIsEmpty(string[] path) {
@@ -430,22 +286,18 @@ public class AzureBlobIOProvider : IIOProvider {
         if (properties == null) return true;
         return properties.ContentLength == 0;
     }
-    public FileMeta[] GetFiles() {
-        var existing = Client.ListBlobs(null);
-        lock (_lock) {
-            syncDirInfo(existing);
-            return _files.Values.ToArray();
-        }
-    }
+    public FileMeta[] GetFiles() => metasOf(listBlobs(null));
     // Blob names are case sensitive, so unlike the other providers the folder must match in case.
-    public FileMeta[] GetFiles(string[] folder) {
-        if (folder.Length == 0) return GetFiles();
-        var prefix = getAndValidateBlobName(folder) + _virtualFolderChar;
-        var existing = Client.ListBlobs(prefix);
-        lock (_lock) {
-            syncDirInfo(existing, prefix);
-            return [.. _files.Values.Where(f => f.Key.StartsWith(prefix, StringComparison.Ordinal))];
-        }
+    public FileMeta[] GetFiles(string[] folder) => GetFiles(folder, recursive: true);
+    public FileMeta[] GetFiles(string[] folder, bool recursive) {
+        var prefix = folder.Length == 0 ? null : getAndValidateBlobName(folder) + _virtualFolderChar;
+        return metasOf(listBlobs(prefix, oneLevel: !recursive));
+    }
+    // the container's lock is the provider's own, not a file
+    List<BlobListItem> listBlobs(string? prefix, bool oneLevel = false) {
+        var blobs = Client.ListBlobs(prefix, oneLevel);
+        if (string.IsNullOrEmpty(prefix)) blobs.RemoveAll(b => b.Name == AzureBlobContainerLock.BlobName);
+        return blobs;
     }
     public long GetFileSizeOrZeroIfUnknown(string[] path) {
         var blobName = getAndValidateBlobName(path);
@@ -459,7 +311,7 @@ public class AzureBlobIOProvider : IIOProvider {
             "Every read, write and lookup is a request to the storage service, so the time a small operation takes is mostly the round trip between this server and the storage account's region.",
             "Appends wait in memory until the stream is flushed or holds 20 MB and are then sent as one block. A small read fetches 100 KB and a read stream 1 MB at a time, so reads close to the previous one are served from what it fetched.",
         ];
-        if (_lockBlob) notes.Add("Blobs are leased while they are open (LockBlob), which adds a request to every open and every close.");
+        if (_lockBlob) notes.Add("The container is locked against other processes while this one writes it (LockBlob): one lease, taken by the first write and renewed every 5 s. Reads take no lock.");
         return IOBenchmark.RunAsync(this, new IOBenchmarkOptions {
             Kind = "Azure Blob Storage",
             Location = Client.ContainerUrl,
@@ -485,7 +337,7 @@ public class AzureBlobIOProvider : IIOProvider {
     public void RenameFolder(string[] path, string[] newPath) {
         throw new NotSupportedException("Azure blob storage cannot rename a folder: blobs would have to be copied one by one. ");
     }
-    /// <summary>Closes every stream, each on its own: one that fails to flush still lets go of its lease,
+    /// <summary>Closes every stream, each on its own: one that fails to flush still lets go of its file,
     /// and does not keep the ones after it open.</summary>
     public void CloseAllOpenStreams() {
         IStream[] streams;
@@ -500,17 +352,13 @@ public class AzureBlobIOProvider : IIOProvider {
                 (errors ??= []).Add(err);
             }
         }
+        if (_lockBlob) _container.Lock.ReleaseIfIdle();
         if (errors != null) throw new AggregateException("Not every stream closed cleanly. ", errors);
     }
 
     public void DeleteFolderIfItExists(string[] path) {
-        lock (_lock) {
-            var prefix = getAndValidateBlobName(path) + _virtualFolderChar;
-            var blobsToDelete = Client.ListBlobs(prefix).Select(b => b.Name).ToArray();
-            foreach (var blobName in blobsToDelete) {
-                deleteFileIfItExists(blobName);
-            }
-        }
+        var prefix = getAndValidateBlobName(path) + _virtualFolderChar;
+        foreach (var blob in Client.ListBlobs(prefix)) deleteFileIfItExists(blob.Name);
     }
     public bool DeleteFolderIfEmpty(string[] path) {
         if (path.Length == 0) return false;
@@ -522,7 +370,7 @@ public class AzureBlobIOProvider : IIOProvider {
     }
     public Task<FolderMeta> GetFolderAsync(string[] path, bool recursive, bool withFiles) {
         var prefix = path.Length > 0 ? getAndValidateBlobName(path) + _virtualFolderChar : "";
-        var blobs = Client.ListBlobs(prefix.Length > 0 ? prefix : null);
+        var blobs = listBlobs(prefix.Length > 0 ? prefix : null);
         var root = new FolderMeta { Name = path.Length > 0 ? path[^1] : "" }.Describe(relPathOfPrefix(prefix));
         addAzureSubFolders(root, prefix, blobs, recursive, withFiles);
         return Task.FromResult(root);
@@ -558,16 +406,10 @@ public class AzureBlobIOProvider : IIOProvider {
         }
 
         if (withFiles) {
-            var metas = new FileMeta[files.Count];
-            lock (_lock) { // the tracked metas are written by the streams as they open and close
-                for (var i = 0; i < files.Count; i++) {
-                    var blob = files[i];
-                    // prefer the tracked meta (it reflects open streams), else build from the listing
-                    metas[i] = _files.TryGetValue(blob.Name, out var tracked) ? tracked
-                        : new FileMeta { Key = blob.Name, Size = blob.ContentLength, LastModifiedUtc = blob.LastModifiedUtc, CreationTimeUtc = blob.CreatedOnUtc };
-                }
+            lock (_lock) { // the streams open on them change as they open and close
+                var writing = writingStreams();
+                folder.Files = [.. files.Select(blob => metaOf(blob, writing))];
             }
-            folder.Files = metas;
         }
 
         folder.HasFiles = files.Count > 0;

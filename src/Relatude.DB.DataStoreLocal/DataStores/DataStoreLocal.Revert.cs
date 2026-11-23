@@ -150,53 +150,45 @@ public sealed partial class DataStoreLocal : IDataStore {
             var newestStateFileKey = FileKeyUtility.State_GetNewestFileKey(IOIndex);
             var stateFileExists = newestStateFileKey != null && IOIndex.ExistsAndIsNotEmpty(newestStateFileKey);
 
-            // find where to truncate, and count what falls off. The log streams must be closed
-            // while an independent reader scans the file (and stay closed for the truncation):
+            // find where to truncate, and count what falls off, reading the log through its own stream: it
+            // stays open, and held against other processes, until the truncation below closes it
             long keepEnd = -1;
             long lastKeptTimestamp = 0;
             int deletedTransactions = 0;
             int deletedActions = 0;
-            _wal.Close();
-            var reopened = false;
-            try {
-                long scanFrom = 0, scanFromTimestamp = 0;
-                if (knownPositionAfterLastKept.HasValue) {
-                    if (knownPositionAfterLastKept.Value > walFileSize) throw new Exception("The recorded revert position lies outside the log file. ");
-                    keepEnd = scanFrom = knownPositionAfterLastKept.Value;
-                    lastKeptTimestamp = scanFromTimestamp = afterTimestamp;
-                } else if (stateHeaderOk && stateTimestamp <= afterTimestamp && statePosition <= walFileSize) {
-                    // the snapshot position is a transaction boundary at or before the target: skip the log before it
-                    keepEnd = scanFrom = statePosition;
-                    lastKeptTimestamp = scanFromTimestamp = stateTimestamp;
-                }
-                using (var reader = new LogReader(walFileKey, _definition, _io, scanFrom, scanFromTimestamp)) {
-                    if (keepEnd < 0) keepEnd = reader.Position; // right after the file header
-                    var pastTarget = false;
-                    while (reader.ReadNextTransaction(out var transaction, false, logError, out _)) {
-                        if (!pastTarget && transaction.Timestamp <= afterTimestamp) {
-                            keepEnd = reader.Position; // position right after this transaction
-                            lastKeptTimestamp = transaction.Timestamp;
-                        } else {
-                            // timestamps are monotonic in the log; everything from the first
-                            // too-new transaction on is deleted, so the kept range stays contiguous
-                            pastTarget = true;
-                            deletedTransactions++;
-                            deletedActions += transaction.ExecutedActions.Count;
-                        }
+            long scanFrom = 0, scanFromTimestamp = 0;
+            if (knownPositionAfterLastKept.HasValue) {
+                if (knownPositionAfterLastKept.Value > walFileSize) throw new Exception("The recorded revert position lies outside the log file. ");
+                keepEnd = scanFrom = knownPositionAfterLastKept.Value;
+                lastKeptTimestamp = scanFromTimestamp = afterTimestamp;
+            } else if (stateHeaderOk && stateTimestamp <= afterTimestamp && statePosition <= walFileSize) {
+                // the snapshot position is a transaction boundary at or before the target: skip the log before it
+                keepEnd = scanFrom = statePosition;
+                lastKeptTimestamp = scanFromTimestamp = stateTimestamp;
+            }
+            using (var reader = _wal.ReadLog(scanFrom, scanFromTimestamp)) {
+                if (keepEnd < 0) keepEnd = reader.Position; // right after the file header
+                var pastTarget = false;
+                while (reader.ReadNextTransaction(out var transaction, false, logError, out _)) {
+                    if (!pastTarget && transaction.Timestamp <= afterTimestamp) {
+                        keepEnd = reader.Position; // position right after this transaction
+                        lastKeptTimestamp = transaction.Timestamp;
+                    } else {
+                        // timestamps are monotonic in the log; everything from the first
+                        // too-new transaction on is deleted, so the kept range stays contiguous
+                        pastTarget = true;
+                        deletedTransactions++;
+                        deletedActions += transaction.ExecutedActions.Count;
                     }
                 }
-                if (dryRun || deletedTransactions == 0) {
-                    _wal.OpenForAppending();
-                    reopened = true;
-                    return new DeleteTransactionsResult {
-                        DryRun = dryRun, AfterTimestamp = afterTimestamp,
-                        LastTimestamp = deletedTransactions == 0 ? lastTimestamp : lastKeptTimestamp,
-                        TransactionsDeleted = deletedTransactions, ActionsDeleted = deletedActions,
-                        BytesTruncated = walFileSize - keepEnd, DurationMs = sw.Elapsed.TotalMilliseconds,
-                    };
-                }
-            } catch when (reopenWalOnError(ref reopened)) {
-                throw; // filter reopens the log streams so a failed scan leaves the store usable; never matches
+            }
+            if (dryRun || deletedTransactions == 0) {
+                return new DeleteTransactionsResult {
+                    DryRun = dryRun, AfterTimestamp = afterTimestamp,
+                    LastTimestamp = deletedTransactions == 0 ? lastTimestamp : lastKeptTimestamp,
+                    TransactionsDeleted = deletedTransactions, ActionsDeleted = deletedActions,
+                    BytesTruncated = walFileSize - keepEnd, DurationMs = sw.Elapsed.TotalMilliseconds,
+                };
             }
 
             // the destructive part: from here on the store is rebuilt around the truncated log
@@ -269,15 +261,6 @@ public sealed partial class DataStoreLocal : IDataStore {
         } finally {
             DeRegisterActivity(activityId);
         }
-    }
-
-    // exception-filter helper: reopen the log streams after a failed scan, then let the exception
-    // continue (the filter always returns false, so the catch body never runs)
-    bool reopenWalOnError(ref bool reopened) {
-        if (!reopened) {
-            try { _wal.OpenForAppending(); reopened = true; } catch { /* the original error is the one to surface */ }
-        }
-        return false;
     }
 
     /// <summary>Truncates the primary log file, keeping the secondary in sync: a secondary that is
