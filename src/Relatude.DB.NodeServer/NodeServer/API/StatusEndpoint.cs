@@ -33,11 +33,26 @@ public static class StatusEndpoint {
     /// <summary>The server has no default database.</summary>
     public const string NoDatabase = "no-database";
 
-    /// <summary>The answer. <c>Database</c> is the default database's state as the admin UI shows it: Open, Opening, Error, Closed, …; None without one.</summary>
-    public sealed record Info(string Status, string Database, string Version, DateTime ServerTimeUtc);
+    /// <summary>
+    /// The answer. <c>Database</c> is the default database's state as the admin UI shows it: Open, Opening, Error, Closed, …; None without one.
+    /// <c>StartedUtc</c> is when this process started, so that whoever restarted the application can tell its new process from the
+    /// old one, which an overlapped recycle keeps answering for a while; null where the platform does not say.
+    /// </summary>
+    public sealed record Info(string Status, string Database, string Version, DateTime ServerTimeUtc, DateTime? StartedUtc);
 
     /// <summary>The Relatude.DB version the server runs, the same one its heartbeat reports to Relatude.License.</summary>
     public static readonly string Version = typeof(StatusEndpoint).Assembly.GetName().Version?.ToString() ?? "unknown";
+
+    // the process's own start, not the first status request's: an old process can be asked first after the restart
+    static readonly DateTime? _started = processStart();
+    static DateTime? processStart() {
+        try {
+            using var process = System.Diagnostics.Process.GetCurrentProcess();
+            return process.StartTime.ToUniversalTime();
+        } catch (Exception) {
+            return null;
+        }
+    }
 
     static readonly JsonSerializerOptions _json = new(JsonSerializerDefaults.Web);
 
@@ -53,7 +68,7 @@ public static class StatusEndpoint {
                 nameof(DataStoreState.Error) => Error,
                 _ => Closed,
             };
-        return new Info(status, database, Version, DateTime.UtcNow);
+        return new Info(status, database, Version, DateTime.UtcNow, _started);
     }
 
     /// <summary>A GET or HEAD of the status url, whatever the case or a trailing slash.</summary>
