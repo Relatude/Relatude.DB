@@ -118,6 +118,7 @@ For `AzureBlobStorage`, the entry carries `BlobConnectionString`, `BlobContainer
 | `DBAdminUIUrlPath` | Admin UI path. **Applied after** `UseRelatudeDB("/x")`, so the file wins. |
 | `ContainerSettings` | The databases. |
 | `DBSettingsFilePath` | Declared but never read in the current build. Ignore it. |
+| `ShowErrorsInBrowser` | ASP.NET's error page for any failing request in the app, in every environment (a startup filter `AddRelatudeDB` adds; read per request). Every visitor sees it: off by default. |
 
 ## Container level
 

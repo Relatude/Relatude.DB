@@ -2255,6 +2255,7 @@ when the key is left out.
 | `DBAdminUIUrlPath` | `/relatude.db` | The admin UI's path. Overrides the argument to `UseRelatudeDB()`. A change needs a restart of the process. |
 | `InfoUrlPath` | `/-info/` | Where the server serves the bot check its pages carry, and takes their reports ([§35.5](#355-who-is-behind-a-request-ip-lookup)). |
 | `DBSettingsFilePath` | null | The file name the settings pages show as the source of the settings. It does not change which file is read. |
+| `ShowErrorsInBrowser` | `false` | Shows ASP.NET's error page, with the exception and where it was thrown, for any request in the application that fails, in every environment. Every visitor sees it, so turn it on only while finding a fault. Applies without a restart. Errors while the app starts need `ASPNETCORE_DETAILEDERRORS=true`. |
 
 **The admin login.** These keys protect the admin UI. They have nothing to do with your application's
 own users.

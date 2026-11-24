@@ -360,6 +360,17 @@ public static class SettingsCatalog {
                     ],
                 },
                 new() {
+                    Id = "errors",
+                    Title = "Errors",
+                    Help = "What a visitor sees when a request to the application fails.",
+                    Settings = [
+                        new() {
+                            Path = "ShowErrorsInBrowser", Label = "Show errors in the browser", Applies = SettingApplies.Live,
+                            Help = "Shows ASP.NET's error page - the exception, where it was thrown and the request - instead of a bare error, for any request in the application that fails, not only those to this admin UI. Every visitor sees it, so turn it on only while finding a fault. Errors while the application starts are ASP.NET's own to show: set ASPNETCORE_DETAILEDERRORS to true for those.",
+                        },
+                    ],
+                },
+                new() {
                     Id = "recovery",
                     Title = "Automatic recovery",
                     Help = "What the server does on its own when a database fails to open on start-up, or goes into a critical error state while open. A minute later it restarts that database; if that does not bring it back, it restarts the whole server a minute after that. One such incident counts once, however many steps it takes, and at most three are attempted per 24 hours in one process. Every attempt and its result, with timings, is written to the database's critical error log.",

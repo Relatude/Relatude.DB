@@ -72,6 +72,9 @@ public class RelatudeDBServerSettings {
     public Guid DefaultStoreId { get; set; }
     public bool AutoRecovery { get; set; } = true;
     public bool AutoRecoveryRestartsProcess { get; set; } = false;
+    /// <summary>ASP.NET's error page, with the exception and its stack, for any request in the application that fails -
+    /// to every visitor, so only while finding a fault. Read on each request.</summary>
+    public bool ShowErrorsInBrowser { get; set; } = false;
 
     // Each database container settings
     public NodeStoreContainerSettings[]? ContainerSettings { get; set; }
