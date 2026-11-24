@@ -480,6 +480,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         if (result is ICollectionBase t) t.DurationMs = (double)duration.Ticks / TimeSpan.TicksPerMillisecond;
         Interlocked.Increment(ref _noQueriesSinceClearCache);
         Interlocked.Increment(ref _noQueriesSinceLastMetric);
+        _basicCounter.Query();
         // Recorded once the read lock is let go of, for the same reason: writing a log entry is no reason
         // to keep a writer, and every reader behind it, waiting.
         if (_logger.LoggingQueries) _logger.RecordQuery(query ?? expression.ToString()!, duration, resultCount, metrics);

@@ -293,7 +293,7 @@ var thumb = new FileAdjustmentImage {
 | `BackgroundColor` | `"#RRGGBB"` / `"#RRGGBBAA"` | What shows behind the picture: in the padding when the canvas is larger, and where the picture is see-through. None: the picture's own (`ImageFileMeta.BackgroundColor`), else see-through. |
 | `AutoBackgroundColor` | bool | Pick the background from edge analysis instead. |
 | `RequestedFormat` | `Jpeg`, `Png`, `Webp`, `Avif`, `Gif`, `Bmp` | Falls back to `Png` when left `Unknown`. |
-| `TimeOffsetMs` | ms | **Video sources**: which frame to grab as a still. |
+| `TimeOffsetMs` | ms | **Video sources**: which frame to grab as a still. None (and no `TimeOffsetPercentage`, no `Frames`): the video's poster frame (`VideoFileMeta.PosterTime`), else 10% in (`DefaultTimeOffsetPercentage`). |
 | `TimeOffsetPercentage` | 0–100 | Same, as a percentage of duration. |
 | `Frames` | 2–200 | **Video sources**: that many frames across the video, as an animation (`Webp`, or `Gif`), each frame shown until the next one's time, so its time is the sum of the durations before it (the first at 0); every frame of a WebP whole. `Width`/`Height` bound each frame (384 on the longer side when neither is set), never enlarged. |
 | `KeyframesOnly` | bool | With `Frames`: the keyframe before each time, decoded alone, so a series takes about a second whatever the video. Without it a short video is decoded once at even times, a long one gets keyframes. |
@@ -303,6 +303,17 @@ var thumb = new FileAdjustmentImage {
 Out-of-range values are clamped rather than rejected, and a `Width`/`Height`/`Zoom` of zero or less becomes "unset".
 
 An image adjustment applied to a **video** file extracts a still — that is what `TimeOffsetMs` is for, and it is the standard way to show a poster frame while the video transcode is still running.
+
+**A video's poster frame** is `VideoFileMeta.PosterTime`, kept in the file's meta: an image adjustment of the video naming no time and no `Frames` takes its still there (with none, a tenth of the way in), so thumbnails and `<video poster>` URLs follow it, for any video format and with nothing written into the video. It is part of the conversion key and the URL version (changing it gives new URLs), a time the adjustment names wins, and it travels with the `FileValue` when copied. Set it as any meta:
+
+```csharp
+var clip = product.Clip.Copy();
+var meta = clip.GetMeta<VideoFileMeta>() ?? new VideoFileMeta();
+meta.PosterTime = TimeSpan.FromSeconds(12.4);
+clip.SetMeta(meta);
+db.ForceUpdateProperty<Product, FileValue>(product.Id, p => p.Clip, clip);
+var posterUrl = db.GetUrl(clip, new FileAdjustmentImage { Width = 1280 });   // the frame at 12.4 s
+```
 
 ### FileAdjustmentVideo
 

@@ -447,6 +447,10 @@ public class FileConversionEngine : IDisposable {
         if (lookForBetterStatus && converter.TryGetLiveStatus(key, out var betterStatus)) {
             status = betterStatus;
         }
+        if (status.Status == FileConversionStatus.InProgress && WaitingPicture.CanEncode(adj.RequestedFormat, _fileConverters)) {
+            return statusResponse("waiting|" + adj.RequestedFormat + "|" + width + "x" + height,
+                () => WaitingPicture.Render(adj.RequestedFormat, width, height, _fileConverters));
+        }
         var fillColor = status.Status switch {
             FileConversionStatus.Error => errorBgColor,
             FileConversionStatus.InProgress => inProgressBgColor,

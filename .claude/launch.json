@@ -28,6 +28,42 @@
       "autoPort": false
     },
     {
+      "name": "cms-website4",
+      "runtimeExecutable": "dotnet",
+      "runtimeArgs": [
+        "run",
+        "--project",
+        "../Relatude.DB.CMS/Website4",
+        "--no-launch-profile",
+        "--urls",
+        "http://localhost:5064"
+      ],
+      "env": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      },
+      "port": 5064,
+      "autoPort": false
+    },
+    {
+      "name": "cms-ui-website4",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "../Relatude.DB.CMS/Relatude.CMS.UI/node_modules/vite/bin/vite.js",
+        "../Relatude.DB.CMS/Relatude.CMS.UI/packages/cms",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "5179",
+        "--strictPort"
+      ],
+      "env": {
+        "RELATUDE_SITE": "http://localhost:5064"
+      },
+      "port": 5179,
+      "autoPort": false,
+      "url": "http://127.0.0.1:5179"
+    },
+    {
       "name": "docs-static",
       "runtimeExecutable": "python",
       "runtimeArgs": [

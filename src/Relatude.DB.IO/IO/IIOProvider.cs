@@ -11,6 +11,13 @@ namespace Relatude.DB.IO;
 public interface IIOProvider {
     IReadStream OpenRead(string[] path, long position);
     IAppendStream OpenAppend(string[] path);
+    /// <summary>As <see cref="OpenRead(string[], long)"/>, waiting at most <paramref name="openWait"/> while another
+    /// process or stream holds the file (zero: one attempt). For callers that would rather fail than wait, such as the
+    /// logs, which open their files holding a lock others are waiting for.</summary>
+    IReadStream OpenRead(string[] path, long position, TimeSpan openWait) => OpenRead(path, position);
+    /// <summary>As <see cref="OpenAppend(string[])"/>, waiting at most <paramref name="openWait"/> while the file, or
+    /// the storage, is held elsewhere (zero: one attempt).</summary>
+    IAppendStream OpenAppend(string[] path, TimeSpan openWait) => OpenAppend(path);
     bool Exists(string[] path);
     bool DoesNotExistOrIsEmpty(string[] path);
     void DeleteFileIfItExists(string[] path);

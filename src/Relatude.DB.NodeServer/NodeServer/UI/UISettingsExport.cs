@@ -1,5 +1,6 @@
-using Microsoft.AspNetCore.Http;
+﻿using Microsoft.AspNetCore.Http;
 using Relatude.DB.Datamodels;
+using Relatude.DB.DataStores;
 using Relatude.DB.GraphQL.Endpoints;
 using Relatude.DB.IO;
 using Relatude.DB.Logging;
@@ -178,7 +179,8 @@ sealed partial class UISettings {
         if (kind == "graphql") return (_server.GraphQLDefinitionsFor(container.Settings), _server.GraphQL.Layers(container.Settings.Id));
         var folders = _server.LogDefinitionsFor(container.Settings);
         if (folders == null) return (null, []);
-        var reserved = container.GetLogger().CustomLogs.ReservedKeys;
+        // the system keys as such: asking a logger for them fails while a store is being built
+        var reserved = new HashSet<string>(StoreLogger.SystemLogKeys, StringComparer.OrdinalIgnoreCase);
         var (found, _) = LayeredDefinitions.Read(folders, CustomLogs.IdOf, StringComparer.OrdinalIgnoreCase);
         return (folders, [.. found.Where(d => !reserved.Contains(d.Id))]);
     }

@@ -163,7 +163,8 @@ internal class AzureBlobRestClient : IDisposable {
         response.Headers.TryGetValues("x-ms-error-code", out var codes);
         var errorCode = codes?.FirstOrDefault();
         string body = "";
-        try { body = response.Content.ReadAsStringAsync().GetAwaiter().GetResult(); } catch { }
+        // read without the thread pool, which a busy one-core server can be slow to hand out
+        try { using var reader = new StreamReader(response.Content.ReadAsStream()); body = reader.ReadToEnd(); } catch { }
         if (body.Length > 500) body = body[..500] + "...";
         return new AzureBlobRequestException((int)response.StatusCode, errorCode,
             $"Azure blob {operation} failed with {(int)response.StatusCode} {response.StatusCode}" +
@@ -302,6 +303,10 @@ internal class AzureBlobRestClient : IDisposable {
         if (ex.StatusCode == 404) return; // BlobNotFound or ContainerNotFound
         throw ex;
     }
+    // Lease calls go out on a client of their own: a renewal never waits for a connection behind big uploads, and gives
+    // up within seconds instead of the minutes those are allowed.
+    internal static readonly TimeSpan LeaseRequestTimeout = TimeSpan.FromSeconds(4);
+    static readonly HttpClient _leaseHttp = new() { Timeout = LeaseRequestTimeout };
     Request leaseRequest(string blobName, string action) => new() {
         Method = HttpMethod.Put,
         BlobName = blobName,
@@ -321,7 +326,7 @@ internal class AzureBlobRestClient : IDisposable {
         var r = leaseRequest(blobName, "acquire");
         r.XmsHeaders["x-ms-lease-duration"] = durationSeconds.ToString(CultureInfo.InvariantCulture);
         if (proposedLeaseId != null) r.XmsHeaders["x-ms-proposed-lease-id"] = proposedLeaseId;
-        using var response = HttpRetry.Send(_http, () => build(r));
+        using var response = HttpRetry.Send(_leaseHttp, () => build(r));
         if (!response.IsSuccessStatusCode) {
             var ex = error(response, "acquire lease");
             if (ex.StatusCode == 409) throw new AzureBlobRequestException(409, ex.ErrorCode ?? "LeaseAlreadyPresent", $"The blob {blobName} is leased by another process. ");
@@ -331,23 +336,24 @@ internal class AzureBlobRestClient : IDisposable {
         return leaseIds?.FirstOrDefault() ?? throw new Exception("The lease response had no x-ms-lease-id header. ");
     }
     /// <summary>Starts the lease's duration over. Also brings back a lease that has expired, as long as
-    /// nobody has written the blob or leased it since; otherwise it fails with a 409.</summary>
+    /// nobody has written the blob or leased it since; otherwise it fails with a 409. One attempt: the
+    /// caller tries again on its own schedule, which a backoff here would only hold up.</summary>
     public void RenewLease(string blobName, string leaseId) {
         var r = leaseRequest(blobName, "renew");
         r.XmsHeaders["x-ms-lease-id"] = leaseId;
-        using var response = HttpRetry.Send(_http, () => build(r));
+        using var response = _leaseHttp.Send(build(r), HttpCompletionOption.ResponseHeadersRead);
         if (!response.IsSuccessStatusCode) throw error(response, "renew lease");
     }
     public void ReleaseLease(string blobName, string leaseId) {
         var r = leaseRequest(blobName, "release");
         r.XmsHeaders["x-ms-lease-id"] = leaseId;
-        using var response = HttpRetry.Send(_http, () => build(r));
+        using var response = HttpRetry.Send(_leaseHttp, () => build(r));
         if (!response.IsSuccessStatusCode) throw error(response, "release lease");
     }
     public void BreakLease(string blobName) {
         var r = leaseRequest(blobName, "break");
         r.XmsHeaders["x-ms-lease-break-period"] = "0";
-        using var response = HttpRetry.Send(_http, () => build(r));
+        using var response = HttpRetry.Send(_leaseHttp, () => build(r));
         if (!response.IsSuccessStatusCode) throw error(response, "break lease");
     }
     public void Dispose() {

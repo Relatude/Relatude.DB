@@ -124,7 +124,7 @@ public sealed partial class DataStoreLocal : IDataStore {
 
         _jobs.AddBuiltIn("delete-unreferenced-files", async ctx => {
             var countOnly = arguments(ctx, "count").Contains("count");
-            var result = await DeleteUnreferencedFilesAsync(countOnly, (text, percentage) => ctx.Progress(percentage, text), ctx.CancellationToken);
+            var result = await DeleteUnreferencedFilesAsync(countOnly, onProgress: (text, percentage) => ctx.Progress(percentage, text), cancellationToken: ctx.CancellationToken);
             ctx.Report((countOnly ? "Found " : "Deleted ") + result.TotalFilesDeleted.To1000N() + " unreferenced file" + (result.TotalFilesDeleted == 1 ? "" : "s")
                 + ", " + result.TotalBytesDeleted.ToByteString() + (countOnly ? " (nothing deleted)." : "."));
         },

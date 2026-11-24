@@ -604,6 +604,21 @@ static class UILogReader {
             _ => DateTime.SpecifyKind(v, DateTimeKind.Utc),
         };
     }
+    /// <summary>
+    /// What the pages say about a log beside its figures: null while it is free and its entries reach its files.
+    /// A log busy for a moment is not worth a word; one busy for longer is, with what it is busy with.
+    /// </summary>
+    internal static object? Condition(LogCondition c) {
+        var busySince = c.BusySinceUtc is DateTime since && DateTime.UtcNow - since >= TimeSpan.FromSeconds(3) ? since : (DateTime?)null;
+        if (busySince == null && c.WriteProblem == null && c.DroppedEntries == 0) return null;
+        return new {
+            BusyWith = busySince == null ? null : c.BusyWith,
+            BusySinceUtc = Utc(busySince),
+            c.WriteProblem,
+            WriteProblemSinceUtc = Utc(c.WriteProblemSinceUtc),
+            c.DroppedEntries,
+        };
+    }
     // Timestamps read off the log files are UTC, but one that reaches the browser without the
     // marker is read there as local time, quietly moving it by the offset
     internal static string? Utc(DateTime? value) {

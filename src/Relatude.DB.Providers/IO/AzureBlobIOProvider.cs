@@ -86,7 +86,8 @@ public class AzureBlobIOProvider : IIOProvider {
     }
     /// <summary>How long a write waits for another process to let go of the container.</summary>
     internal TimeSpan LockWait { get; set; } = AzureBlobContainerLock.DefaultWait;
-    AzureBlobContainerLock.Lease? enterLock() => _lockBlob ? _container.Lock.Enter(Client, LockWait) : null;
+    AzureBlobContainerLock.Lease? enterLock() => enterLock(LockWait);
+    AzureBlobContainerLock.Lease? enterLock(TimeSpan wait) => _lockBlob ? _container.Lock.Enter(Client, wait < LockWait ? wait : LockWait) : null;
     void exitLock(AzureBlobContainerLock.Lease? lease) {
         if (lease != null) _container.Lock.Exit(lease);
     }
@@ -212,9 +213,15 @@ public class AzureBlobIOProvider : IIOProvider {
     }
     public IAppendStream OpenAppend(string[] path) {
         var blobName = getAndValidateBlobName(path);
-        return openAppend(blobName);
+        return openAppend(blobName, LockWait);
     }
-    IAppendStream openAppend(string fileKey) {
+    // reads never wait here: a file being written in this process is refused at once, and no other process can hold one
+    public IReadStream OpenRead(string[] path, long position, TimeSpan openWait) => OpenRead(path, position);
+    public IAppendStream OpenAppend(string[] path, TimeSpan openWait) {
+        var blobName = getAndValidateBlobName(path);
+        return openAppend(blobName, openWait);
+    }
+    IAppendStream openAppend(string fileKey, TimeSpan lockWait) {
         OpenFile open;
         lock (_lock) {
             open = openFileOf(fileKey);
@@ -225,7 +232,7 @@ public class AzureBlobIOProvider : IIOProvider {
         AzureBlobContainerLock.Lease? lease = null;
         AzureBlobIOAppendStream? stream = null;
         try {
-            lease = enterLock();
+            lease = enterLock(lockWait);
             Client.CreateAppendBlobIfNotExists(fileKey);
             stream = new AzureBlobIOAppendStream(Client, fileKey, lease, _ => {
                 try {

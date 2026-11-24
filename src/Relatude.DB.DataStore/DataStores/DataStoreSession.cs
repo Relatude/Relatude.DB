@@ -78,6 +78,8 @@ public class DataStoreSession : IDataStore {
     public NodeVersionData[] FindOlderVersions(Guid nodeId, int maxCount = 100, QueryContext? ctx = null)
         => _datastore.FindOlderVersions(nodeId, maxCount, ctx ?? QueryContext);
     public LogHistoryStatus GetLogHistoryStatus() => _datastore.GetLogHistoryStatus();
+    public void StartBasicCountMetric() => _datastore.StartBasicCountMetric();
+    public BasicCountMetric EndBasicCountMetric() => _datastore.EndBasicCountMetric();
     public LogChangePage ReadLogChanges(LogChangeQuery query, QueryContext? ctx = null) => _datastore.ReadLogChanges(query, ctx ?? QueryContext);
     public LogActivity AnalyseLogChanges(LogActivityQuery query, QueryContext? ctx = null) => _datastore.AnalyseLogChanges(query, ctx ?? QueryContext);
     public NodeVersionData? FindVersionAt(Guid nodeId, long timestamp, QueryContext? ctx = null, Guid? revisionId = null) => _datastore.FindVersionAt(nodeId, timestamp, ctx ?? QueryContext, revisionId);

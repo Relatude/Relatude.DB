@@ -1189,6 +1189,23 @@ public sealed class UIServer {
             sum(folder);
             return (object?)new { Size = size, FileCount = fileCount, FolderCount = folderCount };
         });
+        Commands.Register("io-file-sizes", async ctx => {
+            var p = ctx.Payload<IoFolderPayload>();
+            var path = splitFolderPath(p.Path);
+            var folder = await _server.GetIO(p.IoId).GetFolderAsync(path, p.Recursive, true);
+            var prefix = path.Length == 0 ? "" : path.AsKeyString() + FileKeyExtensions.KeyDelimiter;
+            var keys = new List<string>();
+            var sizes = new List<long>();
+            void add(FolderMeta f) {
+                foreach (var file in f.Files) {
+                    keys.Add(file.Key.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) ? file.Key[prefix.Length..] : file.Key);
+                    sizes.Add(file.Size);
+                }
+                foreach (var sub in f.SubFolders) add(sub);
+            }
+            add(folder);
+            return (object?)new { Keys = keys, Sizes = sizes };
+        });
         // removes the (by then empty) folder itself; the UI deletes the files first, for progress
         Commands.Register("io-delete-folder", ctx => {
             var p = ctx.Payload<IoFolderPayload>();
@@ -1649,24 +1666,24 @@ public sealed class UIServer {
         Commands.Register("file-store-list", ctx => {
             var p = ctx.Payload<IoListPayload>();
             var c = getContainer(p.StoreId);
-            var found = new List<(Guid Id, Guid IoId, FileStoreEngine Type, bool IsDefault)>();
-            void add(Guid id, Guid ioId, FileStoreEngine type, bool isDefault) {
+            var found = new List<(Guid Id, Guid IoId, FileStoreEngine Type, bool IsDefault, int? FolderDepth)>();
+            void add(Guid id, Guid ioId, FileStoreEngine type, bool isDefault, int? folderDepth) {
                 // stores of the same type on the same provider keep their files in the same place,
                 // so the implicit default next to an identical configured one is one storage, not two
                 var existing = found.FindIndex(f => f.IoId == ioId && f.Type == type);
                 if (existing >= 0) {
-                    if (isDefault) found[existing] = found[existing] with { IsDefault = true };
+                    if (isDefault) found[existing] = found[existing] with { IsDefault = true, FolderDepth = folderDepth };
                     return;
                 }
-                found.Add((id, ioId, type, isDefault));
+                found.Add((id, ioId, type, isDefault, folderDepth));
             }
             var configured = c.Settings.FileStoreSettings ?? [];
             var defaultId = c.Settings.LocalSettings?.DefaultFileStore;
-            foreach (var fs in configured) add(fs.Id, fs.IoProviderId, fs.StoreType, defaultId == fs.Id);
+            foreach (var fs in configured) add(fs.Id, fs.IoProviderId, fs.StoreType, defaultId == fs.Id, fs.StoreType == FileStoreEngine.MultiFile ? fs.MultiFileFolderDepth ?? 2 : null);
             // the database falls back to an implicit default file store on its own IO provider
             // whenever no configured store is named as the default one
             if (!configured.Any(fs => fs.Id == defaultId) && c.Settings.IoDatabase is Guid dbIo && dbIo != Guid.Empty)
-                add(Guid.Empty, dbIo, FileStoreEngine.MultiFile, true); // the implicit store is always MultiFile
+                add(Guid.Empty, dbIo, FileStoreEngine.MultiFile, true, 2); // the implicit store is always MultiFile
             var ioNames = (c.Settings.IOSettings ?? []).ToDictionary(s => s.Id, s => string.IsNullOrEmpty(s.Name) ? s.IOType.ToString() : s.Name);
             return (object?)found.Select(store => {
                 var io = _server.GetIO(store.IoId);
@@ -1681,6 +1698,7 @@ public sealed class UIServer {
                     store.IoId,
                     Type = store.Type.ToString(),
                     Folder = store.Type == FileStoreEngine.MultiFile ? FileKeyUtility.MultiFileStoreFolderKey : null,
+                    store.FolderDepth,
                     Files = files,
                     store.IsDefault,
                 };
@@ -1751,7 +1769,7 @@ public sealed class UIServer {
             if (store.Datastore is not DataStoreLocal local) throw new Exception("Only supported for local databases. ");
             var job = p.Scan switch {
                 "unreferenced" => FileScanJobs.Start(p.StoreId, "unreferenced files", async j =>
-                    (object)await local.DeleteUnreferencedFilesAsync(p.CountOnly, j.SetProgress, j.Cancellation.Token)),
+                    (object)await local.DeleteUnreferencedFilesAsync(p.CountOnly, p.IncludeRecentFiles, j.SetProgress, j.Cancellation.Token)),
                 "missing" => FileScanJobs.Start(p.StoreId, "missing files", async j =>
                     (object)await local.FindMissingFilesAsync(j.SetProgress, j.Cancellation.Token)),
                 "duplicates" => FileScanJobs.Start(p.StoreId, "duplicate files", async j =>
@@ -1942,6 +1960,6 @@ sealed class FileStoreChoice {
 // ToStore without a FromStore: the files that belong in it, from wherever they are. HashAlgorithm and
 // SameHashSameFile, when given, become the target store's settings before it writes
 sealed record FileScanStartPayload(Guid StoreId, string Scan, bool CountOnly, Guid? FromStore = null, Guid? ToStore = null,
-    string? HashAlgorithm = null, bool? SameHashSameFile = null);
+    string? HashAlgorithm = null, bool? SameHashSameFile = null, bool IncludeRecentFiles = false);
 sealed record FileScanJobPayload(Guid JobId);
 sealed record ConversionCancelPayload(Guid StoreId, Guid Id, bool Permanently);

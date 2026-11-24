@@ -37,10 +37,19 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
     readonly object _openCloseLock = new();
     internal IStoreLogger? _logger;
     public NodeStore? Store { get; private set; }
+    // set under _lock while a store is being built: no logger of its own may be opened on the log files then
+    bool _building;
 
+    /// <summary>
+    /// The logger of this database: the store's, for as long as there is a store - open, opening, closed or
+    /// failed, it holds the log files until it is disposed - and otherwise one of the container's own on the
+    /// same files. Never both at once: two loggers in one process lock each other out of the files.
+    /// </summary>
     public IStoreLogger GetLogger() {
         lock (_lock) {
-            if (IsOpenOrOpening()) return Store!.Datastore.Logger;
+            if (Store != null) return Store.Datastore.Logger;
+            if (_datastoreBeingBuilt is { } building) return building.Logger;
+            if (_building) throw new InvalidOperationException("\"" + settings.Name + "\" is starting: its logs can be read as soon as its store is up, in a moment. ");
             if (_logger == null) {
                 _logger = new StoreLogger(getLoggerIO(), null, server.LogDefinitionsFor(settings), server.Log);
                 // the same switches the open database would start with, so a closed one reports what
@@ -58,12 +67,17 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
     /// are now - a new short name, say, which moves where its log definitions are kept. An open
     /// database's logger is its store's, and changes at the next open.
     /// </summary>
-    internal void ForgetStandaloneLogger() {
+    internal void ForgetStandaloneLogger() => disposeStandaloneLogger();
+    // taken out under the lock, disposed outside it: closing a log waits for whoever is reading it, and
+    // GetLogger must not wait with it
+    void disposeStandaloneLogger(bool building = false) {
+        IStoreLogger? logger;
         lock (_lock) {
-            if (IsOpenOrOpening() || _logger == null) return;
-            try { _logger.Dispose(); } catch { }
+            logger = _logger;
             _logger = null;
+            if (building) _building = true;
         }
+        try { logger?.Dispose(); } catch { }
     }
 
     public Datamodel? Datamodel { get; private set; }
@@ -384,10 +398,11 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
         IFileStore[]? fs = null;
         IQueueStore? queueStore = null;
         try {
-            // before anything reads the log files: the store opens its own logger on them
-            if (_logger != null) { _logger.Dispose(); _logger = null; }
             if (IsOpenOrOpening()) return;
             disposeCore();
+            // before anything reads the log files: the store opens its own logger on them, and none other may be
+            // opened until it has
+            disposeStandaloneLogger(building: true);
             var local = settings.LocalSettings;
             if (local == null) throw new Exception("LocalSettings is required for NodeStoreContainerSettings, RemoteSettings will be added later");
             // the steps named here are what the admin UI says an open is doing until the store
@@ -582,6 +597,8 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
             }
             Interlocked.Increment(ref _hasFailedCounter);
             throw;
+        } finally {
+            lock (_lock) _building = false;
         }
     }
     public void Open() {
@@ -723,9 +740,6 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
         }
         // the standalone logger a closed container hands out holds the log files open; a soft restart
         // drops the whole container, so leaving it behind leaks both the logger and its file handles
-        if (_logger != null) {
-            try { _logger.Dispose(); } catch { }
-            _logger = null;
-        }
+        disposeStandaloneLogger();
     }
 }

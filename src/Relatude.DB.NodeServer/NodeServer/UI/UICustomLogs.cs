@@ -159,7 +159,7 @@ sealed class UICustomLogs {
         string Key, string Name, string Description,
         bool EnabledLog, bool EnabledStatistics, bool EnabledText, bool Compressed,
         string FileInterval, int MaxAgeInDays, int MaxSizeInMb, int ResolutionRowStats, string FirstDayOfWeek,
-        string? FirstRecordUtc, string? LastRecordUtc, long LogBytes, long StatisticsBytes, long TotalBytes,
+        string? FirstRecordUtc, string? LastRecordUtc, long LogBytes, long StatisticsBytes, long TotalBytes, bool Stale, object? Condition,
         int? EntriesLastDay, int[]? Activity, object[] Columns, object[] Series);
 
     // name and the two switches are passed in rather than read off the settings: a system log's name
@@ -167,13 +167,20 @@ sealed class UICustomLogs {
     static LogSummary summary(ILogStore store, LogSettings s, string name, bool enabledLog, bool enabledStatistics) {
         int? lastDay = null;
         int[]? activity = null;
-        if (enabledStatistics) {
+        // a log busy for more than a moment goes without its line rather than holding up the overview of every other log
+        var condition = store.GetCondition(s.Key);
+        var stuck = condition.BusySinceUtc is DateTime busySince && DateTime.UtcNow - busySince > TimeSpan.FromSeconds(1);
+        if (enabledStatistics && !stuck) {
             // the row statistic answers both without reading a single entry: the entries of the last
             // day, and how they were spread over its hours - the line the overview draws for a log
             var now = DateTime.UtcNow;
             var from = IntervalUtils.Floor(now, IntervalType.Hour, s.FirstDayOfWeek).AddHours(-23);
-            activity = [.. store.AnalyseRows(s.Key, IntervalType.Hour, from, now, false, true).Select(i => i.HasValue ? i.Value : 0)];
-            lastDay = activity.Sum();
+            try {
+                activity = [.. store.AnalyseRows(s.Key, IntervalType.Hour, from, now, false, true).Select(i => i.HasValue ? i.Value : 0)];
+                lastDay = activity.Sum();
+            } catch (LogBusyException) {
+                // said by the condition below
+            }
         }
         var files = store.GetFilesSummary(s.Key);
         return new LogSummary(
@@ -181,7 +188,7 @@ sealed class UICustomLogs {
             enabledLog, enabledStatistics, s.EnableLogTextFormat, s.Compressed,
             s.FileInterval.ToString(), s.MaxAgeOfLogFilesInDays, s.MaxTotalSizeOfLogFilesInMb, s.ResolutionRowStats, s.FirstDayOfWeek.ToString(),
             UILogReader.Utc(files.FirstRecordUtc), UILogReader.Utc(files.LastRecordUtc),
-            files.LogBytes, files.StatisticsBytes, files.TotalBytes,
+            files.LogBytes, files.StatisticsBytes, files.TotalBytes, files.Stale, UILogReader.Condition(condition),
             lastDay,
             activity,
             [.. s.Properties.Select(p => (object)new {

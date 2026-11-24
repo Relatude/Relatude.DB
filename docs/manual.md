@@ -1329,7 +1329,7 @@ missing an analysis.
 | `FileValueMeta` | Every file (the base class) | `Title`, `Description`, `Keywords`, `Author`, `Language`, `TextExtraction`, `Technical` |
 | `ImageFileMeta` | Pictures | `FocusPoint` (pixels from the top left; where crops are placed), `Objects` (type, name, confidence, box), `AiAnalysis` (the meta analysis), `CropModeAnalysis` (`Graphic` and `Certainty`), and the picture's own `CropMode` and `BackgroundColor` ([A picture's own defaults](#a-pictures-own-defaults)) |
 | `DocumentFileMeta` | Documents | `Pages` |
-| `AudioFileMeta`, `VideoFileMeta` | Recordings and videos (both derive from `MediaFileMeta`) | `Duration` |
+| `AudioFileMeta`, `VideoFileMeta` | Recordings and videos (both derive from `MediaFileMeta`) | `Duration`; a video's `PosterTime` too ([A video's poster frame](#a-videos-poster-frame)) |
 
 ```csharp
 var photo = db.Get<Product>(id).Photo;
@@ -2346,7 +2346,8 @@ folder.
 
 **The container lock.** With `LockBlob`, the first write a process makes to a container takes a lease
 on a blob named `_lock` in it. The lease lasts 15 seconds and is renewed every 5 seconds until the
-database closes, so no second instance can write the container meanwhile. Reading takes no lock: bytes
+database closes, so no second instance can write the container meanwhile. A write that finds the renewals
+running late, on a busy server, renews the lease itself before it goes ahead. Reading takes no lock: bytes
 once written to a blob never change. Within one process, a file open for writing cannot be opened
 again, and a file that is open cannot be deleted. A process that dies without letting go holds the
 lock for at most 15 seconds. A write in another process waits up to 20 seconds for it, then fails
@@ -3839,7 +3840,7 @@ the same thing share one conversion.
 | Tone | `Brightness`, `Contrast`, `Saturation` (−100…100), `HueShift` (−180…180), `Sharpness` (0…100) |
 | Light/dark | `InvertLuminance`, `AutoLightDarkMode` (below) |
 | Output | `RequestedFormat`, `Quality` (0…100, lossy formats only) |
-| From a video | `TimeOffsetMs` or `TimeOffsetPercentage`: the frame to take; or `Frames` (2…200): a series across the video, with `KeyframesOnly` and `FrameDuration` (below) |
+| From a video | `TimeOffsetMs` or `TimeOffsetPercentage`: the frame to take (none: the video's poster frame, below); or `Frames` (2…200): a series across the video, with `KeyframesOnly` and `FrameDuration` (below) |
 
 #### A video's frames as a series
 
@@ -3864,6 +3865,28 @@ var frames = new FileAdjustmentImage { RequestedFormat = FileFormat.Webp, Frames
 var url = db.GetUrl(path, frames); // the URL's short form names it as frm120
 
 var playing = new FileAdjustmentImage { RequestedFormat = FileFormat.Webp, Frames = 50, FrameDuration = 100, Width = 384, Height = 384 }; // five seconds
+```
+
+#### A video's poster frame
+
+A picture of a video that names no time (`TimeOffsetMs`, `TimeOffsetPercentage`) and is no series is taken at the
+video's poster frame: `VideoFileMeta.PosterTime`, kept in the video's meta. With none, it is taken a tenth of the way in
+(`FileAdjustmentImage.DefaultTimeOffsetPercentage`), past a fade from black at the start. So thumbnails, previews and
+the `poster` of a `<video>` follow the frame chosen, whatever the video's format: nothing is written into the video.
+
+A time the request names wins. The frame is part of the conversion's key and of the URL's version, so moving it makes
+new pictures and browsers fetch them; a request that names its time keeps its URL. Being meta, the poster frame goes
+with the file wherever the value is copied.
+
+```csharp
+var clip = db.Get<Product>(id).Clip.Copy();
+var meta = clip.GetMeta<VideoFileMeta>() ?? new VideoFileMeta();
+meta.PosterTime = TimeSpan.FromSeconds(12.4);
+clip.SetMeta(meta);
+db.ForceUpdateProperty<Product, FileValue>(id, p => p.Clip, clip);
+
+// the frame at 12.4 s, as the request names no time
+string poster = db.GetUrl(clip, new FileAdjustmentImage { Width = 1280 });
 ```
 
 #### A picture's own defaults
@@ -3905,7 +3928,8 @@ string url = db.GetUrl(logo, new FileAdjustmentImage { Width = 200, Height = 200
 `RequestedFormat` is optional for images: left out, you get the original file when nothing is
 adjusted, and otherwise the store's default format
 ([Image variants adapt by default](#image-variants-adapt-by-default)). `FileAdjustmentVideo` converts
-a video, `FileAdjustmentAudio` takes the sound of a video or a recording (Mp3 by default),
+a video (an MP4 is made as every browser plays it: 8-bit H.264, with its index at the start so it
+plays before the whole file is fetched, whatever the source), `FileAdjustmentAudio` takes the sound of a video or a recording (Mp3 by default),
 `FileAdjustmentTranscript` gives what is said in either as text or subtitles
 ([A stored recording's transcript](#a-stored-recordings-transcript)), and `FileAdjustmentMeta` asks
 for a file's metadata as JSON.

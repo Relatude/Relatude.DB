@@ -116,7 +116,15 @@ public abstract class MediaFileMeta : FileValueMeta {
     public TimeSpan? Duration { get; set; }
 }
 public class AudioFileMeta : MediaFileMeta { }
-public class VideoFileMeta : MediaFileMeta { }
+public class VideoFileMeta : MediaFileMeta {
+    /// <summary>
+    /// The video's poster frame: where a picture of it is taken when the adjustment asking for one names no time
+    /// (<c>FileAdjustmentImage.TimeOffsetMs</c>, <c>TimeOffsetPercentage</c>) and is no series of frames: its thumbnails,
+    /// previews and the poster a player shows before it plays. None takes the frame a tenth of the way in
+    /// (<c>FileAdjustmentImage.DefaultTimeOffsetPercentage</c>).
+    /// </summary>
+    public TimeSpan? PosterTime { get; set; }
+}
 
 public abstract class FileAnalysisStep {
     public DateTime CompletedUtc { get; set; }

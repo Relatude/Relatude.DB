@@ -1836,7 +1836,7 @@ missing an analysis.</p>
 <tr>
 <td><code>AudioFileMeta</code>, <code>VideoFileMeta</code></td>
 <td>Recordings and videos (both derive from <code>MediaFileMeta</code>)</td>
-<td><code>Duration</code></td>
+<td><code>Duration</code>; a video's <code>PosterTime</code> too (<a href="#a-videos-poster-frame">A video's poster frame</a>)</td>
 </tr>
 </tbody>
 </table>
@@ -2874,6 +2874,11 @@ when the key is left out.</p>
 <td>null</td>
 <td>The file name the settings pages show as the source of the settings. It does not change which file is read.</td>
 </tr>
+<tr>
+<td><code>ShowErrorsInBrowser</code></td>
+<td><code>false</code></td>
+<td>Shows ASP.NET's error page, with the exception and where it was thrown, for any request in the application that fails, in every environment. Every visitor sees it, so turn it on only while finding a fault. Applies without a restart. Errors while the app starts need <code>ASPNETCORE_DETAILEDERRORS=true</code>.</td>
+</tr>
 </tbody>
 </table>
 <p><strong>The admin login.</strong> These keys protect the admin UI. They have nothing to do with your application's
@@ -3149,7 +3154,8 @@ can share one backend: inside it, the log, state, backups, logs and indexes each
 folder.</p>
 <p><strong>The container lock.</strong> With <code>LockBlob</code>, the first write a process makes to a container takes a lease
 on a blob named <code>_lock</code> in it. The lease lasts 15 seconds and is renewed every 5 seconds until the
-database closes, so no second instance can write the container meanwhile. Reading takes no lock: bytes
+database closes, so no second instance can write the container meanwhile. A write that finds the renewals
+running late, on a busy server, renews the lease itself before it goes ahead. Reading takes no lock: bytes
 once written to a blob never change. Within one process, a file open for writing cannot be opened
 again, and a file that is open cannot be deleted. A process that dies without letting go holds the
 lock for at most 15 seconds. A write in another process waits up to 20 seconds for it, then fails
@@ -5270,7 +5276,7 @@ the same thing share one conversion.</p>
 </tr>
 <tr>
 <td>From a video</td>
-<td><code>TimeOffsetMs</code> or <code>TimeOffsetPercentage</code>: the frame to take; or <code>Frames</code> (2…200): a series across the video, with <code>KeyframesOnly</code> and <code>FrameDuration</code> (below)</td>
+<td><code>TimeOffsetMs</code> or <code>TimeOffsetPercentage</code>: the frame to take (none: the video's poster frame, below); or <code>Frames</code> (2…200): a series across the video, with <code>KeyframesOnly</code> and <code>FrameDuration</code> (below)</td>
 </tr>
 </tbody>
 </table>
@@ -5292,6 +5298,24 @@ video it is made in the background; ask <code>TryGetConversionInfo</code> until 
 <span class="kt">var</span><span class="w"> </span><span class="n">url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">GetUrl</span><span class="p">(</span><span class="n">path</span><span class="p">,</span><span class="w"> </span><span class="n">frames</span><span class="p">);</span><span class="w"> </span><span class="c1">// the URL&#39;s short form names it as frm120</span>
 
 <span class="kt">var</span><span class="w"> </span><span class="n">playing</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">FileAdjustmentImage</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">RequestedFormat</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">FileFormat</span><span class="p">.</span><span class="n">Webp</span><span class="p">,</span><span class="w"> </span><span class="n">Frames</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">50</span><span class="p">,</span><span class="w"> </span><span class="n">FrameDuration</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">100</span><span class="p">,</span><span class="w"> </span><span class="n">Width</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">384</span><span class="p">,</span><span class="w"> </span><span class="n">Height</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">384</span><span class="w"> </span><span class="p">};</span><span class="w"> </span><span class="c1">// five seconds</span>
+</code></pre></div>
+
+<h4 id="a-videos-poster-frame">A video's poster frame<a class="anchor" href="#a-videos-poster-frame" aria-label="Link to this section">#</a></h4>
+<p>A picture of a video that names no time (<code>TimeOffsetMs</code>, <code>TimeOffsetPercentage</code>) and is no series is taken at the
+video's poster frame: <code>VideoFileMeta.PosterTime</code>, kept in the video's meta. With none, it is taken a tenth of the way in
+(<code>FileAdjustmentImage.DefaultTimeOffsetPercentage</code>), past a fade from black at the start. So thumbnails, previews and
+the <code>poster</code> of a <code>&lt;video&gt;</code> follow the frame chosen, whatever the video's format: nothing is written into the video.</p>
+<p>A time the request names wins. The frame is part of the conversion's key and of the URL's version, so moving it makes
+new pictures and browsers fetch them; a request that names its time keeps its URL. Being meta, the poster frame goes
+with the file wherever the value is copied.</p>
+<div class="codehilite"><pre><span></span><code><span class="kt">var</span><span class="w"> </span><span class="n">clip</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">Get</span><span class="o">&lt;</span><span class="n">Product</span><span class="o">&gt;</span><span class="p">(</span><span class="n">id</span><span class="p">).</span><span class="n">Clip</span><span class="p">.</span><span class="n">Copy</span><span class="p">();</span>
+<span class="kt">var</span><span class="w"> </span><span class="n">meta</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">clip</span><span class="p">.</span><span class="n">GetMeta</span><span class="o">&lt;</span><span class="n">VideoFileMeta</span><span class="o">&gt;</span><span class="p">()</span><span class="w"> </span><span class="o">??</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">VideoFileMeta</span><span class="p">();</span>
+<span class="n">meta</span><span class="p">.</span><span class="n">PosterTime</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">TimeSpan</span><span class="p">.</span><span class="n">FromSeconds</span><span class="p">(</span><span class="mf">12.4</span><span class="p">);</span>
+<span class="n">clip</span><span class="p">.</span><span class="n">SetMeta</span><span class="p">(</span><span class="n">meta</span><span class="p">);</span>
+<span class="n">db</span><span class="p">.</span><span class="n">ForceUpdateProperty</span><span class="o">&lt;</span><span class="n">Product</span><span class="p">,</span><span class="w"> </span><span class="n">FileValue</span><span class="o">&gt;</span><span class="p">(</span><span class="n">id</span><span class="p">,</span><span class="w"> </span><span class="n">p</span><span class="w"> </span><span class="o">=&gt;</span><span class="w"> </span><span class="n">p</span><span class="p">.</span><span class="n">Clip</span><span class="p">,</span><span class="w"> </span><span class="n">clip</span><span class="p">);</span>
+
+<span class="c1">// the frame at 12.4 s, as the request names no time</span>
+<span class="kt">string</span><span class="w"> </span><span class="n">poster</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">db</span><span class="p">.</span><span class="n">GetUrl</span><span class="p">(</span><span class="n">clip</span><span class="p">,</span><span class="w"> </span><span class="k">new</span><span class="w"> </span><span class="n">FileAdjustmentImage</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">Width</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">1280</span><span class="w"> </span><span class="p">});</span>
 </code></pre></div>
 
 <h4 id="a-pictures-own-defaults">A picture's own defaults<a class="anchor" href="#a-pictures-own-defaults" aria-label="Link to this section">#</a></h4>
@@ -5330,7 +5354,8 @@ use it, so browsers fetch the new pictures.</p>
 <p><code>RequestedFormat</code> is optional for images: left out, you get the original file when nothing is
 adjusted, and otherwise the store's default format
 (<a href="#image-variants-adapt-by-default">Image variants adapt by default</a>). <code>FileAdjustmentVideo</code> converts
-a video, <code>FileAdjustmentAudio</code> takes the sound of a video or a recording (Mp3 by default),
+a video (an MP4 is made as every browser plays it: 8-bit H.264, with its index at the start so it
+plays before the whole file is fetched, whatever the source), <code>FileAdjustmentAudio</code> takes the sound of a video or a recording (Mp3 by default),
 <code>FileAdjustmentTranscript</code> gives what is said in either as text or subtitles
 (<a href="#a-stored-recordings-transcript">A stored recording's transcript</a>), and <code>FileAdjustmentMeta</code> asks
 for a file's metadata as JSON.</p>

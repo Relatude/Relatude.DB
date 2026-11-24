@@ -103,7 +103,7 @@ One server, N containers (databases), each with its own IO providers, file store
 
 An `IOSettings` entry is a *storage backend*; the `Io…` fields on the container point at one by id. That indirection is what lets the log, the indexes and the file bytes live in different places — local disk for indexes, Azure blob for files — without repeating connection details.
 
-For `AzureBlobStorage`, the entry carries `BlobConnectionString`, `BlobContainerName` and `LockBlob` instead of `Path`. `LockBlob` leases each blob with an open stream for 60 s, renewed while open, so a lease left by a dead process ends within a minute and an open waits up to 75 s for one (then `FileLockedException`); never-ending leases left by older versions are broken in the admin UI under Files › Leases. For `LocalDisk`, a path starting with `~` is rooted at the root data folder, and a path that escapes it is rejected with "Path not under root".
+For `AzureBlobStorage`, the entry carries `BlobConnectionString`, `BlobContainerName` and `LockBlob` instead of `Path`. `LockBlob` locks the container against other processes with one lease on a `_lock` blob at its root: 15 s, renewed every 5 s, taken by the first write and let go when the database closes. A write in another process waits up to 20 s for it (then `FileLockedException`); reads take no lock. Leases older versions left on single blobs are broken in the admin UI under Files › Leases. For `LocalDisk`, a path starting with `~` is rooted at the root data folder, and a path that escapes it is rejected with "Path not under root".
 
 ## Server level
 

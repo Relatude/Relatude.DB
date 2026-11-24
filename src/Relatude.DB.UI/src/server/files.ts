@@ -1,6 +1,6 @@
 import { send } from "./channel";
 import { adminBase } from "./base";
-import { formatBytes } from "../format";
+import { formatBytes, formatCount } from "../format";
 import type { ProgressController, ProgressSpeed } from "../dialogs";
 
 export interface IoInfo {
@@ -349,30 +349,39 @@ function* planGroups<T>(items: T[], sizeOf: (item: T) => number, sizer: RequestS
  * one big file as well as through a thousand small ones. `report` redraws with the bytes of the
  * request in flight; `advance` books a finished group.
  */
-function byteProgress(ctl: ProgressController, totalBytes: number, totalFiles: number) {
+function byteProgress(ctl: ProgressController, totalBytes: number, totalFiles: number, options?: TransferOptions) {
   const started = performance.now();
   let doneBytes = 0;
   let doneFiles = 0;
   // the bytes of the request each worker has in flight: a download runs several at once (slot is
   // the worker), an upload one at a time (always slot 0)
   const inFlight = new Map<number, number>();
+  const samples: MoveSample[] = [];
+  let speed: ProgressSpeed | null = null;
   return {
     report(bytes: number, label: string, slot = 0): void {
       inFlight.set(slot, bytes);
       let flying = 0;
       for (const b of inFlight.values()) flying += b;
       const done = Math.min(doneBytes + flying, totalBytes);
-      const seconds = (performance.now() - started) / 1000;
+      const elapsedMs = performance.now() - started;
+      const seconds = elapsedMs / 1000;
       const rate = seconds > 1 ? done / seconds : 0;
       const left = rate > 0 ? (totalBytes - done) / rate : 0;
+      if (options?.speedGraph && (samples.length === 0 || elapsedMs - samples[samples.length - 1][0] >= speedSampleMs)) {
+        samples.push([elapsedMs, done, 0]);
+        speed = speedTrace(samples, totalBytes);
+      }
       ctl.set({
         done,
         total: totalBytes,
         label,
         meta:
-          `${doneFiles} / ${totalFiles} files · ${formatBytes(done)} / ${formatBytes(totalBytes)}` +
+          `${formatCount(doneFiles)} / ${formatCount(totalFiles)} files · ${formatBytes(done)} / ${formatBytes(totalBytes)}` +
           (rate > 0 ? ` · ${formatBytes(rate)}/s` : "") +
-          (left > 1 ? ` · ${formatRemaining(left)} left` : ""),
+          (left > 1 ? ` · ${formatRemaining(left)} left` : "") +
+          (options?.note ? ` · ${options.note}` : ""),
+        ...(options?.speedGraph ? { speed } : {}),
       });
     },
     advance(bytes: number, files: number, slot = 0): void {
@@ -536,15 +545,29 @@ export interface UploadEntry {
   relativePath: string; // path below the target folder, e.g. "sub/name.txt" or just "name.txt"
 }
 
+export interface TransferOptions {
+  note?: string;
+  speedGraph?: boolean;
+}
+
+const speedSampleMs = 250;
+
 /**
  * Uploads entries under basePath, big files sliced and small ones packed together. Returns the
  * entries that failed.
  */
-export async function uploadEntries(ctl: ProgressController, ioId: string, basePath: string, entries: UploadEntry[]): Promise<string[]> {
+export async function uploadEntries(
+  ctl: ProgressController,
+  ioId: string,
+  basePath: string,
+  entries: UploadEntry[],
+  options?: TransferOptions,
+): Promise<string[]> {
   const progress = byteProgress(
     ctl,
     entries.reduce((sum, entry) => sum + entry.file.size, 0),
     entries.length,
+    options,
   );
   const failed: string[] = [];
   progress.report(0, "Starting…");

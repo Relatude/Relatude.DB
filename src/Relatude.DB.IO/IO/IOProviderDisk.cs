@@ -91,10 +91,11 @@ public class IOProviderDisk : IIOProvider {
     // was writing to stopped every request of the site until its open gave up.
     T open<T>(string filePath, TimeSpan timeout, Func<T> attempt) =>
         FileOpenRetry.Open(filePath, () => { lock (_lock) return attempt(); }, timeout);
-    public IReadStream OpenRead(string[] path, long position) {
+    public IReadStream OpenRead(string[] path, long position) => OpenRead(path, position, StoreStreamDiscRead.OpenTimeout);
+    public IReadStream OpenRead(string[] path, long position, TimeSpan openWait) {
         var filePath = filePathOf(path);
         var fileKey = path.AsKeyString();
-        return open(filePath, StoreStreamDiscRead.OpenTimeout, () => {
+        return open(filePath, openWait, () => {
             IReadStream? stream = null;
             stream = new StoreStreamDiscRead(filePath, position, () => {
                 lock (_lock) {
@@ -112,10 +113,11 @@ public class IOProviderDisk : IIOProvider {
     public bool Exists(string[] path) {
         return File.Exists(filePathOf(path));
     }
-    public IAppendStream OpenAppend(string[] path) {
+    public IAppendStream OpenAppend(string[] path) => OpenAppend(path, StoreStreamDiscWrite.OpenTimeout);
+    public IAppendStream OpenAppend(string[] path, TimeSpan openWait) {
         var filePath = filePathOf(path);
         var fileKey = path.AsKeyString();
-        return open(filePath, StoreStreamDiscWrite.OpenTimeout, () => {
+        return open(filePath, openWait, () => {
             StoreStreamDiscWrite? stream = null;
             stream = new StoreStreamDiscWrite(fileKey, filePath, _readOnly, () => {
                 lock (_lock) {

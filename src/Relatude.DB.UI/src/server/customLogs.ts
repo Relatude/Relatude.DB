@@ -8,7 +8,7 @@
 
 import { adminBase } from "./base";
 import { send } from "./channel";
-import type { LogColumn, LogDataType, LogSeries } from "./logs";
+import type { LogColumn, LogCondition, LogDataType, LogSeries } from "./logs";
 
 export type FileInterval = "Minute" | "Hour" | "Day" | "Month";
 export type DayOfWeek = "Sunday" | "Monday" | "Tuesday" | "Wednesday" | "Thursday" | "Friday" | "Saturday";
@@ -251,6 +251,9 @@ export interface CustomLogSummary {
   logBytes: number;
   statisticsBytes: number;
   totalBytes: number;
+  /** The figures the log gave last: it was busy, and they were not waited for. */
+  stale?: boolean;
+  condition?: LogCondition | null;
   /** Entries recorded in the last day, from the row statistic; null while statistics are off. */
   entriesLastDay: number | null;
   /** The last 24 hours, one count per hour, oldest first; null while statistics are off. */

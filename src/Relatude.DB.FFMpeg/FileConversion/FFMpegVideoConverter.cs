@@ -1,4 +1,5 @@
 ﻿using Relatude.DB.Common;
+using Relatude.DB.FileConversion.FFMpeg;
 using Relatude.DB.FileConversion.ImageEncoders;
 using System.Collections.Concurrent;
 using System.Diagnostics;
@@ -397,13 +398,7 @@ public class FFMpegVideoConverter : IFileConverter {
         var videoDuration = probe.Duration;
         var sw = Stopwatch.StartNew();
         progress[key] = new(FileConversionStatus.InProgress, 10, message: "Converting...");
-        List<string> args = ["-i", inputTmp];
-        // most video encoders take even sizes only: a size asked for is rounded up, and -2 keeps the other side even
-        if (adj?.Width.HasValue == true || adj?.Height.HasValue == true)
-            args.AddRange(["-vf", scale(adj.Width is { } width ? width + width % 2 : -2, adj.Height is { } height ? height + height % 2 : -2)]);
-        if (adj?.TargetBitRateInMbps > 0)
-            args.AddRange(["-b:v", ((int)(adj.TargetBitRateInMbps * 1024)).ToString(CultureInfo.InvariantCulture) + "k"]);
-        args.Add(outputTmp);
+        var args = VideoEncoding.ArgumentsFor(adj, inputTmp, outputTmp);
         await FFmpegProcess.RunAsync(args, ct, videoDuration, progressInPercentage => {
             double progressPerSec = progressInPercentage / sw.Elapsed.TotalSeconds;
             double remainingSecs = (100 - progressInPercentage) / progressPerSec;

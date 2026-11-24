@@ -31,6 +31,7 @@ sealed class UILogs {
         commands.Register("logs-min-duration", ctx => minDuration(ctx.Payload<MinDurationPayload>()));
         commands.Register("logs-scans", ctx => scans(ctx.Payload<StorePayload>().StoreId));
         commands.Register("logs-scans-record", ctx => recordScans(ctx.Payload<ScanRecordPayload>()));
+        commands.Register("logs-release", ctx => release(ctx.Payload<StorePayload>().StoreId));
     }
 
     NodeStoreContainer container(Guid storeId) {
@@ -49,8 +50,9 @@ sealed class UILogs {
         var log = c.GetLogger();
         var store = log.LogStore;
         // sizes and timestamps are read off the files, and a log writes in batches: without this the
-        // page reports a log that has just started recording as empty until the next flush
-        log.FlushToDiskNow();
+        // page reports a log that has just started recording as empty until the next flush. Never waited
+        // for: a busy log answers with the figures it gave last
+        log.FlushToDiskWhenFree();
         var saved = (c.Settings.LocalSettings?.LogRecording ?? []).ToDictionary(s => s.Key, StringComparer.OrdinalIgnoreCase);
         var logs = log.GetLogKeysAndNames().Select(kv => {
             var setting = store.GetSetting(kv.Key);
@@ -70,6 +72,8 @@ sealed class UILogs {
                 files.LogBytes,
                 files.StatisticsBytes,
                 files.TotalBytes,
+                files.Stale,
+                Condition = UILogReader.Condition(store.GetCondition(kv.Key)),
                 MaxAgeInDays = setting.MaxAgeOfLogFilesInDays,
                 MaxSizeInMb = setting.MaxTotalSizeOfLogFilesInMb,
                 Columns = setting.Properties.Select(p => new {
@@ -111,6 +115,13 @@ sealed class UILogs {
     internal Task WriteTsv(HttpContext http, ExportPayload p) {
         var log = logger(p.StoreId);
         return UILogReader.WriteEntries(http, log.LogStore, p.LogKey, p.FromUtc, p.ToUtc, p.Search, p.CaseSensitive, "tsv");
+    }
+
+    // The way past a log that is stuck: every log that can be had within a moment writes out and closes its
+    // files; one that stays busy is let go of and replaced by a fresh one on the same files.
+    object release(Guid storeId) {
+        var result = logger(storeId).ReleaseLogs(TimeSpan.FromSeconds(2));
+        return new { result.Released, result.Replaced };
     }
 
     // The trace is the last messages the running database kept in memory: the ones written before

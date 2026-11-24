@@ -8,15 +8,51 @@ public class LogStore : IDisposable, ILogStore {
     volatile Dictionary<string, Log> _logs;
     readonly object _addLock = new();
     readonly IIOProvider _io;
+    readonly LogOptions _options = new();
     public LogStore(IIOProvider io, IEnumerable<LogSettings> logSettings) {
         _io = io;
-        _logs = logSettings.ToDictionary(s => s.Key, s => new Log(s, _io), StringComparer.OrdinalIgnoreCase);
+        _logs = logSettings.ToDictionary(s => s.Key, s => new Log(s, _io, _options), StringComparer.OrdinalIgnoreCase);
     }
+    /// <summary>How long a page, a search or a graph waits for a busy log before it says what the log is busy with.</summary>
+    public TimeSpan ReadWait { get => _options.ReadWait; set => _options.ReadWait = value; }
+    /// <summary>How long an entry that finds a busy log's backlog full waits for it, before it is let go of and counted.</summary>
+    public TimeSpan BacklogWait { get => _options.BacklogWait; set => _options.BacklogWait = value; }
+    /// <summary>How long closing a log waits for whoever holds it, before it is let go of without its last statistics.</summary>
+    public TimeSpan DisposeWait { get => _options.DisposeWait; set => _options.DisposeWait = value; }
     Log? get(string logKey) => _logs.TryGetValue(logKey, out var log) ? log : null;
     public bool Record(string logKey, LogEntry entry, bool flushToDisk = false, bool? forceLogging = null, bool? forceStatistics = null) {
         if (get(logKey) is not { } log) return false;
         log.Record(entry, flushToDisk, forceLogging, forceStatistics);
         return true;
+    }
+    public bool RecordAndFlushWhenFree(string logKey, LogEntry entry) {
+        if (get(logKey) is not { } log) return false;
+        log.Record(entry, false);
+        log.FlushWhenFree();
+        return true;
+    }
+    public void FlushToDiskWhenFree() {
+        foreach (var log in _logs.Values) log.FlushWhenFree();
+    }
+    public LogCondition GetCondition(string logKey) => get(logKey)?.GetCondition() ?? LogCondition.Unknown;
+    public LogReleaseResult ReleaseFiles(TimeSpan wait) {
+        var released = new List<string>();
+        var replaced = new List<string>();
+        foreach (var (key, log) in _logs) {
+            if (log.TryReleaseFiles(wait)) {
+                released.Add(key);
+                continue;
+            }
+            lock (_addLock) {
+                if (!_logs.TryGetValue(key, out var current) || current != log) continue; // replaced or removed meanwhile
+                var logs = new Dictionary<string, Log>(_logs, StringComparer.OrdinalIgnoreCase);
+                logs[key] = new Log(log.Setting, _io, _options);
+                _logs = logs;
+            }
+            log.Abandon();
+            replaced.Add(key);
+        }
+        return new([.. released], [.. replaced]);
     }
     public IEnumerable<LogEntry> ExtractLog(string logKey, DateTime fromAndIncluding, DateTime upUntil, int skip, int take, bool orderByDescendingDates, out int total) {
         if (get(logKey) is { } log) return log.Extract(fromAndIncluding, upUntil, skip, take, orderByDescendingDates, out total);
@@ -67,7 +103,7 @@ public class LogStore : IDisposable, ILogStore {
         lock (_addLock) {
             if (_logs.ContainsKey(settings.Key)) throw new ArgumentException($"There is already a log with the key '{settings.Key}'.");
             var logs = new Dictionary<string, Log>(_logs, StringComparer.OrdinalIgnoreCase);
-            logs.Add(settings.Key, new Log(settings, _io));
+            logs.Add(settings.Key, new Log(settings, _io, _options));
             _logs = logs;
         }
     }
@@ -98,7 +134,7 @@ public class LogStore : IDisposable, ILogStore {
         lock (_addLock) {
             if (_logs.TryGetValue(settings.Key, out var old)) old.Dispose();
             var logs = new Dictionary<string, Log>(_logs, StringComparer.OrdinalIgnoreCase);
-            logs[settings.Key] = new Log(settings, _io);
+            logs[settings.Key] = new Log(settings, _io, _options);
             _logs = logs;
         }
     }

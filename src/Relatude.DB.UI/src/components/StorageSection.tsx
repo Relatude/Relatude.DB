@@ -13,6 +13,7 @@ import {
   IconDownload,
   IconFileSearch,
   IconFolderDown,
+  IconFolderUp,
   IconGauge,
   IconHistory,
   IconPhotoCancel,
@@ -25,7 +26,16 @@ import {
 } from "@tabler/icons-react";
 import { runWithProgress, showChoice, showConfirm, showError, showInfo } from "../dialogs";
 import { useProgressTask } from "./DialogHost";
-import { deleteFiles, downloadUrl, fetchIoList, pickDirectory, type IoInfo } from "../server/files";
+import { deleteFiles, downloadUrl, fetchIoList, pickDirectory, uploadEntries, type IoInfo } from "../server/files";
+import {
+  compareWithStore,
+  folderFromFileList,
+  folderFromHandle,
+  scanStoreFolder,
+  storeLayoutExample,
+  type LocalFolder,
+  type StoreFolderScan,
+} from "../server/fileStoreUpload";
 import { fetchLatestBenchmark, runStorageBenchmark, type BenchmarkRun } from "../server/benchmark";
 import { BenchmarkReportDialog, BenchmarkSetupDialog, BenchmarkSummary } from "./StorageBenchmark";
 import { waitForSharedJob } from "../server/sharedTasks";
@@ -66,7 +76,7 @@ import { TimeTravelDialog } from "./TimeTravelDialog";
 import { NodeSizesDialog } from "./NodeSizesDialog";
 import { describeFileStore, RewriteFilesDialog, type RewriteChoice } from "./RewriteFilesDialog";
 import { useLive } from "../live";
-import { formatBytes, formatCount, formatTime } from "../format";
+import { formatBytes, formatCount, formatDuration, formatTime } from "../format";
 
 export function StorageSection({ db }: { db: DatabaseInfo }) {
   const [backups, setBackups] = useState<BackupList | null>(null);
@@ -97,6 +107,7 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
   const [filesMessage, setFilesMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const uploadInput = useRef<HTMLInputElement>(null);
+  const storeFolderInput = useRef<HTMLInputElement>(null);
   // The long jobs here can be put away in the top bar and go on running, so their buttons read the
   // task store rather than a local flag: leaving this page and coming back must not offer to start a
   // second copy of a job that is still going. What stays modal is what closes or replaces the
@@ -111,6 +122,7 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
   const rewriteKey = `rewrite:${db.id}`;
   const convertedKey = `converted:${db.id}`;
   const storageDownloadKey = `storage-download:${db.id}`;
+  const storageUploadKey = `storage-upload:${db.id}`;
   const uploadKey = `db-upload:${db.id}`;
   const dbDownloadKey = `db-download:${db.id}`;
   const benchmarkKey = `benchmark:${db.id}`;
@@ -124,6 +136,7 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
   const rewriteTask = useProgressTask(rewriteKey);
   const convertedTask = useProgressTask(convertedKey);
   const storageDownloadTask = useProgressTask(storageDownloadKey);
+  const storageUploadTask = useProgressTask(storageUploadKey);
   const uploadTask = useProgressTask(uploadKey);
   const dbDownloadTask = useProgressTask(dbDownloadKey);
   const benchmarkTask = useProgressTask(benchmarkKey);
@@ -137,6 +150,8 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
   const rewriteRunning = rewriteTask?.status === "running";
   const convertedRunning = convertedTask?.status === "running";
   const storageDownloadRunning = storageDownloadTask?.status === "running";
+  const storageUploadRunning = storageUploadTask?.status === "running";
+  const storeUploadTarget = fileStorages.find((s) => s.isDefault && s.folder != null) ?? null;
   const uploadRunning = uploadTask?.status === "running";
   const dbDownloadRunning = dbDownloadTask?.status === "running";
   const benchmarkRunning = benchmarkTask?.status === "running";
@@ -326,6 +341,22 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
    * offered for deletion, in that order: the problem before the tidying.
    */
   async function onAuditFiles() {
+    const age = await showChoice(
+      `Missing and redundant files in ${db.name}`,
+      "Looks for file values whose file is gone, and for files in the stores that no node points at. Nothing is deleted without asking again. Which files may count as redundant?",
+      [
+        {
+          label: "Files older than 15 minutes",
+          hint: "An upload writes its file before its node points at it, so the newest files are left out while uploads may be linking them up.",
+        },
+        {
+          label: "All files, the newest too",
+          hint: "Only when nothing is being uploaded: a file whose node is not saved yet counts as redundant, and would be deleted.",
+        },
+      ],
+    );
+    if (age === null) return;
+    const includeRecent = age === 1;
     // both scans walk every node on the server while the database stays open: minimizable, and what
     // they found is reported in dialogs of its own, wherever in the UI the user is by then
     const found = await runWithProgress(
@@ -333,7 +364,7 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
       async (ctl) => {
         const missing = (await runFileScan(ctl, db.id, "missing", false, "Missing files")).missing;
         // counted, never deleted here: deleting is its own answer, behind its own confirmation
-        const redundant = (await runFileScan(ctl, db.id, "unreferenced", true, "Redundant files")).unreferenced;
+        const redundant = (await runFileScan(ctl, db.id, "unreferenced", true, "Redundant files", undefined, includeRecent)).unreferenced;
         return { missing, redundant };
       },
       { minimizable: true, key: auditKey },
@@ -352,7 +383,11 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
         : `${checked}, ${formatCount(missingCount)} missing, ${formatCount(redundantCount)} redundant (${formatBytes(redundantBytes)}).`,
     );
     if (missingCount === 0 && redundantCount === 0) {
-      showInfo("Nothing missing or redundant", `${checked}. Every file value has its file, and every file in the stores is pointed at by a node. Files written in the last 15 minutes are not judged yet, as an upload may still be linking them up.`);
+      showInfo(
+        "Nothing missing or redundant",
+        `${checked}. Every file value has its file, and every file in the stores is pointed at by a node.` +
+          (includeRecent ? "" : " Files written in the last 15 minutes are not judged yet, as an upload may still be linking them up."),
+      );
       return;
     }
     if (missing && missingCount > 0) {
@@ -369,10 +404,10 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
     if (redundantCount === 0) return;
     const choice = await showConfirm(
       "Delete redundant files",
-      `${formatCount(redundantCount)} file${redundantCount === 1 ? "" : "s"} (${formatBytes(redundantBytes)}) in the file stores ${redundantCount === 1 ? "is" : "are"} not referenced by any node (files written in the last 15 minutes are left out). A file only an older version in a node's history points at counts too: once deleted, that version can no longer give its file back. Delete them, and the folders left empty? Everything under a file store counts as this database's, so files put there by anything else go too. This cannot be undone.`,
+      `${formatCount(redundantCount)} file${redundantCount === 1 ? "" : "s"} (${formatBytes(redundantBytes)}) in the file stores ${redundantCount === 1 ? "is" : "are"} not referenced by any node (${includeRecent ? "the newest files included" : "files written in the last 15 minutes are left out"}). A file only an older version in a node's history points at counts too: once deleted, that version can no longer give its file back. Delete them, and the folders left empty? Everything under a file store counts as this database's, so files put there by anything else go too. This cannot be undone.`,
       { confirmLabel: "Delete", danger: true },
     );
-    if (choice.ok) await deleteUnreferenced();
+    if (choice.ok) await deleteUnreferenced(includeRecent);
   }
 
   // How much of the file stores holds the same content more than once, as the number to decide on
@@ -476,9 +511,9 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
     showInfo("Files rewritten", `${summary}${upToDate}${cleanup}`);
   }
 
-  async function deleteUnreferenced() {
+  async function deleteUnreferenced(includeRecent: boolean) {
     // under the audit's key: it is the second half of the same job, and the audit button stays off until it is done
-    const progress = await runWithProgress(`Delete redundant files in ${db.name}`, (ctl) => runFileScan(ctl, db.id, "unreferenced", false), {
+    const progress = await runWithProgress(`Delete redundant files in ${db.name}`, (ctl) => runFileScan(ctl, db.id, "unreferenced", false, undefined, undefined, includeRecent), {
       minimizable: true,
       key: auditKey,
     });
@@ -568,6 +603,105 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
         setFilesMessage("File storage downloaded.");
       }
     }
+  }
+
+  async function onUploadFileStorage() {
+    if (!window.showDirectoryPicker) {
+      storeFolderInput.current?.click();
+      return;
+    }
+    let handle: FileSystemDirectoryHandle;
+    try {
+      handle = await window.showDirectoryPicker({ id: "file-storage-upload", mode: "read" });
+    } catch {
+      return;
+    }
+    await uploadFileStorage(folderFromHandle(handle));
+  }
+
+  async function uploadFileStorage(picked: LocalFolder) {
+    const storages = await fetchFileStorages(db.id).catch(() => fileStorages);
+    setFileStorages(storages);
+    const storage = storages.find((s) => s.isDefault && s.folder != null);
+    if (!storage?.folder) {
+      showError("No file storage to upload to", "The default file storage of this database keeps its files in a single file, so a folder cannot be uploaded into it.");
+      return;
+    }
+    const storeFolder = storage.folder;
+    const depth = storage.folderDepth ?? null;
+    const title = `Upload file storage to ${storage.name}`;
+    const found = await runWithProgress(
+      title,
+      async (ctl) => {
+        const scan = await scanStoreFolder(ctl, picked, depth);
+        const plan = scan.problem ? null : await compareWithStore(ctl, storage.ioId, storeFolder, storage.name, scan.files);
+        return { scan, plan };
+      },
+      { minimizable: true, key: storageUploadKey },
+    );
+    if (!found) return;
+    const { scan, plan } = found;
+    const source = scan.innerFolder ? `${scan.name}/${scan.innerFolder}` : scan.name;
+    if (!plan) {
+      showError(
+        "Not a file store folder",
+        `${source} does not look like a file store: ${scan.problem}. A file store keeps every file ${depth ?? 2} folders down, in folders named by two hex characters, under a name that ends in the rest of its id, such as ${storeLayoutExample(depth ?? 2)}. Pick a folder a file storage was downloaded into, or the files folder of a database.`,
+        scan.leftOut.length > 0 ? leftOutLines(scan, 20) : capped(scan.topLevel, 20),
+      );
+      return;
+    }
+    const details = [
+      ...(plan.fresh.length > 0 ? [`New: ${countAndBytes(plan.fresh.length, plan.freshBytes)}`] : []),
+      ...(plan.differ.length > 0 ? [`In ${storage.name} with another size: ${countAndBytes(plan.differ.length, plan.differBytes)}`] : []),
+      ...(plan.same > 0 ? [`In ${storage.name} with the same size, skipped: ${countAndBytes(plan.same, plan.sameBytes)}`] : []),
+      ...(scan.leftOut.length > 0 ? [`Left out: ${countAndBytes(scan.leftOut.length, scan.leftOutBytes)}`, ...leftOutLines(scan, 5)] : []),
+      ...(scan.otherFolders.length > 0 ? [`Folders not looked into: ${capped(scan.otherFolders, 5).join(", ")}`] : []),
+    ];
+    if (plan.fresh.length + plan.differ.length === 0) {
+      showInfo("Nothing to upload", `Every file store file in ${source} is in ${storage.name} already, with the same size.`, details);
+      return;
+    }
+    const choice = await showConfirm(
+      title,
+      `${source} looks like a file store: ${countAndBytes(scan.files.length, scan.bytes)} named the way ${storage.name} names its files. ` +
+        `They go into its ${storeFolder} folder, each at the place it has in ${source}. A file no node in this database points at counts as redundant to the file audit.`,
+      {
+        confirmLabel: "Upload",
+        details,
+        danger: plan.differ.length > 0,
+        option:
+          plan.differ.length > 0
+            ? {
+                label: `Replace the ${countAndBytes(plan.differ.length, plan.differBytes)} in ${storage.name} that ${plan.differ.length === 1 ? "has" : "have"} another size`,
+                checked: true,
+              }
+            : undefined,
+      },
+    );
+    if (!choice.ok) return;
+    const entries = choice.option ? [...plan.fresh, ...plan.differ] : plan.fresh;
+    const leftAlone = plan.same + (choice.option ? 0 : plan.differ.length);
+    if (entries.length === 0) {
+      setFilesMessage(`Nothing uploaded: ${formatCount(leftAlone)} files left as they are in ${storage.name}.`);
+      return;
+    }
+    const started = performance.now();
+    const failed = await runWithProgress(
+      title,
+      (ctl) =>
+        uploadEntries(ctl, storage.ioId, storeFolder, entries, { note: leftAlone > 0 ? `${formatCount(leftAlone)} skipped` : undefined, speedGraph: true }),
+      { minimizable: true, key: storageUploadKey },
+    );
+    if (!failed) return;
+    const elapsedMs = performance.now() - started;
+    const bytes = entries.reduce((sum, e) => sum + e.file.size, 0);
+    const summary =
+      `Uploaded ${formatCount(entries.length - failed.length)} of ${countAndBytes(entries.length, bytes)} to ${storage.name} ` +
+      `in ${elapsedMs < 60000 ? (elapsedMs / 1000).toFixed(1) + " s" : formatDuration(elapsedMs)} (${formatBytes((bytes / Math.max(elapsedMs, 1)) * 1000)}/s).` +
+      (leftAlone > 0 ? ` ${countAndBytes(leftAlone, plan.sameBytes + (choice.option ? 0 : plan.differBytes))} already there were skipped.` : "");
+    setFilesMessage(summary);
+    if (failed.length > 0) showError("Upload incomplete", `${summary} ${formatCount(failed.length)} could not be uploaded.`, failed);
+    else showInfo("File storage uploaded", summary);
   }
 
   /**
@@ -1020,6 +1154,31 @@ export function StorageSection({ db }: { db: DatabaseInfo }) {
                   : `copies one of the ${fileStorages.length} file storages to a folder on disk`}
           </span>
         </div>
+        <div className="process-action">
+          <button className="action-button" onClick={onUploadFileStorage} disabled={!storeUploadTarget || storageUploadRunning}>
+            <IconFolderUp size={14} stroke={1.8} /> Upload file storage…
+          </button>
+          <span className="muted">
+            {storageUploadRunning
+              ? `${storageUploadTask?.label || "uploading"}${storageUploadTask?.meta ? " · " + storageUploadTask.meta : ""}`
+              : !storeUploadTarget
+                ? fileStorages.some((s) => s.isDefault)
+                  ? "the default file storage keeps its files in a single file, which a folder cannot be uploaded into"
+                  : "no file storage configured"
+                : `copies a downloaded file storage from a folder on disk into ${storeUploadTarget.name} (${storageHint(storeUploadTarget)}), skipping the files already there with the same size`}
+          </span>
+          <input
+            ref={storeFolderInput}
+            type="file"
+            hidden
+            {...({ webkitdirectory: "" } as object)}
+            onChange={(e) => {
+              const picked = e.target.files ? folderFromFileList(e.target.files) : null;
+              e.target.value = "";
+              if (picked) void uploadFileStorage(picked);
+            }}
+          />
+        </div>
         {filesMessage && (
           <div className="process-action">
             <span className="muted">{filesMessage}</span>
@@ -1147,6 +1306,21 @@ function startDownload(url: string) {
 function storageHint(storage: FileStorageInfo): string {
   const where = storage.folder ?? storage.files.map((f) => f.key).join(", ");
   return storage.type + (where ? " · " + where : "");
+}
+
+function countAndBytes(count: number, bytes: number): string {
+  return `${formatCount(count)} file${count === 1 ? "" : "s"} (${formatBytes(bytes)})`;
+}
+
+function capped(items: string[], max: number): string[] {
+  return items.length <= max ? items : [...items.slice(0, max), `…and ${formatCount(items.length - max)} more`];
+}
+
+function leftOutLines(scan: StoreFolderScan, max: number): string[] {
+  return capped(
+    scan.leftOut.map((f) => `${f.path} — ${f.reason}`),
+    max,
+  );
 }
 
 /** The share of the database file a truncation drops, as automatic truncation measures it: a truncatable action is a

@@ -3,12 +3,12 @@ import {
   IconAlertTriangle,
   IconChartHistogram,
   IconChartLine,
-  IconCode,
   IconDatabaseCog,
   IconFileAnalytics,
   IconFileImport,
   IconLayoutList,
   IconListDetails,
+  IconLockOpen,
   IconPlus,
   IconReload,
   IconRefresh,
@@ -20,13 +20,14 @@ import "../customLogs.css";
 import { CodeEditor } from "./CodeEditor";
 import { DialogTools } from "./DialogTools";
 import { Sparkline } from "./LogCharts";
-import { Switch } from "./LogsSection";
+import { LogConditionMark, Switch } from "./LogsSection";
 import { CustomLogGraphs } from "./CustomLogGraphs";
 import { CustomLogEntries } from "./CustomLogEntries";
 import { CustomLogAnalyse } from "./CustomLogAnalyse";
 import { CustomLogEditor } from "./CustomLogEditor";
 import { CustomLogData } from "./CustomLogData";
-import { showChoice, showConfirm, showError } from "../dialogs";
+import { showChoice, showConfirm, showError, showInfo } from "../dialogs";
+import { releaseLogs } from "../server/logs";
 import { useLive } from "../live";
 import { formatBytes, formatCount, formatDateTime } from "../format";
 import { defaultRange, fromLocalInput, presetOf, rangeLabel, rangePresets, toLocalInput, formatAgo, type LogRange } from "../customLogRange";
@@ -35,7 +36,6 @@ import {
   deleteBrokenDefinition,
   enableCustomLog,
   readBrokenDefinition,
-  recordingCode,
   reloadCustomLogs,
   repairBrokenDefinition,
   templates,
@@ -640,6 +640,35 @@ function Overview({
     }
   }
 
+  async function release() {
+    const confirmed = await showConfirm(
+      "Release the logs",
+      "Every log of this database - the ones defined here and the built-in ones - that is free within two seconds writes out what it holds and closes its files, so another process or a stuck reader can get at them. A log that stays busy longer is let go of and replaced by a fresh one on the same files: it takes new entries at once, and the statistics it gathered since they were last saved (at most a minute) are lost.",
+      { confirmLabel: "Release" },
+    );
+    if (!confirmed.ok) return;
+    try {
+      const result = await releaseLogs(db.id);
+      onChanged();
+      const all = [...info.logs, ...builtIn];
+      const name = (key: string) => {
+        const log = all.find((l) => l.key.toLowerCase() === key.toLowerCase());
+        return log?.name || key;
+      };
+      if (result.replaced.length > 0) {
+        showInfo(
+          "Logs released",
+          `${result.replaced.length === 1 ? "One log was" : `${result.replaced.length} logs were`} busy and replaced by a fresh one; the other ${result.released.length} wrote out and closed their files.`,
+          result.replaced.map(name),
+        );
+      } else {
+        showInfo("Logs released", `All ${result.released.length} logs wrote out what they held and closed their files. None was stuck.`);
+      }
+    } catch (e) {
+      showError("Could not release the logs", e instanceof Error ? e.message : String(e));
+    }
+  }
+
   async function importFile(file: File) {
     try {
       const text = await file.text();
@@ -686,6 +715,9 @@ function Overview({
           <span className="logs-spacer" />
           <button className="action-button" onClick={reload} title={`Read the definition files in ${info.settingsFolder ?? info.dataFolder} and ${info.dataFolder} again, for definitions changed on disk`}>
             <IconReload size={15} stroke={1.8} /> Reload from disk
+          </button>
+          <button className="action-button" onClick={release} title="Get past a log that is stuck: close every log's files, and replace one that stays busy">
+            <IconLockOpen size={15} stroke={1.8} /> Release logs
           </button>
         </div>
         {empty ? (
@@ -754,18 +786,6 @@ function Overview({
         </section>
       )}
 
-      {!empty && (
-        <section className="panel">
-          <h3>
-            <IconCode size={15} stroke={1.8} /> Recording from the application <span className="panel-sub">what a log is for: the application writes into it</span>
-          </h3>
-          <div className="clog-code-note muted">
-            A log records nothing until the application does. The key is all it needs: each log's Definition page has the lines for its own columns.
-          </div>
-          <CodeEditor value={recordingCode(info.logs[0] ? { key: info.logs[0].key, properties: info.logs[0].columns } : { key: "", properties: [] })} onChange={() => {}} language="csharp" issues={[]} readOnly />
-        </section>
-      )}
-
       {broken && <BrokenFileDialog db={db} error={broken} onClose={() => setBroken(null)} onFixed={() => {
         setBroken(null);
         onChanged();
@@ -819,6 +839,7 @@ function OverviewRow({
           {log.name || log.key}
           <span className="clog-name-key">{log.key}</span>
         </span>
+        <LogConditionMark condition={log.condition} stale={log.stale} />
         {source && info && (
           <SourceTag
             kind={source}

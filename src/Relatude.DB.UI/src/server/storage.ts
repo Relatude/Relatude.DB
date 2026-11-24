@@ -431,6 +431,7 @@ export interface FileStorageInfo {
   ioId: string;
   type: string; // MultiFile | SingleFile
   folder: string | null; // MultiFile only: the folder holding the files
+  folderDepth?: number | null;
   files: { key: string; size: number }[]; // SingleFile only: the files the store appends to
   isDefault: boolean;
 }
@@ -577,10 +578,12 @@ export async function runFileScan(
   phase?: string,
   /** a rewrite's target store, and how it is to write (see RewriteChoice) */
   stores?: { fromStore?: string; toStore: string; hashAlgorithm?: string; sameHashSameFile?: boolean },
+  /** unreferenced only: also the files written in the last 15 minutes */
+  includeRecentFiles = false,
 ): Promise<FileScanProgress> {
   const say = (text: string) => (phase ? phase + " — " + text : text);
   ctl.set({ label: say("Starting…"), total: 100, done: 0, meta: "0%" }); // the job reports percent, so the bar counts to 100
-  const { jobId } = await send<{ jobId: string }>("files-scan-start", { storeId, scan, countOnly, taskId: ctl.taskId, ...stores });
+  const { jobId } = await send<{ jobId: string }>("files-scan-start", { storeId, scan, countOnly, includeRecentFiles, taskId: ctl.taskId, ...stores });
   const cancelJob = () => {
     void send("files-scan-cancel", { jobId }).catch(() => {}); // a job that already finished is not an error worth showing
   };

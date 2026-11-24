@@ -7635,6 +7635,35 @@ svg.changes-icon {
   color: var(--ok);
 }
 
+/* beside a log's name, only when something is wrong with it: busy for a while, or not writing */
+.log-condition {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex: 0 1 auto;
+  min-width: 0;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: help;
+  white-space: nowrap;
+}
+
+.log-condition svg {
+  flex: none;
+}
+
+/* a narrow name column shortens the word, never the log's name: the title has the whole story */
+.log-condition-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.log-condition.problem {
+  color: var(--danger);
+}
+
 .log-table-row .num {
   text-align: right;
   font-variant-numeric: tabular-nums;

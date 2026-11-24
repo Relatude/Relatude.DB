@@ -400,12 +400,14 @@ public sealed partial class DataStoreLocal : IDataStore {
     /// Deletes every file in the container's file stores that no current node references, along with
     /// folders left empty. Only stores implementing <see cref="IFileStoreDeleteUnreferenced"/> are
     /// cleaned. References are collected from every node including all revisions and embedded
-    /// objects, plus in-flight uploads, and files younger than a grace period are always kept, so
+    /// objects, plus in-flight uploads, and files younger than a grace period are kept unless asked for, so
     /// the call is safe while the store is in use. With <paramref name="countOnly"/> nothing is
-    /// deleted and the result reports what a real run would have deleted. <paramref name="onProgress"/>
-    /// is called with a phase description and a 0-100 percentage.
+    /// deleted and the result reports what a real run would have deleted. With
+    /// <paramref name="includeRecentFiles"/> the files of the grace period count too, which is only safe
+    /// while nothing is being uploaded: an upload's file is written before a node points at it.
+    /// <paramref name="onProgress"/> is called with a phase description and a 0-100 percentage.
     /// </summary>
-    public async Task<DeleteUnReferenceResult> DeleteUnreferencedFilesAsync(bool countOnly, Action<string, int>? onProgress = null, CancellationToken cancellationToken = default) {
+    public async Task<DeleteUnReferenceResult> DeleteUnreferencedFilesAsync(bool countOnly, bool includeRecentFiles = false, Action<string, int>? onProgress = null, CancellationToken cancellationToken = default) {
         validateDatabaseState();
         var activityId = RegisterActvity(DataStoreActivityCategory.RunningTask, countOnly ? "Counting unreferenced files" : "Deleting unreferenced files");
         try {
@@ -420,7 +422,7 @@ public sealed partial class DataStoreLocal : IDataStore {
                 UpdateActivity(activityId, description, pct);
                 onProgress?.Invoke(description, pct);
             }
-            var cutoffUtc = DateTime.UtcNow - _unreferencedFileGracePeriod;
+            DateTime? cutoffUtc = includeRecentFiles ? null : DateTime.UtcNow - _unreferencedFileGracePeriod;
             var stores = _fileStores.Values.Append(_implicitFileStore).DistinctBy(s => s.Id).OfType<IFileStoreDeleteUnreferenced>().ToArray();
             if (stores.Length == 0) return new DeleteUnReferenceResult(0, 0, 0);
             var cleanable = stores.ToDictionary(s => s.Id);

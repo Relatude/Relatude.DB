@@ -77,11 +77,51 @@ namespace Relatude.DB.Logging {
         bool IsEnabled(string logKey);
         void RebuildStatistics(string logKey);
         bool Record(string logKey, LogEntry entry, bool flushToDisk = false, bool? forceLogging = null, bool? forceStatistics = null);
+        /// <summary>Records an entry and has it written to disk as soon as the log is free, without waiting for it.</summary>
+        bool RecordAndFlushWhenFree(string logKey, LogEntry entry);
+        /// <summary>Writes every log to disk now if it is free, or has whoever holds it do so as it lets go. Never waits.</summary>
+        void FlushToDiskWhenFree();
+        /// <summary>What a log is busy with, and whether its entries reach its files. Never waits.</summary>
+        LogCondition GetCondition(string logKey);
+        /// <summary>
+        /// Writes out and closes the files of every log that can be had within <paramref name="wait"/>, and
+        /// replaces each one that cannot by a fresh log on the same files, letting go of the busy one without
+        /// waiting for it (its statistics since they were last saved are lost). The way past a log that is stuck.
+        /// </summary>
+        LogReleaseResult ReleaseFiles(TimeSpan wait);
         void SaveStatistics();
         void SaveStatsAndDeleteExpiredData();
     }
     public sealed record LogFilesSummary(DateTime? FirstRecordUtc, DateTime? LastRecordUtc, long LogBytes, long StatisticsBytes) {
         public static readonly LogFilesSummary Empty = new(null, null, 0, 0);
         public long TotalBytes => LogBytes + StatisticsBytes;
+        /// <summary>The figures given last time: the log was busy, and they were not waited for.</summary>
+        public bool Stale { get; init; }
+    }
+    /// <summary>
+    /// What a log is busy with, and since when (null when it is free), and why what it records is not
+    /// reaching its files, if it is not. <see cref="DroppedEntries"/> counts what it has let go of since it
+    /// was opened: entries that found it busy with a full backlog, or could not be written in time.
+    /// </summary>
+    public sealed record LogCondition(string? BusyWith, DateTime? BusySinceUtc, string? WriteProblem, DateTime? WriteProblemSinceUtc, long DroppedEntries) {
+        public static readonly LogCondition Unknown = new(null, null, null, null, 0);
+    }
+    /// <summary>The logs a release wrote out and closed, and those that stayed busy and were replaced by fresh ones.</summary>
+    public sealed record LogReleaseResult(string[] Released, string[] Replaced) {
+        public static LogReleaseResult Combine(LogReleaseResult a, LogReleaseResult b) => new([.. a.Released, .. b.Released], [.. a.Replaced, .. b.Replaced]);
+    }
+    /// <summary>A log stayed busy for longer than a reader would wait for it.</summary>
+    public class LogBusyException(string logKey, string? logName, string? busyWith, DateTime? busySinceUtc, TimeSpan waited)
+        : Exception(message(logKey, logName, busyWith, busySinceUtc, waited)) {
+        public string LogKey { get; } = logKey;
+        public string? BusyWith { get; } = busyWith;
+        public DateTime? BusySinceUtc { get; } = busySinceUtc;
+        static string message(string logKey, string? logName, string? busyWith, DateTime? busySinceUtc, TimeSpan waited) {
+            var name = string.IsNullOrWhiteSpace(logName) ? logKey : logName;
+            var what = busyWith == null ? "busy" : "busy " + busyWith;
+            var since = busySinceUtc is DateTime s ? " for " + Math.Max(0, (DateTime.UtcNow - s).TotalSeconds).ToString("0") + " s" : "";
+            return "The log \"" + name + "\" is " + what + since + ", and was not free after " + waited.TotalSeconds.ToString("0") + " s. "
+                + "Try again in a moment, or release the logs on the Activity page if it stays busy.";
+        }
     }
 }

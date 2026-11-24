@@ -9,3 +9,7 @@ interface Window {
     types?: { description?: string; accept: Record<string, string[]> }[];
   }) => Promise<FileSystemFileHandle>;
 }
+
+interface FileSystemDirectoryHandle {
+  values(): AsyncIterableIterator<FileSystemHandle>;
+}

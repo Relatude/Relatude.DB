@@ -366,6 +366,14 @@ public interface IDataStore : IDisposable {
     /// </summary>
     LogHistoryStatus GetLogHistoryStatus() => LogHistoryStatus.NotSupported;
     /// <summary>
+    /// Starts counting every query the store runs and every node it reads, until <see cref="EndBasicCountMetric"/>: a rough
+    /// measure of one request's work, as what runs beside it is counted too. A store that does not count (one elsewhere)
+    /// answers zeros.
+    /// </summary>
+    void StartBasicCountMetric() { }
+    /// <summary>Ends a count <see cref="StartBasicCountMetric"/> started, answering it; zeros when another overlapped it.</summary>
+    BasicCountMetric EndBasicCountMetric() => BasicCountMetric.None;
+    /// <summary>
     /// A page of the changes made to the database, newest first, as the log holds them: who changed which version of
     /// which node when, and the links made and taken away. Read from the history index, which follows the log a few
     /// seconds behind; names and changed properties are read from the log for the page alone

@@ -139,6 +139,11 @@ public class FileAdjustmentImage : FileAdjustmentBase {
 
     public double? TimeOffsetMs { get; set; } // only relevant for video files. Specifies the timestamp in milliseconds from which to extract the thumbnail image.
     public double? TimeOffsetPercentage { get; set; } // only relevant for video files. Specifies the timestamp in percentage from which to extract the thumbnail image.
+    /// <summary>
+    /// Where a store takes a video's picture when the adjustment names no time and the video has no poster frame
+    /// (<see cref="VideoFileMeta.PosterTime"/>): a tenth of the way in, past a fade from black at its start.
+    /// </summary>
+    public const double DefaultTimeOffsetPercentage = 10;
 
     /// <summary>
     /// Only for video files: so many frames across the video rather than one, written as an animation

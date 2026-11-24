@@ -61,9 +61,13 @@ public sealed partial class DataStoreLocal : IDataStore {
     /// only where it places a crop (<see cref="usesFocus"/>), turned with the picture, as the engine reads a focus on the
     /// turned canvas. Part of the key, so a changed default makes new pictures, and part of the URL's version
     /// (<see cref="pictureDefaultsKey"/>), so browsers fetch them. The caller's instance is never changed: this is the
-    /// normalized copy.
+    /// normalized copy. A video's picture takes its frame's default instead (<see cref="applyFrameDefault"/>).
     /// </summary>
     static void applyPictureDefaults(FileValue fileValue, FileAdjustmentImage adj) {
+        if (fileValue.FileType == FileType.Video) {
+            applyFrameDefault(fileValue, adj);
+            return;
+        }
         if (pictureDefaultsOf(fileValue) is not { } meta) return;
         if (adj.CropMode == null && adj.Width != null && adj.Height != null && meta.CropMode is { } mode) adj.CropMode = mode;
         if (adj.BackgroundColor == null && adj.AutoBackgroundColor != true && IImageExt.IsVisibleColor(meta.BackgroundColor) && showsBackground(fileValue, adj)) {
@@ -109,8 +113,31 @@ public sealed partial class DataStoreLocal : IDataStore {
             && !json.Contains("\"FocusPoint\"", StringComparison.Ordinal)) return null;
         return fileValue.GetMeta<ImageFileMeta>() is { } meta && (meta.CropMode != null || meta.BackgroundColor != null || meta.FocusPoint != null) ? meta : null;
     }
+    /// <summary>
+    /// A video's picture asked for at no time, and no series of frames: taken at its poster frame
+    /// (<see cref="VideoFileMeta.PosterTime"/>), else <see cref="FileAdjustmentImage.DefaultTimeOffsetPercentage"/> in.
+    /// Part of the key, so a poster frame moved makes new pictures, and of the URL's version.
+    /// </summary>
+    static void applyFrameDefault(FileValue fileValue, FileAdjustmentImage adj) {
+        if (adj.Frames != null || adj.TimeOffsetMs != null || adj.TimeOffsetPercentage != null) return;
+        if (posterTimeOf(fileValue) is { } time) adj.TimeOffsetMs = Math.Round(time.TotalMilliseconds);
+        else adj.TimeOffsetPercentage = FileAdjustmentImage.DefaultTimeOffsetPercentage;
+    }
+    // the JSON is looked at before it is read, as most have none
+    static TimeSpan? posterTimeOf(FileValue fileValue) {
+        if (fileValue.IsEmpty || fileValue.FileType != FileType.Video) return null;
+        var json = fileValue.MetaJSON;
+        if (string.IsNullOrEmpty(json) || !json.Contains("\"PosterTime\"", StringComparison.Ordinal)) return null;
+        return fileValue.GetMeta<VideoFileMeta>()?.PosterTime is { } time && time >= TimeSpan.Zero ? time : null;
+    }
     /// <summary>What the picture's defaults put into an adjustment, for the URL's version: empty when they put in nothing.</summary>
     static string pictureDefaultsKey(FileValue fileValue, FileAdjustmentBase adj) {
+        if (adj is FileAdjustmentImage frame && fileValue.FileType == FileType.Video) {
+            var asked = (FileAdjustmentImage)frame.Normalized();
+            if (asked.Frames != null || asked.TimeOffsetMs != null || asked.TimeOffsetPercentage != null) return string.Empty;
+            applyFrameDefault(fileValue, asked);
+            return asked.TimeOffsetMs is double ms ? "poster frame " + ms.ToString(System.Globalization.CultureInfo.InvariantCulture) : "default frame " + asked.TimeOffsetPercentage;
+        }
         if (adj is not FileAdjustmentImage image || pictureDefaultsOf(fileValue) == null) return string.Empty;
         var resolved = (FileAdjustmentImage)image.Normalized();
         var (mode, background, focusX, focusY) = (resolved.CropMode, resolved.BackgroundColor, resolved.FocusX, resolved.FocusY);

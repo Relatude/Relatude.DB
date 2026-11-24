@@ -35,6 +35,18 @@ export interface LogSeries {
   unit?: string | null;
 }
 
+/**
+ * What the server says about a log beside its figures, when there is something to say: busy for more than a
+ * moment (with what, since when), or its entries not reaching its files, or entries it let go of.
+ */
+export interface LogCondition {
+  busyWith: string | null;
+  busySinceUtc: string | null;
+  writeProblem: string | null;
+  writeProblemSinceUtc: string | null;
+  droppedEntries: number;
+}
+
 export interface LogInfo {
   key: string;
   name: string;
@@ -48,6 +60,9 @@ export interface LogInfo {
   logBytes: number;
   statisticsBytes: number;
   totalBytes: number;
+  /** The figures the log gave last: it was busy, and they were not waited for. */
+  stale?: boolean;
+  condition?: LogCondition | null;
   maxAgeInDays: number;
   maxSizeInMb: number;
   columns: LogColumn[];
@@ -268,6 +283,14 @@ export function clearLog(storeId: string, logKey: string | null, what: { log: bo
 /** Re-aggregates the statistics from the log files, covering entries recorded while they were off. */
 export function rebuildStatistics(storeId: string, logKey: string): Promise<{ rebuilt: boolean }> {
   return send<{ rebuilt: boolean }>("logs-rebuild-statistics", { storeId, logKey });
+}
+
+/**
+ * The way past a log that is stuck: every log of the database that is free within a moment writes out and
+ * closes its files, and each that stays busy is replaced by a fresh one on the same files.
+ */
+export function releaseLogs(storeId: string): Promise<{ released: string[]; replaced: string[] }> {
+  return send<{ released: string[]; replaced: string[] }>("logs-release", { storeId });
 }
 
 /** Leaves queries faster than this out of the query log; 0 records every one of them. */

@@ -24,6 +24,8 @@ public class StoreLogger : IDisposable, IStoreLogger {
     public ICustomLogs CustomLogs => _customLogs;
     // the keys the logs below keep their files under, which the custom logs in the same folder may not take
     static readonly string[] _systemLogKeys = [_systemLogKey, _queryLogKey, _transactionLogKey, _actionLogKey, _taskLogKey, _taskbatchLogKey, _metricsLogKey];
+    /// <summary>The keys of the logs the database keeps about itself, which custom logs may not take.</summary>
+    public static IReadOnlyList<string> SystemLogKeys => _systemLogKeys;
 
     bool _enableSystemLog = false;
     bool _enableSystemLogStatistics = false;
@@ -237,8 +239,9 @@ public class StoreLogger : IDisposable, IStoreLogger {
         entry.Values.Add("type", type.ToString());
         entry.Values.Add("text", text);
         entry.Values.Add("details", details == null ? string.Empty : details);
-        _logStore?.Record(_systemLogKey, entry);
-        _logStore?.FlushToDiskNow(_systemLogKey);
+        // on disk soon, but never by waiting: the store writes these from inside its own locks, and a page
+        // reading the system log would otherwise hold up every query behind them
+        _logStore?.RecordAndFlushWhenFree(_systemLogKey, entry);
     }
     public void RecordQuery(string query, TimeSpan duration, int resultCount, Metrics metrics) {
         if (!LoggingQueries) return;
@@ -411,6 +414,14 @@ public class StoreLogger : IDisposable, IStoreLogger {
     public void FlushToDiskNow() {
         if (_logStore != null) _logStore.FlushToDiskNow();
         _customLogs.FlushToDiskNow();
+    }
+    public void FlushToDiskWhenFree() {
+        _logStore?.FlushToDiskWhenFree();
+        _customLogs.LogStore.FlushToDiskWhenFree();
+    }
+    public LogReleaseResult ReleaseLogs(TimeSpan wait) {
+        var system = _logStore?.ReleaseFiles(wait) ?? new([], []);
+        return LogReleaseResult.Combine(system, _customLogs.LogStore.ReleaseFiles(wait));
     }
     public void SaveStatsAndDeleteExpiredData() {
         if (_logStore != null) _logStore.SaveStatsAndDeleteExpiredData();

@@ -359,7 +359,7 @@ public sealed partial class DataStoreLocal : IDataStore {
         var io2 = _settings.SecondaryBackupLog ? _ioLog2 : null;
         var fileKey2 = _settings.SecondaryBackupLog ? FileKeyUtility.WAL_GetSecondaryFileKey() : null;
         _wal = new(fileKey, _definition, _io, updateNodeDataPositionInLogFile, io2, fileKey2);
-        _nodes = new(_definition, _settings, _wal, _stateStore.CreateSegmentMap());
+        _nodes = new(_definition, _settings, _wal, _stateStore.CreateSegmentMap(), _basicCounter);
         _relations = new(_definition);
         _index = new(_definition);
         readIndexRecord(); // the cultures the indexes are made for, as the store reads its own only with the state

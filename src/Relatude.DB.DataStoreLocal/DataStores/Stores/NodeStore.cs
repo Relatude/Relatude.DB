@@ -30,8 +30,10 @@ internal sealed class NodeStore {
     readonly ISegmentMap _segments; // main store of all valid nodes; an engine backed map is written from the transaction thread only
     readonly Dictionary<int, NodeSegment> _pending = []; // log positions confirmed by the log writer, waiting for DrainPendingSegments when the map is engine backed
     readonly HashSet<int> _dropWhenWritten = []; // nodes from bulk transactions, evicted the moment the log write makes them readable from disk
+    readonly BasicCounter? _counter;
     Definition _definition;
-    public NodeStore(Definition definition, SettingsLocal config, WALFile log, ISegmentMap segments) {
+    public NodeStore(Definition definition, SettingsLocal config, WALFile log, ISegmentMap segments, BasicCounter? counter = null) {
+        _counter = counter;
         _log = log;
         _segments = segments;
         _definition = definition;
@@ -85,7 +87,10 @@ internal sealed class NodeStore {
     }
     public bool TryGet(int id, [MaybeNullWhen(false)] out INodeDataInternal node, out bool diskRead) {
         diskRead = false;
-        if (_cache.TryGet(id, out node)) return true;
+        if (_cache.TryGet(id, out node)) {
+            _counter?.Nodes(1, 0);
+            return true;
+        }
         using var read = BeginRead([id], throwIfMissing: false);
         if (read.NodesToRead == 0) { // gone, or cached in the meantime
             node = read.Complete(CancellationToken.None)[0];
@@ -104,7 +109,10 @@ internal sealed class NodeStore {
     public NodeRead BeginRead(int[] ids, bool throwIfMissing) {
         var nodes = new INodeDataInternal?[ids.Length];
         var missing = _cache.TryGetMany(ids, nodes);
-        if (missing.Count == 0) return new NodeRead(this, ids, nodes, [], [], null);
+        if (missing.Count == 0) {
+            _counter?.Nodes(ids.Length, 0);
+            return new NodeRead(this, ids, nodes, [], [], null);
+        }
         var toRead = new List<int>(missing.Count);
         var segments = new List<NodeSegment>(missing.Count);
         lock (_lock) { // _segments is not threadsafe
@@ -127,6 +135,7 @@ internal sealed class NodeStore {
                 segments.Add(segment);
             }
         }
+        _counter?.Nodes(ids.Length, toRead.Count);
         // the lease is taken while the caller still holds the store lock, so no swap of the log file can
         // come between looking the positions up and reading them
         var lease = toRead.Count > 0 ? _log.AcquireReadLease() : null;

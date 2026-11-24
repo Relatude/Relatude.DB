@@ -10,6 +10,8 @@ import {
   IconEraser,
   IconHelpCircle,
   IconHistory,
+  IconHourglass,
+  IconLockOpen,
   IconLetterCase,
   IconListSearch,
   IconRadar2,
@@ -32,12 +34,14 @@ import {
   matchesTerm,
   rebuildStatistics,
   recordScans,
+  releaseLogs,
   restoreLogSettings,
   saveLogSettings,
   searchHelp,
   setMinQueryDuration,
   type IntervalType,
   type LogColumn,
+  type LogCondition,
   type LogDataType,
   type LogEntry,
   type LogInfo,
@@ -1431,6 +1435,30 @@ function OverviewTab({ db, info, onChanged }: { db: DatabaseInfo; info: LogsInfo
       showError("Could not clear the logs", e instanceof Error ? e.message : String(e));
     }
   }
+  async function release() {
+    const confirmed = await showConfirm(
+      "Release the logs",
+      "Every log of this database that is free within two seconds writes out what it holds and closes its files, so another process or a stuck reader can get at them. A log that stays busy longer is let go of and replaced by a fresh one on the same files: it takes new entries at once, and the statistics it gathered since they were last saved (at most a minute) are lost.",
+      { confirmLabel: "Release" },
+    );
+    if (!confirmed.ok) return;
+    try {
+      const result = await releaseLogs(db.id);
+      onChanged();
+      const name = (key: string) => info.logs.find((l) => l.key.toLowerCase() === key.toLowerCase())?.name ?? key;
+      if (result.replaced.length > 0) {
+        showInfo(
+          "Logs released",
+          `${result.replaced.length === 1 ? "One log was" : `${result.replaced.length} logs were`} busy and replaced by a fresh one; the other ${result.released.length} wrote out and closed their files.`,
+          result.replaced.map(name),
+        );
+      } else {
+        showInfo("Logs released", `All ${result.released.length} logs wrote out what they held and closed their files. None was stuck.`);
+      }
+    } catch (e) {
+      showError("Could not release the logs", e instanceof Error ? e.message : String(e));
+    }
+  }
   const allLogs = info.logs.every((l) => l.enabledLog);
   const allStats = info.logs.every((l) => l.enabledStatistics);
   const [minDuration, setMinDuration] = useState(String(info.minQueryDurationMs));
@@ -1472,6 +1500,7 @@ function OverviewTab({ db, info, onChanged }: { db: DatabaseInfo; info: LogsInfo
               <span className="log-cell log-name">
                 <Icon size={15} stroke={1.8} className={log.enabledLog || log.enabledStatistics ? "log-icon on" : "log-icon"} />
                 {log.name}
+                <LogConditionMark condition={log.condition} stale={log.stale} />
               </span>
               <span>
                 <Switch checked={log.enabledLog} onChange={(v) => toggle(log.key, { log: v })} />
@@ -1524,6 +1553,9 @@ function OverviewTab({ db, info, onChanged }: { db: DatabaseInfo; info: LogsInfo
             logs record again at the next start. Sizes are what has reached disk - statistics are written periodically, so a log can be graphing more
             than it lists here. A log enforces its own limits, dropping files older than its age limit and trimming to its size limit.
           </span>
+          <button className="action-button" onClick={release} title="Get past a log that is stuck: close every log's files, and replace one that stays busy">
+            <IconLockOpen size={15} stroke={1.8} /> Release logs
+          </button>
           <button className="action-button danger" onClick={clearAll}>
             <IconTrash size={15} stroke={1.8} /> Clear every log
           </button>
@@ -1534,6 +1566,51 @@ function OverviewTab({ db, info, onChanged }: { db: DatabaseInfo; info: LogsInfo
 }
 
 // ---- shared bits ----
+
+function seconds(sinceUtc: string | null): string {
+  if (!sinceUtc) return "";
+  const s = Math.max(0, Math.round((Date.now() - Date.parse(sinceUtc)) / 1000));
+  return s < 120 ? `${s} s` : `${Math.round(s / 60)} min`;
+}
+
+/**
+ * A mark beside a log's name when there is something wrong to say about it: busy for more than a moment,
+ * entries not reaching its files, entries let go of, or figures that are the last ones it gave. Nothing
+ * at all otherwise. The whole story is in the title.
+ */
+export function LogConditionMark({ condition, stale }: { condition?: LogCondition | null; stale?: boolean }) {
+  if (!condition && !stale) return null;
+  const lines: string[] = [];
+  let label = "";
+  let problem = false;
+  if (condition?.writeProblem) {
+    problem = true;
+    label = "not writing";
+    lines.push(
+      `Its entries have not reached its files for ${seconds(condition.writeProblemSinceUtc)}: ${condition.writeProblem} What it records is kept in memory meanwhile, and written once the file can be opened.`,
+    );
+  }
+  if (condition?.busyWith) {
+    label ||= "busy";
+    lines.push(`Busy ${condition.busyWith} for ${seconds(condition.busySinceUtc)}. "Release logs" gets past a log that stays busy.`);
+  }
+  if (condition && condition.droppedEntries > 0) {
+    problem = true;
+    label ||= `${formatCount(condition.droppedEntries)} let go`;
+    lines.push(`${formatCount(condition.droppedEntries)} entries were let go of since the database opened: the log was too busy to take them, or could not write them in time.`);
+  }
+  if (stale) {
+    label ||= "busy";
+    lines.push("These figures are the last ones it gave: it was busy, and they were not waited for.");
+  }
+  const Icon = problem ? IconAlertTriangle : IconHourglass;
+  return (
+    <span className={"log-condition" + (problem ? " problem" : "")} title={lines.join("\n\n")} onClick={(e) => e.stopPropagation()}>
+      <Icon size={13} stroke={2} />
+      <span className="log-condition-label">{label}</span>
+    </span>
+  );
+}
 
 /**
  * A recording switch: a track that slides rather than a checkbox in a box.

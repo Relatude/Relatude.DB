@@ -55,7 +55,6 @@ sealed class UIQuery {
     const int maxReferencesInCell = 5;
     internal const int maxCsvRows = 1_000_000;
     const int maxPreviewSize = 4000; // the largest image the media route will render, per side
-    const double videoThumbnailAt = 10; // percent into a clip: the first frame of one is often black
 
     readonly RelatudeDBServer _server;
     internal UIQuery(RelatudeDBServer server) => _server = server;
@@ -661,11 +660,11 @@ sealed class UIQuery {
             var stream = await s.Datastore.GetFileStream(path, adminContext);
             return await FileHandler.HandleFileAsync(http, stream, file.Name, false, file.ContentType, true);
         }
+        // no time for a video: the store takes its poster frame, else the frame a tenth of the way in
         var adj = new FileAdjustmentImage {
             Width = width is > 0 ? Math.Min(width.Value, maxPreviewSize) : null,
             Height = height is > 0 ? Math.Min(height.Value, maxPreviewSize) : null,
         };
-        if (file.FileType == FileType.Video) adj.TimeOffsetPercentage = videoThumbnailAt;
         adj.BasicSanitization();
         var state = await s.Datastore.GetFileStreamAndState(path, adj, -1, adminContext, firstInQueue: true);
         http.Response.Headers["X-Relatude-Ready"] = state.IsReady ? "1" : "0";

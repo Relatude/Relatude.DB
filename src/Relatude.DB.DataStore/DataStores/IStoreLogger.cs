@@ -122,6 +122,14 @@ public interface IStoreLogger {
     /// of it. Nothing is indexed: the range is read and every record in it tested.</summary>
     LogEntry[] SearchLog(string logKey, LogSearch search, DateTime from, DateTime to, int skip, int take, bool orderByDescendingDates, out int total);
     void FlushToDiskNow();
+    /// <summary>Writes every log to disk now if it is free, or has whoever holds it do so as it lets go. Never waits.</summary>
+    void FlushToDiskWhenFree();
+    /// <summary>
+    /// The way past a log that is stuck: writes out and closes the files of every log - the built-in ones and the
+    /// custom ones - that can be had within <paramref name="wait"/>, and replaces each one that cannot by a fresh
+    /// log on the same files (see <see cref="ILogStore.ReleaseFiles"/>).
+    /// </summary>
+    LogReleaseResult ReleaseLogs(TimeSpan wait);
     KeyValuePair<string, string>[] GetLogKeysAndNames();
     bool IsLogEnabled(string logKey);
     bool IsStatisticsEnabled(string logKey);
