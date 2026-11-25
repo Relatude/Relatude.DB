@@ -29,7 +29,8 @@ internal sealed record ServiceFile(byte[] Bytes, string Sha256) {
 /// A larger one goes in parts through <c>uploads</c>, three side by side; starting the same upload
 /// again gives back the one the service has, with only the parts it still misses. Sending files costs
 /// nothing and repeats nothing, so the usual retries apply. This client remembers which files it has
-/// seen the service hold for the key, answers included, so a file is not even offered twice; and
+/// seen the service hold for the key, answers included, so a file is not even offered twice, and a
+/// call naming a file another call is sending waits for that rather than sending it alongside; and
 /// when the service has let one go after all, the call is answered 409 with the file named - nothing
 /// is charged then - and the file is sent again and the call made again.</para>
 /// <para><b>Calls.</b> A call is paid for before the service hands it to a provider, and the credits
@@ -43,6 +44,7 @@ internal sealed class RelatudeServiceClient : IDisposable {
     internal const int DefaultPartBytes = 10 * 1024 * 1024;
     const int _maxKnownFiles = 4096;
     const int _partsSideBySide = 3;
+    const int _uploadRounds = 6;
     const string _hit = "hit";
 
     readonly HttpClient _http;
@@ -64,6 +66,9 @@ internal sealed class RelatudeServiceClient : IDisposable {
 
     // the most one request may carry, learned from the service the first time it answers an upload
     int _partBytes = DefaultPartBytes;
+
+    readonly object _sendingLock = new();
+    readonly Dictionary<string, Task> _sending = new(StringComparer.Ordinal);
 
     /// <param name="serviceName">The service as people know it, for messages: "Relatude Imaging service".</param>
     /// <param name="apiRoot">Where the service's routes are: its root and its prefix, such as https://imaging.services.relatude.com/api/imaging.</param>
@@ -105,9 +110,7 @@ internal sealed class RelatudeServiceClient : IDisposable {
         var key = apiKey(); // once, before anything is sent: every request of the call goes with the same key
         var url = _api + "/" + operation;
         var named = files.DistinctBy(f => f.Sha256).ToArray();
-        foreach (var file in named) {
-            if (!isKnown(key, file.Sha256)) await sendFileAsync(key, file, cancellationToken);
-        }
+        foreach (var file in named) await ensureSentAsync(key, file, cancellationToken);
         posting?.Invoke();
         // twice at most: a file let go between the upload and the call is rare, twice in a row rarer still
         for (var round = 0; ; round++) {
@@ -129,7 +132,7 @@ internal sealed class RelatudeServiceClient : IDisposable {
                     if (resend.Length > 0) {
                         foreach (var file in resend) {
                             forget(file.Sha256);
-                            await sendFileAsync(key, file, cancellationToken);
+                            await ensureSentAsync(key, file, cancellationToken);
                         }
                         continue;
                     }
@@ -191,6 +194,32 @@ internal sealed class RelatudeServiceClient : IDisposable {
 
     // ------------------------------------------------------------------ files
 
+    async Task ensureSentAsync(string key, ServiceFile file, CancellationToken cancellationToken) {
+        var id = key + "|" + file.Sha256;
+        while (!isKnown(key, file.Sha256)) {
+            TaskCompletionSource? mine = null;
+            Task? theirs;
+            lock (_sendingLock) {
+                if (!_sending.TryGetValue(id, out theirs)) {
+                    mine = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                    _sending[id] = mine.Task;
+                }
+            }
+            if (mine == null) {
+                await theirs!.WaitAsync(cancellationToken);
+                continue;
+            }
+            try {
+                await sendFileAsync(key, file, cancellationToken);
+            } finally {
+                // removed before the waiters wake, or they would spin on this finished send
+                lock (_sendingLock) _sending.Remove(id);
+                mine.SetResult();
+            }
+            return;
+        }
+    }
+
     /// <summary>Sends one file: whole when one request may carry it, in parts when not.</summary>
     async Task sendFileAsync(string key, ServiceFile file, CancellationToken cancellationToken) {
         if (file.Bytes.Length <= Volatile.Read(ref _partBytes)) {
@@ -221,8 +250,8 @@ internal sealed class RelatudeServiceClient : IDisposable {
     /// <summary>
     /// Sends a file in parts: the upload started (or the same one taken up again), every part it
     /// misses sent, three side by side, and the upload completed, which has the service put the file
-    /// together and check its SHA-256. Parts the service still misses at the end are sent again, twice
-    /// at most.
+    /// together and check its SHA-256. A part someone else is sending into the same upload is waited
+    /// for, and parts the service still misses at the end are sent again, six rounds at most.
     /// </summary>
     async Task sendInPartsAsync(string key, ServiceFile file, CancellationToken cancellationToken) {
         var startUrl = _api + "/uploads";
@@ -248,6 +277,7 @@ internal sealed class RelatudeServiceClient : IDisposable {
         var uploadUrl = startUrl + "/" + upload.Id.ToString("D");
         var missing = upload.Missing ?? [.. Enumerable.Range(0, upload.Parts)];
         for (var round = 0; ; round++) {
+            var othersAtWork = false;
             await Parallel.ForEachAsync(missing, new ParallelOptions { MaxDegreeOfParallelism = _partsSideBySide, CancellationToken = cancellationToken }, async (index, token) => {
                 var offset = (long)index * upload.PartBytes;
                 if (index < 0 || offset >= file.Bytes.LongLength) throw new RelatudeServiceException(0, $"The {_serviceName} asked for part {index} of a file of {file.Bytes.LongLength} bytes in parts of {upload.PartBytes}. ");
@@ -255,9 +285,16 @@ internal sealed class RelatudeServiceClient : IDisposable {
                 var partUrl = uploadUrl + "/parts/" + index;
                 using var response = await sendAsync(partUrl, () => HttpRetry.SendAsync(_http, () => {
                     var request = new HttpRequestMessage(HttpMethod.Put, partUrl) { Content = octets(file.Bytes, (int)offset, length) };
+                    request.Headers.ExpectContinue = true;
                     authorize(request, key);
                     return request;
                 }, retryOnTimeout: false, cancellationToken: token), token);
+                // 409: the part is arriving from another installation on the key, or from a retried attempt the service still reads;
+                // 404: the upload was completed by someone else, or given up. The completion below settles both.
+                if (response.StatusCode is HttpStatusCode.Conflict or HttpStatusCode.NotFound) {
+                    othersAtWork = true;
+                    return;
+                }
                 if (!response.IsSuccessStatusCode) throw refusal(partUrl, response.StatusCode, await response.Content.ReadAsStringAsync(token));
             });
             var completeUrl = uploadUrl + "/complete";
@@ -273,13 +310,18 @@ internal sealed class RelatudeServiceClient : IDisposable {
                 return;
             }
             var body = await completed.Content.ReadAsStringAsync(cancellationToken);
-            // parts the service did not get after all: ask which, and send those
-            if (completed.StatusCode == HttpStatusCode.Conflict && round < 2) {
-                missing = parseUpload(await GetUploadAsync(uploadUrl, key, cancellationToken), uploadUrl).Missing ?? [];
-                if (missing.Length > 0) continue;
+            var gone = completed.StatusCode == HttpStatusCode.NotFound;
+            if (completed.StatusCode == HttpStatusCode.Conflict && round < _uploadRounds) {
+                var status = await uploadStatusAsync(uploadUrl, key, cancellationToken);
+                if (status != null) {
+                    missing = status.Missing ?? [];
+                    if (othersAtWork || missing.Length == 0) await Task.Delay(waitForOthers(round), cancellationToken);
+                    continue;
+                }
+                gone = true;
             }
-            // the upload is gone: completed by an earlier attempt whose answer was lost, or given up
-            if (completed.StatusCode == HttpStatusCode.NotFound && await holdsAsync(key, file.Sha256, cancellationToken)) {
+            // the upload is gone: completed by an earlier attempt whose answer was lost, by someone else, or given up
+            if (gone && await holdsAsync(key, file.Sha256, cancellationToken)) {
                 markKnown(key, file.Sha256);
                 return;
             }
@@ -287,15 +329,18 @@ internal sealed class RelatudeServiceClient : IDisposable {
         }
     }
 
-    async Task<string> GetUploadAsync(string uploadUrl, string key, CancellationToken cancellationToken) {
+    static TimeSpan waitForOthers(int round) => TimeSpan.FromSeconds(Math.Min(16, 1 << round));
+
+    async Task<UploadInfo?> uploadStatusAsync(string uploadUrl, string key, CancellationToken cancellationToken) {
         using var response = await sendAsync(uploadUrl, () => HttpRetry.SendAsync(_http, () => {
             var request = new HttpRequestMessage(HttpMethod.Get, uploadUrl);
             authorize(request, key);
             return request;
         }, cancellationToken: cancellationToken), cancellationToken);
         var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (response.StatusCode == HttpStatusCode.NotFound) return null;
         if (!response.IsSuccessStatusCode) throw refusal(uploadUrl, response.StatusCode, body);
-        return body;
+        return parseUpload(body, uploadUrl);
     }
 
     /// <summary>Whether the service has the file for this key: <c>HEAD files/{sha256}</c>.</summary>

@@ -1177,17 +1177,28 @@ public sealed class UIServer {
             keepPrimaryDataWhereActive(folder, path.Length > 0 ? path[0] : null, activePrimaryFolders(p.IoId));
             return (object?)folder;
         });
-        // recursive size and counts, on demand: walking a big tree can take a while
+        // recursive size and counts, on demand: walking a big tree can take a while. The walk passes
+        // every folder below anyway, so the ones named in SubPaths get their own totals too
         Commands.Register("io-folder-size", async ctx => {
-            var p = ctx.Payload<IoFolderPayload>();
+            var p = ctx.Payload<IoFolderSizePayload>();
             var folder = await _server.GetIO(p.IoId).GetFolderAsync(splitFolderPath(p.Path), true, true);
-            long size = 0, fileCount = 0, folderCount = 0;
-            void sum(FolderMeta f) {
+            var wanted = p.SubPaths is { Length: > 0 } ? new HashSet<string>(p.SubPaths, StringComparer.Ordinal) : null;
+            var subFolders = new Dictionary<string, FolderSizeTotals>(StringComparer.Ordinal);
+            FolderSizeTotals sum(FolderMeta f, string relativePath) {
+                long size = 0, fileCount = 0, folderCount = 0;
                 foreach (var file in f.Files) { size += file.Size; fileCount++; }
-                foreach (var sub in f.SubFolders) { folderCount++; sum(sub); }
+                foreach (var sub in f.SubFolders) {
+                    var totals = sum(sub, relativePath.Length == 0 ? sub.Name : relativePath + "/" + sub.Name);
+                    size += totals.Size;
+                    fileCount += totals.FileCount;
+                    folderCount += totals.FolderCount + 1;
+                }
+                var result = new FolderSizeTotals(size, fileCount, folderCount);
+                if (wanted != null && relativePath.Length > 0 && wanted.Contains(relativePath)) subFolders[relativePath] = result;
+                return result;
             }
-            sum(folder);
-            return (object?)new { Size = size, FileCount = fileCount, FolderCount = folderCount };
+            var total = sum(folder, "");
+            return (object?)new { total.Size, total.FileCount, total.FolderCount, SubFolders = subFolders };
         });
         Commands.Register("io-file-sizes", async ctx => {
             var p = ctx.Payload<IoFolderPayload>();
@@ -1921,6 +1932,9 @@ sealed record AdoptFilePayload(Guid StoreId, Guid IoId, string Key);
 sealed record UploadAdoptPayload(Guid StoreId, Guid IoId, Guid UploadId, long Size);
 sealed record TruncatePayload(Guid StoreId, bool KeepOld);
 sealed record IoFolderPayload(Guid IoId, string? Path, bool Recursive = false);
+/// <summary>SubPaths: folders below Path, relative to it and '/'-separated, to get totals of their own.</summary>
+sealed record IoFolderSizePayload(Guid IoId, string? Path, string[]? SubPaths = null);
+sealed record FolderSizeTotals(long Size, long FileCount, long FolderCount);
 /// <summary>Key is the file (rename file), the folder (rename folder) or the parent folder (create folder).</summary>
 sealed record IoRenamePayload(Guid IoId, string Key, string NewName);
 sealed class IoInfo {

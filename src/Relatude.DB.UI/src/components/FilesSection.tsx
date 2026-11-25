@@ -421,11 +421,34 @@ export function FilesSection({ db }: { db: DatabaseInfo }) {
     return true;
   }
 
+  // the folders the tree shows below folderPath, relative to it
+  function visibleSubFolders(folderPath: string): string[] {
+    const found: string[] = [];
+    const walk = (at: string, relative: string) => {
+      if (!expanded.has(at)) return;
+      for (const sub of listings[at]?.subFolders ?? []) {
+        const rel = relative === "" ? sub.name : `${relative}/${sub.name}`;
+        found.push(rel);
+        walk(at === "" ? sub.name : `${at}/${sub.name}`, rel);
+      }
+    };
+    walk(folderPath, "");
+    return found;
+  }
+
   function computeTreeSize(folderPath: string) {
     if (!ioId) return;
+    const subPaths = visibleSubFolders(folderPath);
+    const absolute = (rel: string) => (folderPath === "" ? rel : `${folderPath}/${rel}`);
     setTreeSizes((prev) => ({ ...prev, [folderPath]: "pending" }));
-    fetchFolderSize(ioId, folderPath)
-      .then((size) => setTreeSizes((prev) => ({ ...prev, [folderPath]: size })))
+    fetchFolderSize(ioId, folderPath, subPaths)
+      .then(({ subFolders, ...size }) =>
+        setTreeSizes((prev) => {
+          const next = { ...prev, [folderPath]: size };
+          for (const [rel, subSize] of Object.entries(subFolders ?? {})) next[absolute(rel)] = subSize;
+          return next;
+        }),
+      )
       .catch(() => setTreeSizes((prev) => ({ ...prev, [folderPath]: { size: -1, fileCount: 0, folderCount: 0 } })));
   }
 

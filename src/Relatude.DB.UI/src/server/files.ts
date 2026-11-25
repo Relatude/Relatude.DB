@@ -97,8 +97,13 @@ export function fetchFolderRecursive(ioId: string, path: string): Promise<Folder
   return send<FolderListing>("io-folder", { ioId, path, recursive: true });
 }
 
-export function fetchFolderSize(ioId: string, path: string): Promise<FolderSize> {
-  return send<FolderSize>("io-folder-size", { ioId, path });
+// subPaths: folders below path, relative to it, to get totals of their own from the same walk
+export function fetchFolderSize(
+  ioId: string,
+  path: string,
+  subPaths: string[] = [],
+): Promise<FolderSize & { subFolders: Record<string, FolderSize> }> {
+  return send<FolderSize & { subFolders: Record<string, FolderSize> }>("io-folder-size", { ioId, path, subPaths });
 }
 
 export function deleteFiles(ioId: string, keys: string[]): Promise<{ deleted: number; errors: string[] }> {
