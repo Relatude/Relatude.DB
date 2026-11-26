@@ -62,7 +62,8 @@ public class AIEngine {
     public bool SupportsImages => _provider.SupportsImages;
     /// <summary>
     /// A completion of a conversation: instructions kept apart from the user's text, earlier turns, and
-    /// pictures when <see cref="SupportsImages"/>. Not cached, like <see cref="GetCompletionAsync"/>.
+    /// pictures when <see cref="SupportsImages"/>. Not cached, like <see cref="GetCompletionAsync"/>, unless the
+    /// request asks (<see cref="AIChatRequest.CacheAnswer"/>) and the engine keeps answers (<see cref="KeepsAnswers"/>).
     /// </summary>
     public Task<string> GetChatCompletionAsync(AIChatRequest request, CancellationToken cancellationToken = default) {
         check(request);
@@ -80,6 +81,10 @@ public class AIEngine {
     }
     /// <summary>Whether the provider's model can ask for tools (<see cref="AIChatRequest.Tools"/>).</summary>
     public bool SupportsTools => _provider.SupportsTools;
+    /// <summary>Whether the answers of requests marked <see cref="AIChatRequest.CacheAnswer"/> are kept (<see cref="CachingAIProvider"/>).</summary>
+    public bool KeepsAnswers => _provider is CachingAIProvider;
+    /// <summary>The answer kept for the request (<see cref="AIChatRequest.CacheAnswer"/>); null when there is none. Nothing is sent.</summary>
+    public AIChatResult? TryGetCachedAnswer(AIChatRequest request) => (_provider as CachingAIProvider)?.TryGetCached(request);
     /// <summary>
     /// <see cref="GetChatResultAsync"/> as the answer is made: its text in pieces, then an <see cref="AIChatDone"/>
     /// with the whole answer. A provider that does not stream gives the text in one piece.

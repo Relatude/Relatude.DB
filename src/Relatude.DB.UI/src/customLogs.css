@@ -327,6 +327,21 @@
   margin-bottom: 0;
 }
 
+.clog-series-all {
+  margin-left: 0;
+  padding: 4px 4px;
+}
+
+.clog-series-all:disabled {
+  color: var(--text-muted);
+  opacity: 0.55;
+  cursor: default;
+}
+
+.clog-series-pick .clog-tab-divider {
+  margin: 0 4px;
+}
+
 .stat-tiles {
   display: flex;
   flex-wrap: wrap;

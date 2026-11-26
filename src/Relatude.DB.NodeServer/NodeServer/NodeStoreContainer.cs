@@ -394,6 +394,7 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
         IFileToTextProvider? fileToText = null;
         ITranslationProvider? translation = null;
         IIPLookupProvider? ipLookup = null;
+        IServiceAnswerCache? aiAnswers = null;
         IDataStore? datastore = null;
         IFileStore[]? fs = null;
         IQueueStore? queueStore = null;
@@ -448,11 +449,14 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
             if (!string.IsNullOrEmpty(aiFolder) && !Path.IsPathRooted(aiFolder)) aiFolder = server.RootDataFolderPath.SuperPathCombine(aiFolder);
             var cacheOwner = cacheFileOwner(ioIndexes, ioDatabase); // one file per database in a shared folder
             List<string> cacheWarnings = [];
+            // AI answers a request asks to keep (AIChatRequest.CacheAnswer), for the engine below and for an AI
+            // application code calls itself (NodeStoreServices.WithAnswerCache), so there is one without AI settings too
+            aiAnswers = ServiceCaches.Create(ServiceCacheType.Native, aiFolder, "completion", cacheOwner, cacheWarnings);
             if (settings.AISettings != null) {
                 if (!Directory.Exists(aiFolder)) Directory.CreateDirectory(aiFolder!);
                 // the Relatude service charges this installation's license, read at every call like
                 // the SMS provider's below
-                ai = AIProviderFactory.Create(settings.AISettings, aiFolder, () => server.Settings.ApiKey, cacheOwner, cacheWarnings);
+                ai = AIProviderFactory.Create(settings.AISettings, aiFolder, () => server.Settings.ApiKey, cacheOwner, cacheWarnings, aiAnswers);
             }
             // Nothing in the database sends a message, so this is built for application code alone
             // (NodeStore.Services.SMS) and has no folder, cache or engine around it. It is resolved here all
@@ -567,7 +571,7 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
             // is most of an open when there is little to replay
             _openingStep = "Preparing the object mappers";
             // db.Settings: the custom settings the application registers, this database's and the server's
-            Store = new NodeStore(datastore, sms, imaging, fileToText, translation, ipLookup, server?.CustomSettings.SourceFor(settings.Id), email);
+            Store = new NodeStore(datastore, sms, imaging, fileToText, translation, ipLookup, server?.CustomSettings.SourceFor(settings.Id), email, aiAnswers);
             _datastoreBeingBuilt = null;
             server?.RaiseEventStoreInit(this, Store);
         } catch {
@@ -594,6 +598,7 @@ public class NodeStoreContainer(NodeStoreContainerSettings settings, RelatudeDBS
                 try { fileToText?.Dispose(); } catch { }
                 try { translation?.Dispose(); } catch { }
                 try { ipLookup?.Dispose(); } catch { }
+                try { aiAnswers?.Dispose(); } catch { } // the engine's provider does not own it
             }
             Interlocked.Increment(ref _hasFailedCounter);
             throw;

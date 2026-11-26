@@ -106,6 +106,11 @@ public sealed record AIChatResult(string Text) {
     public int? Credits { get; init; }
     /// <summary>What is left on the account the call was charged to, from a service that charges in credits.</summary>
     public int? CreditsLeft { get; init; }
+    /// <summary>
+    /// Given from the answer cache (<see cref="AIChatRequest.CacheAnswer"/>) rather than by the model: it cost nothing,
+    /// so <see cref="Credits"/> is 0 and <see cref="Usage"/> null.
+    /// </summary>
+    public bool Cached { get; init; }
     /// <summary>Whether the model stopped at <see cref="AIChatRequest.MaxOutputTokens"/> rather than when it was done.</summary>
     public bool WasCut => FinishReason == AIFinishReason.Length;
     /// <summary>
@@ -217,6 +222,20 @@ public sealed record AIChatRequest {
     /// (OpenAI's <c>prompt_cache_key</c>). Sent only when set, as an older endpoint refuses what it does not know.
     /// </summary>
     public string? CacheKey { get; init; }
+    /// <summary>
+    /// Keep the answer on this machine and give it again, at no cost, to the same request: for an answer that should
+    /// not change from call to call, such as a translation. Off by default, as most answers are to be made afresh.
+    /// Kept where the database has an answer cache (a database on a server: <c>native.completion.cache.bin</c> beside
+    /// the embedding cache) for 90 days, by everything that decides the answer (<see cref="CachingAIProvider"/>). An
+    /// answer cut short, withheld or empty is not kept, nor one <see cref="CacheAnswerIf"/> turns down. Not the
+    /// provider's own prompt cache, which <see cref="CacheKey"/> is about.
+    /// </summary>
+    public bool CacheAnswer { get; init; }
+    /// <summary>
+    /// With <see cref="CacheAnswer"/>, whether an answer is good enough to keep, so one the caller cannot use is asked
+    /// for again next time rather than given back for 90 days. Not part of what the answer is kept by.
+    /// </summary>
+    public Func<AIChatResult, bool>? CacheAnswerIf { get; init; }
     public bool HasImages => Messages.Any(m => m.Images.Count > 0);
     public IEnumerable<AIImage> AllImages => Messages.SelectMany(m => m.Images);
     /// <summary>Whether the request has tools, or a conversation in which tools were called.</summary>

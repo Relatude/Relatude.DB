@@ -40,9 +40,10 @@ public sealed class NodeStoreServices {
     readonly ITranslationProvider? _translation;
     readonly IIPLookupProvider? _ipLookup;
     readonly IEmailProvider? _email;
+    readonly IServiceAnswerCache? _aiAnswers;
 
     internal NodeStoreServices(IDataStore datastore, ISMSProvider? sms, IImagingProvider? imaging, IFileToTextProvider? fileToText, ITranslationProvider? translation,
-        IIPLookupProvider? ipLookup, IEmailProvider? email) {
+        IIPLookupProvider? ipLookup, IEmailProvider? email, IServiceAnswerCache? aiAnswers = null) {
         _datastore = datastore;
         _sms = sms;
         _imaging = imaging;
@@ -50,6 +51,7 @@ public sealed class NodeStoreServices {
         _translation = translation;
         _ipLookup = ipLookup;
         _email = email;
+        _aiAnswers = aiAnswers;
     }
 
     /// <summary>
@@ -61,6 +63,18 @@ public sealed class NodeStoreServices {
     public AIEngine AI => _datastore.AI;
     /// <summary>Whether an AI engine is configured, and <see cref="AI"/> can therefore be used.</summary>
     public bool HasAI => _datastore.HasAIEngine;
+
+    /// <summary>
+    /// An AI provider the application calls itself, rather than <see cref="AI"/>, keeping the answers its requests ask
+    /// to keep (<see cref="AIChatRequest.CacheAnswer"/>) where <see cref="AI"/> keeps them: a <see cref="CachingAIProvider"/>
+    /// over this database's answer cache, the provider as it is on a database without one. Disposing what it answers
+    /// disposes the provider, never the cache.
+    /// </summary>
+    /// <param name="provider">The provider asked when nothing is kept.</param>
+    /// <param name="identity">What answers beside the request, so answers of other models are told apart:
+    /// <see cref="CachingAIProvider.IdentityOf"/> of the provider's settings.</param>
+    public IAIProvider WithAnswerCache(IAIProvider provider, string identity)
+        => _aiAnswers == null ? provider : new CachingAIProvider(provider, _aiAnswers, identity, ownsCache: false);
 
     /// <summary>
     /// Sends text messages, as configured for this database: a confirmation, a one-time code, sent through
@@ -131,14 +145,15 @@ public sealed class NodeStoreServices {
 
     /// <summary>
     /// Empties the answer caches of the Imaging, FileToText and Translation providers that keep one
-    /// (see <see cref="ICachingServiceProvider"/>), so every question goes to the service again. The AI
-    /// embedding cache is the data store's, and is cleared with it. Done by
-    /// <c>NodeStore.MaintenanceAsync(MaintenanceAction.ClearAiCache)</c>.
+    /// (see <see cref="ICachingServiceProvider"/>) and the AI answers kept (<see cref="AIChatRequest.CacheAnswer"/>),
+    /// so every question goes to the service again. The AI embedding cache is the data store's, and is cleared with it.
+    /// Done by <c>NodeStore.MaintenanceAsync(MaintenanceAction.ClearAiCache)</c>.
     /// </summary>
     public void ClearCaches() {
         (_imaging as ICachingServiceProvider)?.ClearCache();
         (_fileToText as ICachingServiceProvider)?.ClearCache();
         (_translation as ICachingServiceProvider)?.ClearCache();
+        _aiAnswers?.ClearAll();
     }
 
     // the AI engine is the data store's, and goes with it. Each is disposed even when one before it
@@ -150,7 +165,9 @@ public sealed class NodeStoreServices {
                 try { _imaging?.Dispose(); } finally {
                     try { _fileToText?.Dispose(); } finally {
                         try { _translation?.Dispose(); } finally {
-                            _ipLookup?.Dispose();
+                            try { _ipLookup?.Dispose(); } finally {
+                                _aiAnswers?.Dispose();
+                            }
                         }
                     }
                 }

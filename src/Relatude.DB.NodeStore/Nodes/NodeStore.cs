@@ -199,10 +199,12 @@ public class NodeStore : IDisposable {
     /// <param name="settings">Where <see cref="Settings"/> finds the settings the application registers. Null on a store without a server, which has none.</param>
     /// <param name="email">How this database sends e-mail, for <see cref="NodeStoreServices.Email"/>. Null on a database that sends none; disposed with this store.
     /// Last, after <paramref name="settings"/>, so a call that gives the others by position is not changed by it.</param>
+    /// <param name="aiAnswers">Where AI answers a request asks to keep are kept (<see cref="AIChatRequest.CacheAnswer"/>),
+    /// for <see cref="NodeStoreServices.WithAnswerCache"/>. Null on a database without; disposed with this store.</param>
     public NodeStore(IDataStore datastore, ISMSProvider? sms = null, IImagingProvider? imaging = null, IFileToTextProvider? fileToText = null, ITranslationProvider? translation = null,
-        IIPLookupProvider? ipLookup = null, ICustomSettingsSource? settings = null, IEmailProvider? email = null) {
+        IIPLookupProvider? ipLookup = null, ICustomSettingsSource? settings = null, IEmailProvider? email = null, IServiceAnswerCache? aiAnswers = null) {
         Datastore = datastore;
-        Services = new NodeStoreServices(datastore, sms, imaging, fileToText, translation, ipLookup, email);
+        Services = new NodeStoreServices(datastore, sms, imaging, fileToText, translation, ipLookup, email, aiAnswers);
         datastore.UseFileAnalysisProviders(imaging, fileToText);
         Settings = new NodeStoreSettings(settings);
         _ownsProviders = true;

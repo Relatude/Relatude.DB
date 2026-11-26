@@ -35,7 +35,7 @@ public sealed class CachingTranslationProvider(ITranslationProvider inner, IServ
             var textTo = code(text?.To) ?? code(to);
             // a text the provider would refuse is not looked up: it goes, so the provider says why
             if (text?.Text == null || textTo == null) continue;
-            keys[i] = "translate|v1|" + format + "|" + (code(text.From) ?? code(from) ?? "found") + "|" + textTo + "|" + text.Text;
+            keys[i] = keyOf(text, textTo, from, format);
             if (!fresh && ServiceAnswerCacheDefaults.Read<TranslatedText>(_cache, keys[i]!) is { } kept) answers[i] = kept with { Cached = true };
         }
         // every text not kept, a text asked for twice in the call only once
@@ -65,6 +65,23 @@ public sealed class CachingTranslationProvider(ITranslationProvider inner, IServ
         for (var i = 0; i < texts.Count; i++) answers[i] ??= result.Translations[sameAs[i]];
         return new TranslationResult(Array.ConvertAll(answers, a => a!), result.Characters, result.CachedCharacters, result.Credits, result.CreditsLeft);
     }
+
+    /// <summary>The translations of the texts when every one is kept, from the cache alone; null when one is not. Nothing is sent.</summary>
+    public TranslationResult? TryGetCached(IReadOnlyList<TranslationText> texts, string? to = null, string? from = null, TranslationFormat format = TranslationFormat.Text) {
+        ArgumentNullException.ThrowIfNull(texts);
+        var answers = new TranslatedText[texts.Count];
+        for (var i = 0; i < texts.Count; i++) {
+            var text = texts[i];
+            var textTo = code(text?.To) ?? code(to);
+            if (text?.Text == null || textTo == null) return null;
+            if (ServiceAnswerCacheDefaults.Read<TranslatedText>(_cache, keyOf(text, textTo, from, format)) is not { } kept) return null;
+            answers[i] = kept with { Cached = true };
+        }
+        return new TranslationResult(answers, 0, 0, 0, _credits.Left);
+    }
+
+    static string keyOf(TranslationText text, string to, string? from, TranslationFormat format)
+        => "translate|v1|" + format + "|" + (code(text.From) ?? code(from) ?? "found") + "|" + to + "|" + text.Text;
 
     public async Task<LanguageDetectionResult> DetectLanguagesAsync(IReadOnlyList<string> texts, bool fresh = false, CancellationToken cancellationToken = default) {
         ArgumentNullException.ThrowIfNull(texts);

@@ -1,3 +1,4 @@
+using Relatude.DB.AI;
 using Relatude.DB.Common;
 using Relatude.DB.FileToText;
 using Relatude.DB.Imaging;
@@ -11,7 +12,9 @@ namespace Relatude.DB.NodeServer;
 /// answered is kept on this machine, so the same question is not sent over HTTP, nor paid for, twice
 /// (see <see cref="CachingImagingProvider"/>, <see cref="CachingFileToTextProvider"/> and
 /// <see cref="CachingTranslationProvider"/>). The files are Native KV, one per service, in the indexes
-/// folder beside the AI embedding cache: <c>native.imaging.cache.bin</c> and so on.
+/// folder beside the AI embedding cache: <c>native.imaging.cache.bin</c> and so on. AI answers a request asks to keep
+/// (<see cref="AIChatRequest.CacheAnswer"/>, <see cref="CachingAIProvider"/>) are kept the same way, in
+/// <c>native.completion.cache.bin</c>.
 /// <para>A Native KV file is held by one cache at a time, so a folder several databases share - the
 /// server's data folder, where every database without disk storage keeps its local files - gets one
 /// file per database, named by an owner: <c>native.imaging.{owner}.cache.bin</c>. Two databases on one

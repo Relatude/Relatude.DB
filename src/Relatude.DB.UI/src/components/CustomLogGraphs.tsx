@@ -122,6 +122,11 @@ export function CustomLogGraphs({
       return next;
     });
   }
+  function showAll(show: boolean) {
+    const next = show ? [] : log.series.map(seriesId);
+    setHidden(next);
+    writeJson("customLogs:hidden:" + log.key, next);
+  }
 
   async function rebuild() {
     setRebuilding(true);
@@ -168,6 +173,13 @@ export function CustomLogGraphs({
       {log.series.length > 1 && (
         <div className="logs-series clog-series-pick" title="Which graphs to show">
           <IconEye size={14} stroke={1.8} className="muted" />
+          <button className="link-button clog-series-all" onClick={() => showAll(true)} disabled={visible.length === log.series.length} title="Show every graph">
+            All
+          </button>
+          <button className="link-button clog-series-all" onClick={() => showAll(false)} disabled={visible.length === 0} title="Hide every graph">
+            None
+          </button>
+          <span className="clog-tab-divider" />
           {log.series.map((s) => (
             <button key={seriesId(s)} className={"logs-chip" + (hidden.includes(seriesId(s)) ? "" : " active")} onClick={() => toggleHidden(seriesId(s))}>
               {s.label}

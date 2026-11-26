@@ -8099,6 +8099,35 @@ if (result.WasCut) { /* it reached MaxOutputTokens: the text is cut short, or em
   order. A share of the input is charged before the call and the rest once the model has answered.
   `GET /api/ai/models` with the license key lists every model's weights and efforts.
 
+#### Keeping an answer
+
+A completion is made afresh every time unless the request says `CacheAnswer = true`. Then your
+server keeps the answer and gives it back, at no cost, to the same request. Use it where the answer
+should not change from call to call, such as a translation.
+
+```csharp
+AIChatResult result = await db.Services.AI.GetChatResultAsync(new AIChatRequest(text) {
+    Instructions = "Translate into French. Answer with the translation alone.",
+    CacheAnswer = true,
+    CacheAnswerIf = r => !r.Text.StartsWith("Sorry"),
+});
+// result.Cached: given from your server, Credits 0
+```
+
+- **The same request.** An answer is kept by everything that decides it: the provider and its
+  models, `ModelKey`, `Effort`, `MaxOutputTokens`, the instructions, every message (pictures by
+  their content), the tools, `ToolChoice` and `ResponseSchema`. `CacheKey` is left out, as it only
+  routes calls to the vendor's prompt cache.
+- **What is not kept.** An answer cut short (`WasCut`), withheld (`content_filter`) or empty, and one
+  `CacheAnswerIf` turns down, so an answer you cannot use is asked for again next time.
+- **Where.** In `native.completion.cache.bin`, beside the other answer caches, for 90 days.
+  `ClearAiCache` empties it. A store built from code keeps nothing unless it is given a cache:
+  `new NodeStore(data, aiAnswers: new NativeKvServiceAnswerCache(path))`.
+- **A provider you call yourself** keeps its answers in the same place through
+  `db.Services.WithAnswerCache(provider, CachingAIProvider.IdentityOf(settings))`.
+- **Looking without asking.** `db.Services.AI.TryGetCachedAnswer(request)` gives the answer kept, or
+  null, and sends nothing. `CachingTranslationProvider.TryGetCached` does the same for translations.
+
 #### Tools
 
 A model can ask for your code to be called. Give the request the tools there are, each with a name,
@@ -8332,7 +8361,7 @@ left). `GetOperationsAsync`, `GetFormatsAsync` and `GetLanguagesAsync` give the 
 | Service | Charged | Kept on your server |
 |---|---|---|
 | Embeddings | By the tokens sent, each model at its own price | Every embedding, by text and model |
-| Completions | By the tokens sent and received, a reasoning model's thinking among them, each model at its own price ([§34.1](#341-text-embeddings-and-completions)) | Nothing |
+| Completions | By the tokens sent and received, a reasoning model's thinking among them, each model at its own price ([§34.1](#341-text-embeddings-and-completions)) | The answers a request asks to keep (`CacheAnswer`) |
 | Images | The same price for every operation | Descriptions, answers to questions and "already upright". Not the images the service makes |
 | Files to text | Per file; a long recording per part | The text, by file content and languages |
 | Translation | By the characters sent | Each translation and each detected language, text by text |
@@ -8350,7 +8379,8 @@ answer, such as another take on a description; it is charged in full.
 - `CacheType` in the image, file and translation settings chooses where your server keeps their
   answers: `Native` (the default, a file beside the AI embedding cache), `Memory` or `None`. Answers
   are kept for 90 days.
-- `db.MaintenanceAsync(MaintenanceAction.ClearAiCache)` empties these caches and the embedding cache.
+- `db.MaintenanceAsync(MaintenanceAction.ClearAiCache)` empties these caches, the completions kept
+  and the embedding cache.
 - A store built from code wraps its provider itself:
   `new CachingTranslationProvider(provider, new NativeKvServiceAnswerCache(path))`, and likewise
   `CachingImagingProvider` and `CachingFileToTextProvider`.

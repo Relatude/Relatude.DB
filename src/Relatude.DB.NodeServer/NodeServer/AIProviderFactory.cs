@@ -11,7 +11,10 @@ public static class AIProviderFactory {
     /// <param name="owner">Names the database in the cache file name when <paramref name="dataFolder"/>
     /// is shared with other databases (see <see cref="ServiceCaches"/>); null in a database's own folder.</param>
     /// <param name="warnings">Where a cache that could not be opened as asked is reported; the engine is built all the same.</param>
-    public static AIEngine Create(AIProviderSettings settings, string? dataFolder, Func<string?>? licenseApiKey = null, string? owner = null, List<string>? warnings = null) {
+    /// <param name="answers">Where answers a request asks to keep are kept (<see cref="AIChatRequest.CacheAnswer"/>); not
+    /// disposed with the engine. Null for an engine that keeps none.</param>
+    public static AIEngine Create(AIProviderSettings settings, string? dataFolder, Func<string?>? licenseApiKey = null, string? owner = null, List<string>? warnings = null,
+        IServiceAnswerCache? answers = null) {
         string? filePath = null;
         if (!string.IsNullOrEmpty(dataFolder)) {
             var fileKey = FileKeyUtility.GetAiCacheFileKey(settings.CacheType, owner);
@@ -41,6 +44,7 @@ public static class AIProviderFactory {
         IAIProvider? provider = null;
         try {
             provider = LateBindings.CreateAiProvider(settings, licenseApiKey);
+            if (answers != null) provider = new CachingAIProvider(provider, answers, CachingAIProvider.IdentityOf(settings), ownsCache: false);
             return new AIEngine(provider, settings, cache);
         } catch {
             // the engine never took ownership, so nothing else closes the cache file: left open, the
