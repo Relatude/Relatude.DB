@@ -56,6 +56,10 @@ public sealed class Operation {
     public bool Destructive { get; init; }
     /// <summary>Calling it again with the same input changes nothing more.</summary>
     public bool Idempotent { get; init; }
+    /// <summary>It answers a process that goes on after the call; each caller waits for it as far as it waits.</summary>
+    public bool LongWork { get; init; }
+    /// <summary>Listed to agents as a tool of its own; the others they find and call through generic tools.</summary>
+    public bool Core { get; init; }
     /// <summary>
     /// What a call with this input would do, worked out without doing any of it, as one operation can write a draft with
     /// some input and publish with others. Left out, one that is <see cref="ReadOnly"/> reads, and any other is taken to
