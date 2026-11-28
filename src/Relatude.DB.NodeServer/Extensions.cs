@@ -14,6 +14,7 @@ public static class DBBuilderExtensions {
             builder.Services.ConfigureHttpJsonOptions(o => RelatudeDBJsonOptions.ConfigureDefault(o.SerializerOptions));
             builder.Services.TryAddSingleton<IRelatudeDB>(_ => new RelatudeDB()); // a factory: a host that registers a NodeStore would otherwise pick the wrong constructor
             builder.Services.AddSingleton(options);
+            builder.Services.TryAddSingleton<Relatude.DB.NodeServer.Operations.OperationRegistry>(); // the admin UI's operations and the CMS's in one
             builder.Services.AddTransient<IStartupFilter>(_ => new ErrorPageStartupFilter(ErrorPageStartupFilter.FromSettings));
         }
         configureOptions?.Invoke(options);

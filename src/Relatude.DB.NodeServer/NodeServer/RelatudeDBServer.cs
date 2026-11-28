@@ -689,7 +689,7 @@ public partial class RelatudeDBServer {
         if (_api != null) throw new Exception("API already mapped.");
         _api = new ServerAPIMapper(this);
         _api.MapSimpleAPI(app);
-        UI = new UIServer(this);
+        UI = new UIServer(this, app.Services.GetService<Operations.OperationRegistry>() ?? new Operations.OperationRegistry());
         UI.Map(app);
     }
     public UIServer? UI { get; private set; }

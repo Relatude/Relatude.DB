@@ -36,9 +36,9 @@ public sealed class UIServer {
     public UILiveFeeds Feeds { get; }
     /// <summary>The long jobs started from the UI, where every session can see them (see UISharedTasks).</summary>
     public UISharedTasks Shared { get; }
-    internal UIServer(RelatudeDBServer server) {
+    internal UIServer(RelatudeDBServer server, Operations.OperationRegistry operations) {
         _server = server;
-        Commands = new UICommands(server);
+        Commands = new UICommands(server, operations);
         Shared = new UISharedTasks(server);
         Shared.Register(Commands);
         _criticalErrorLog = new UICriticalErrorLog(server);
