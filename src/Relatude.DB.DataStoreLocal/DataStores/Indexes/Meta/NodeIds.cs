@@ -177,6 +177,11 @@ class nodeMetasByNodeId {
             }
         }
     }
+    public bool Any(int nodeId, Func<uint, bool> test) {
+        if (_single.TryGetValue(nodeId, out var metaId)) return test(metaId);
+        if (_multiple.TryGetValue(nodeId, out var metaIds)) foreach (var id in metaIds) if (test(id)) return true;
+        return false;
+    }
     public bool TryGetFirstMetaId(int nodeId, out uint metaId) {
         if (_single.TryGetValue(nodeId, out metaId)) return true;
         if (_multiple.TryGetValue(nodeId, out var multipleMetaIds) && multipleMetaIds.Length > 0) {
@@ -271,11 +276,14 @@ internal class NodeTypesByIds {
     readonly NativeModelStore _nativeModelStore;
     readonly SettingsLocal _settings;
     readonly Dictionary<Guid, Guid[]> _embeddedPropertiesByType; // only the types that have any
+    readonly bool _typesNameReadAccess, _typesNameEditViewAccess;
     internal NodeTypesByIds(Definition definition, NativeModelStore nativeModelStore, SettingsLocal settings) {
         _definition = definition;
         _cachedNodeIdsByCtx = new(1000); // TODO: Make this configurable
         _nativeModelStore = nativeModelStore;
         _settings = settings;
+        _typesNameReadAccess = definition.NodeTypes.Values.Any(t => t.Model.DefaultReadAccess != NodeConstants.UserGroupUnspecified);
+        _typesNameEditViewAccess = definition.NodeTypes.Values.Any(t => t.Model.DefaultEditViewAccess != NodeConstants.UserGroupUnspecified);
         _embeddedPropertiesByType = definition.NodeTypes
             .Select(kv => (typeId: kv.Key, propertyIds: kv.Value.AllProperties.Values.Where(p => p.PropertyType == PropertyType.Embedded).Select(p => p.Id).ToArray()))
             .Where(t => t.propertyIds.Length > 0)
@@ -341,27 +349,10 @@ internal class NodeTypesByIds {
         // Collection:
         if (ctx.CollectionIds != null && ctx.CollectionIds.Length > 0 && !ctx.CollectionIds.Contains(meta.CollectionId)) return false;
 
-        NodeTypeModel? typeDef = null;
-        Guid readAccessGroup;
-        Guid editViewAccessGroup;
-        if (meta.ReadAccess != NodeConstants.UserGroupUnspecified && meta.EditViewAccess != NodeConstants.UserGroupUnspecified) {
-            readAccessGroup = meta.ReadAccess;
-            editViewAccessGroup = meta.EditViewAccess;
-        } else {
-            typeDef = _definition.NodeTypes[typeId].Model; // only look up typeDef if needed, as it is a bit expensive to look up
-            readAccessGroup = FindUserGroup(meta.ReadAccess, typeDef.DefaultReadAccess, _settings.DefaultReadAccess);
-            editViewAccessGroup = FindUserGroup(meta.EditViewAccess, typeDef.DefaultEditViewAccess, _settings.DefaultReadAccess);
-        }
-
-        // Read Access:
-        if (!IsUserAMember(readAccessGroup, ctx.UserType, ctx.MembershipIds)) return false;
-
-        // View Access Edit:
-        if (ctx.EditView && !IsUserAMember(editViewAccessGroup, ctx.UserType, ctx.MembershipIds)) return false;
+        if (!MayRead(meta, typeId, ctx)) return false;
 
         // Include hidden:
-        if (typeDef == null) typeDef = _definition.NodeTypes[typeId].Model;
-        if (!ctx.IncludeHidden && typeDef.Hidden) return false;
+        if (!ctx.IncludeHidden && _definition.NodeTypes[typeId].Model.Hidden) return false;
 
         // Release/expire date, last, so a date it gives is one the answer changes at, not one of a node left out anyway:
         if (!ctx.IncludeUnpublished) {
@@ -376,6 +367,35 @@ internal class NodeTypesByIds {
         }
 
         return true;
+    }
+    /// <summary>
+    /// Whether the reader may read what has this meta: its read group, and in edit view its edit-view group, each the
+    /// meta's own, else the type's default, else the database's. What queries filter by and what a read by id checks.
+    /// </summary>
+    internal bool MayRead(IInnerNodeMeta meta, Guid typeId, QueryContextKey ctx) {
+        if (ctx.UserType == SystemUserType.Admin) return true; // in every group: nothing is looked up
+        NodeTypeModel? typeDef = null;
+        var readGroup = meta.ReadAccess;
+        if (readGroup == NodeConstants.UserGroupUnspecified) {
+            // the type is looked up only where some type names a default, as most datamodels have none
+            if (_typesNameReadAccess) typeDef = _definition.NodeTypes[typeId].Model;
+            readGroup = FindUserGroup(readGroup, typeDef?.DefaultReadAccess ?? NodeConstants.UserGroupUnspecified, _settings.DefaultReadAccess);
+        }
+        if (!IsUserAMember(readGroup, ctx.UserType, ctx.MembershipIds)) return false;
+        if (!ctx.EditView) return true;
+        var editViewGroup = meta.EditViewAccess;
+        if (editViewGroup == NodeConstants.UserGroupUnspecified) {
+            if (_typesNameEditViewAccess) typeDef ??= _definition.NodeTypes[typeId].Model;
+            editViewGroup = FindUserGroup(editViewGroup, typeDef?.DefaultEditViewAccess ?? NodeConstants.UserGroupUnspecified, _settings.DefaultReadAccess);
+        }
+        return IsUserAMember(editViewGroup, ctx.UserType, ctx.MembershipIds);
+    }
+    /// <summary>Whether what names no read group is everyone's: no type names a default, and the database's is Everyone.</summary>
+    internal bool OpenByDefault => !_typesNameReadAccess && _settings.DefaultReadAccess == SystemGroupType.Everyone;
+    /// <summary>Whether the reader may read any version of the node, judged by the metas held here, with no read of the node.</summary>
+    internal bool MayReadAnyVersion(int nodeId, QueryContextKey ctx) {
+        if (ctx.UserType == SystemUserType.Admin) return true;
+        return _metaIdsByNodeId.Any(nodeId, metaId => _metaById.TryGetValue(metaId, out var mt) && MayRead(mt.Meta, mt.TypeId, ctx));
     }
     // the node's own group, else the type's default, else the database's (shared with the write access check)
     internal static Guid FindUserGroup(Guid fromMeta, Guid fromType, SystemGroupType fromSettings) {

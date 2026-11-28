@@ -67,25 +67,21 @@ internal class ReferenceProperty : ValueProperty<Guid> {
     }
     public override Facets GetDefaultFacets(Facets? given, QueryContext ctx) {
         var facets = base.GetDefaultFacets(given, ctx); // buckets are the referenced node guids
+        var converter = Definition.Store.GetOuterConverter(ctx); // the context resolved once for every bucket
         foreach (var v in facets.Values) {
             if (v.ExplicitDisplayName != null) continue;
-            if (v.Value is Guid guid) v.DisplayName = nameOfNode(guid, ctx);
-            else if (v.Value is string s && Guid.TryParse(s, out var parsed)) v.DisplayName = nameOfNode(parsed, ctx); // given buckets may arrive as guid strings
+            if (v.Value is Guid guid) v.DisplayName = nameOfNode(guid, converter);
+            else if (v.Value is string s && Guid.TryParse(s, out var parsed)) v.DisplayName = nameOfNode(parsed, converter); // given buckets may arrive as guid strings
         }
         return facets;
     }
     // the referenced node's name in the version the context reads
-    string nameOfNode(Guid guid, QueryContext ctx) {
+    string nameOfNode(Guid guid, OuterConverter converter) {
         if (guid == Guid.Empty) return "(none)";
         var db = Definition.Store;
-        if (db._guids.TryGetId(guid, out var id) && db._nodes.TryGet(id, out var node, out _)) {
-            try {
-                if (NodeName.Of(db.ToOuter(node, ctx)) is { } name) return name;
-            } catch {
-                // no version of it this context reads
-            }
-        }
-        return guid.ToString(); // referenced node gone (stale index value), unread or unnamed: the raw guid
+        if (db._guids.TryGetId(guid, out var id) && db._nodes.TryGet(id, out var node, out _)
+            && converter.TryToReadable(node, out var outer) && NodeName.Of(outer) is { } name) return name;
+        return guid.ToString(); // referenced node gone (stale index value), unread, not the reader's to read or unnamed: the raw guid
     }
     public override bool SatisfyValueRequirement(object? value1, object? value2, ValueRequirement requirement) {
         var v1 = (Guid)value1!;

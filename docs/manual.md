@@ -6104,16 +6104,21 @@ A user of type `Admin` is in every group, and the master admin (`Admin()`) is no
 db.UpdateMeta(article.Id, nameof(IInnerNodeMeta.ReadAccess), membersGroup.Id);
 
 var anonymous = db.Context.User(Guid.Empty).Create();
-anonymous.Query<IArticle>().Execute();   // leaves the article out
-anonymous.Get<IArticle>(article.Id);     // still finds it
+anonymous.Query<IArticle>().Execute();          // leaves the article out
+anonymous.TryGet<IArticle>(article.Id, out _);  // false
 ```
 
-**A read by id ignores read access.** `Get` and `TryGet` apply the context's culture, revisions and
-time, but not its groups. Queries, counts, facets and relation ends do apply them. To check whether
-a user may read a node, query:
+**A read by id applies read access too.** `Get`, `TryGet`, `TryGetNodeMeta`, `Exists` and
+`GetRevisions` find only what the context's user may read, as queries and relation ends do. `Get`
+throws as it does for a node that is not there, so it tells nothing. Administrators read everything,
+and pay nothing for the check. Facets name no node the reader may not read: a relation facet leaves
+it out, and a reference facet shows its id in place of its name.
+
+A read by id still finds a node marked deleted, a node of a hidden type and a node outside the
+context's collections, which queries leave out. To ask whether a node is shown to a reader, query:
 
 ```csharp
-bool canRead = visitor.Query().Where(id).Count() > 0;
+bool shown = visitor.Query().Where(id).Count() > 0;
 ```
 
 **The master admin skips access checks and nothing else.** It still reads only published content,
@@ -6449,7 +6454,8 @@ var site = db.Context.With(db.QueryContext.Collections([siteId])).Create();
     ([§29](#29-cultures-visibility-and-scoped-stores)).
 34. **A context given to one query replaces the store's.** Build it from `db.QueryContext`, or the
     query loses the store's user and culture.
-35. **`Get` and `TryGet` ignore read access and the deleted mark.** To check what a user may read,
+35. **`Get` and `TryGet` ignore the deleted mark.** They apply read access, but find a node marked
+    deleted, of a hidden type or outside the context's collections. To ask what a reader is shown,
     use a query ([Read access](#read-access)).
 36. **A store in a culture without `CultureFallbacks()` finds only nodes with a version in that
     culture,** so neutral nodes, users and groups among them, are left out ([Cultures](#cultures)).

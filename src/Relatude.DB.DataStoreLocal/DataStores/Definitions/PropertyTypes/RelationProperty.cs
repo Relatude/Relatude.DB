@@ -76,7 +76,7 @@ internal class RelationProperty : Property {
             foreach (var f in given.Values) {
                 var clone = f.Clone();
                 if (clone.Value != null && tryCoerceToNodeId(clone.Value, out var id) && db._nodes.TryGet(id, out var node, out _)
-                    && converter.TryToOuter(node, out var outer)) {
+                    && converter.TryToReadable(node, out var outer)) {
                     clone.Value = outer;
                     if (clone.ExplicitDisplayName == null) clone.DisplayName = nameOfNode(outer);
                 }
@@ -87,9 +87,9 @@ internal class RelationProperty : Property {
             var nodes = db._nodes.Get(bucketIds); // batched: one disk read for all cache misses
             var values = new List<FacetValue>(nodes.Length);
             foreach (var node in nodes) {
-                // revision/context correct, same as include queries; a node with no revision
-                // visible in this context (e.g. unpublished) is simply not a bucket
-                if (!converter.TryToOuter(node, out var outer)) continue;
+                // revision/context correct, same as include queries; a node with no revision visible in this
+                // context (e.g. unpublished), or one the reader may not read, is simply not a bucket
+                if (!converter.TryToReadable(node, out var outer)) continue;
                 values.Add(new FacetValue(outer) { DisplayName = nameOfNode(outer) });
             }
             // deterministic order: Facets.Sort() cannot sort node data values (not IComparable)

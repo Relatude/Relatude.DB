@@ -4,6 +4,7 @@ using Relatude.DB.Common;
 using Relatude.DB.Datamodels;
 using Relatude.DB.Datamodels.Properties;
 using Relatude.DB.DataStores.Definitions;
+using Relatude.DB.Native;
 using Relatude.DB.Query;
 using Relatude.DB.Query.Data;
 using Relatude.DB.Query.Expressions;
@@ -59,7 +60,17 @@ public sealed partial class DataStoreLocal : IDataStore {
     /// for the disk. Unknown guids throw for <see cref="NodeLookup.ByGuid"/>, as the guid map always did;
     /// a missing node throws unless <paramref name="throwIfMissing"/> is off.
     /// </summary>
-    bool readOne(NodeLookup lookup, int id, Guid guid, bool throwIfMissing, QueryContext? ctx, [MaybeNullWhen(false)] out INodeDataExternal node) {
+    /// <summary>
+    /// The version of a node a write in this context goes into, whether or not the writer may read it: write access is
+    /// checked apart (DataStoreLocal.WriteAccess), and a read by id's check would refuse an editor who may not read.
+    /// </summary>
+    internal INodeDataExternal GetToWrite(NodeKey key, QueryContext ctx) {
+        INodeDataExternal? node;
+        if (key.HasGuid) readOne(NodeLookup.ByGuid, 0, key.Guid, true, ctx, out node, checkAccess: false);
+        else readOne(NodeLookup.ById, key.Int, Guid.Empty, true, ctx, out node, checkAccess: false);
+        return node!;
+    }
+    bool readOne(NodeLookup lookup, int id, Guid guid, bool throwIfMissing, QueryContext? ctx, [MaybeNullWhen(false)] out INodeDataExternal node, bool checkAccess = true) {
         long activityId = 0;
         Stores.NodeStore.NodeRead? read = null;
         try {
@@ -88,20 +99,26 @@ public sealed partial class DataStoreLocal : IDataStore {
             }
             if (throwIfMissing) {
                 node = outer.ToOuter(inner);
+                if (checkAccess && !outer.MayRead(node)) throw notFound(lookup, id, guid);
                 return true;
             }
-            // a node the context reads no revision of is not there for it, as a query would not have listed it
-            return outer.TryToOuter(inner, out node);
+            // a node the context reads no revision of, or may not read, is not there for it, as a query would not have listed it
+            return checkAccess ? outer.TryToReadable(inner, out node) : outer.TryToOuter(inner, out node);
         } finally {
             read?.Dispose();
             if (activityId != 0) DeRegisterActivity(activityId);
         }
     }
+    // what a read by id throws for a node the reader may not read: what it throws for one that is not there, so it tells nothing
+    static Exception notFound(NodeLookup lookup, int id, Guid guid) => lookup == NodeLookup.ById
+        ? new KeyNotFoundException("Node not found: " + id)
+        : new InvalidOperationException("Unknown node: " + guid + ". ");
     /// <summary>
     /// Many nodes, read the way a query reads: <paramref name="lookupUnderLock"/> finds their ids under the
-    /// read lock, and what the cache does not hold is read from the log after the lock is let go.
+    /// read lock, and what the cache does not hold is read from the log after the lock is let go. Ids the caller named
+    /// (<paramref name="byId"/>) are left out where the reader may not read them; ids a relation gave are filtered already.
     /// </summary>
-    INodeDataExternal[] readMany(QueryContext? ctx, Func<int[]> lookupUnderLock) {
+    INodeDataExternal[] readMany(QueryContext? ctx, Func<int[]> lookupUnderLock, bool byId = false) {
         long activityId = 0;
         Stores.NodeStore.NodeRead? read = null;
         try {
@@ -121,8 +138,16 @@ public sealed partial class DataStoreLocal : IDataStore {
             }
             var inner = read.Complete(CancellationToken.None); // no store lock taken from here on
             var result = new INodeDataExternal[inner.Length];
-            for (var i = 0; i < inner.Length; i++) result[i] = outer.ToOuter(inner[i]!);
-            return result;
+            if (!byId || outer.ReadsAll) {
+                for (var i = 0; i < inner.Length; i++) result[i] = outer.ToOuter(inner[i]!);
+                return result;
+            }
+            var count = 0;
+            for (var i = 0; i < inner.Length; i++) {
+                var node = outer.ToOuter(inner[i]!);
+                if (outer.MayRead(node)) result[count++] = node;
+            }
+            return count == result.Length ? result : result[..count];
         } finally {
             read?.Dispose();
             if (activityId != 0) DeRegisterActivity(activityId);
@@ -294,18 +319,21 @@ public sealed partial class DataStoreLocal : IDataStore {
         }
     }
     public IEnumerable<INodeDataExternal> Get(IEnumerable<int> __ids, QueryContext? ctx = null) {
-        return readMany(ctx, () => __ids.ToArray()); // the result is a copy: nothing in it depends on the lock
+        return readMany(ctx, () => __ids.ToArray(), byId: true); // the result is a copy: nothing in it depends on the lock
     }
     public IEnumerable<INodeDataExternal> Get(IEnumerable<Guid> ids, QueryContext? ctx = null) {
-        return readMany(ctx, () => ids.Select(_guids.GetId).ToArray());
+        return readMany(ctx, () => ids.Select(_guids.GetId).ToArray(), byId: true);
     }
+    // under the read lock: a node the reader may read no version of is not there for it, as a read by id does not find it
+    bool mayReadAnyVersion(int id, QueryContext? ctx) =>
+        _definition.NodeTypeIndex.MayReadAnyVersion(id, _nativeModelStore.GetQueryContextKey(ctx ?? _defaultQueryCtx, out _));
     public bool Exists(int id, QueryContext? ctx = null) {
         _lock.EnterReadLock();
         var activityId = RegisterActvity(DataStoreActivityCategory.Querying);
         try {
             validateDatabaseState();
             _queryActivity.Record();
-            return _nodes.Contains(id);
+            return _nodes.Contains(id) && mayReadAnyVersion(id, ctx);
         } finally {
             DeRegisterActivity(activityId);
             _lock.ExitReadLock();
@@ -318,7 +346,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             validateDatabaseState();
             _queryActivity.Record();
             if (!_guids.TryGetId(id, out var uid)) return false;
-            return _nodes.Contains(uid);
+            return _nodes.Contains(uid) && mayReadAnyVersion(uid, ctx);
         } finally {
             DeRegisterActivity(activityId);
             _lock.ExitReadLock();
@@ -334,7 +362,7 @@ public sealed partial class DataStoreLocal : IDataStore {
             if (!_nodes.Contains(uid)) return false;
             var actualTypeId = _definition.GetTypeOfNode(uid);
             NodeTypeModel actualType = _definition.Datamodel.NodeTypes[actualTypeId];
-            return actualType.ThisAndAllInheritedTypes.ContainsKey(nodeTypeId);
+            return actualType.ThisAndAllInheritedTypes.ContainsKey(nodeTypeId) && mayReadAnyVersion(uid, ctx);
         } finally {
             DeRegisterActivity(activityId);
             _lock.ExitReadLock();
@@ -578,17 +606,25 @@ public sealed partial class DataStoreLocal : IDataStore {
     public Task<object?> QueryAsync(string query, IEnumerable<Parameter> parameters, QueryContext? ctx = null) {
         return Task.FromResult(Query(query, parameters, ctx));
     }
+    // The revisions the reader may read; one that may read none is told the node is not there, as a read by id is.
     public NodeDataRevision[] GetRevisions(Guid nodeId, QueryContext? ctx = null) {
         _lock.EnterReadLock();
         try {
             var nodeData = _nodes.Get(_guids.GetId(nodeId), out _);
+            var key = _nativeModelStore.GetQueryContextKey(ctx ?? _defaultQueryCtx, out _);
+            NodeDataRevision[] revisions;
             if (nodeData is NodeDataRevisions revs) {
-                return revs.Revisions;
+                revisions = revs.Revisions;
             } else if (nodeData is NodeData nd) {
-                return [nd.CopyAndConvertToNodeDataRevision(nd.Meta, Guid.Empty)];
+                revisions = [nd.CopyAndConvertToNodeDataRevision(nd.Meta, Guid.Empty)];
             } else {
                 throw new Exception("Unexpected node data type");
             }
+            if (key.UserType == SystemUserType.Admin) return revisions;
+            var index = _definition.NodeTypeIndex;
+            var readable = revisions.Where(r => index.MayRead(r.Meta ?? IInnerNodeMeta.Empty, r.NodeType, key)).ToArray();
+            if (readable.Length == 0) throw notFound(NodeLookup.ByGuid, 0, nodeId);
+            return readable;
         } finally {
             _lock.ExitReadLock();
         }
@@ -607,4 +643,19 @@ internal readonly struct OuterConverter(Indexes.Meta.NodeTypesByIds index, Query
         outer = index.TryPickBestOuter(node, key, nowUtc);
         return outer != null;
     }
+    /// <summary>An administrator, the master administrator too, who reads whatever a read by id finds.</summary>
+    public readonly bool ReadsAll = key.UserType == SystemUserType.Admin;
+    // what names no group is everyone's here: no type names a default, the database's is Everyone, and outside edit
+    // view no edit-view group counts, so such a node is read with nothing looked up
+    readonly bool _openByDefault = !key.EditView && index.OpenByDefault;
+    /// <summary>Whether the reader may read the revision picked, judged as queries judge it (NodeTypesByIds.MayRead).</summary>
+    public bool MayRead(INodeDataExternal node) {
+        if (ReadsAll) return true;
+        var meta = node.Meta;
+        if (_openByDefault && (meta is null || meta.ReadAccess == NodeConstants.UserGroupUnspecified)) return true;
+        return index.MayRead(meta ?? IInnerNodeMeta.Empty, node.NodeType, key);
+    }
+    /// <summary>What a read by id answers: false too when the reader may not read the revision picked.</summary>
+    public bool TryToReadable(INodeDataInternal node, [MaybeNullWhen(false)] out INodeDataExternal outer) =>
+        TryToOuter(node, out outer) && MayRead(outer);
 }

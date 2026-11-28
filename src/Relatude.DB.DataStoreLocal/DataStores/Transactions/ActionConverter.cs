@@ -456,7 +456,7 @@ internal class ActionConverter {
         if (a.PropertyPath != null) {  // temporary fix, look more at this later, what abou multiple props, what about copy inner outer etc.. (CopyExternal_>CopyInner)
             if (a.Values == null) throw new("Value cannot be null if updating a property. ");
             var key = a.PropertyPath.NodePath.NodeKey;
-            var rootNode = db.Get(key, ctx);
+            var rootNode = db.GetToWrite(key, ctx);
             rootNode = rootNode.CopyExternal(); // make it non readonly
             var innerNode = rootNode.GetInnerNode(a.PropertyPath.NodePath);
             innerNode.AddOrUpdate(a.PropertyPath.PropertyId, a.Values[0]);

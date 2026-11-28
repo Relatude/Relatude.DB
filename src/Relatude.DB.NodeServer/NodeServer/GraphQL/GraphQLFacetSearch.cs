@@ -133,7 +133,7 @@ public sealed class GraphQLFacetSearch : IGraphQLFacetSearch {
 
     /// <summary>
     /// Which of these nodes the context reads. The requests that name nodes by id read them by id, and a read by id
-    /// skips read access, so they ask a query first.
+    /// still reads binned nodes and hidden types, so they ask a query first.
     /// </summary>
     static HashSet<int> readable(NodeStore s, IEnumerable<int> ids, QueryContext? ctx) {
         var asked = ids.Distinct().ToArray();

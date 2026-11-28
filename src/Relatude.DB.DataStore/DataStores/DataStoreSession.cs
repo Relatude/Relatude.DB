@@ -148,8 +148,8 @@ public class DataStoreSession : IDataStore {
     public Dictionary<NodeKey, Guid> GetNodeType(IEnumerable<NodeKey> ids) => _datastore.GetNodeType(ids);
 
     public bool Exists(int id, QueryContext? ctx = null) => _datastore.Exists(id, ctx ?? QueryContext);
-    public bool Exists(Guid id, QueryContext? ctx = null) => _datastore.Exists(id);
-    public bool ExistsAndIsType(Guid id, Guid nodeTypeId, QueryContext? ctx = null) => _datastore.ExistsAndIsType(id, nodeTypeId);
+    public bool Exists(Guid id, QueryContext? ctx = null) => _datastore.Exists(id, ctx ?? QueryContext);
+    public bool ExistsAndIsType(Guid id, Guid nodeTypeId, QueryContext? ctx = null) => _datastore.ExistsAndIsType(id, nodeTypeId, ctx ?? QueryContext);
     public bool ContainsRelation(Guid relationId, Guid from, Guid to, bool fromTargetToSource, QueryContext? ctx = null) {
         return _datastore.ContainsRelation(relationId, from, to, fromTargetToSource, ctx ?? QueryContext);
     }
