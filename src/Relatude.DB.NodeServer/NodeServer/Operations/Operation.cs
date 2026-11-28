@@ -61,6 +61,11 @@ public sealed class Operation {
     /// <summary>Listed to agents as a tool of its own; the others they find and call through generic tools.</summary>
     public bool Core { get; init; }
     /// <summary>
+    /// What an agent is given of its answer, where the whole would be too much for a model to read (a transcript's
+    /// text): the answer in, its agent's view out. Null gives agents the answer as it is.
+    /// </summary>
+    public Func<System.Text.Json.JsonElement, object?>? AgentView { get; init; }
+    /// <summary>
     /// What a call with this input would do, worked out without doing any of it, as one operation can write a draft with
     /// some input and publish with others. Left out, one that is <see cref="ReadOnly"/> reads, and any other is taken to
     /// be <see cref="OperationEffect.Live"/>.
