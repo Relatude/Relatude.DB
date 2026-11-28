@@ -1223,10 +1223,10 @@ public interface IVenue {
 var oslo   = new GeoCoordinate(59.9139, 10.7522);
 var bergen = new GeoCoordinate(60.3913, 5.3221);
 
-double lat = oslo.Latitude;      // 59.9139…  (NaN when empty)
-double lon = oslo.Longitude;     // 10.7522…  (NaN when empty)
+double lat = oslo.Latitude;      // 59.913899987…: snapped to the grid (NaN when empty)
+double lon = oslo.Longitude;     // 10.752200028…  (NaN when empty)
 
-Console.WriteLine(oslo);         // "59.9139, 10.7522"
+Console.WriteLine(oslo);         // "59.913899987, 10.752200028": nine decimals, of the snapped value
 GeoCoordinate.TryParse("59.9139, 10.7522", out var parsed);
 ```
 
@@ -3358,14 +3358,16 @@ builder.AddRelatudeDB(options => {
 | `CustomSettings`, `AddCustomSettings(…)` | The sets of custom settings ([above](#settings-of-your-own-custom-settings)). |
 | `CreateUrlManager` | Makes each database's URL manager ([§18](#18-urls-and-the-url-manager)). |
 
-The callbacks run in this order. All but the first run once for each database, and again every time
-that database opens: at a soft restart, and after a model change is activated in the admin UI.
+The callbacks run in this order. The two settings callbacks of a database run when the settings are
+loaded: at start, at a soft restart, and for a database added in the admin UI. The ones after them run
+once for each database, and again every time that database opens: at a soft restart, and after a model
+change is activated in the admin UI.
 
 | Callback | When | Use it for |
 |---|---|---|
 | `OnServerSettingsInit(settings)` | after the settings files and configuration are merged, before any database opens | server settings set by code, the database list |
-| `OnContainerSettingsInit(database)` | per database, before it opens | storage providers, file stores, model sources |
-| `OnStoreSettingsInit(localSettings, database)` | per database, before it opens | the engine settings (`LocalSettings`) |
+| `OnContainerSettingsInit(database)` | per database, when the settings are loaded | storage providers, file stores, model sources |
+| `OnStoreSettingsInit(localSettings, database)` | per database, when the settings are loaded | the engine settings (`LocalSettings`) |
 | `OnDatamodelInit(datamodel, database)` | after the model sources have loaded, before the store is made | adding types from code |
 | `OnStoreInit(store)` | the store is made but not open | transaction plugins, task runners |
 | `OnStoreOpen(store)` | the store is open; requests wait for it | light work only |
@@ -3402,7 +3404,7 @@ builder.AddRelatudeDB(o => {
 builder.AddRelatudeDB(o => o.OnStoreInit = db => db.RegisterTransactionPlugin(new OrderPlugin()));
 ```
 
-So a library registers services instead (namespace `Relatude.DB.NodeServer`). The server reads them
+So a library registers services instead (namespace `Relatude.DB.NodeServer`; `ICustomSettingsDefinition` is in `Relatude.DB.NodeServer.Settings`). The server reads them
 from the application's services when it starts, and calls each one after the host's callback of the
 same kind:
 
@@ -3719,7 +3721,7 @@ and the editor asks you to accept them:
 | `property-type-changed` | Values are converted where possible and dropped otherwise. |
 | `relation-removed`, `relation-kind-changed` | Links are dropped: all of them, or those the new cardinality does not allow. |
 | `over-max-instances` | The nodes stay, but no node of the type can be added until there are fewer. |
-| `default-not-legal`, `own-name`, `password-plain-text` | Nothing yet: a default outside `LegalValues`, a type with a `Name` of its own beside `IName.Name`, a password kept in plain text. |
+| `default-not-legal`, `own-name`, `password-plain-text` | Nothing yet: a default the property's own rules refuse (`LegalValues`, `LegalCharacters`, length, pattern), a type with a `Name` of its own beside `IName.Name`, a password kept in plain text. |
 
 A renamed type or property keeps its id, so its nodes and values follow. New validation rules and
 transforms apply to values written from then on; values already stored are not checked again.
@@ -3861,8 +3863,8 @@ Which to use:
 | one value to change without reading the node | `UpdateProperty`, or `AddToProperty` for a counter |
 
 Each call is a transaction of its own ([chapter 15](#15-transactions)). By default it returns once the
-change is in the log buffer. Pass `flushToDisk: true` to wait until it is on disk. Every write method
-has an `…Async` form (`InsertAsync`, `UpdateAsync`, `DeleteAsync` …); these skip
+change is in the log buffer. Pass `flushToDisk: true` to wait until it is on disk. Insert, update and delete
+have an `…Async` form (`InsertAsync`, `UpdateAsync`, `DeleteAsync` …), and any transaction runs with `ExecuteAsync`; these skip
 [transaction plugins](#transaction-plugins).
 
 A write is checked against the user of the store it is made through: a store from
@@ -3890,8 +3892,9 @@ It does not matter which end you name: `db.AddRelation<IEvent>(ev, e => e.Venue,
 same as the first line. A symmetric relation is stated once: after
 `db.AddRelation<IAttendee>(alice, a => a.Friends, bob)`, each is in the other's `Friends`.
 
-Every relation method exists on `NodeStore`, where it commits at once, and on `Transaction`, where it
-returns the transaction so calls chain.
+The relation methods exist on `NodeStore`, where they commit at once, and on `Transaction`, where they
+return the transaction so calls chain. `ClearAndSetRelation` and `RelationExists` are on `NodeStore` only;
+in a transaction, chain `ClearRelations(...).SetRelation(...)`.
 
 ### Which verb
 
@@ -4329,7 +4332,7 @@ bool ready = db.IsFileReady(path, adjustment, requestIfNot: true);   // queues i
 if (db.TryGetConversionInfo(path, adjustment, true, out var progress)) { … }
 ```
 
-Every option of `FileAdjustmentImage` is nullable. Set only what you need. Values out of range are
+Every option of `FileAdjustmentImage` but `RequestedFormat` (adaptive unless set) is nullable. Set only what you need. Values out of range are
 clamped, and two requests that ask for the same thing, however written, share one conversion.
 
 | Group | Options |
@@ -4461,8 +4464,8 @@ result is kept, so every later request gets it at once.
   the result, so it goes ahead of the conversions already queued. Leave it off for background work,
   or page views wait behind your batch jobs.
 - **How long a request waits.** A picture made from a picture is waited for up to 10 seconds;
-  anything made from a video, not at all. The `maxWaitMs` of `TryParseUrlForContent`,
-  `GetUrlContentAsync` and `Datastore.GetFileStream` overrides it (two minutes at most).
+  anything made from a video, not at all. The `maxWaitMs` of `TryParseUrlForContent` and
+  `GetUrlContentAsync`, and the `maxWait` of `Datastore.GetFileStream`, override it (two minutes at most).
 - **A variant that is not ready does not fail.** The request gets a status picture instead: a clock
   while it is being made, a red picture saying why when it failed. It is marked as not cacheable.
   Never cache such a response.
@@ -4800,16 +4803,16 @@ written as query parameters, since the path is the page's:
 ```text
 Encrypted            /assets/aEQL7Rt7YbRadQ4Qhkmg…/sentrum.webp
 AssetUrlFormat = QueryParameters
-                     /assets/pXy9…/sentrum.webp?w=1200&h=630&f=webp&q=80
+                     /assets/pXy9…/sentrum.webp?f=webp&w=1200&h=630&q=80
 AssetUrlFormat = FriendlyShortString
-                     /assets/pXy9…/w1200h630fwebpq80/sentrum.webp
+                     /assets/pXy9…/fwebpw1200h630q80/sentrum.webp
 PropertyPathFormat = QueryParameters
                      /assets/sentrum.webp?pn=Photo&pid=1042&w=1200&h=630
 PropertyPathFormat = FriendlyShortString
                      /assets/Photo-1042/w1200h630/sentrum.webp
 ```
 
-`pn` is the property's CodeName and `pid` the node's internal id. A readable target works only for
+`pn` is the property's CodeName and `pid` the node's id (the internal one when the path has it, else its Guid; the `Photo-1042` form always has the internal one). A readable target works only for
 plain node properties, not deeplinks into embedded content, and needs a readable adjustment too.
 
 Readable URLs can be edited by hand, so anyone who sees one file can ask for other variants of it, or
@@ -5451,7 +5454,7 @@ What an end holds when it was not loaded:
 |---|---|
 | A many end | `foreach` loads the nodes when it starts; `Count()` and `Contains` read the relation index |
 | A one end | `foreach` yields nothing; `Get()` and `TryGet` load the node |
-| `Reference<T>`, `References<T>` | `foreach` yields nothing; `Get()` and `TryGet` load the nodes |
+| `Reference<T>`, `References<T>` | `foreach` yields nothing; `Get()` loads the nodes (a `Reference<T>` also has `TryGet`) |
 
 ```csharp
 var events = db.Query<IEvent>()
@@ -5660,7 +5663,7 @@ pages with its own `Page` or `Top` ([§21](#search--search-as-ranking)), as it t
 | `IsAll` | True when the result holds every match, not a page of them |
 | `IsLastPage` | True when no page comes after this one |
 | `Capped` | True when the engine stopped short of counting everything |
-| `DurationMs`, `InnerDurationMs` | Time in the store, and the index part of it |
+| `DurationMs`, `InnerDurationMs` | Time in the store. `InnerDurationMs` is the search part of it for a ranked search, and the same as `DurationMs` otherwise |
 | `Values`, `ToArray()`, `ToList()` | The rows |
 
 ---
@@ -6056,7 +6059,7 @@ visitor.Update(ev);                  // checked against this user's groups
 | `AllContent()` | Everything stored: `Admin()`, `Unpublished()`, `CultureFallbacks()` and `Hidden()`. Nodes marked deleted stay out |
 | `With(queryContext)` | Use a `QueryContext` built elsewhere, replacing every setting before it |
 
-`QueryContext` itself has the same methods (`EditViewMode` for `EditView`), plus a few the builder
+`QueryContext` itself has the same methods (`EditViewMode` for `EditView`; no `With`, and `AllContent` is the static `QueryContext.AllContent`), plus a few the builder
 lacks: `Deleted()`, `Collections(ids)`, `RequireCulture()` and the `SelectedRevisions` property. Each
 method returns a new context; start from `db.QueryContext`, `QueryContext.Anonymous`,
 `QueryContext.MasterAdmin` or `QueryContext.AllContent`, and hand the result to `With`:
@@ -6367,7 +6370,7 @@ var site = db.Context.With(db.QueryContext.Collections([siteId])).Create();
 **Modelling**
 
 1. **`Reference`/`References` yield nothing from `foreach` unless preloaded.** Use `.Get()`,
-   `.TryGet(out …)` or `.Preload(...)`. This makes accidental N+1 loads impossible.
+   `.TryGet(out …)` (on a `Reference<T>`) or `.Preload(...)`. This makes accidental N+1 loads impossible.
 2. **Never construct or assign a `NodeMeta`.** Default it to `NodeMeta.Empty` and write meta with
    `db.UpdateMeta` ([§4](#writing-meta-updatemeta)).
 3. **Prefer interfaces.** No boilerplate, nothing to initialise, and multiple inheritance.
@@ -6660,8 +6663,8 @@ in the file store.
 
 `query` takes the text form of the query API, which is also what the HTTP API and the admin UI send.
 It reads like the typed API of [Part III](#part-iii--querying): a node type followed by method calls.
-Pass values with `--param name=value` and use them by name in the query. Numbers, `true`/`false`
-and guids keep their type; anything else is a string. `--file` reads the query from a file.
+Pass values with `--param name=value` and use them by name in the query. Numbers, `true`/`false`,
+guids and dates keep their type; anything else is a string, and so is a value in double quotes. `--file` reads the query from a file.
 
 The result is printed as JSON in the shape a client receives. A projection such as
 `Select(a => new { a.Name, a.Price })` gives one JSON object per row, keyed by the member names as
@@ -6874,8 +6877,8 @@ db.CustomLogs.Record("requests", new LogEntry { Timestamp = startedUtc, Values =
 ```
 
 Recording is cheap. A log that does not exist or is switched off costs a dictionary lookup, and
-`Record` returns `false` when no log has the key. Entries are buffered and written to disk every 30
-seconds, or sooner when a megabyte is waiting. `Record(key, entry, flushToDisk: true)` writes one
+`Record` returns `false` when no log has the key. Entries are buffered and written to disk about once
+a minute, or sooner when a megabyte is waiting. `Record(key, entry, flushToDisk: true)` writes one
 entry at once, and `db.CustomLogs.FlushToDiskNow()` writes everything waiting.
 
 **Values are converted to their column's type** when you record them:
@@ -8304,7 +8307,7 @@ string track = db.GetUrl(talk.Recording, new FileAdjustmentTranscript { Requeste
 
 | `RequestedFormat` | What you get |
 |---|---|
-| `Json` (the default) | The transcript and what was learnt of it: `text`, `timed`, `language`, `duration`, `characters`, `truncated`, `provider`, `credits` (`TranscriptData`) |
+| `Json` (the default) | The transcript and what was learnt of it: `text`, `timed`, `language`, `duration`, `characters`, `truncated`, `format`, `provider`, `credits`, `madeUtc` (`TranscriptData`) |
 | `Txt` | The timed lines, as `TextExtract` keeps them; `Timestamps = false` leaves the times out |
 | `Vtt` | WebVTT subtitles, for a `<track>` |
 | `Srt` | SubRip subtitles |
@@ -8606,8 +8609,8 @@ The same rules apply to every service:
 - **Answers are cached** for your own imaging, file-to-text and translation providers too
   ([§34.5](#345-prices-answers-kept-and-errors)).
 - **A store built from code** gets the provider in the `NodeStore` constructor:
-  `new NodeStore(datastore, sms: new MyGatewaySmsProvider(settings))`. The other parameters are
-  `imaging`, `fileToText`, `translation`, `ipLookup` and `email`.
+  `new NodeStore(datastore, sms: new MyGatewaySmsProvider(settings))`. The other provider parameters are
+  `imaging`, `fileToText`, `translation`, `ipLookup` and `email`; `aiAnswers` takes the answer cache.
 
 ### 35.3 The account at services.relatude.com
 

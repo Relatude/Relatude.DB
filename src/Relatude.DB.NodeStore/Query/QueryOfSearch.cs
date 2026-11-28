@@ -31,9 +31,10 @@ public sealed class QueryOfSearch<T, TInclude> : IQueryExecutable<ResultSetSearc
         }
         int count = s.Hits.Count;
         int totalCount = s.TotalCount;
-        int pageIndex = 0;
-        int pageSize = s.Hits.Count;
-        return new ResultSetSearch<T>(values, count, totalCount, pageIndex, pageSize, s.DurationMs, s.InnerSearchTimeMs);
+        // the page the engine cut the ranking at, so PageIndex, PageCount and IsLastPage are those of the page asked for
+        int pageIndex = s.PageIndexUsed;
+        int pageSize = s.PageSizeUsed ?? s.Hits.Count;
+        return new ResultSetSearch<T>(values, count, totalCount, pageIndex, pageSize, s.DurationMs, s.InnerSearchTimeMs, s.Capped);
     }
     public async Task<ResultSetSearch<T>> ExecuteAsync() {
         var data = await _query.Store.Datastore.QueryAsync(ToString(), _query._q._parameters.ToArray(), _query._q._ctx);
