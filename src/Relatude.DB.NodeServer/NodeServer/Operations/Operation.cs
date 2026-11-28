@@ -18,6 +18,10 @@ public static class OperationCallers {
     public const string CmsInterface = "cms-interface";
     /// <summary>AI agents: the CMS's own agent and those over MCP.</summary>
     public const string Agent = "agent";
+    /// <summary>The CMS's own agent in a conversation with a person, where files are kept and read between calls.</summary>
+    public const string Conversation = "conversation";
+    /// <summary>Server-side scripts, which call operations many times in one run.</summary>
+    public const string Script = "script";
 }
 
 /// <summary>
@@ -35,8 +39,15 @@ public sealed class Operation {
     public bool IsDescribed => Description != null;
     /// <summary>The JSON Schema of its input, an object schema; null where its callers need none.</summary>
     public JsonElement? InputSchema { get; init; }
+    /// <summary>The type of what it answers, as TypeScript, for typed callers such as scripts; null for any.</summary>
+    public string? OutputType { get; init; }
     /// <summary>What it belongs to, and so what a caller may be limited to, as an agent's key is.</summary>
     public string? Area { get; init; }
+    /// <summary>
+    /// The service it uses, which costs credits or sends messages, or reaches outside the site: ai, translation, sms, email,
+    /// ipLookup, imaging, fileToText, web or logs; null for none. What a script names in its uses, and what settings turn off.
+    /// </summary>
+    public string? Capability { get; init; }
     /// <summary>The module that brought it, which its domain may leave it out for while the module is not active.</summary>
     public string? Module { get; init; }
     /// <summary>It changes nothing: the CMS API serves only these to an anonymous caller.</summary>
@@ -57,4 +68,5 @@ public sealed class Operation {
     /// </summary>
     public bool Compress { get; init; }
     public bool Allows(string caller) => Callers.Contains(caller);
+    public bool AllowsAny(IEnumerable<string> callers) => callers.Any(Callers.Contains);
 }
